@@ -15,6 +15,13 @@ store the comparison rom at `./bin/Earthbound (U) [!].smc`
 - `nim r src/decompbound.nim` simply generates a decomp rom.
 
 
+## Tools
+
+- we'll want things like:
+  - a code to snes asm compiler
+  - an assembler (snes asm to byte code)
+  - a disassembler (byte code to snes asm) so we can reverse engineer the gold master rom.
+
 ## bug fixes
 
 - we can control compilation with compile time `consts` and flags.
