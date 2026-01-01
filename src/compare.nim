@@ -59,6 +59,44 @@ proc readRomHeader(romPath: string): RomHeaderData =
   result.isHeadered = isHeadered
   result.fileOffset = headerOffset
 
+proc compareFullRom() =
+  ## Compare the entire ROM files byte-by-byte and show overall statistics.
+  if not fileExists(GoldMasterRom):
+    stderr.writeLine &"Gold master ROM not found: {GoldMasterRom}"
+    quit(1)
+  
+  let goldRomData = readFile(GoldMasterRom)
+  let goldRomSize = goldRomData.len
+  
+  if not fileExists(DecompRom):
+    echo &"ROM comparison: {goldRomSize} bytes total, 0 match, {goldRomSize} differ (0.0% complete)"
+    echo "Decomp ROM not found."
+    return
+  
+  let decompRomData = readFile(DecompRom)
+  let decompRomSize = decompRomData.len
+  
+  if goldRomSize != decompRomSize:
+    let sizeDiff = goldRomSize - decompRomSize
+    echo &"ROM size mismatch: gold={goldRomSize} bytes, decomp={decompRomSize} bytes (difference: {sizeDiff} bytes)"
+  
+  let compareSize = min(goldRomSize, decompRomSize)
+  var matchingBytes = 0
+  var nonMatchingBytes = 0
+  
+  for i in 0..<compareSize:
+    if goldRomData[i] == decompRomData[i]:
+      matchingBytes += 1
+    else:
+      nonMatchingBytes += 1
+  
+  let percentage = (matchingBytes.float / goldRomSize.float) * 100.0
+  echo &"ROM comparison: {goldRomSize} bytes total, {matchingBytes} match, {nonMatchingBytes} differ ({percentage:.2f}% complete)"
+  
+  if compareSize < goldRomSize:
+    let remainingBytes = goldRomSize - compareSize
+    echo &"  ({remainingBytes} bytes not yet implemented in decomp ROM)"
+
 proc compareHeaders(goldHeader: RomHeaderData, decompHeader: RomHeaderData) =
   ## Compare two ROM headers and report differences.
   if goldHeader.isHeadered:
@@ -118,7 +156,11 @@ proc compareHeaders(goldHeader: RomHeaderData, decompHeader: RomHeaderData) =
 when isMainModule:
   validateGoldMasterRom()
   
+  compareFullRom()
+  echo ""
+  
   let goldHeader = readRomHeader(GoldMasterRom)
   let decompHeader = readRomHeader(DecompRom)
   
+  echo "Header details:"
   compareHeaders(goldHeader, decompHeader) 
