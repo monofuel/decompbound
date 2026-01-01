@@ -19,11 +19,13 @@ store the comparison rom at `./bin/Earthbound (U) [!].smc`
 
 - probably use bitmaps for all the graphics?
   - try to keep as close to source material as possible. eg: the entire world is a singular bitmap.
+  - we should use pixie for graphics in Nim.
 
 - as much code as possible should be written in nim.
   - we can use practices like `shady` as a reference for converting nim code into snes asm.
   - we want to be able to write tests for the nim version of code.
 
+- we can use `shady` for custom shaders like the whacky battle backgrounds.
 
 ## Docs
 
