@@ -5,7 +5,7 @@
 # nim r src/decompbound.nim
 
 import
-  std/strformat
+  std/[strformat, parseopt, osproc]
 
 const
   outputRom = "bin/Decompbound.smc"
@@ -68,10 +68,35 @@ proc generateRom(): string =
   result = rom
 
 when isMainModule:
+  var runCompare = false
+  
+  var p = initOptParser()
+  for kind, key, val in p.getOpt():
+    case kind:
+    of cmdLongOption, cmdShortOption:
+      if key == "compare" or key == "c":
+        runCompare = true
+      else:
+        echo "Unknown option: ", key
+        quit(1)
+    of cmdArgument:
+      discard
+    of cmdEnd:
+      discard
+  
   echo "Generating decomp ROM from reverse-engineered code..."
   
   let rom = generateRom()
   writeFile(outputRom, rom)
   
   echo &"Generated ROM: {outputRom} ({rom.len} bytes)"
-  echo "Use compare.nim to validate against the gold master ROM."
+  
+  if runCompare:
+    echo ""
+    echo "Running comparison against gold master ROM..."
+    let (output, exitCode) = execCmdEx("nim r src/compare.nim")
+    echo output
+    if exitCode != 0:
+      quit(exitCode)
+  else:
+    echo "Use --compare or -c to validate against the gold master ROM."

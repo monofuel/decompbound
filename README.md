@@ -8,6 +8,12 @@ This will be a very long and complex project. we just need to push the needle fo
 store the comparison rom at `./bin/Earthbound (U) [!].smc`
 - sha256sum: `a8fe2226728002786d68c27ddddf0b90a894db52e4dfe268fdf72a68cae5f02e  bin/Earthbound (U) [!].smc`
 
+## testing
+
+- `nim r src/decompbound.nim --compare`
+  - this will generate a decomp rom at `./bin/Decompbound.smc` and compare it to the gold master rom.
+- `nim r src/decompbound.nim` simply generates a decomp rom.
+
 
 ## bug fixes
 
@@ -26,6 +32,10 @@ store the comparison rom at `./bin/Earthbound (U) [!].smc`
   - we want to be able to write tests for the nim version of code.
 
 - we can use `shady` for custom shaders like the whacky battle backgrounds.
+
+- we should avoid magic bytes as much as possible and instead figure out what they are representing properly.
+  - but it's ok to hard code some magic bytes to get the ball rolling.
+  - incremental process.
 
 ## Docs
 
