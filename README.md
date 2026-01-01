@@ -3,7 +3,7 @@
 Earthbound (SNES) decompilation project in Nim.
 
 The goal of this project is to build a Nim program that can eventually reproduce the Earthbound English US ROM exactly.
-
+This will be a very long and complex project. we just need to push the needle forward one byte at a time.
 
 store the comparison rom at `./bin/Earthbound (U) [!].smc`
 - sha256sum: `a8fe2226728002786d68c27ddddf0b90a894db52e4dfe268fdf72a68cae5f02e  bin/Earthbound (U) [!].smc`
@@ -33,6 +33,7 @@ store the comparison rom at `./bin/Earthbound (U) [!].smc`
 
 - extensive docs on rom format: https://en.wikibooks.org/wiki/Super_NES_Programming/SNES_memory_map
 - extensive general docs on snes stuff https://wiki.superfamicom.org/
+- https://www.sneslab.net/wiki/Official_Documentation_Quick_Links
 
 - TODO get docs and stuff
 - https://grok.com/c/e857e9c5-f9bd-413e-a6b9-7ce3a909749e?rid=8c2d60f9-672b-4b2e-993e-67433caaa066

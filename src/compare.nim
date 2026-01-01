@@ -99,6 +99,13 @@ proc compareHeaders(goldHeader: RomHeaderData, decompHeader: RomHeaderData) =
     if goldHeader.data[i] != decompHeader.data[i]:
       differences.add(i)
   
+  let totalBytes = goldHeader.data.len
+  let matchingBytes = totalBytes - differences.len
+  let nonMatchingBytes = differences.len
+  let percentage = (matchingBytes.float / totalBytes.float) * 100.0
+  
+  echo &"Header comparison: {totalBytes} bytes total, {matchingBytes} match, {nonMatchingBytes} differ ({percentage:.1f}% complete)"
+  
   if differences.len == 0:
     echo "ROM headers match."
   else:
