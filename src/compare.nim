@@ -35,8 +35,15 @@ type
     `end`: int
 
 const
+  ResetVectorOffset = 0xFFF0
+  ResetVectorSize = 16
+  InitCodeOffset = 0x010000
+  InitCodeSize = 128
+  
   ImplementedRegions = @[
-    ByteRange(start: HiRomHeaderOffset, `end`: HiRomHeaderOffset + HeaderSize - 1)
+    ByteRange(start: HiRomHeaderOffset, `end`: HiRomHeaderOffset + HeaderSize - 1),
+    ByteRange(start: ResetVectorOffset, `end`: ResetVectorOffset + ResetVectorSize - 1),
+    ByteRange(start: InitCodeOffset, `end`: InitCodeOffset + InitCodeSize - 1)
   ]
 
 proc isInImplementedRegion(offset: int): bool =

@@ -1,13 +1,19 @@
-# {PROJECT_NAME}
+# decompbound
 
-- {PROJECT_DESCRIPTION}
-- {PROJECT_FOCUS}
+- Earthbound (SNES) decompilation project in Nim.
+- This will be a complex and open ended progress, you will need to get creative and may have to make tools to help.
+
+- we should avoid magic bytes as much as possible and instead figure out what they are representing properly.
+  - but it's ok to hard code some magic bytes to get the ball rolling.
+  - incremental process.
+  - all magic bytes must be accompanied by a TODO and comments 
 
 ## Dependencies
 
 - Nim >= 2.0.0
-- {PRIMARY_DEPENDENCY_DESCRIPTION}
-- {ADDITIONAL_DEPENDENCIES}
+
+- pixie >= 5.1.0
+- shady >= 0.1.4
 
 ## Tests
 

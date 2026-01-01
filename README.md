@@ -36,6 +36,7 @@ store the comparison rom at `./bin/Earthbound (U) [!].smc`
 - we should avoid magic bytes as much as possible and instead figure out what they are representing properly.
   - but it's ok to hard code some magic bytes to get the ball rolling.
   - incremental process.
+  - all magic bytes must be accompanied by a TODO and comments 
 
 ## Docs
 
