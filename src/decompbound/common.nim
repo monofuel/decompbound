@@ -9,4 +9,6 @@ const
   ResetVectorOffset* = 0xFFF0
   ResetVectorSize* = 16
   InitCodeOffset* = 0x010000
-  InitCodeSize* = 128
+  InitCodeSize* = 256
+  ResetHandlerOffset* = 0x8141
+  ResetHandlerSize* = 128

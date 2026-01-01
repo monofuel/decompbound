@@ -1,19 +1,19 @@
 # Decompilation Progress Report
 
-Generated: 2026-01-01 17:41:45
+Generated: 2026-01-01 18:10:53
 
 ## Git Information
 
-- Commit: `90797bcc53f1e06f3afd1ae1ca03cb0ff6061514`
+- Commit: `963050fe1fd1e8df5761ef84522a69ee45f095ab`
 - Dirty: true
 
 ## ROM Comparison
 
 - Total bytes: 3,145,728
-- Matching bytes: 422,378
-- Non-matching bytes: 2,723,350
-- Implemented bytes: 208
-- Intentional matches: 208
+- Matching bytes: 422,616
+- Non-matching bytes: 2,723,112
+- Implemented bytes: 464
+- Intentional matches: 464
 - Progress (of implemented): 100.00%
 
 ## Header Comparison

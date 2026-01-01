@@ -197,4 +197,148 @@ proc generateInitCode*(): seq[uint8] =
   result[0x7E] = 0xC2  # REP #$31 (Reset Processor status bits)
   result[0x7F] = 0x31  # Immediate value: clear C, Z, N flags
   # TODO: This appears to be the start of another function - determine its purpose
+  
+  # 0x010080-0x0100FF: Continuation of initialization code
+  result[0x80] = 0x8D  # STA $8958 (Store Accumulator, absolute addressing)
+  result[0x81] = 0x58  # Low byte of address
+  result[0x82] = 0x89  # High byte of address (full address: $8958)
+  # TODO: Determine what memory location $8958 represents
+  result[0x83] = 0x60  # RTS (Return from Subroutine)
+  result[0x84] = 0xC2  # REP #$31 (Reset Processor status bits)
+  result[0x85] = 0x31  # Immediate value: clear C, Z, N flags
+  result[0x86] = 0xAD  # LDA $8958 (Load Accumulator, absolute addressing)
+  result[0x87] = 0x58  # Low byte of address
+  result[0x88] = 0x89  # High byte of address (full address: $8958)
+  result[0x89] = 0x22  # JSL $C3E521 (Jump to Subroutine Long)
+  result[0x8A] = 0x21  # Low byte
+  result[0x8B] = 0xE5  # Mid byte
+  result[0x8C] = 0xC3  # High byte (full address: $C3E521)
+  # TODO: Reverse engineer what the subroutine at $C3E521 does
+  result[0x8D] = 0x60  # RTS (Return from Subroutine)
+  result[0x8E] = 0xC2  # REP #$31 (Reset Processor status bits)
+  result[0x8F] = 0x31  # Immediate value: clear C, Z, N flags
+  result[0x90] = 0xE2  # SEP #$20 (Set Processor status bits - set accumulator to 8-bit)
+  result[0x91] = 0x20  # Immediate value: set M flag (8-bit accumulator)
+  result[0x92] = 0xA9  # LDA #$01 (Load Accumulator, immediate mode)
+  result[0x93] = 0x01  # Immediate value: 0x01
+  result[0x94] = 0x8D  # STA $5E70 (Store Accumulator, absolute addressing)
+  result[0x95] = 0x70  # Low byte of address
+  result[0x96] = 0x5E  # High byte of address (full address: $5E70)
+  # TODO: Determine what memory location $5E70 represents
+  result[0x97] = 0x80  # BRA $0100AB (Branch Always, relative addressing)
+  result[0x98] = 0x12  # Relative offset: +18 bytes (jumps to $0100AB)
+  result[0x99] = 0xAD  # LDA $88E2 (Load Accumulator, absolute addressing)
+  result[0x9A] = 0xE2  # Low byte of address
+  result[0x9B] = 0x88  # High byte of address (full address: $88E2)
+  # TODO: Determine what memory location $88E2 represents
+  result[0x9C] = 0xA0  # LDY #$0052 (Load Y register, immediate mode)
+  result[0x9D] = 0x52  # Low byte: 0x52
+  result[0x9E] = 0x00  # High byte: 0x00 (value is 0x0052)
+  result[0x9F] = 0x22  # JSL $C08FF7 (Jump to Subroutine Long)
+  result[0xA0] = 0xF7  # Low byte
+  result[0xA1] = 0x8F  # Mid byte
+  result[0xA2] = 0xC0  # High byte (full address: $C08FF7)
+  # TODO: Reverse engineer what the subroutine at $C08FF7 does
+  result[0xA3] = 0xAA  # TAX (Transfer Accumulator to X register)
+  result[0xA4] = 0xBD  # LDA $8654,X (Load Accumulator, absolute indexed X)
+  result[0xA5] = 0x54  # Low byte of address
+  result[0xA6] = 0x86  # High byte of address (full address: $8654)
+  # TODO: Determine what memory location $8654 represents and the purpose of indexing
+  result[0xA7] = 0x22  # JSL $C3E521 (Jump to Subroutine Long)
+  result[0xA8] = 0x21  # Low byte
+  result[0xA9] = 0xE5  # Mid byte
+  result[0xAA] = 0xC3  # High byte (full address: $C3E521)
+  result[0xAB] = 0xC2  # REP #$20 (Reset Processor status bits - set accumulator to 16-bit)
+  result[0xAC] = 0x20  # Immediate value: clear M flag (16-bit accumulator)
+  result[0xAD] = 0xAD  # LDA $88E2 (Load Accumulator, absolute addressing)
+  result[0xAE] = 0xE2  # Low byte of address
+  result[0xAF] = 0x88  # High byte of address (full address: $88E2)
+  result[0xB0] = 0xC9  # CMP #$FFFF (Compare Accumulator, immediate mode)
+  result[0xB1] = 0xFF  # Low byte: 0xFF
+  result[0xB2] = 0xFF  # High byte: 0xFF (value is 0xFFFF)
+  result[0xB3] = 0xD0  # BNE $010099 (Branch if Not Equal, relative addressing)
+  result[0xB4] = 0xE4  # Relative offset: -28 bytes (branches back to $010099)
+  # TODO: Reverse engineer the purpose of this polling loop
+  result[0xB5] = 0x22  # JSL $C3E4CA (Jump to Subroutine Long)
+  result[0xB6] = 0xCA  # Low byte
+  result[0xB7] = 0xE4  # Mid byte
+  result[0xB8] = 0xC3  # High byte (full address: $C3E4CA)
+  # TODO: Reverse engineer what the subroutine at $C3E4CA does
+  result[0xB9] = 0x22  # JSL $C12DD5 (Jump to Subroutine Long)
+  result[0xBA] = 0xD5  # Low byte
+  result[0xBB] = 0x2D  # Mid byte
+  result[0xBC] = 0xC1  # High byte (full address: $C12DD5)
+  result[0xBD] = 0xE2  # SEP #$20 (Set Processor status bits - set accumulator to 8-bit)
+  result[0xBE] = 0x20  # Immediate value: set M flag (8-bit accumulator)
+  result[0xBF] = 0x9C  # STZ $5E70 (Store Zero, absolute addressing - clears memory)
+  result[0xC0] = 0x70  # Low byte of address
+  result[0xC1] = 0x5E  # High byte of address (full address: $5E70)
+  result[0xC2] = 0x22  # JSL $C43F53 (Jump to Subroutine Long)
+  result[0xC3] = 0x53  # Low byte
+  result[0xC4] = 0x3F  # Mid byte
+  result[0xC5] = 0xC4  # High byte (full address: $C43F53)
+  # TODO: Reverse engineer what the subroutine at $C43F53 does
+  result[0xC6] = 0x60  # RTS (Return from Subroutine)
+  result[0xC7] = 0xC2  # REP #$31 (Reset Processor status bits)
+  result[0xC8] = 0x31  # Immediate value: clear C, Z, N flags
+  result[0xC9] = 0xA9  # LDA #$0001 (Load Accumulator, immediate mode)
+  result[0xCA] = 0x01  # Low byte: 0x01
+  result[0xCB] = 0x00  # High byte: 0x00 (value is 0x0001)
+  result[0xCC] = 0x8D  # STA $9645 (Store Accumulator, absolute addressing)
+  result[0xCD] = 0x45  # Low byte of address
+  result[0xCE] = 0x96  # High byte of address (full address: $9645)
+  # TODO: Determine what memory location $9645 represents
+  result[0xCF] = 0x60  # RTS (Return from Subroutine)
+  result[0xD0] = 0xC2  # REP #$31 (Reset Processor status bits)
+  result[0xD1] = 0x31  # Immediate value: clear C, Z, N flags
+  result[0xD2] = 0x9C  # STZ $9645 (Store Zero, absolute addressing - clears memory)
+  result[0xD3] = 0x45  # Low byte of address
+  result[0xD4] = 0x96  # High byte of address (full address: $9645)
+  result[0xD5] = 0x60  # RTS (Return from Subroutine)
+  result[0xD6] = 0xC2  # REP #$31 (Reset Processor status bits)
+  result[0xD7] = 0x31  # Immediate value: clear C, Z, N flags
+  result[0xD8] = 0x0B  # PHD (Push Direct Page register to stack)
+  result[0xD9] = 0x48  # PHA (Push Accumulator to stack)
+  result[0xDA] = 0x7B  # TDC (Transfer Direct Page register to Accumulator)
+  result[0xDB] = 0x69  # ADC #$FFF0 (Add with Carry, immediate mode)
+  result[0xDC] = 0xF0  # Low byte: 0xF0
+  result[0xDD] = 0xFF  # High byte: 0xFF (value is 0xFFF0)
+  # TODO: Reverse engineer why 0xFFF0 is added to direct page register
+  result[0xDE] = 0x5B  # TCD (Transfer Accumulator to Direct Page register)
+  result[0xDF] = 0x68  # PLA (Pull Accumulator from stack)
+  result[0xE0] = 0xAA  # TAX (Transfer Accumulator to X register)
+  result[0xE1] = 0x86  # STX $0E (Store X register, direct page addressing)
+  result[0xE2] = 0x0E  # Direct page address $0E
+  result[0xE3] = 0x22  # JSL $C3E4CA (Jump to Subroutine Long)
+  result[0xE4] = 0xCA  # Low byte
+  result[0xE5] = 0xE4  # Mid byte
+  result[0xE6] = 0xC3  # High byte (full address: $C3E4CA)
+  result[0xE7] = 0x22  # JSL $C12DD5 (Jump to Subroutine Long)
+  result[0xE8] = 0xD5  # Low byte
+  result[0xE9] = 0x2D  # Mid byte
+  result[0xEA] = 0xC1  # High byte (full address: $C12DD5)
+  result[0xEB] = 0x80  # BRA $0100F1 (Branch Always, relative addressing)
+  result[0xEC] = 0x04  # Relative offset: +4 bytes (jumps to $0100F1)
+  result[0xED] = 0x22  # JSL $C12E42 (Jump to Subroutine Long)
+  result[0xEE] = 0x42  # Low byte
+  result[0xEF] = 0x2E  # Mid byte
+  result[0xF0] = 0xC1  # High byte (full address: $C12E42)
+  # TODO: Reverse engineer what the subroutine at $C12E42 does
+  result[0xF1] = 0xA6  # LDX $0E (Load X register, direct page addressing)
+  result[0xF2] = 0x0E  # Direct page address $0E
+  result[0xF3] = 0x8A  # TXA (Transfer X register to Accumulator)
+  result[0xF4] = 0xCA  # DEX (Decrement X register)
+  result[0xF5] = 0x86  # STX $0E (Store X register, direct page addressing)
+  result[0xF6] = 0x0E  # Direct page address $0E
+  result[0xF7] = 0xC9  # CMP #$0000 (Compare Accumulator, immediate mode)
+  result[0xF8] = 0x00  # Low byte: 0x00
+  result[0xF9] = 0x00  # High byte: 0x00 (value is 0x0000)
+  result[0xFA] = 0xD0  # BNE $0100E3 (Branch if Not Equal, relative addressing)
+  result[0xFB] = 0xF1  # Relative offset: -15 bytes (branches back to $0100E3)
+  # TODO: Reverse engineer the purpose of this loop
+  result[0xFC] = 0x2B  # PLD (Pull Direct Page register from stack)
+  result[0xFD] = 0x60  # RTS (Return from Subroutine)
+  result[0xFE] = 0xC2  # REP #$31 (Reset Processor status bits)
+  result[0xFF] = 0x31  # Immediate value: clear C, Z, N flags
+  # TODO: This appears to be the start of another function - determine its purpose
 

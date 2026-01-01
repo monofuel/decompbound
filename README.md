@@ -34,6 +34,9 @@ store the comparison rom at `./bin/Earthbound (U) [!].smc`
   - try to keep as close to source material as possible. eg: the entire world is a singular bitmap.
   - we should use pixie for graphics in Nim.
 
+- all fixed assets should live in `src/assets`
+  - eg: music, sounds, sprites, graphics
+
 - as much code as possible should be written in nim.
   - we can use practices like `shady` as a reference for converting nim code into snes asm.
   - we want to be able to write tests for the nim version of code.
