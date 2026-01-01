@@ -14,3 +14,25 @@ store the comparison rom at `./bin/Earthbound (U) [!].smc`
 - we can control compilation with compile time `consts` and flags.
 - the default decompbound.nim should eventually get to reproducing the rom exactly.
 - however we can add compiler flags for fixing bugs.
+
+## Best Practices
+
+- probably use bitmaps for all the graphics?
+  - try to keep as close to source material as possible. eg: the entire world is a singular bitmap.
+
+- as much code as possible should be written in nim.
+  - we can use practices like `shady` as a reference for converting nim code into snes asm.
+  - we want to be able to write tests for the nim version of code.
+
+
+## Docs
+
+- decompbound/docs/snes-asm.md
+- decompbound/docs/graphics.md
+- decompbound/docs/snes-asm.md
+
+- extensive docs on rom format: https://en.wikibooks.org/wiki/Super_NES_Programming/SNES_memory_map
+- extensive general docs on snes stuff https://wiki.superfamicom.org/
+
+- TODO get docs and stuff
+- https://grok.com/c/e857e9c5-f9bd-413e-a6b9-7ce3a909749e?rid=8c2d60f9-672b-4b2e-993e-67433caaa066
