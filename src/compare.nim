@@ -1,7 +1,8 @@
 # nim r src/compare.nim
 
 import
-  std/[os, osproc, strutils, strformat, times]
+  std/[os, osproc, strutils, strformat, times],
+  decompbound/common
 
 const
   GoldMasterRom = "bin/Earthbound (U) [!].smc"
@@ -35,20 +36,12 @@ type
     `end`: int
 
 const
-  ResetVectorOffset = 0xFFF0
-  ResetVectorSize = 16
-  InitCodeOffset = 0x010000
-  InitCodeSize = 256
-  ResetHandlerOffset = 0x8141
-  ResetHandlerSize = 256
-  EarlySubroutineOffset = 0x0A1D
-  EarlySubroutineSize = 128
-  
   ImplementedRegions = @[
     ByteRange(start: HiRomHeaderOffset, `end`: HiRomHeaderOffset + HeaderSize - 1),
     ByteRange(start: ResetVectorOffset, `end`: ResetVectorOffset + ResetVectorSize - 1),
     ByteRange(start: InitCodeOffset, `end`: InitCodeOffset + InitCodeSize - 1),
     ByteRange(start: ResetHandlerOffset, `end`: ResetHandlerOffset + ResetHandlerSize - 1),
+    ByteRange(start: BrkHandlerOffset, `end`: BrkHandlerOffset + BrkHandlerSize - 1),
     ByteRange(start: EarlySubroutineOffset, `end`: EarlySubroutineOffset + EarlySubroutineSize - 1)
   ]
 
