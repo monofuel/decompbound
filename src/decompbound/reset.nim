@@ -664,5 +664,252 @@ proc generateResetHandler*(): seq[uint8] =
   result[0x1FD] = 0x8E  # STX $212C (Store X register, absolute addressing - set main screen designation)
   result[0x1FE] = 0x2C  # Low byte of address
   result[0x1FF] = 0x21  # High byte of address (full address: $212C - TM register)
-  # TODO: Understand main screen designation configuration
+  
+  # 0x8341-0x8350: PPU register configuration and subroutine call
+  result[0x200] = 0xA6  # LDX $1B (Load X register, direct page addressing)
+  result[0x201] = 0x1B  # Direct page address $1B
+  # TODO: Determine what memory location $1B represents
+  result[0x202] = 0x8E  # STX $212D (Store X register, absolute addressing - set sub screen designation)
+  result[0x203] = 0x2D  # Low byte of address
+  result[0x204] = 0x21  # High byte of address (full address: $212D - TS register)
+  # TODO: Understand sub screen designation configuration
+  result[0x205] = 0xA6  # LDX $1F (Load X register, direct page addressing)
+  result[0x206] = 0x1F  # Direct page address $1F
+  # TODO: Determine what memory location $1F represents
+  result[0x207] = 0x8E  # STX $420C (Store X register, absolute addressing - set HDMA enable)
+  result[0x208] = 0x0C  # Low byte of address
+  result[0x209] = 0x42  # High byte of address (full address: $420C - HDMAEN register)
+  # TODO: Understand HDMA enable configuration
+  result[0x20A] = 0x20  # JSR $8501 (Jump to Subroutine, absolute)
+  result[0x20B] = 0x01  # Low byte of address
+  result[0x20C] = 0x85  # High byte of address (full address: $8501)
+  # TODO: Reverse engineer what the subroutine at $8501 does
+  result[0x20D] = 0xC2  # REP #$30 (Reset Processor status bits - set accumulator to 16-bit)
+  result[0x20E] = 0x30  # Immediate value: clear C, Z, N flags
+  result[0x20F] = 0x64  # STZ $99 (Store Zero, direct page addressing - clears memory)
+  result[0x210] = 0x99  # Direct page address $99
+  
+  # 0x8351-0x8360: Memory operations and stack manipulation
+  result[0x211] = 0xAD  # LDA $0022 (Load Accumulator, absolute addressing)
+  result[0x212] = 0x22  # Low byte of address
+  result[0x213] = 0x00  # High byte of address (full address: $0022)
+  # TODO: Determine what memory location $0022 represents
+  result[0x214] = 0xD0  # BNE $8369 (Branch if Not Equal, relative addressing)
+  result[0x215] = 0x16  # Relative offset: +22 bytes (branches to $8369 if not equal)
+  result[0x216] = 0xEE  # INC $0022 (Increment, absolute addressing)
+  result[0x217] = 0x22  # Low byte of address
+  result[0x218] = 0x00  # High byte of address (full address: $0022)
+  result[0x219] = 0x8B  # PHB (Push Data Bank register to stack)
+  result[0x21A] = 0xF4  # PEA $7E7E (Push Effective Address, immediate mode)
+  result[0x21B] = 0x7E  # Low byte: 0x7E
+  result[0x21C] = 0x7E  # High byte: 0x7E (pushes 0x7E7E to stack)
+  # TODO: Understand why 0x7E7E is pushed to stack
+  result[0x21D] = 0xAB  # PLB (Pull Data Bank register from stack)
+  result[0x21E] = 0xAB  # PLB (Pull Data Bank register from stack again)
+  result[0x21F] = 0x0B  # PHD (Push Direct Page register to stack)
+  result[0x220] = 0xF4  # PEA $0200 (Push Effective Address, immediate mode)
+  result[0x221] = 0x00  # Low byte: 0x00
+  result[0x222] = 0x02  # High byte: 0x02 (pushes 0x0200 to stack)
+  # TODO: Understand why 0x0200 is pushed to stack
+  result[0x223] = 0x2B  # PLD (Pull Direct Page register from stack)
+  result[0x224] = 0x20  # JSR $8518 (Jump to Subroutine, absolute)
+  result[0x225] = 0x18  # Low byte of address
+  result[0x226] = 0x85  # High byte of address (full address: $8518)
+  # TODO: Reverse engineer what the subroutine at $8518 does
+  result[0x227] = 0x2B  # PLD (Pull Direct Page register from stack)
+  result[0x228] = 0xAB  # PLB (Pull Data Bank register from stack)
+  result[0x229] = 0x9C  # STZ $0022 (Store Zero, absolute addressing - clears memory)
+  result[0x22A] = 0x22  # Low byte of address
+  result[0x22B] = 0x00  # High byte of address (full address: $0022)
+  
+  # 0x8361-0x8370: Immediate value operations and memory stores
+  result[0x22C] = 0xA9  # LDA #$2000 (Load Accumulator, immediate mode)
+  result[0x22D] = 0x00  # Low byte: 0x00 (little-endian: low byte first)
+  result[0x22E] = 0x20  # High byte: 0x20 (value is 0x2000)
+  # TODO: Understand why 0x2000 is loaded
+  result[0x22F] = 0xC5  # CMP $A3 (Compare Accumulator, direct page addressing)
+  result[0x230] = 0xA3  # Direct page address $A3
+  # TODO: Determine what memory location $A3 represents
+  result[0x231] = 0xD0  # BNE $8376 (Branch if Not Equal, relative addressing)
+  result[0x232] = 0x03  # Relative offset: +3 bytes (branches to $8376 if not equal)
+  result[0x233] = 0xA9  # LDA #$2200 (Load Accumulator, immediate mode)
+  result[0x234] = 0x00  # Low byte: 0x00
+  result[0x235] = 0x22  # High byte: 0x22 (value is 0x2200)
+  # TODO: Understand why 0x2200 is loaded
+  result[0x236] = 0x85  # STA $A3 (Store Accumulator, direct page addressing)
+  result[0x237] = 0xA3  # Direct page address $A3
+  result[0x238] = 0x85  # STA $A1 (Store Accumulator, direct page addressing)
+  result[0x239] = 0xA1  # Direct page address $A1
+  # TODO: Determine what memory location $A1 represents
+  result[0x23A] = 0xA9  # LDA #$0000 (Load Accumulator, immediate mode)
+  result[0x23B] = 0x00  # Low byte: 0x00
+  result[0x23C] = 0x00  # High byte: 0x00 (value is 0x0000)
+  result[0x23D] = 0x8F  # STA $7E9E2B (Store Accumulator, absolute long addressing)
+  result[0x23E] = 0x2B  # Low byte of address
+  result[0x23F] = 0x9E  # Mid byte of address
+  result[0x240] = 0x7E  # High byte of address (full address: $7E9E2B)
+  # TODO: Determine what memory location $7E9E2B represents
+  
+  # 0x8371-0x8380: Increment operations and register restoration
+  result[0x241] = 0x64  # STZ $AB (Store Zero, direct page addressing - clears memory)
+  result[0x242] = 0xAB  # Direct page address $AB
+  # TODO: Determine what memory location $AB represents
+  result[0x243] = 0xE6  # INC $A7 (Increment, direct page addressing)
+  result[0x244] = 0xA7  # Direct page address $A7
+  # TODO: Determine what memory location $A7 represents
+  result[0x245] = 0xD0  # BNE $8389 (Branch if Not Equal, relative addressing)
+  result[0x246] = 0x02  # Relative offset: +2 bytes (branches to $8389 if not equal)
+  result[0x247] = 0xE6  # INC $A9 (Increment, direct page addressing)
+  result[0x248] = 0xA9  # Direct page address $A9
+  # TODO: Determine what memory location $A9 represents
+  result[0x249] = 0xAB  # PLB (Pull Data Bank register from stack)
+  result[0x24A] = 0x2B  # PLD (Pull Direct Page register from stack)
+  result[0x24B] = 0x7A  # PLY (Pull Y register from stack)
+  result[0x24C] = 0xFA  # PLX (Pull X register from stack)
+  result[0x24D] = 0x68  # PLA (Pull Accumulator from stack)
+  result[0x24E] = 0x28  # PLP (Pull Processor status from stack)
+  result[0x24F] = 0x40  # RTI (Return from Interrupt)
+  
+  # 0x8381-0x8390: Memory-mapped I/O operations
+  result[0x250] = 0xE2  # SEP #$20 (Set Processor status bits - set accumulator to 8-bit)
+  result[0x251] = 0x20  # Immediate value: set M flag (8-bit accumulator)
+  result[0x252] = 0xA9  # LDA #$30 (Load Accumulator, immediate mode)
+  result[0x253] = 0x30  # Immediate value: 0x30
+  result[0x254] = 0x8F  # STA $307FF0 (Store Accumulator, absolute long addressing)
+  result[0x255] = 0xF0  # Low byte of address
+  result[0x256] = 0x7F  # Mid byte of address
+  result[0x257] = 0x30  # High byte of address (full address: $307FF0)
+  # TODO: Determine what memory location $307FF0 represents
+  result[0x258] = 0x1A  # INC A (Increment Accumulator)
+  result[0x259] = 0x8F  # STA $317FF0 (Store Accumulator, absolute long addressing)
+  result[0x25A] = 0xF0  # Low byte of address
+  result[0x25B] = 0x7F  # Mid byte of address
+  result[0x25C] = 0x31  # High byte of address (full address: $317FF0)
+  # TODO: Determine what memory location $317FF0 represents
+  result[0x25D] = 0xCF  # CMP $307FF0 (Compare Accumulator, absolute long addressing)
+  result[0x25E] = 0xF0  # Low byte of address
+  result[0x25F] = 0x7F  # Mid byte of address
+  result[0x260] = 0x30  # High byte of address (full address: $307FF0)
+  result[0x261] = 0xF0  # BEQ $8391 (Branch if Equal to zero, relative addressing)
+  result[0x262] = 0x0E  # Relative offset: +14 bytes (branches to $8391 if zero)
+  
+  # 0x8391-0x83A0: Additional memory-mapped I/O operations
+  result[0x263] = 0x1A  # INC A (Increment Accumulator)
+  result[0x264] = 0x8F  # STA $327FF0 (Store Accumulator, absolute long addressing)
+  result[0x265] = 0xF0  # Low byte of address
+  result[0x266] = 0x7F  # Mid byte of address
+  result[0x267] = 0x32  # High byte of address (full address: $327FF0)
+  # TODO: Determine what memory location $327FF0 represents
+  result[0x268] = 0xCF  # CMP $307FF0 (Compare Accumulator, absolute long addressing)
+  result[0x269] = 0xF0  # Low byte of address
+  result[0x26A] = 0x7F  # Mid byte of address
+  result[0x26B] = 0x30  # High byte of address (full address: $307FF0)
+  result[0x26C] = 0xF0  # BEQ $83A1 (Branch if Equal to zero, relative addressing)
+  result[0x26D] = 0x03  # Relative offset: +3 bytes (branches to $83A1 if zero)
+  result[0x26E] = 0x8D  # STA $0A36 (Store Accumulator, absolute addressing)
+  result[0x26F] = 0x36  # Low byte of address
+  result[0x270] = 0x0A  # High byte of address (full address: $0A36)
+  # TODO: Determine what memory location $0A36 represents
+  
+  # 0x83A1-0x83B0: Return and register setup
+  result[0x271] = 0xC2  # REP #$30 (Reset Processor status bits - set accumulator to 16-bit)
+  result[0x272] = 0x30  # Immediate value: clear C, Z, N flags
+  result[0x273] = 0xAD  # LDA $0A36 (Load Accumulator, absolute addressing)
+  result[0x274] = 0x36  # Low byte of address
+  result[0x275] = 0x0A  # High byte of address (full address: $0A36)
+  result[0x276] = 0x6B  # RTL (Return from Subroutine Long)
+  result[0x277] = 0xC2  # REP #$30 (Reset Processor status bits - set accumulator to 16-bit)
+  result[0x278] = 0x30  # Immediate value: clear C, Z, N flags
+  result[0x279] = 0xA9  # LDA #$0000 (Load Accumulator, immediate mode)
+  result[0x27A] = 0x00  # Low byte: 0x00
+  result[0x27B] = 0x00  # High byte: 0x00 (value is 0x0000)
+  result[0x27C] = 0x8D  # STA $007B (Store Accumulator, absolute addressing)
+  result[0x27D] = 0x7B  # Low byte of address
+  result[0x27E] = 0x00  # High byte of address (full address: $007B)
+  # TODO: Determine what memory location $007B represents
+  result[0x27F] = 0x6B  # RTL (Return from Subroutine Long)
+  
+  # 0x83B1-0x83C0: Memory operations and register setup
+  result[0x280] = 0xC2  # REP #$30 (Reset Processor status bits - set accumulator to 16-bit)
+  result[0x281] = 0x30  # Immediate value: clear C, Z, N flags
+  result[0x282] = 0xA5  # LDA $0E (Load Accumulator, direct page addressing)
+  result[0x283] = 0x0E  # Direct page address $0E
+  result[0x284] = 0x8D  # STA $0085 (Store Accumulator, absolute addressing)
+  result[0x285] = 0x85  # Low byte of address
+  result[0x286] = 0x00  # High byte of address (full address: $0085)
+  # TODO: Determine what memory location $0085 represents
+  result[0x287] = 0xA5  # LDA $10 (Load Accumulator, direct page addressing)
+  result[0x288] = 0x10  # Direct page address $10
+  result[0x289] = 0x8D  # STA $0087 (Store Accumulator, absolute addressing)
+  result[0x28A] = 0x87  # Low byte of address
+  result[0x28B] = 0x00  # High byte of address (full address: $0087)
+  # TODO: Determine what memory location $0087 represents
+  result[0x28C] = 0xAD  # LDA $0065 (Load Accumulator, absolute addressing)
+  result[0x28D] = 0x65  # Low byte of address
+  result[0x28E] = 0x00  # High byte of address (full address: $0065)
+  # TODO: Determine what memory location $0065 represents
+  result[0x28F] = 0x8D  # STA $008B (Store Accumulator, absolute addressing)
+  result[0x290] = 0x8B  # Low byte of address
+  result[0x291] = 0x00  # High byte of address (full address: $008B)
+  # TODO: Determine what memory location $008B represents
+  
+  # 0x83C1-0x83D0: Immediate value operations
+  result[0x292] = 0xA9  # LDA #$0001 (Load Accumulator, immediate mode)
+  result[0x293] = 0x01  # Low byte: 0x01
+  result[0x294] = 0x00  # High byte: 0x00 (value is 0x0001)
+  result[0x295] = 0x8D  # STA $0089 (Store Accumulator, absolute addressing)
+  result[0x296] = 0x89  # Low byte of address
+  result[0x297] = 0x00  # High byte of address (full address: $0089)
+  # TODO: Determine what memory location $0089 represents
+  result[0x298] = 0xA9  # LDA #$8000 (Load Accumulator, immediate mode)
+  result[0x299] = 0x00  # Low byte: 0x00
+  result[0x29A] = 0x80  # High byte: 0x80 (value is 0x8000)
+  # TODO: Understand why 0x8000 is loaded
+  result[0x29B] = 0x0D  # ORA $007B (Logical OR, absolute addressing)
+  result[0x29C] = 0x7B  # Low byte of address
+  result[0x29D] = 0x00  # High byte of address (full address: $007B)
+  result[0x29E] = 0x8D  # STA $007B (Store Accumulator, absolute addressing)
+  result[0x29F] = 0x7B  # Low byte of address
+  result[0x2A0] = 0x00  # High byte of address (full address: $007B)
+  result[0x2A1] = 0x6B  # RTL (Return from Subroutine Long)
+  
+  # 0x83D1-0x83E0: Conditional logic and memory operations
+  result[0x2A2] = 0xC2  # REP #$30 (Reset Processor status bits - set accumulator to 16-bit)
+  result[0x2A3] = 0x30  # Immediate value: clear C, Z, N flags
+  result[0x2A4] = 0xAD  # LDA $007B (Load Accumulator, absolute addressing)
+  result[0x2A5] = 0x7B  # Low byte of address
+  result[0x2A6] = 0x00  # High byte of address (full address: $007B)
+  result[0x2A7] = 0x29  # AND #$4000 (Logical AND, immediate mode)
+  result[0x2A8] = 0x00  # Low byte: 0x00
+  result[0x2A9] = 0x40  # High byte: 0x40 (masks to bit 14)
+  # TODO: Understand the bit masking operation
+  result[0x2AA] = 0xD0  # BNE $83D9 (Branch if Not Equal, relative addressing)
+  result[0x2AB] = 0x2D  # Relative offset: +45 bytes (branches to $83D9 if not equal)
+  result[0x2AC] = 0xA7  # LDA [$0E] (Load Accumulator, indirect long addressing)
+  result[0x2AD] = 0x0E  # Direct page address $0E
+  # TODO: Determine what memory location $0E represents
+  result[0x2AE] = 0x29  # AND #$00FF (Logical AND, immediate mode)
+  result[0x2AF] = 0xFF  # Low byte: 0xFF
+  result[0x2B0] = 0x00  # High byte: 0x00 (masks to low byte)
+  result[0x2B1] = 0xF0  # BEQ $83D7 (Branch if Equal to zero, relative addressing)
+  result[0x2B2] = 0xC4  # Relative offset: -60 bytes (branches to $83D7 if zero)
+  result[0x2B3] = 0x8D  # STA $0081 (Store Accumulator, absolute addressing)
+  result[0x2B4] = 0x81  # Low byte of address
+  result[0x2B5] = 0x00  # High byte of address (full address: $0081)
+  # TODO: Determine what memory location $0081 represents
+  
+  # 0x83E1-0x83F0: Indirect addressing and memory operations
+  result[0x2B6] = 0xA0  # LDY #$0001 (Load Y register, immediate mode)
+  result[0x2B7] = 0x01  # Low byte: 0x01
+  result[0x2B8] = 0x00  # High byte: 0x00 (value is 0x0001)
+  result[0x2B9] = 0xB7  # LDA [$0E],Y (Load Accumulator, indirect long indexed Y addressing)
+  result[0x2BA] = 0x0E  # Direct page address $0E
+  result[0x2BB] = 0x8D  # STA $0083 (Store Accumulator, absolute addressing)
+  result[0x2BC] = 0x83  # Low byte of address
+  result[0x2BD] = 0x00  # High byte of address (full address: $0083)
+  # TODO: Determine what memory location $0083 represents
+  result[0x2BE] = 0xA5  # LDA $0E (Load Accumulator, direct page addressing)
+  result[0x2BF] = 0x0E  # Direct page address $0E
+  # Note: Reset handler continues beyond 704 bytes if needed
+  # TODO: Verify if handler extends beyond 704 bytes
 
