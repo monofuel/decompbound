@@ -42,7 +42,8 @@ const
     ByteRange(start: InitCodeOffset, `end`: InitCodeOffset + InitCodeSize - 1),
     ByteRange(start: ResetHandlerOffset, `end`: ResetHandlerOffset + ResetHandlerSize - 1),
     ByteRange(start: BrkHandlerOffset, `end`: BrkHandlerOffset + BrkHandlerSize - 1),
-    ByteRange(start: EarlySubroutineOffset, `end`: EarlySubroutineOffset + EarlySubroutineSize - 1)
+    ByteRange(start: EarlySubroutineOffset, `end`: EarlySubroutineOffset + EarlySubroutineSize - 1),
+    ByteRange(start: SubroutineA156Offset, `end`: SubroutineA156Offset + SubroutineA156Size - 1)
   ]
 
 proc isInImplementedRegion(offset: int): bool =

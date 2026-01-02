@@ -69,10 +69,22 @@ proc main() =
       labels.add(instr.operand.uint32)
     elif instr.mode in [Relative8, Relative16]:
       let target = if instr.mode == Relative8:
-        (instr.address.int + 2 + instr.operand.int8.int) and 0xFFFF
+        # Sign-extend 8-bit value
+        var signedOffset: int
+        if (instr.operand and 0x80) != 0:
+          signedOffset = (instr.operand.int or 0xFFFFFF00)
+        else:
+          signedOffset = instr.operand.int
+        ((instr.address.int + 2 + signedOffset) and 0xFFFF).uint32
       else:
-        (instr.address.int + 3 + instr.operand.int16.int) and 0xFFFF
-      labels.add(target.uint32)
+        # Sign-extend 16-bit value
+        var signedOffset: int
+        if (instr.operand and 0x8000) != 0:
+          signedOffset = (instr.operand.int or 0xFFFF0000)
+        else:
+          signedOffset = instr.operand.int
+        ((instr.address.int + 3 + signedOffset) and 0xFFFF).uint32
+      labels.add(target)
   
   for instr in instructions:
     var hexBytes = ""

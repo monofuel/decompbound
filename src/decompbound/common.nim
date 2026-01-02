@@ -16,3 +16,5 @@ const
   BrkHandlerSize* = 128
   EarlySubroutineOffset* = 0x0A1D
   EarlySubroutineSize* = 512
+  SubroutineA156Offset* = 0xA156
+  SubroutineA156Size* = 182

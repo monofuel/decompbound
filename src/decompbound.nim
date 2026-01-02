@@ -6,7 +6,7 @@
 
 import
   std/[strformat, parseopt, osproc],
-  decompbound/[common, header, vectors, init, reset, brk, early]
+  decompbound/[common, header, vectors, init, reset, brk, early, subroutine_a156]
 
 proc generateRom(): string =
   ## Generate the decomp ROM from our reverse-engineered code and data.
@@ -17,6 +17,7 @@ proc generateRom(): string =
   let resetHandler = generateResetHandler()
   let brkHandler = generateBrkHandler()
   let earlySubroutine = generateEarlySubroutine()
+  let subroutineA156 = generateSubroutineA156()
   
   var rom = newString(EarthboundRomSize)
   for i in 0..<rom.len:
@@ -39,6 +40,9 @@ proc generateRom(): string =
   
   for i in 0..<earlySubroutine.len:
     rom[EarlySubroutineOffset + i] = earlySubroutine[i].char
+  
+  for i in 0..<subroutineA156.len:
+    rom[SubroutineA156Offset + i] = subroutineA156[i].char
   
   result = rom
 

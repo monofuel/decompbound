@@ -2,7 +2,7 @@
 ## Converts ROM bytes into readable assembly instructions.
 
 import
-  std/[strformat, strutils]
+  std/[strformat, strutils, tables, sets]
 
 type
   AddressingMode* = enum
@@ -42,6 +42,19 @@ type
     accumulator8Bit: bool
     index8Bit: bool
     labels: seq[uint32]
+  
+  ByteType* = enum
+    Unknown
+    Code
+    Data
+    Padding
+  
+  RomAnalysis* = object
+    byteTypes*: seq[ByteType]
+    codeAddresses*: seq[uint32]
+    dataAddresses*: seq[uint32]
+    entryPoints*: seq[uint32]
+    crossReferences*: Table[uint32, seq[uint32]]
 
 proc formatAddress(`addr`: uint32): string =
   ## Format address as hex with $ prefix.
@@ -727,4 +740,202 @@ proc disassemble*(data: seq[uint8], startOffset: int = 0, maxInstructions: int =
     result.add(instr)
     offset += instr.size
     count += 1
+
+proc getBranchTarget*(instr: Instruction): uint32 =
+  ## Get the target address of a branch or jump instruction.
+  ## Returns 0 if not a branch/jump.
+  case instr.mode:
+  of Relative8:
+    # Sign-extend 8-bit value to int
+    var signedOffset: int
+    if (instr.operand and 0x80) != 0:
+      signedOffset = (instr.operand.int or 0xFFFFFF00)
+    else:
+      signedOffset = instr.operand.int
+    result = ((instr.address.int + 2 + signedOffset) and 0xFFFF).uint32
+  of Relative16:
+    # Sign-extend 16-bit value to int
+    var signedOffset: int
+    if (instr.operand and 0x8000) != 0:
+      signedOffset = (instr.operand.int or 0xFFFF0000)
+    else:
+      signedOffset = instr.operand.int
+    result = ((instr.address.int + 3 + signedOffset) and 0xFFFF).uint32
+  of Absolute:
+    if instr.opcode in ["JSR", "JMP"]:
+      result = instr.operand.uint32
+  of AbsoluteLong:
+    if instr.opcode in ["JSL", "JML"]:
+      result = instr.operand.uint32
+  else:
+    result = 0
+
+proc isControlFlow*(instr: Instruction): bool =
+  ## Check if instruction is a control flow instruction (branch, jump, call, return).
+  result = instr.opcode in ["JSR", "JSL", "JMP", "JML", "RTS", "RTL", "RTI", "BRA", "BEQ", "BNE", "BPL", "BMI", "BCC", "BCS", "BVC", "BVS"]
+
+proc isEntryPoint*(address: uint32, knownRegions: seq[tuple[start: int, `end`: int]]): bool =
+  ## Check if an address is a known entry point based on implemented regions.
+  for region in knownRegions:
+    if address.uint32 == region.start.uint32:
+      return true
+  result = false
+
+proc analyzeControlFlow*(data: seq[uint8], entryPoints: seq[uint32], knownCodeRegions: seq[tuple[start: int, `end`: int]], maxQueueSize: int = 10000, progressCallback: proc(processed: int, queueSize: int) = nil): RomAnalysis =
+  ## Analyze ROM to discover all code regions by following control flow.
+  result.byteTypes = newSeq[ByteType](data.len)
+  result.codeAddresses = @[]
+  result.dataAddresses = @[]
+  result.entryPoints = entryPoints
+  result.crossReferences = initTable[uint32, seq[uint32]]()
+  
+  var workQueue: seq[uint32] = @[]
+  var processed: HashSet[uint32] = initHashSet[uint32]()
+  var processedCount = 0
+  
+  # Add known entry points
+  for ep in entryPoints:
+    if ep.uint32 < data.len.uint32:
+      workQueue.add(ep)
+      processed.incl(ep)
+  
+  # Add known code regions
+  for region in knownCodeRegions:
+    for addr in region.start..region.`end`:
+      if addr < data.len:
+        result.byteTypes[addr] = Code
+        if addr.uint32 notin processed:
+          workQueue.add(addr.uint32)
+          processed.incl(addr.uint32)
+  
+  # Process work queue
+  while workQueue.len > 0:
+    # Limit queue size to prevent unbounded growth
+    if workQueue.len > maxQueueSize:
+      # Remove oldest entries (FIFO behavior by reversing and popping)
+      workQueue = workQueue[workQueue.len - maxQueueSize..<workQueue.len]
+    
+    let currentAddr = workQueue.pop()
+    if currentAddr.int >= data.len:
+      continue
+    
+    var state = DisasmState(accumulator8Bit: false, index8Bit: false)
+    var offset = currentAddr.int
+    
+    # Disassemble forward from this address
+    var instructionCount = 0
+    while offset < data.len and instructionCount < 1000:
+      if result.byteTypes[offset] == Data:
+        break
+      
+      let instr = disassembleInstruction(data, offset, state)
+      if instr.opcode.startsWith("???"):
+        break
+      
+      # Mark bytes as code
+      for i in 0..<instr.size:
+        if offset + i < data.len:
+          result.byteTypes[offset + i] = Code
+          if (offset + i).uint32 notin result.codeAddresses:
+            result.codeAddresses.add((offset + i).uint32)
+      
+      # Handle control flow
+      if isControlFlow(instr):
+        let target = getBranchTarget(instr)
+        if target > 0 and target < data.len.uint32:
+          if target notin processed and workQueue.len < maxQueueSize:
+            workQueue.add(target)
+            processed.incl(target)
+        
+        # Add cross-reference
+        if target > 0 and target < data.len.uint32:
+          if not result.crossReferences.hasKey(target):
+            result.crossReferences[target] = @[]
+          result.crossReferences[target].add(instr.address)
+      
+      # Handle returns - stop disassembling
+      if instr.opcode in ["RTS", "RTL", "RTI"]:
+        break
+      
+      offset += instr.size
+      instructionCount += 1
+    
+    processedCount += 1
+    if progressCallback != nil and processedCount mod 100 == 0:
+      progressCallback(processedCount, workQueue.len)
+
+proc detectDataRegions*(data: seq[uint8], analysis: var RomAnalysis) =
+  ## Detect data regions using heuristics.
+  var i = 0
+  var processedCount = 0
+  
+  while i < data.len:
+    if analysis.byteTypes[i] == Unknown:
+      # Check for zero runs first (fast path)
+      if data[i] == 0:
+        var zeroStart = i
+        var zeroCount = 0
+        while i < data.len and data[i] == 0 and analysis.byteTypes[i] == Unknown:
+          zeroCount += 1
+          i += 1
+        
+        if zeroCount > 100:
+          for j in zeroStart..<zeroStart + zeroCount:
+            if j < analysis.byteTypes.len:
+              analysis.byteTypes[j] = Padding
+        else:
+          i = zeroStart + 1
+      else:
+        # Only check for patterns on aligned addresses to reduce computation
+        if (i mod 16 == 0) and (i + 32 < data.len):
+          # Check for repeated patterns (potential data tables)
+          var patternLen = min(16, data.len - i)
+          var pattern = data[i..<i + patternLen]
+          var repeatCount = 0
+          var checkOffset = i + patternLen
+          
+          # Limit pattern checking to avoid excessive computation
+          while checkOffset + patternLen <= data.len and repeatCount < 5 and checkOffset < i + 256:
+            var matches = true
+            for j in 0..<patternLen:
+              if data[checkOffset + j] != pattern[j]:
+                matches = false
+                break
+            if matches:
+              repeatCount += 1
+              checkOffset += patternLen
+            else:
+              break
+          
+          if repeatCount >= 3:
+            # Likely a data table
+            for j in i..<min(i + (repeatCount + 1) * patternLen, data.len):
+              if j < analysis.byteTypes.len and analysis.byteTypes[j] == Unknown:
+                analysis.byteTypes[j] = Data
+                if j.uint32 notin analysis.dataAddresses:
+                  analysis.dataAddresses.add(j.uint32)
+            i = checkOffset
+          else:
+            # Mark as data if not code-like
+            if i < analysis.byteTypes.len and analysis.byteTypes[i] == Unknown:
+              analysis.byteTypes[i] = Data
+              if i.uint32 notin analysis.dataAddresses:
+                analysis.dataAddresses.add(i.uint32)
+            i += 1
+        else:
+          # Mark as data if not code-like
+          if i < analysis.byteTypes.len and analysis.byteTypes[i] == Unknown:
+            analysis.byteTypes[i] = Data
+            if i.uint32 notin analysis.dataAddresses:
+              analysis.dataAddresses.add(i.uint32)
+          i += 1
+    else:
+      i += 1
+    
+    processedCount += 1
+    # Skip ahead in large unknown regions to speed up processing
+    if processedCount mod 10000 == 0 and i < data.len:
+      # Fast-forward through large unknown regions
+      while i < data.len and analysis.byteTypes[i] == Unknown and (i + 1) < data.len and analysis.byteTypes[i + 1] == Unknown:
+        i += 16
 
