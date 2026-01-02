@@ -14,6 +14,7 @@
 
 - pixie >= 5.1.0
 - shady >= 0.1.4
+- silky
 
 ## Tests
 

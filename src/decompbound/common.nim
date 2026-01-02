@@ -11,4 +11,6 @@ const
   InitCodeOffset* = 0x010000
   InitCodeSize* = 256
   ResetHandlerOffset* = 0x8141
-  ResetHandlerSize* = 128
+  ResetHandlerSize* = 256
+  EarlySubroutineOffset* = 0x0A1D
+  EarlySubroutineSize* = 128
