@@ -13,6 +13,7 @@ type
   ApuHandshakeState = enum
     ahsIdle       ## Waiting for the CC kick-off.
     ahsTransfer   ## Echoing transfer counter bytes.
+    ahsRunning    ## Driver started: ports read as driver-idle zeros.
 
   SnesBus* = ref object
     bus*: Bus
@@ -22,6 +23,9 @@ type
     apuState: ApuHandshakeState
     apuPort0: uint8   ## Last value the CPU wrote to $2140.
     apuPort1: uint8
+    apuReadStreak: int  ## Consecutive $2140 reads with no write: the
+                        ## post-upload wait loop. After a threshold the
+                        ## "driver" comes up and the ports read zero.
     vblankToggle: bool
     mmioReads*: seq[uint32]   ## Trace of MMIO reads (debug aid).
     mmioWrites*: seq[(uint32, uint8)]  ## Trace of MMIO writes.
@@ -39,11 +43,19 @@ proc mmioRead(snes: SnesBus, offset: uint32): uint8 =
   of 0x2140, 0x2141, 0x2142, 0x2143:
     # APU ports: SPC700 boot ROM handshake HLE. The boot ROM announces
     # readiness with AA/BB, then echoes whatever the CPU last wrote.
+    # When the CPU stops writing and just polls (the wait-for-driver
+    # loop at $C0AB90), the uploaded driver "boots" and zeros the ports.
     case snes.apuState:
     of ahsIdle:
       if offset == 0x2140: 0xAA'u8 else: 0xBB'u8
     of ahsTransfer:
+      snes.apuReadStreak += 1
+      if snes.apuReadStreak > 64:
+        snes.apuState = ahsRunning
+        return 0
       if offset == 0x2140: snes.apuPort0 else: snes.apuPort1
+    of ahsRunning:
+      0x00'u8
   of 0x4210:
     # RDNMI: NMI flag toggles so vblank wait loops make progress.
     snes.vblankToggle = not snes.vblankToggle
@@ -67,8 +79,10 @@ proc mmioWrite(snes: SnesBus, offset: uint32, value: uint8) =
     if snes.apuState == ahsIdle and value == 0xCC:
       snes.apuState = ahsTransfer
     snes.apuPort0 = value
+    snes.apuReadStreak = 0
   of 0x2141:
     snes.apuPort1 = value
+    snes.apuReadStreak = 0
   of 0x4200:
     snes.nmitimen = value
   else:

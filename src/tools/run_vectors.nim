@@ -13,11 +13,11 @@ let
               else: "bin/65816-vectors/v1"
 
 type
-  FileResult = object
-    name: string
-    passed: int
-    failed: int
-    firstFailure: string
+  FileResult* = object
+    name*: string
+    passed*: int
+    failed*: int
+    firstFailure*: string
 
 proc loadCpu(node: JsonNode): Cpu =
   ## Build CPU state from a vector's initial/final block.

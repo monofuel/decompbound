@@ -41,6 +41,9 @@ proc main() =
   var pcHistogram = initCountTable[uint32]()
   var uniquePcs = initHashSet[uint32]()
 
+  const InstructionsPerFrame = 8000
+  var nmiCount = 0
+
   while executed < maxInstructions and not cpu.stopped:
     let fullPc = (cpu.pbr.uint32 shl 16) or cpu.pc.uint32
     if executed < traceCount:
@@ -50,17 +53,20 @@ proc main() =
         window[i] = snes.bus.read8(fullPc + i.uint32)
       let instr = decode(window, 0, flags)
       echo &"${fullPc:06X}  {formatInstruction(instr)}"
-    if cpu.waiting:
-      # WAI: no interrupts wired yet; treat as settled.
-      echo &"(settled: WAI at ${fullPc:06X} after {executed} instructions)"
-      break
-    pcHistogram.inc fullPc
-    uniquePcs.incl fullPc
+    # Synthesize vblank NMI at a frame-ish cadence when the game has
+    # enabled it via NMITIMEN bit 7.
+    if (snes.nmitimen and 0x80) != 0 and
+       executed mod InstructionsPerFrame == 0 and executed > 0:
+      cpu.nmiPending = true
+      nmiCount += 1
+    if not cpu.waiting:
+      pcHistogram.inc fullPc
+      uniquePcs.incl fullPc
     cpu.step(snes.bus)
     executed += 1
 
   echo ""
-  echo &"Executed {executed} instructions, {uniquePcs.len} unique PCs."
+  echo &"Executed {executed} instructions, {uniquePcs.len} unique PCs, {nmiCount} NMIs delivered."
   echo &"MMIO: {snes.mmioWrites.len} writes, {snes.mmioReads.len} reads."
 
   pcHistogram.sort()

@@ -46,6 +46,7 @@ type
     mvnBudget*: int  ## Cycle budget per block-move step. <= 0 means run to
                      ## completion (hardware behavior); the vector harness
                      ## sets 100 to match SingleStepTests snapshots.
+    nmiPending*: bool  ## Set by the system when vblank NMI fires.
 
 proc newBus*(): Bus =
   ## Allocate the flat memory bus.
@@ -410,9 +411,34 @@ proc interrupt(cpu: var Cpu, bus: Bus, nativeVector: uint16,
     cpu.pbr = 0
     cpu.pc = bus.read16(nativeVector.uint32)
 
+proc serviceNmi(cpu: var Cpu, bus: Bus) =
+  ## Deliver a non-maskable interrupt through the hardware vector.
+  cpu.waiting = false
+  if cpu.emulation:
+    cpu.push16(bus, cpu.pc)
+    cpu.push8(bus, cpu.p or 0x20)
+    cpu.setFlag(FlagI, true)
+    cpu.setFlag(FlagD, false)
+    cpu.pbr = 0
+    cpu.pc = bus.read16(0xFFFA)
+  else:
+    cpu.push8(bus, cpu.pbr)
+    cpu.push16(bus, cpu.pc)
+    cpu.push8(bus, cpu.p)
+    cpu.setFlag(FlagI, true)
+    cpu.setFlag(FlagD, false)
+    cpu.pbr = 0
+    cpu.pc = bus.read16(0xFFEA)
+
 proc step*(cpu: var Cpu, bus: Bus) =
   ## Execute one instruction.
-  if cpu.stopped or cpu.waiting:
+  if cpu.stopped:
+    return
+  if cpu.nmiPending:
+    cpu.nmiPending = false
+    cpu.serviceNmi(bus)
+    return
+  if cpu.waiting:
     return
   # Emulation-mode hardware invariants hold continuously, not just at mode
   # transitions: S is pinned to page 1, M/X read as set, X/Y high clear.
