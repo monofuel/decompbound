@@ -68,8 +68,8 @@ play: nim.cfg
 	@echo "player exited"
 
 song: nim.cfg
-	nim r src/tools/render_song.nim "$(ROM)" bin/song.wav 10 16000000
-	@echo "wrote bin/song.wav (WIP proper capture; no hacks. Use music_explore for the menu UI)"
+	@echo "use: nim r src/tools/music_explore.nim   (menu explorer)"
+	@echo "or:  nim r src/tools/render_song.nim rom out.wav secs bootinstr  (clean capture)"
 
 # --- Verification -----------------------------------------------------
 
