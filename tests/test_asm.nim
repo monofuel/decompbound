@@ -142,6 +142,63 @@ block assembleWithLabels:
   ], 0x8000'u32, nativeFlags(true, true))
   doAssert widths == @[0xC2'u8, 0x30, 0xA9, 0x10, 0x80, 0xE2, 0x20, 0xA9, 0x42]
 
+block flagInstructionTracking:
+  # REP/SEP touch only the requested status bits.
+  var flags = FlagState(m8: true, x8: true, emulation: false)
+  flags.applyInstruction(0xC2, 0x20)  # REP #$20: only M goes 16-bit.
+  doAssert not flags.m8 and flags.x8
+  flags.applyInstruction(0xE2, 0x10)  # SEP #$10: only X back to 8-bit.
+  doAssert not flags.m8 and flags.x8
+  flags.applyInstruction(0xC2, 0x10)  # REP #$10: X to 16-bit.
+  doAssert not flags.m8 and not flags.x8
+  # XCE only transitions out of emulation mode (CLC..XCE idiom).
+  var emu = initFlagState()
+  doAssert emu.emulation and emu.m8 and emu.x8
+  emu.applyInstruction(0xFB, 0)
+  doAssert not emu.emulation and emu.m8 and emu.x8
+  emu.applyInstruction(0xFB, 0)  # A second XCE must not re-enter emulation.
+  doAssert not emu.emulation
+
+block assemblerErrors:
+  # Branch out of range must raise, not emit garbage.
+  var farNodes: seq[AsmNode]
+  farNodes.add instrTo("BNE", amRelative8, "far")
+  for i in 0..<200:
+    farNodes.add instr("NOP", amImplied)
+  farNodes.add label("far")
+  var branchRaised = false
+  try:
+    discard assemble(farNodes, 0x8000'u32, nativeFlags(true, true))
+  except ValueError:
+    branchRaised = true
+  doAssert branchRaised
+
+  # Undefined labels must raise.
+  var undefinedRaised = false
+  try:
+    discard assemble(@[instrTo("BRA", amRelative8, "nowhere")],
+                     0x8000'u32, nativeFlags(true, true))
+  except ValueError:
+    undefinedRaised = true
+  doAssert undefinedRaised
+
+  # Impossible mnemonic + mode combinations must raise.
+  var comboRaised = false
+  try:
+    discard assemble(@[instr("RTS", amAbsolute, 0x1234)],
+                     0x8000'u32, nativeFlags(true, true))
+  except ValueError:
+    comboRaised = true
+  doAssert comboRaised
+
+block decodeRangeBoundary:
+  # decodeRange must stop cleanly before an instruction that would cross
+  # the range end, and report the covered length.
+  let bytes = @[0xEA'u8, 0x5C, 0x11, 0x22, 0x33]  # NOP, then JML.
+  let (instrs, covered) = decodeRange(bytes, 0, 2, nativeFlags(true, true))
+  doAssert instrs.len == 1
+  doAssert covered == 1
+
 block goldBootPath:
   # The strongest fixture: the gold ROM's own reset handler. Only runs
   # locally where the (gitignored, copyrighted) ROM exists; CI has no ROM.

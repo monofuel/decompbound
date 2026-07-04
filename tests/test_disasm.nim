@@ -1,7 +1,7 @@
 ## Tests for the HiROM memory mapping and the control-flow tracer.
 
 import
-  std/[os, tables],
+  std/[os, sets, tables],
   decompbound/[assembler, disasm, memmap, opcodes]
 
 const
@@ -80,6 +80,63 @@ block syntheticTrace:
   doAssert analysis.crossReferences[0x8010] == @[0x8004]
   for i in 0x9000..0x90FF:
     doAssert analysis.byteTypes[i] == Data
+
+block entryFlagRecording:
+  # The tracer must record the flag state each run started with; this is
+  # what gives generated modules observed entry states instead of guesses.
+  var rom = newSeq[uint8](0x10000)
+  let boot = @[
+    0x18'u8,             # CLC.
+    0xFB,                # XCE.
+    0xC2, 0x30,          # REP #$30.
+    0x20, 0x10, 0x80,    # JSR $8010.
+    0xDB                 # STP.
+  ]
+  for i, b in boot:
+    rom[0x8000 + i] = b
+  rom[0x8010] = 0x60  # RTS.
+
+  let analysis = analyzeControlFlow(rom, @[0x8000])
+  doAssert analysis.entryFlagStates[0x8000] == initFlagState()
+  # The subroutine inherits native 16-bit state through the JSR.
+  doAssert analysis.entryFlagStates[0x8010] ==
+    FlagState(m8: false, x8: false, emulation: false)
+
+block paddingDetection:
+  var rom = newSeq[uint8](512)
+  for i in 0..<200:
+    rom[i] = 0xFF
+  rom[300] = 0x42
+  var analysis = analyzeControlFlow(rom, @[])
+  detectPadding(rom, analysis, minRunLength = 64)
+  doAssert analysis.byteTypes[0] == Padding
+  doAssert analysis.byteTypes[199] == Padding
+  doAssert analysis.byteTypes[200] == Padding  # Zero run after the 0xFF run.
+  doAssert analysis.byteTypes[300] == Unknown  # Lone byte, not a run.
+
+block labelFormatting:
+  let native = FlagState(m8: false, x8: false, emulation: false)
+  var labels = initHashSet[int]()
+  labels.incl 0x8000
+  # A branch to a labeled offset formats as the label.
+  let bra = decode(@[0x80'u8, 0xFE], 0, native)  # BRA -2 at $C08000.
+  doAssert formatWithLabels(bra, 0xC08000'u32, labels) == "BRA label_008000"
+  # A branch to an unlabeled offset keeps numeric form.
+  let bne = decode(@[0xD0'u8, 0x10], 0, native)
+  doAssert formatWithLabels(bne, 0xC08100'u32, labels) == "BNE +16"
+
+block controlFlowClassification:
+  let native = FlagState(m8: false, x8: false, emulation: false)
+  # Returns and unconditional jumps end a linear run.
+  doAssert decode(@[0x60'u8], 0, native).endsRun          # RTS.
+  doAssert decode(@[0x5C'u8, 0, 0x80, 0xC0], 0, native).endsRun  # JML.
+  doAssert decode(@[0x80'u8, 0x10], 0, native).endsRun    # BRA.
+  doAssert decode(@[0xDB'u8], 0, native).endsRun          # STP.
+  # Calls and conditional branches fall through.
+  doAssert not decode(@[0x20'u8, 0x00, 0x90], 0, native).endsRun  # JSR.
+  doAssert not decode(@[0xF0'u8, 0x10], 0, native).endsRun        # BEQ.
+  doAssert decode(@[0xF0'u8, 0x10], 0, native).isControlFlow
+  doAssert not decode(@[0xEA'u8], 0, native).isControlFlow        # NOP.
 
 block goldTrace:
   # Trace the real ROM from its reset vector; only runs where the

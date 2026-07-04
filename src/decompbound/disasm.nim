@@ -144,6 +144,15 @@ proc analyzeControlFlow*(data: openArray[uint8], entryPoints: seq[int],
       let opSize = operandSize(OpcodeTable[data[offset]].mode, flags)
       if offset + 1 + opSize > data.len:
         break
+      # An instruction may not extend into a declared data region either;
+      # decoding across that boundary would be a misdecode.
+      var crossesData = false
+      for i in 1..opSize:
+        if result.byteTypes[offset + i] == Data:
+          crossesData = true
+          break
+      if crossesData:
+        break
       decodedStarts.incl offset
       let instr = decode(data, offset, flags)
       for i in 0..<instr.size:
