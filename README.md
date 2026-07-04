@@ -76,6 +76,7 @@ store the comparison rom at `./bin/Earthbound (U) [!].smc`
 
 - decompbound/docs/goal.md - project goals, ordering, and verification rules
 - decompbound/docs/goal-1.md - Goal 1 MVP definition: the boot path, as real assembly
+- decompbound/docs/goal-1.5.md - the adoption campaign: replacing generated scaffolding with understood, named code
 - decompbound/docs/audio.md - SNES/Earthbound audio, the standalone SPC player track, slappy tools
 - decompbound/docs/snes-asm.md
 - decompbound/docs/graphics.md

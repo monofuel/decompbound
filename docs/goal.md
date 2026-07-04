@@ -29,6 +29,9 @@ A matched pair of tools derived from a single opcode table, proven by
 round-tripping the gold master ROM's own code regions.
 
 **MVP definition: `docs/goal-1.md`** — "the boot path, as real assembly."
+**Follow-up: `docs/goal-1.5.md`** — the adoption campaign: generated
+regions are scaffolding, to be replaced by named, documented modules
+(byte-verified) until the project reads like a romhacker's dream.
 Ordered work items and a mechanical definition of done live there.
 
 ### Components
