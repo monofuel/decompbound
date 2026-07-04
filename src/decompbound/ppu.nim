@@ -45,31 +45,43 @@ proc tilePixel(snes: SnesBus, chrBase: int, tile: int, x: int, y: int,
 
 proc renderBg(snes: SnesBus, image: Image, bg: int, bpp: int,
               paletteBase: int) =
-  ## Render one background layer over the image (transparent pixels skip).
+  ## Render one background layer over the image (transparent pixels skip),
+  ## honoring the latched H/V scroll and the tilemap size bits (32/64
+  ## tile maps arranged as up to four 32x32 screens).
   let scReg = snes.ppuRegs[0x07 + bg]  # $2107-$210A.
   let tilemapBase = ((scReg.int shr 2) shl 10) and 0x7FFF
+  let sizeBits = scReg.int and 3
   let chrReg = if bg < 2: snes.ppuRegs[0x0B] else: snes.ppuRegs[0x0C]
   let chrShift = if bg mod 2 == 0: chrReg.int and 0x0F
                  else: (chrReg.int shr 4) and 0x0F
   let chrBase = (chrShift shl 12) and 0x7FFF
+  let hofs = snes.bgScroll[bg * 2].int
+  let vofs = snes.bgScroll[bg * 2 + 1].int
 
-  for ty in 0..<28:
-    for tx in 0..<32:
-      let entry = snes.vram[(tilemapBase + ty * 32 + tx) and 0x7FFF]
+  for py in 0..<ScreenHeight:
+    let wy = py + vofs
+    var ty = (wy div 8)
+    let subY = wy mod 8
+    for px in 0..<ScreenWidth:
+      let wx = px + hofs
+      var tx = (wx div 8)
+      # Screen selection within multi-screen maps: each screen is a
+      # 32x32-tile block of 0x400 words; the second row of screens (64-tall
+      # maps) starts 0x800 in when the map is 64 wide.
+      let screenX = if (sizeBits and 1) != 0: (tx div 32) and 1 else: 0
+      let screenY = if (sizeBits and 2) != 0: (ty div 32) and 1 else: 0
+      var mapBase = tilemapBase + screenX * 0x400
+      mapBase += screenY * (if sizeBits == 3: 0x800 else: 0x400)
+      let entry = snes.vram[(mapBase + (ty mod 32) * 32 + (tx mod 32)) and 0x7FFF]
       let tile = (entry and 0x3FF).int
       let palette = ((entry shr 10) and 0x07).int
-      let flipX = (entry and 0x4000) != 0
-      let flipY = (entry and 0x8000) != 0
-      for py in 0..<8:
-        for px in 0..<8:
-          let sx = if flipX: 7 - px else: px
-          let sy = if flipY: 7 - py else: py
-          let index = snes.tilePixel(chrBase, tile, sx, sy, bpp)
-          if index == 0:
-            continue
-          let colorIndex = paletteBase + palette * (1 shl bpp) + index
-          let color = bgr555ToColor(snes.cgram[colorIndex and 0xFF])
-          image[tx * 8 + px, ty * 8 + py] = color
+      let sx = if (entry and 0x4000) != 0: 7 - (wx mod 8) else: wx mod 8
+      let sy = if (entry and 0x8000) != 0: 7 - subY else: subY
+      let index = snes.tilePixel(chrBase, tile, sx, sy, bpp)
+      if index == 0:
+        continue
+      let colorIndex = paletteBase + palette * (1 shl bpp) + index
+      image[px, py] = bgr555ToColor(snes.cgram[colorIndex and 0xFF])
 
 proc renderSprites(snes: SnesBus, image: Image) =
   ## Render OAM sprites (no per-scanline limits; front-to-back priority
@@ -105,7 +117,11 @@ proc renderSprites(snes: SnesBus, image: Image) =
     let table = (attr and 1).int
     let flipX = (attr and 0x40) != 0
     let flipY = (attr and 0x80) != 0
-    let tileBase = chrBase + table * (((snes.ppuRegs[0x01].int shr 3) and 3 + 1) shl 12)
+    # OBSEL bits 3-4: gap between the two sprite tile tables, in 8KB steps
+    # (plus the mandatory 8KB). Parenthesization matters: and binds looser
+    # than + in Nim, which previously garbled all table-1 sprites.
+    let nameGap = (((snes.ppuRegs[0x01].int shr 3) and 3) + 1) shl 12
+    let tileBase = (chrBase + table * nameGap) and 0x7FFF
 
     for py in 0..<size:
       let sy = if flipY: size - 1 - py else: py

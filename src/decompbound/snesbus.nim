@@ -45,6 +45,8 @@ type
     oam*: array[544, uint8]        ## 512 + 32 bytes of sprite tables.
     ## PPU port state.
     ppuRegs*: array[0x100, uint8]  ## Raw shadow of $21xx writes.
+    bgScroll*: array[8, uint16]  ## Latched BG1-4 H/V offsets ($210D-$2114).
+    bgScrollLatch: uint8         ## Shared write-twice prev-byte latch.
     vmain: uint8
     vmadd: uint16
     cgadd: uint16
@@ -127,6 +129,14 @@ proc ppuPortWrite(snes: SnesBus, offset: uint32, value: uint8): bool =
     if snes.oamAddr < 544:
       snes.oam[snes.oamAddr] = value
     snes.oamAddr = (snes.oamAddr + 1) and 0x3FF
+    true
+  of 0x210D, 0x210E, 0x210F, 0x2110, 0x2111, 0x2112, 0x2113, 0x2114:
+    # BG scroll registers are write-twice through a shared latch:
+    # low byte first, then high; full value assembles on the second write.
+    let index = (offset - 0x210D).int
+    snes.bgScroll[index] =
+      ((value.uint16 shl 8) or snes.bgScrollLatch.uint16) and 0x3FF
+    snes.bgScrollLatch = value
     true
   of 0x2115:
     snes.vmain = value
