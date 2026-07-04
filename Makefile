@@ -44,7 +44,7 @@ screenshot: nim.cfg
 	@echo "wrote bin/screenshot.png (APE logo era)"
 
 intro: nim.cfg
-	nim r src/tools/screenshot.nim "$(ROM)" bin/intro.png 16000000
+	nim r src/tools/screenshot.nim "$(ROM)" bin/intro.png 16000000 noinput
 	@echo "wrote bin/intro.png (the War Against Giygas title card)"
 
 title: nim.cfg

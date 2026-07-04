@@ -1,6 +1,6 @@
 ## Boots a ROM on the emulator and renders the PPU state to a PNG.
 ## Milestone 4 probe: what does Earthbound actually show?
-## Usage: nim r src/tools/screenshot.nim <rom> <out.png> [instructions]
+## Usage: nim r src/tools/screenshot.nim <rom> <out.png> [instructions] [noinput]
 
 import
   std/[os, strformat, strutils],
@@ -18,15 +18,26 @@ proc readRomFile(filepath: string): seq[uint8] =
     result[i] = data[start + i].uint8
 
 proc main() =
+  ## Boot ROM on emulator for the requested number of instructions and write PPU render to PNG.
   if paramCount() < 2:
-    echo "Usage: nim r src/tools/screenshot.nim <rom> <out.png> [instructions]"
+    echo "Usage: nim r src/tools/screenshot.nim <rom> <out.png> [instructions] [noinput]"
     quit(1)
 
-  var maxInstructions = 2_000_000
-  if paramCount() >= 3:
-    maxInstructions = parseInt(paramStr(3))
+  const
+    InstructionsPerFrame = 8000
+  let
+    maxInstructions =
+      if paramCount() >= 3:
+        let third = paramStr(3)
+        if third == "noinput":
+          2_000_000
+        else:
+          parseInt(third)
+      else:
+        2_000_000
+    noInput = (paramCount() >= 3 and paramStr(3) == "noinput") or
+              (paramCount() >= 4 and paramStr(4) == "noinput")
 
-  const InstructionsPerFrame = 8000
   let rom = readRomFile(paramStr(1))
   let snes = newSnesBus(rom)
   var cpu = snes.resetCpu()
@@ -35,9 +46,10 @@ proc main() =
     if (snes.nmitimen and 0x80) != 0 and
        executed mod InstructionsPerFrame == 0 and executed > 0:
       cpu.nmiPending = true
-      # Tap Start periodically so attract/title screens advance.
-      let frame = executed div InstructionsPerFrame
-      snes.joy1 = if frame mod 240 < 4: 0x1000'u16 else: 0
+      if not noInput:
+        # Tap Start periodically so attract/title screens advance.
+        let frame = executed div InstructionsPerFrame
+        snes.joy1 = if frame mod 240 < 4: 0x1000'u16 else: 0
     cpu.step(snes.bus)
     if cpu.stopped:
       break
