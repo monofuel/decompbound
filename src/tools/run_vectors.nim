@@ -70,7 +70,10 @@ proc runFile*(bus: Bus, path: string, limit: int): FileResult =
       touched.add address
 
     var cpu = loadCpu(test["initial"])
-    let expected = loadCpu(test["final"])
+    # SingleStepTests snapshots block moves after a 100-cycle budget.
+    cpu.mvnBudget = 100
+    var expected = loadCpu(test["final"])
+    expected.mvnBudget = 100
     cpu.step(bus)
 
     let diff = describeDiff(cpu, expected, bus, test["final"]["ram"])

@@ -18,14 +18,17 @@ const
   FlagN* = 0x80'u8
 
   MemSize* = 0x1000000  ## Full 24-bit address space for the test harness.
-  MvnCycleBudget* = 100  ## Cycle budget per block-move step (vector semantics).
 
 type
   Bus* = ref object
-    ## Flat 16MB memory. The harness resets dirtied bytes between tests;
-    ## the real SNES bus (MMIO, mirrors) layers on later.
+    ## Flat 16MB memory. The harness resets dirtied bytes between tests.
+    ## The SNES bus (snesbus.nim) layers mirrors and MMIO on via hooks:
+    ## readHook returns -1 to fall through to flat memory; writeHook
+    ## returns true when it fully handled the write.
     mem*: seq[uint8]
     dirty*: seq[int]
+    readHook*: proc(address: uint32): int
+    writeHook*: proc(address: uint32, value: uint8): bool
 
   Cpu* = object
     a*: uint16
@@ -40,6 +43,9 @@ type
     emulation*: bool
     stopped*: bool
     waiting*: bool
+    mvnBudget*: int  ## Cycle budget per block-move step. <= 0 means run to
+                     ## completion (hardware behavior); the vector harness
+                     ## sets 100 to match SingleStepTests snapshots.
 
 proc newBus*(): Bus =
   ## Allocate the flat memory bus.
@@ -47,10 +53,16 @@ proc newBus*(): Bus =
 
 proc read8*(bus: Bus, address: uint32): uint8 =
   ## Read one byte from the 24-bit address space.
+  if bus.readHook != nil:
+    let hooked = bus.readHook(address and 0xFFFFFF)
+    if hooked >= 0:
+      return hooked.uint8
   bus.mem[address and 0xFFFFFF]
 
 proc write8*(bus: Bus, address: uint32, value: uint8) =
   ## Write one byte and remember it for harness cleanup.
+  if bus.writeHook != nil and bus.writeHook(address and 0xFFFFFF, value):
+    return
   bus.mem[(address and 0xFFFFFF).int] = value
   bus.dirty.add (address and 0xFFFFFF).int
 
@@ -152,15 +164,12 @@ proc directOffset(cpu: Cpu, operand: uint8, index: uint16 = 0): uint16 =
     cpu.d + operand.uint16 + index
 
 proc directPointer16(cpu: Cpu, bus: Bus, operand: uint8, index: uint16 = 0): uint16 =
-  ## Read a 16-bit pointer from the direct page. In emulation mode with
-  ## DL == 0 the two pointer bytes wrap within the page.
-  if cpu.emulation and (cpu.d and 0xFF) == 0:
-    let lo = bus.read8(((cpu.d and 0xFF00) or ((operand.uint16 + index) and 0xFF)).uint32)
-    let hi = bus.read8(((cpu.d and 0xFF00) or ((operand.uint16 + index + 1) and 0xFF)).uint32)
-    lo.uint16 or (hi.uint16 shl 8)
-  else:
-    let base = cpu.d + operand.uint16 + index
-    bus.read16Wrap(0, base)
+  ## Read a 16-bit pointer from the direct page. The base honors the
+  ## emulation-mode DL == 0 page wrap for indexed forms (directOffset);
+  ## the second pointer byte reads linearly with 16-bit bank-0 wrap
+  ## (verified against silicon by SingleStepTests e1 e 8669).
+  let base = cpu.directOffset(operand, index)
+  bus.read16Wrap(0, base)
 
 type
   Operand = object
@@ -168,6 +177,7 @@ type
     isImmediate: bool
     value: uint16
     address: uint32
+    wrapBank0: bool  ## 16-bit accesses wrap within bank 0 (dp, sr modes).
 
 proc resolve(cpu: var Cpu, bus: Bus, mode: AddressingMode,
              indexIsX: bool): Operand =
@@ -191,10 +201,13 @@ proc resolve(cpu: var Cpu, bus: Bus, mode: AddressingMode,
     result.value = cpu.fetch8(bus).uint16
   of amDirectPage:
     result.address = cpu.directOffset(cpu.fetch8(bus)).uint32
+    result.wrapBank0 = true
   of amDirectPageX:
     result.address = cpu.directOffset(cpu.fetch8(bus), cpu.x).uint32
+    result.wrapBank0 = true
   of amDirectPageY:
     result.address = cpu.directOffset(cpu.fetch8(bus), cpu.y).uint32
+    result.wrapBank0 = true
   of amDpIndirect:
     let ptr16 = cpu.directPointer16(bus, cpu.fetch8(bus))
     result.address = (cpu.dbr.uint32 shl 16) or ptr16.uint32
@@ -235,6 +248,7 @@ proc resolve(cpu: var Cpu, bus: Bus, mode: AddressingMode,
     result.address = (lo.uint32 or (hi.uint32 shl 16)) + cpu.x.uint32
   of amStackRelative:
     result.address = ((cpu.s + cpu.fetch8(bus).uint16) and 0xFFFF).uint32
+    result.wrapBank0 = true
   of amStackRelativeY:
     let base = (cpu.s + cpu.fetch8(bus).uint16) and 0xFFFF
     let ptr16 = bus.read16Wrap(0, base)
@@ -244,19 +258,26 @@ proc resolve(cpu: var Cpu, bus: Bus, mode: AddressingMode,
   discard indexIsX
 
 proc loadValue(cpu: Cpu, bus: Bus, op: Operand, wide: bool): uint16 =
-  ## Load the operand value at instruction width.
+  ## Load the operand value at instruction width. Direct page and stack
+  ## relative accesses wrap within bank 0 for the high byte.
   if op.isImmediate:
     op.value
   elif wide:
-    bus.read16(op.address)
+    if op.wrapBank0:
+      bus.read16Wrap(0, (op.address and 0xFFFF).uint16)
+    else:
+      bus.read16(op.address)
   else:
     bus.read8(op.address).uint16
 
 proc storeValue(cpu: Cpu, bus: Bus, op: Operand, value: uint16, wide: bool) =
-  ## Store a result at instruction width.
+  ## Store a result at instruction width, honoring bank-0 wrap.
   bus.write8(op.address, (value and 0xFF).uint8)
   if wide:
-    bus.write8(op.address + 1, (value shr 8).uint8)
+    if op.wrapBank0:
+      bus.write8(((op.address + 1) and 0xFFFF), (value shr 8).uint8)
+    else:
+      bus.write8(op.address + 1, (value shr 8).uint8)
 
 proc adc(cpu: var Cpu, value: uint16) =
   ## Add with carry, honoring decimal mode and accumulator width.
@@ -803,9 +824,10 @@ proc step*(cpu: var Cpu, bus: Bus) =
     let dstBank = cpu.fetch8(bus)
     let srcBank = cpu.fetch8(bus)
     cpu.dbr = dstBank
+    let budget = if cpu.mvnBudget > 0: cpu.mvnBudget else: high(int) - 7
     var cycles = 0
     var finished = false
-    while cycles + 7 <= MvnCycleBudget:
+    while cycles + 7 <= budget:
       let srcAddr = (srcBank.uint32 shl 16) or cpu.x.uint32
       let dstAddr = (dstBank.uint32 shl 16) or cpu.y.uint32
       bus.write8(dstAddr, bus.read8(srcAddr))
@@ -822,7 +844,7 @@ proc step*(cpu: var Cpu, bus: Bus) =
         break
     if not finished:
       # Snapshot mid-move: PC sits partway through the next refetch.
-      let leftover = MvnCycleBudget - cycles
+      let leftover = budget - cycles
       cpu.pc = startPc + min(leftover, 3).uint16
 
   # Interrupts and misc.
