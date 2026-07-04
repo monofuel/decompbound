@@ -1,4 +1,4 @@
-.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play
+.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play frames
 
 # bash + pipefail: the test loop pipes nim through sed, and without
 # pipefail the pipeline's exit status is sed's (always 0), which turns
@@ -18,6 +18,7 @@ help:
 	@echo "  make play         - windowed interactive player (arrows/ZXAS/Enter/RShift/Space/N/F12/+/ - /Esc)"
 	@echo "  make intro        - screenshot the 'War Against Giygas' title card"
 	@echo "  make title        - screenshot deep into the attract sequence"
+	@echo "  make frames       - render reference frames to bin/frame_<N>.png"
 	@echo "  make song         - (WIP) render captured music to bin/song.wav"
 	@echo "  make vectors      - full 65816 CPU vector sweep (needs bin/65816-vectors)"
 	@echo "  make spc-vectors  - full SPC700 vector sweep (needs bin/spc700-vectors)"
@@ -51,6 +52,16 @@ intro: nim.cfg
 title: nim.cfg
 	nim r src/tools/screenshot.nim "$(ROM)" bin/title.png 64000000
 	@echo "wrote bin/title.png (deep attract / file select era)"
+
+frames: nim.cfg
+	nim r src/tools/screenshot.nim "$(ROM)" bin/frame_3629.png frame:3629 noinput
+	@echo "wrote bin/frame_3629.png (EarthBound logo assembled, pre-gradient)"
+	nim r src/tools/screenshot.nim "$(ROM)" bin/frame_4200.png frame:4200 noinput
+	@echo "wrote bin/frame_4200.png (logo with glow)"
+	nim r src/tools/screenshot.nim "$(ROM)" bin/frame_8000.png frame:8000 noinput
+	@echo "wrote bin/frame_8000.png (attract-mode world exploration with credits)"
+	nim r src/tools/screenshot.nim "$(ROM)" bin/frame_10000.png frame:10000 noinput
+	@echo "wrote bin/frame_10000.png (attract-mode world exploration with credits)"
 
 play: nim.cfg
 	nim r src/tools/play.nim "$(ROM)"
@@ -96,4 +107,4 @@ test: nim.cfg
 	exit $$fail
 
 clean:
-	rm -f bin/Decompbound.smc bin/screenshot.png bin/intro.png bin/title.png bin/song.wav
+	rm -f bin/Decompbound.smc bin/screenshot.png bin/intro.png bin/title.png bin/song.wav bin/frame_*.png

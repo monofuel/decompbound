@@ -1,11 +1,15 @@
 ## Boots a ROM on the emulator and renders the PPU state to a PNG.
 ## Milestone 4 probe: what does Earthbound actually show?
-## Usage: nim r src/tools/screenshot.nim <rom> <out.png> [instructions] [noinput]
+## Usage: nim r src/tools/screenshot.nim <rom> <out.png> [instructions|frame:N] [noinput]
 
 import
   std/[os, strformat, strutils],
   pixie,
   ../decompbound/[cpu, ppu, snesbus]
+
+const
+  InstructionsPerFrame = 8000
+  DefaultMaxInstructions = 2_000_000
 
 proc readRomFile(filepath: string): seq[uint8] =
   ## Read ROM file and return bytes, stripping a 512-byte copier header.
@@ -20,23 +24,23 @@ proc readRomFile(filepath: string): seq[uint8] =
 proc main() =
   ## Boot ROM on emulator for the requested number of instructions and write PPU render to PNG.
   if paramCount() < 2:
-    echo "Usage: nim r src/tools/screenshot.nim <rom> <out.png> [instructions] [noinput]"
+    echo "Usage: nim r src/tools/screenshot.nim <rom> <out.png> [instructions|frame:N] [noinput]"
     quit(1)
 
-  const
-    InstructionsPerFrame = 8000
-  let
-    maxInstructions =
-      if paramCount() >= 3:
-        let third = paramStr(3)
-        if third == "noinput":
-          2_000_000
-        else:
-          parseInt(third)
-      else:
-        2_000_000
-    noInput = (paramCount() >= 3 and paramStr(3) == "noinput") or
-              (paramCount() >= 4 and paramStr(4) == "noinput")
+  var
+    maxInstructions = DefaultMaxInstructions
+    noInput = false
+  if paramCount() >= 3:
+    let third = paramStr(3)
+    if third == "noinput":
+      noInput = true
+    elif third.startsWith("frame:"):
+      let frameNum = parseInt(third[6..^1])
+      maxInstructions = frameNum * InstructionsPerFrame
+    else:
+      maxInstructions = parseInt(third)
+  if paramCount() >= 4 and paramStr(4) == "noinput":
+    noInput = true
 
   let rom = readRomFile(paramStr(1))
   let snes = newSnesBus(rom)
@@ -47,7 +51,6 @@ proc main() =
        executed mod InstructionsPerFrame == 0 and executed > 0:
       cpu.nmiPending = true
       if not noInput:
-        # Tap Start periodically so attract/title screens advance.
         let frame = executed div InstructionsPerFrame
         snes.joy1 = if frame mod 240 < 4: 0x1000'u16 else: 0
     cpu.step(snes.bus)
