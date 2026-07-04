@@ -71,6 +71,62 @@ proc renderBg(snes: SnesBus, image: Image, bg: int, bpp: int,
           let color = bgr555ToColor(snes.cgram[colorIndex and 0xFF])
           image[tx * 8 + px, ty * 8 + py] = color
 
+proc renderSprites(snes: SnesBus, image: Image) =
+  ## Render OAM sprites (no per-scanline limits; front-to-back priority
+  ## approximated by drawing sprite 127 first so sprite 0 wins overlaps).
+  let obsel = snes.ppuRegs[0x01]
+  let chrBase = ((obsel.int and 0x07) shl 13) and 0x7FFF
+  let sizeSelect = (obsel.int shr 5) and 0x07
+  # Small/large pixel sizes per OBSEL size select.
+  let sizes = case sizeSelect:
+    of 0: (8, 16)
+    of 1: (8, 32)
+    of 2: (8, 64)
+    of 3: (16, 32)
+    of 4: (16, 64)
+    of 5: (32, 64)
+    else: (16, 32)
+
+  for sprite in countdown(127, 0):
+    let base = sprite * 4
+    let extra = snes.oam[512 + sprite div 4]
+    let extraShift = (sprite mod 4) * 2
+    let xHigh = (extra shr extraShift) and 1
+    let large = ((extra shr (extraShift + 1)) and 1) != 0
+    let size = if large: sizes[1] else: sizes[0]
+
+    var x = snes.oam[base].int or (xHigh.int shl 8)
+    if x >= 256:
+      x -= 512
+    let y = snes.oam[base + 1].int
+    let tile = snes.oam[base + 2].int
+    let attr = snes.oam[base + 3]
+    let paletteGroup = (attr.int shr 1) and 0x07
+    let table = (attr and 1).int
+    let flipX = (attr and 0x40) != 0
+    let flipY = (attr and 0x80) != 0
+    let tileBase = chrBase + table * (((snes.ppuRegs[0x01].int shr 3) and 3 + 1) shl 12)
+
+    for py in 0..<size:
+      let sy = if flipY: size - 1 - py else: py
+      let screenY = y + py
+      if screenY < 0 or screenY >= ScreenHeight:
+        continue
+      for px in 0..<size:
+        let sx = if flipX: size - 1 - px else: px
+        let screenX = x + px
+        if screenX < 0 or screenX >= ScreenWidth:
+          continue
+        # Sprites are built from 8x8 4bpp tiles in a 16x16-tile table.
+        let tileCol = (tile + sx div 8) and 0x0F
+        let tileRow = ((tile shr 4) + sy div 8) and 0x0F
+        let tileIndex = tileRow * 16 + tileCol
+        let index = snes.tilePixel(tileBase, tileIndex, sx mod 8, sy mod 8, 4)
+        if index == 0:
+          continue
+        let color = bgr555ToColor(snes.cgram[128 + paletteGroup * 16 + index])
+        image[screenX, screenY] = color
+
 proc renderFrame*(snes: SnesBus): Image =
   ## Render the current PPU state: backdrop, then BG layers back to front.
   result = newImage(ScreenWidth, ScreenHeight)
@@ -99,3 +155,7 @@ proc renderFrame*(snes: SnesBus): Image =
   else:
     # Other modes not implemented yet; backdrop only.
     discard
+
+  # Sprites over backgrounds (per-pixel BG/OBJ priority comes later).
+  if (mainScreen and 0x10) != 0:
+    snes.renderSprites(result)

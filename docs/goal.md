@@ -113,15 +113,21 @@ mnemonics), the emulator verifies semantics (what the code does).
 
 ### Milestone ladder
 
-1. 65816 CPU core passing per-instruction test vectors (TomHarte
-   SingleStepTests has 65816 JSON vectors — crisp, parallelizable,
-   ungameable; ideal for agent sessions).
-2. Memory map + DMA + interrupt vectors: executes the real boot/init code,
-   trace-matches a reference emulator (e.g. Mesen2 trace logs).
-3. APU handshake HLE: boot proceeds past the audio wait.
-4. PPU rendering into a pixie framebuffer: screenshot-match splash screen,
-   then title screen, against a reference emulator.
-5. Input + SRAM: walk around Onett, save the game.
+1. [DONE 2026-07-04] 65816 CPU core passing per-instruction test vectors:
+   5,120,000/5,120,000 SingleStepTests vectors, native + emulation
+   (`cpu.nim`, `tests/test_cpu.nim`, `tools/run_vectors.nim`).
+2. [DONE 2026-07-04] Memory map + DMA + interrupt vectors: the real ROM
+   boots on the core (`snesbus.nim`) — WRAM clear, PPU init, sound driver
+   upload, NMI-driven main loop (`tests/test_emulator.nim` pins depth).
+3. [DONE 2026-07-04] APU handshake HLE incl. driver-ready and the $FF
+   reboot-to-bootROM command the game uses between intro screens.
+4. [MOSTLY DONE 2026-07-04] PPU rendering into pixie (`ppu.nim`,
+   `tools/screenshot.nim`): modes 0/1/3 backgrounds render the boot
+   sequence pixel-perfect — anti-piracy warning, APE logo, and the
+   "War Against Giygas" title card. Remaining: sprites (OAM), scroll,
+   HDMA effects, remaining modes.
+5. Input + SRAM: SRAM done (the anti-piracy check demanded it); joypad
+   auto-read next — then walk around Onett, save the game.
 6. Real audio (SPC700 + DSP) integrated into the emulator. See Goal 2a below —
    the audio cores are built early as a standalone track and slot in here.
 

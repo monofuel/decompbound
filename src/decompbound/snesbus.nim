@@ -43,6 +43,8 @@ type
     ## DMA channel registers, 8 channels x $43x0-$43x7.
     dmaRegs*: array[0x80, uint8]
     dmaTransfers*: int  ## Count of completed DMA transfers (debug aid).
+    joy1*: uint16  ## Auto-read joypad 1 state ($4218/19). Bit layout:
+                   ## high byte B,Y,Sel,Start,U,D,L,R; low byte A,X,L,R.
     sram*: array[0x2000, uint8]  ## 8KB battery SRAM, mirrored across the
                                  ## HiROM SRAM window (banks $20-$3F /
                                  ## $A0-$BF at $6000-$7FFF). Earthbound's
@@ -81,6 +83,10 @@ proc mmioRead(snes: SnesBus, offset: uint32): uint8 =
     if snes.vblankToggle: 0xC2'u8 else: 0x42'u8
   of 0x4211:
     0x00  # TIMEUP: no IRQ pending.
+  of 0x4218:
+    (snes.joy1 and 0xFF).uint8
+  of 0x4219:
+    (snes.joy1 shr 8).uint8
   of 0x4212:
     # HVBJOY: toggle vblank/hblank bits so polls terminate.
     snes.vblankToggle = not snes.vblankToggle

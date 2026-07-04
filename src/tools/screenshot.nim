@@ -35,6 +35,9 @@ proc main() =
     if (snes.nmitimen and 0x80) != 0 and
        executed mod InstructionsPerFrame == 0 and executed > 0:
       cpu.nmiPending = true
+      # Tap Start periodically so attract/title screens advance.
+      let frame = executed div InstructionsPerFrame
+      snes.joy1 = if frame mod 240 < 4: 0x1000'u16 else: 0
     cpu.step(snes.bus)
     if cpu.stopped:
       break
