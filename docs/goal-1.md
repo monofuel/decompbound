@@ -75,23 +75,29 @@ disassemble each newly reachable routine, label it, land it in source,
 round-trip it. The code map grows along real control flow instead of
 arbitrary offsets.
 
-## Definition of done
+## Definition of done — COMPLETE 2026-07-04
 
-- [ ] Opcode table covers all 256 opcodes; disassembler and assembler both
-      derive from it.
-- [ ] Round-trip property holds: `assemble(disassemble(bytes)) == bytes` for
-      every traced code region, enforced in the test suite.
-- [ ] Reverse fuzz passes: random valid instruction -> bytes -> disassemble ->
-      same instruction.
-- [ ] The full static call graph from the reset vector — every routine
-      reachable through direct `JSR`/`JSL`/`JML`/`JMP`/branches — exists as
-      labeled asm source and assembles byte-exact against gold.
-- [ ] The frontier is explicit: computed/indirect jumps (jump tables etc.) are
-      declared as TODO frontier markers, never guessed at.
-- [ ] Zero raw byte literals inside code regions (lintable rule; data regions
-      are exempt but explicitly declared as data).
-- [ ] The 8 known transcription bugs are gone, verified by the compare
-      harness reporting 100% on all implemented code regions.
+- [x] Opcode table covers all 256 opcodes; disassembler and assembler both
+      derive from it (`opcodes.nim`; `tests/test_asm.nim` tableIntegrity).
+- [x] Round-trip property holds: `assemble(disassemble(bytes)) == bytes` for
+      every traced code region, enforced in the test suite
+      (`tests/test_regions.nim` verifies every region against gold per-byte).
+- [x] Reverse fuzz passes: exhaustive per-opcode encode/decode under all
+      flag states (`tests/test_asm.nim` exhaustiveRoundTrip).
+- [x] The full static call graph from the reset vector exists as labeled asm
+      source and assembles byte-exact against gold: 266 generated regions,
+      141,963 bytes, 100.00% match (`src/decompbound/generated/`,
+      regenerable via `tools/convert_all.nim`).
+- [x] The frontier is explicit: 21 computed/indirect jump sites recorded in
+      `generated/frontier.md`, never guessed at.
+- [x] Zero raw byte literals inside code regions, enforced by the whitelist
+      lint (`tests/test_lint.nim`) that fails the build on any non-DSL line.
+- [x] All transcription bugs gone (8 byte-level + the `$C08000` comment
+      swap); compare harness reports 100% on all implemented regions.
+
+Goal 1 is done. The next horizons are `docs/goal.md` Goal 2 (the emulator,
+which opens the 21 frontier doors by observing jump targets at runtime) and
+Goal 2a (`docs/audio.md`, the standalone SPC player).
 
 ## Non-goals for this MVP
 
