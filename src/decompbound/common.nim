@@ -8,13 +8,3 @@ const
   EarthboundRomSize* = 3 * 1024 * 1024
   ResetVectorOffset* = 0xFFF0
   ResetVectorSize* = 16
-  InitCodeOffset* = 0x010000
-  InitCodeSize* = 512
-  ResetHandlerOffset* = 0x8141
-  ResetHandlerSize* = 704
-  BrkHandlerOffset* = 0x8147
-  BrkHandlerSize* = 128
-  EarlySubroutineOffset* = 0x0A1D
-  EarlySubroutineSize* = 512
-  SubroutineA156Offset* = 0xA156
-  SubroutineA156Size* = 182

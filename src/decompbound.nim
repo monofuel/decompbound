@@ -6,49 +6,25 @@
 
 import
   std/[strformat, parseopt, osproc],
-  decompbound/[common, header, vectors, init, reset, brk, early, subroutine_a156]
+  decompbound/[common, regions]
 
 proc generateRom(): string =
   ## Generate the decomp ROM from our reverse-engineered code and data.
-  ## This builds the ROM based on our understanding, not by copying from the gold master.
-  let headerData = generateEarthboundHeader()
-  let resetVectors = generateResetVectors()
-  let initCode = generateInitCode()
-  let resetHandler = generateResetHandler()
-  let brkHandler = generateBrkHandler()
-  let earlySubroutine = generateEarlySubroutine()
-  let subroutineA156 = generateSubroutineA156()
-  
+  ## Every region comes from the central registry: code regions are
+  ## assembled from disassembled mnemonics, data regions are declared data.
   var rom = newString(EarthboundRomSize)
   for i in 0..<rom.len:
     rom[i] = '\x00'
-  
-  for i in 0..<headerData.len:
-    rom[HiRomHeaderOffset + i] = headerData[i].char
-  
-  for i in 0..<resetVectors.len:
-    rom[ResetVectorOffset + i] = resetVectors[i].char
-  
-  for i in 0..<initCode.len:
-    rom[InitCodeOffset + i] = initCode[i].char
-  
-  for i in 0..<resetHandler.len:
-    rom[ResetHandlerOffset + i] = resetHandler[i].char
-  
-  for i in 0..<brkHandler.len:
-    rom[BrkHandlerOffset + i] = brkHandler[i].char
-  
-  for i in 0..<earlySubroutine.len:
-    rom[EarlySubroutineOffset + i] = earlySubroutine[i].char
-  
-  for i in 0..<subroutineA156.len:
-    rom[SubroutineA156Offset + i] = subroutineA156[i].char
-  
+
+  for region in allRegions():
+    for i in 0..<region.data.len:
+      rom[region.offset + i] = region.data[i].char
+
   result = rom
 
 when isMainModule:
   var runCompare = false
-  
+
   var p = initOptParser()
   for kind, key, val in p.getOpt():
     case kind:
@@ -62,14 +38,14 @@ when isMainModule:
       discard
     of cmdEnd:
       discard
-  
+
   echo "Generating decomp ROM from reverse-engineered code..."
-  
+
   let rom = generateRom()
   writeFile(outputRom, rom)
-  
+
   echo &"Generated ROM: {outputRom} ({rom.len} bytes)"
-  
+
   if runCompare:
     echo ""
     echo "Running comparison against gold master ROM..."

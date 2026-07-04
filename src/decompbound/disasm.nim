@@ -1,941 +1,187 @@
-## Disassembler for 65816 assembly.
-## Converts ROM bytes into readable assembly instructions.
+## Table-driven 65816 disassembler and control-flow tracer.
+## Instruction decoding derives from the shared opcode table (opcodes.nim)
+## via assembler.nim, so the disassembler structurally cannot disagree with
+## the assembler. Branch targets are resolved through the canonical HiROM
+## mapping (memmap.nim).
 
 import
-  std/[strformat, strutils, tables, sets]
+  std/[sets, strformat, tables],
+  ./[assembler, memmap, opcodes]
 
 type
-  AddressingMode* = enum
-    Implied
-    Accumulator
-    Immediate8
-    Immediate16
-    Absolute
-    AbsoluteLong
-    DirectPage
-    DirectPageIndexedX
-    DirectPageIndexedY
-    AbsoluteIndexedX
-    AbsoluteIndexedY
-    AbsoluteLongIndexedX
-    Indirect
-    IndirectLong
-    IndirectIndexedY
-    IndirectLongIndexedY
-    DirectPageIndirect
-    DirectPageIndirectLong
-    DirectPageIndirectIndexedY
-    DirectPageIndirectLongIndexedY
-    Relative8
-    Relative16
-    BlockMove
-  
-  Instruction* = object
-    opcode*: string
-    mode*: AddressingMode
-    operand*: uint32
-    operand2*: uint32
-    size*: int
-    address*: uint32
-  
-  DisasmState = object
-    accumulator8Bit: bool
-    index8Bit: bool
-    labels: seq[uint32]
-  
   ByteType* = enum
     Unknown
     Code
     Data
     Padding
-  
+
   RomAnalysis* = object
     byteTypes*: seq[ByteType]
-    codeAddresses*: seq[uint32]
-    dataAddresses*: seq[uint32]
-    entryPoints*: seq[uint32]
-    crossReferences*: Table[uint32, seq[uint32]]
+    entryPoints*: seq[int]  ## File offsets tracing started from.
+    crossReferences*: Table[int, seq[int]]  ## File offset target -> sources.
 
-proc formatAddress(`addr`: uint32): string =
-  ## Format address as hex with $ prefix.
-  result = &"${`addr`:04X}"
+  Disassembly* = object
+    fileOffset*: int
+    instr*: Instruction
 
-proc formatAddressLong(`addr`: uint32): string =
-  ## Format address as long hex with $ prefix.
-  result = &"${`addr`:06X}"
+const
+  ReturnMnemonics = ["RTS", "RTL", "RTI"]
+  CallMnemonics = ["JSR", "JSL"]
+  JumpMnemonics = ["JMP", "JML", "BRA", "BRL"]
+  BranchMnemonics = ["BPL", "BMI", "BVC", "BVS", "BCC", "BCS", "BNE", "BEQ"]
 
-proc formatOperand(mode: AddressingMode, operand: uint32, operand2: uint32 = 0, `address`: uint32 = 0): string =
-  ## Format operand based on addressing mode.
-  case mode:
-  of Implied, Accumulator:
-    result = ""
-  of Immediate8:
-    result = &"#${operand:02X}"
-  of Immediate16:
-    result = &"#${operand:04X}"
-  of Absolute:
-    result = formatAddress(operand.uint16)
-  of AbsoluteLong:
-    result = formatAddressLong(operand)
-  of DirectPage:
-    result = &"${operand:02X}"
-  of DirectPageIndexedX:
-    result = &"${operand:02X},X"
-  of DirectPageIndexedY:
-    result = &"${operand:02X},Y"
-  of AbsoluteIndexedX:
-    result = &"{formatAddress(operand.uint16)},X"
-  of AbsoluteIndexedY:
-    result = &"{formatAddress(operand.uint16)},Y"
-  of AbsoluteLongIndexedX:
-    result = &"{formatAddressLong(operand)},X"
-  of Indirect:
-    result = &"({formatAddress(operand.uint16)})"
-  of IndirectLong:
-    result = &"[{formatAddress(operand.uint16)}]"
-  of IndirectIndexedY:
-    result = &"({formatAddress(operand.uint16)}),Y"
-  of IndirectLongIndexedY:
-    result = &"[{formatAddress(operand.uint16)}],Y"
-  of DirectPageIndirect:
-    result = &"(${operand:02X})"
-  of DirectPageIndirectLong:
-    result = &"[${operand:02X}]"
-  of DirectPageIndirectIndexedY:
-    result = &"(${operand:02X}),Y"
-  of DirectPageIndirectLongIndexedY:
-    result = &"[${operand:02X}],Y"
-  of Relative8:
-    let target = (`address`.int + 2 + operand.int8.int) and 0xFFFF
-    result = formatAddress(target.uint16)
-  of Relative16:
-    let target = (`address`.int + 3 + operand.int16.int) and 0xFFFF
-    result = formatAddress(target.uint16)
-  of BlockMove:
-    result = &"${operand:02X},${operand2:02X}"
+proc mnemonic*(instr: Instruction): string =
+  ## The mnemonic for a decoded instruction, from the shared table.
+  OpcodeTable[instr.opcode].mnemonic
 
-proc disassembleInstruction(data: seq[uint8], offset: int, state: var DisasmState): Instruction =
-  ## Disassemble a single instruction at the given offset.
-  if offset >= data.len:
-    return Instruction(opcode: "???", mode: Implied, size: 1, address: offset.uint32)
-  
-  let opcode = data[offset]
-  var size = 1
-  var mode = Implied
-  var operand: uint32 = 0
-  var operand2: uint32 = 0
-  
-  case opcode:
-  # Single byte instructions
-  of 0x00: result.opcode = "BRK"; mode = Implied
-  of 0x08: result.opcode = "PHP"; mode = Implied
-  of 0x0B: result.opcode = "PHD"; mode = Implied
-  of 0x18: result.opcode = "CLC"; mode = Implied
-  of 0x1A: result.opcode = "INC"; mode = Accumulator
-  of 0x28: result.opcode = "PLP"; mode = Implied
-  of 0x2A: result.opcode = "ROL"; mode = Accumulator
-  of 0x2B: result.opcode = "PLD"; mode = Implied
-  of 0x38: result.opcode = "SEC"; mode = Implied
-  of 0x3A: result.opcode = "DEC"; mode = Accumulator
-  of 0x40: result.opcode = "RTI"; mode = Implied
-  of 0x48: result.opcode = "PHA"; mode = Implied
-  of 0x4A: result.opcode = "LSR"; mode = Accumulator
-  of 0x58: result.opcode = "CLI"; mode = Implied
-  of 0x5A: result.opcode = "PHY"; mode = Implied
-  of 0x5B: result.opcode = "TCD"; mode = Implied
-  of 0x60: result.opcode = "RTS"; mode = Implied
-  of 0x68: result.opcode = "PLA"; mode = Implied
-  of 0x6A: result.opcode = "ROR"; mode = Accumulator
-  of 0x6B: result.opcode = "RTL"; mode = Implied
-  of 0x78: result.opcode = "SEI"; mode = Implied
-  of 0x7A: result.opcode = "PLY"; mode = Implied
-  of 0x7B: result.opcode = "TDC"; mode = Implied
-  of 0x88: result.opcode = "DEY"; mode = Implied
-  of 0x8A: result.opcode = "TXA"; mode = Implied
-  of 0x8B: result.opcode = "PHB"; mode = Implied
-  of 0x98: result.opcode = "TYA"; mode = Implied
-  of 0x9A: result.opcode = "TXS"; mode = Implied
-  of 0x9B: result.opcode = "TXY"; mode = Implied
-  of 0xA8: result.opcode = "TAY"; mode = Implied
-  of 0xAA: result.opcode = "TAX"; mode = Implied
-  of 0xAB: result.opcode = "PLB"; mode = Implied
-  of 0xB8: result.opcode = "CLV"; mode = Implied
-  of 0xBA: result.opcode = "TSX"; mode = Implied
-  of 0xBB: result.opcode = "TYX"; mode = Implied
-  of 0xC8: result.opcode = "INY"; mode = Implied
-  of 0xCA: result.opcode = "DEX"; mode = Implied
-  of 0xCB: result.opcode = "WAI"; mode = Implied
-  of 0xD8: result.opcode = "CLD"; mode = Implied
-  of 0xDA: result.opcode = "PHX"; mode = Implied
-  of 0xDB: result.opcode = "STP"; mode = Implied
-  of 0xE8: result.opcode = "INX"; mode = Implied
-  of 0xEA: result.opcode = "NOP"; mode = Implied
-  of 0xEB: result.opcode = "XBA"; mode = Implied
-  of 0xF4:
-    result.opcode = "PEA"
-    mode = Immediate16
-    size = 3
-    if offset + 2 < data.len:
-      operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-  of 0xF8: result.opcode = "SED"; mode = Implied
-  of 0xFA: result.opcode = "PLX"; mode = Implied
-  of 0xFB: result.opcode = "XCE"; mode = Implied
-  of 0xFC:
-    result.opcode = "JSR"
-    mode = AbsoluteIndexedX
-    size = 3
-    if offset + 2 < data.len:
-      operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-  
-  # LDA instructions
-  of 0xA9:
-    result.opcode = "LDA"
-    if state.accumulator8Bit:
-      mode = Immediate8
-      size = 2
-      if offset + 1 < data.len:
-        operand = data[offset + 1].uint32
-    else:
-      mode = Immediate16
-      size = 3
-      if offset + 2 < data.len:
-        operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-  of 0xA5:
-    result.opcode = "LDA"
-    mode = DirectPage
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  of 0xAD:
-      result.opcode = "LDA"
-      mode = Absolute
-      size = 3
-      if offset + 2 < data.len:
-        operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-  of 0xAF:
-    result.opcode = "LDA"
-    mode = AbsoluteLong
-    size = 4
-    if offset + 3 < data.len:
-      operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8) or (data[offset + 3].uint32 shl 16)
-  of 0xA7:
-    result.opcode = "LDA"
-    mode = DirectPageIndirectLong
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  of 0xB7:
-    result.opcode = "LDA"
-    mode = DirectPageIndirectLongIndexedY
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  of 0xBD:
-    result.opcode = "LDA"
-    mode = AbsoluteIndexedX
-    size = 3
-    if offset + 2 < data.len:
-      operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-  of 0xBF:
-    result.opcode = "LDA"
-    mode = AbsoluteLongIndexedX
-    size = 4
-    if offset + 3 < data.len:
-      operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8) or (data[offset + 3].uint32 shl 16)
-  
-  # STA instructions
-  of 0x85:
-    result.opcode = "STA"
-    mode = DirectPage
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  of 0x8D:
-    result.opcode = "STA"
-    mode = Absolute
-    size = 3
-    if offset + 2 < data.len:
-      operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-  of 0x8F:
-    result.opcode = "STA"
-    mode = AbsoluteLong
-    size = 4
-    if offset + 3 < data.len:
-      operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8) or (data[offset + 3].uint32 shl 16)
-  of 0x9D:
-    result.opcode = "STA"
-    mode = AbsoluteIndexedX
-    size = 3
-    if offset + 2 < data.len:
-      operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-  of 0x91:
-    result.opcode = "STA"
-    mode = DirectPageIndirectIndexedY
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  
-  # STZ instructions
-  of 0x64:
-    result.opcode = "STZ"
-    mode = DirectPage
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  of 0x9C:
-    result.opcode = "STZ"
-    mode = Absolute
-    size = 3
-    if offset + 2 < data.len:
-      operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-  
-  # LDX instructions
-  of 0xA2:
-    result.opcode = "LDX"
-    if state.index8Bit:
-      mode = Immediate8
-      size = 2
-      if offset + 1 < data.len:
-        operand = data[offset + 1].uint32
-    else:
-      mode = Immediate16
-      size = 3
-      if offset + 2 < data.len:
-        operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-  of 0xA6:
-    result.opcode = "LDX"
-    mode = DirectPage
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  of 0xAE:
-    result.opcode = "LDX"
-    mode = Absolute
-    size = 3
-    if offset + 2 < data.len:
-      operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-  
-  # LDY instructions
-  of 0xA0:
-    result.opcode = "LDY"
-    if state.index8Bit:
-      mode = Immediate8
-      size = 2
-      if offset + 1 < data.len:
-        operand = data[offset + 1].uint32
-    else:
-      mode = Immediate16
-      size = 3
-      if offset + 2 < data.len:
-        operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-  of 0xA4:
-    result.opcode = "LDY"
-    mode = DirectPage
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  of 0xAC:
-    result.opcode = "LDY"
-    mode = Absolute
-    size = 3
-    if offset + 2 < data.len:
-      operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-  of 0xBC:
-    result.opcode = "LDY"
-    mode = AbsoluteIndexedX
-    size = 3
-    if offset + 2 < data.len:
-      operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-  
-  # STX instructions
-  of 0x86:
-    result.opcode = "STX"
-    mode = DirectPage
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  of 0x8E:
-    result.opcode = "STX"
-    mode = Absolute
-    size = 3
-    if offset + 2 < data.len:
-      operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-  
-  # STY instructions
-  of 0x84:
-    result.opcode = "STY"
-    mode = DirectPage
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  of 0x8C:
-    result.opcode = "STY"
-    mode = Absolute
-    size = 3
-    if offset + 2 < data.len:
-      operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-  
-  # JSR instructions
-  of 0x20:
-    result.opcode = "JSR"
-    mode = Absolute
-    size = 3
-    if offset + 2 < data.len:
-      operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-      state.labels.add(operand.uint32)
-  
-  # JSL instructions
-  of 0x22:
-    result.opcode = "JSL"
-    mode = AbsoluteLong
-    size = 4
-    if offset + 3 < data.len:
-      operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8) or (data[offset + 3].uint32 shl 16)
-      state.labels.add(operand.uint32)
-  
-  # JMP instructions
-  of 0x4C:
-    result.opcode = "JMP"
-    mode = Absolute
-    size = 3
-    if offset + 2 < data.len:
-      operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-      state.labels.add(operand.uint32)
-  
-  # JML instructions
-  of 0x5C:
-    result.opcode = "JML"
-    mode = AbsoluteLong
-    size = 4
-    if offset + 3 < data.len:
-      operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8) or (data[offset + 3].uint32 shl 16)
-      state.labels.add(operand.uint32)
-  
-  # Branch instructions
-  of 0x10:
-    result.opcode = "BPL"
-    mode = Relative8
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  of 0x30:
-    result.opcode = "BMI"
-    mode = Relative8
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  of 0x50:
-    result.opcode = "BVC"
-    mode = Relative8
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  of 0x70:
-    result.opcode = "BVS"
-    mode = Relative8
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  of 0x80:
-    result.opcode = "BRA"
-    mode = Relative8
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  of 0x90:
-    result.opcode = "BCC"
-    mode = Relative8
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  of 0xB0:
-    result.opcode = "BCS"
-    mode = Relative8
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  of 0xD0:
-    result.opcode = "BNE"
-    mode = Relative8
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  of 0xF0:
-    result.opcode = "BEQ"
-    mode = Relative8
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  
-  # Arithmetic operations
-  of 0x65:
-    result.opcode = "ADC"
-    mode = DirectPage
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  of 0x69:
-    result.opcode = "ADC"
-    if state.accumulator8Bit:
-      mode = Immediate8
-      size = 2
-      if offset + 1 < data.len:
-        operand = data[offset + 1].uint32
-    else:
-      mode = Immediate16
-      size = 3
-      if offset + 2 < data.len:
-        operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-  of 0x6D:
-    result.opcode = "ADC"
-    mode = Absolute
-    size = 3
-    if offset + 2 < data.len:
-      operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-  
-  # CMP instructions
-  of 0xC5:
-    result.opcode = "CMP"
-    mode = DirectPage
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  of 0xC9:
-    result.opcode = "CMP"
-    if state.accumulator8Bit:
-      mode = Immediate8
-      size = 2
-      if offset + 1 < data.len:
-        operand = data[offset + 1].uint32
-    else:
-      mode = Immediate16
-      size = 3
-      if offset + 2 < data.len:
-        operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-  of 0xCD:
-    result.opcode = "CMP"
-    mode = Absolute
-    size = 3
-    if offset + 2 < data.len:
-      operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-  of 0xCF:
-    result.opcode = "CMP"
-    mode = AbsoluteLong
-    size = 4
-    if offset + 3 < data.len:
-      operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8) or (data[offset + 3].uint32 shl 16)
-  of 0xC0:
-    result.opcode = "CPY"
-    if state.index8Bit:
-      mode = Immediate8
-      size = 2
-      if offset + 1 < data.len:
-        operand = data[offset + 1].uint32
-    else:
-      mode = Immediate16
-      size = 3
-      if offset + 2 < data.len:
-        operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-  of 0xE4:
-    result.opcode = "CPX"
-    if state.index8Bit:
-      mode = Immediate8
-      size = 2
-      if offset + 1 < data.len:
-        operand = data[offset + 1].uint32
-    else:
-      mode = Immediate16
-      size = 3
-      if offset + 2 < data.len:
-        operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-  of 0xE0:
-    result.opcode = "CPX"
-    if state.index8Bit:
-      mode = Immediate8
-      size = 2
-      if offset + 1 < data.len:
-        operand = data[offset + 1].uint32
-    else:
-      mode = Immediate16
-      size = 3
-      if offset + 2 < data.len:
-        operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-  
-  # AND instructions
-  of 0x29:
-    result.opcode = "AND"
-    if state.accumulator8Bit:
-      mode = Immediate8
-      size = 2
-      if offset + 1 < data.len:
-        operand = data[offset + 1].uint32
-    else:
-      mode = Immediate16
-      size = 3
-      if offset + 2 < data.len:
-        operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-  of 0x25:
-    result.opcode = "AND"
-    mode = DirectPage
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  
-  # ORA instructions
-  of 0x09:
-    result.opcode = "ORA"
-    if state.accumulator8Bit:
-      mode = Immediate8
-      size = 2
-      if offset + 1 < data.len:
-        operand = data[offset + 1].uint32
-    else:
-      mode = Immediate16
-      size = 3
-      if offset + 2 < data.len:
-        operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-  
-  # EOR instructions
-  of 0x49:
-    result.opcode = "EOR"
-    if state.accumulator8Bit:
-      mode = Immediate8
-      size = 2
-      if offset + 1 < data.len:
-        operand = data[offset + 1].uint32
-    else:
-      mode = Immediate16
-      size = 3
-      if offset + 2 < data.len:
-        operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-  
-  # INC instructions
-  of 0xE6:
-    result.opcode = "INC"
-    mode = DirectPage
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  of 0xEE:
-    result.opcode = "INC"
-    mode = Absolute
-    size = 3
-    if offset + 2 < data.len:
-      operand = (data[offset + 1].uint32) or (data[offset + 2].uint32 shl 8)
-  
-  # DEC instructions
-  of 0xC6:
-    result.opcode = "DEC"
-    mode = DirectPage
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  
-  # REP/SEP instructions
-  of 0xC2:
-    result.opcode = "REP"
-    mode = Immediate8
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-      if (operand and 0x20) == 0:
-        state.accumulator8Bit = false
-      if (operand and 0x10) == 0:
-        state.index8Bit = false
-  of 0xE2:
-    result.opcode = "SEP"
-    mode = Immediate8
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-      if (operand and 0x20) != 0:
-        state.accumulator8Bit = true
-      if (operand and 0x10) != 0:
-        state.index8Bit = true
-  
-  # ASL instructions
-  of 0x0A:
-    result.opcode = "ASL"
-    mode = Accumulator
-  of 0x06:
-    result.opcode = "ASL"
-    mode = DirectPage
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  
-  # LSR instructions (0x4A already handled as Accumulator mode above)
-  of 0x46:
-    result.opcode = "LSR"
-    mode = DirectPage
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  
-  # ROL instructions (0x2A already handled as Accumulator mode above)
-  of 0x26:
-    result.opcode = "ROL"
-    mode = DirectPage
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  
-  # ROR instructions (0x6A already handled as Accumulator mode above)
-  of 0x66:
-    result.opcode = "ROR"
-    mode = DirectPage
-    size = 2
-    if offset + 1 < data.len:
-      operand = data[offset + 1].uint32
-  
-  else:
-    result.opcode = &"???(${opcode:02X})"
-    mode = Implied
-    size = 1
-  
-  result.mode = mode
-  result.operand = operand
-  result.operand2 = operand2
-  result.size = size
-  result.address = offset.uint32
-
-proc formatInstruction*(instr: Instruction, labels: seq[uint32] = @[]): string =
-  ## Format an instruction as a string.
-  let operandStr = formatOperand(instr.mode, instr.operand, instr.operand2, instr.address)
-  
-  # Check if this address is a label target
-  var labelName = ""
-  for i, labelAddr in labels:
-    if labelAddr == instr.address:
-      labelName = &"label_{labelAddr:04X}:"
-      break
-  
-  if operandStr.len > 0:
-    result = &"{instr.opcode} {operandStr}"
-  else:
-    result = instr.opcode
-  
-  if labelName.len > 0:
-    result = &"{labelName} {result}"
-
-proc disassemble*(data: seq[uint8], startOffset: int = 0, maxInstructions: int = 100): seq[Instruction] =
-  ## Disassemble a sequence of bytes into instructions.
-  var state = DisasmState(accumulator8Bit: false, index8Bit: false)
-  var offset = startOffset
-  var count = 0
-  
-  # First pass: collect all labels
-  while offset < data.len and count < maxInstructions:
-    let instr = disassembleInstruction(data, offset, state)
-    offset += instr.size
-    count += 1
-  
-  # Second pass: actually disassemble with label context
-  state = DisasmState(accumulator8Bit: false, index8Bit: false)
-  offset = startOffset
-  count = 0
-  
-  while offset < data.len and count < maxInstructions:
-    let instr = disassembleInstruction(data, offset, state)
-    result.add(instr)
-    offset += instr.size
-    count += 1
-
-proc getBranchTarget*(instr: Instruction): uint32 =
-  ## Get the target address of a branch or jump instruction.
-  ## Returns 0 if not a branch/jump.
-  case instr.mode:
-  of Relative8:
-    # Sign-extend 8-bit value to int
-    var signedOffset: int
-    if (instr.operand and 0x80) != 0:
-      signedOffset = (instr.operand.int or 0xFFFFFF00)
-    else:
-      signedOffset = instr.operand.int
-    result = ((instr.address.int + 2 + signedOffset) and 0xFFFF).uint32
-  of Relative16:
-    # Sign-extend 16-bit value to int
-    var signedOffset: int
-    if (instr.operand and 0x8000) != 0:
-      signedOffset = (instr.operand.int or 0xFFFF0000)
-    else:
-      signedOffset = instr.operand.int
-    result = ((instr.address.int + 3 + signedOffset) and 0xFFFF).uint32
-  of Absolute:
-    if instr.opcode in ["JSR", "JMP"]:
-      result = instr.operand.uint32
-  of AbsoluteLong:
-    if instr.opcode in ["JSL", "JML"]:
-      result = instr.operand.uint32
-  else:
-    result = 0
+proc mode*(instr: Instruction): AddressingMode =
+  ## The addressing mode for a decoded instruction, from the shared table.
+  OpcodeTable[instr.opcode].mode
 
 proc isControlFlow*(instr: Instruction): bool =
-  ## Check if instruction is a control flow instruction (branch, jump, call, return).
-  result = instr.opcode in ["JSR", "JSL", "JMP", "JML", "RTS", "RTL", "RTI", "BRA", "BEQ", "BNE", "BPL", "BMI", "BCC", "BCS", "BVC", "BVS"]
+  ## Whether the instruction changes control flow.
+  let m = instr.mnemonic
+  m in ReturnMnemonics or m in CallMnemonics or m in JumpMnemonics or
+    m in BranchMnemonics
 
-proc isEntryPoint*(address: uint32, knownRegions: seq[tuple[start: int, `end`: int]]): bool =
-  ## Check if an address is a known entry point based on implemented regions.
-  for region in knownRegions:
-    if address.uint32 == region.start.uint32:
-      return true
-  result = false
+proc endsRun*(instr: Instruction): bool =
+  ## Whether linear execution cannot continue past this instruction.
+  let m = instr.mnemonic
+  m in ReturnMnemonics or m in JumpMnemonics or m == "STP"
 
-proc analyzeControlFlow*(data: seq[uint8], entryPoints: seq[uint32], knownCodeRegions: seq[tuple[start: int, `end`: int]], maxQueueSize: int = 10000, progressCallback: proc(processed: int, queueSize: int) = nil): RomAnalysis =
-  ## Analyze ROM to discover all code regions by following control flow.
+proc branchTargetSnes*(instr: Instruction, snesAddr: uint32): int64 =
+  ## The SNES address a control-flow instruction transfers to, or -1 when
+  ## there is no statically knowable target (returns, indirect jumps).
+  ## snesAddr is the address of the instruction itself.
+  let nextAddr = snesAddr + instr.size.uint32
+  case instr.mode:
+  of amRelative8:
+    let delta = cast[int8](instr.operand.uint8).int64
+    # Branches wrap within the current bank.
+    (nextAddr.int64 and 0xFF0000) or ((nextAddr.int64 + delta) and 0xFFFF)
+  of amRelative16:
+    let delta = cast[int16]((instr.operand and 0xFFFF).uint16).int64
+    (nextAddr.int64 and 0xFF0000) or ((nextAddr.int64 + delta) and 0xFFFF)
+  of amAbsolute:
+    if instr.mnemonic in ["JMP", "JSR"]:
+      # Absolute jumps stay in the current program bank.
+      (snesAddr.int64 and 0xFF0000) or instr.operand.int64
+    else:
+      -1
+  of amAbsoluteLong:
+    if instr.mnemonic in ["JML", "JSL"]:
+      instr.operand.int64
+    else:
+      -1
+  else:
+    -1
+
+proc formatWithLabels*(instr: Instruction, snesAddr: uint32,
+                       labels: HashSet[int]): string =
+  ## Format an instruction, substituting label names for branch targets
+  ## that map to labeled file offsets.
+  let target = branchTargetSnes(instr, snesAddr)
+  if target >= 0:
+    let fileTarget = snesToFile(target.uint32)
+    if fileTarget >= 0 and fileTarget in labels:
+      return &"{instr.mnemonic} label_{fileTarget:06X}"
+  result = formatInstruction(instr)
+
+proc disassemble*(data: openArray[uint8], fileOffset: int,
+                  maxInstructions: int,
+                  entryFlags: FlagState): seq[Disassembly] =
+  ## Disassemble linearly from a file offset, tracking flag state.
+  var offset = fileOffset
+  var flags = entryFlags
+  while offset < data.len and result.len < maxInstructions:
+    let opSize = operandSize(OpcodeTable[data[offset]].mode, flags)
+    if offset + 1 + opSize > data.len:
+      break
+    let instr = decode(data, offset, flags)
+    result.add Disassembly(fileOffset: offset, instr: instr)
+    flags.applyInstruction(instr.opcode, instr.operand)
+    offset += instr.size
+
+proc analyzeControlFlow*(data: openArray[uint8], entryPoints: seq[int],
+                         dataRegions: seq[tuple[start: int, last: int]] = @[],
+                         progressCallback: proc(processed: int, queueSize: int) = nil): RomAnalysis =
+  ## Discover code regions by recursive descent from entry points.
+  ## Entry points are file offsets, assumed to start in emulation-mode
+  ## flag state unless discovered mid-trace (which inherit tracked state).
+  ## dataRegions are known non-code ranges (the ROM header, declared data);
+  ## traced runs stop at them and never mark them as code.
+  ## Frontier honesty: indirect and computed jumps are not followed.
   result.byteTypes = newSeq[ByteType](data.len)
-  result.codeAddresses = @[]
-  result.dataAddresses = @[]
   result.entryPoints = entryPoints
-  result.crossReferences = initTable[uint32, seq[uint32]]()
-  
-  var workQueue: seq[uint32] = @[]
-  var processed: HashSet[uint32] = initHashSet[uint32]()
+  result.crossReferences = initTable[int, seq[int]]()
+
+  for region in dataRegions:
+    for i in region.start..min(region.last, data.len - 1):
+      result.byteTypes[i] = Data
+
+  var workQueue: seq[(int, FlagState)]
+  var started = initHashSet[int]()
+  var decodedStarts = initHashSet[int]()
   var processedCount = 0
-  
-  # Add known entry points
+
   for ep in entryPoints:
-    if ep.uint32 < data.len.uint32:
-      workQueue.add(ep)
-      processed.incl(ep)
-  
-  # Add known code regions
-  for region in knownCodeRegions:
-    for addr in region.start..region.`end`:
-      if addr < data.len:
-        result.byteTypes[addr] = Code
-        if addr.uint32 notin processed:
-          workQueue.add(addr.uint32)
-          processed.incl(addr.uint32)
-  
-  # Process work queue
+    if ep >= 0 and ep < data.len and ep notin started:
+      workQueue.add (ep, initFlagState())
+      started.incl ep
+
   while workQueue.len > 0:
-    # Limit queue size to prevent unbounded growth
-    if workQueue.len > maxQueueSize:
-      # Remove oldest entries (FIFO behavior by reversing and popping)
-      workQueue = workQueue[workQueue.len - maxQueueSize..<workQueue.len]
-    
-    let currentAddr = workQueue.pop()
-    if currentAddr.int >= data.len:
-      continue
-    
-    var state = DisasmState(accumulator8Bit: false, index8Bit: false)
-    var offset = currentAddr.int
-    
-    # Disassemble forward from this address
-    var instructionCount = 0
-    while offset < data.len and instructionCount < 1000:
-      if result.byteTypes[offset] == Data:
+    let (startOffset, entryFlags) = workQueue.pop()
+    var offset = startOffset
+    var flags = entryFlags
+
+    while offset < data.len:
+      if offset in decodedStarts or result.byteTypes[offset] == Data:
         break
-      
-      let instr = disassembleInstruction(data, offset, state)
-      if instr.opcode.startsWith("???"):
+      let opSize = operandSize(OpcodeTable[data[offset]].mode, flags)
+      if offset + 1 + opSize > data.len:
         break
-      
-      # Mark bytes as code
+      decodedStarts.incl offset
+      let instr = decode(data, offset, flags)
       for i in 0..<instr.size:
-        if offset + i < data.len:
-          result.byteTypes[offset + i] = Code
-          if (offset + i).uint32 notin result.codeAddresses:
-            result.codeAddresses.add((offset + i).uint32)
-      
-      # Handle control flow
-      if isControlFlow(instr):
-        let target = getBranchTarget(instr)
-        if target > 0 and target < data.len.uint32:
-          if target notin processed and workQueue.len < maxQueueSize:
-            workQueue.add(target)
-            processed.incl(target)
-        
-        # Add cross-reference
-        if target > 0 and target < data.len.uint32:
-          if not result.crossReferences.hasKey(target):
-            result.crossReferences[target] = @[]
-          result.crossReferences[target].add(instr.address)
-      
-      # Handle returns - stop disassembling
-      if instr.opcode in ["RTS", "RTL", "RTI"]:
+        result.byteTypes[offset + i] = Code
+
+      let target = branchTargetSnes(instr, fileToSnes(offset))
+      if target >= 0:
+        let fileTarget = snesToFile(target.uint32)
+        if fileTarget >= 0 and fileTarget < data.len:
+          if fileTarget notin result.crossReferences:
+            result.crossReferences[fileTarget] = @[]
+          result.crossReferences[fileTarget].add offset
+          if fileTarget notin started:
+            var targetFlags = flags
+            targetFlags.applyInstruction(instr.opcode, instr.operand)
+            workQueue.add (fileTarget, targetFlags)
+            started.incl fileTarget
+
+      if instr.endsRun:
         break
-      
+      flags.applyInstruction(instr.opcode, instr.operand)
       offset += instr.size
-      instructionCount += 1
-    
+
     processedCount += 1
     if progressCallback != nil and processedCount mod 100 == 0:
       progressCallback(processedCount, workQueue.len)
 
-proc detectDataRegions*(data: seq[uint8], analysis: var RomAnalysis) =
-  ## Detect data regions using heuristics.
+proc detectPadding*(data: openArray[uint8], analysis: var RomAnalysis,
+                    minRunLength: int = 64) =
+  ## Mark long runs of 0x00 or 0xFF in unknown regions as padding.
+  ## Everything else stays Unknown: unknown is unknown, not "probably data".
   var i = 0
-  var processedCount = 0
-  
   while i < data.len:
-    if analysis.byteTypes[i] == Unknown:
-      # Check for zero runs first (fast path)
-      if data[i] == 0:
-        var zeroStart = i
-        var zeroCount = 0
-        while i < data.len and data[i] == 0 and analysis.byteTypes[i] == Unknown:
-          zeroCount += 1
-          i += 1
-        
-        if zeroCount > 100:
-          for j in zeroStart..<zeroStart + zeroCount:
-            if j < analysis.byteTypes.len:
-              analysis.byteTypes[j] = Padding
-        else:
-          i = zeroStart + 1
-      else:
-        # Only check for patterns on aligned addresses to reduce computation
-        if (i mod 16 == 0) and (i + 32 < data.len):
-          # Check for repeated patterns (potential data tables)
-          var patternLen = min(16, data.len - i)
-          var pattern = data[i..<i + patternLen]
-          var repeatCount = 0
-          var checkOffset = i + patternLen
-          
-          # Limit pattern checking to avoid excessive computation
-          while checkOffset + patternLen <= data.len and repeatCount < 5 and checkOffset < i + 256:
-            var matches = true
-            for j in 0..<patternLen:
-              if data[checkOffset + j] != pattern[j]:
-                matches = false
-                break
-            if matches:
-              repeatCount += 1
-              checkOffset += patternLen
-            else:
-              break
-          
-          if repeatCount >= 3:
-            # Likely a data table
-            for j in i..<min(i + (repeatCount + 1) * patternLen, data.len):
-              if j < analysis.byteTypes.len and analysis.byteTypes[j] == Unknown:
-                analysis.byteTypes[j] = Data
-                if j.uint32 notin analysis.dataAddresses:
-                  analysis.dataAddresses.add(j.uint32)
-            i = checkOffset
-          else:
-            # Mark as data if not code-like
-            if i < analysis.byteTypes.len and analysis.byteTypes[i] == Unknown:
-              analysis.byteTypes[i] = Data
-              if i.uint32 notin analysis.dataAddresses:
-                analysis.dataAddresses.add(i.uint32)
-            i += 1
-        else:
-          # Mark as data if not code-like
-          if i < analysis.byteTypes.len and analysis.byteTypes[i] == Unknown:
-            analysis.byteTypes[i] = Data
-            if i.uint32 notin analysis.dataAddresses:
-              analysis.dataAddresses.add(i.uint32)
-          i += 1
+    if analysis.byteTypes[i] == Unknown and (data[i] == 0x00 or data[i] == 0xFF):
+      let fill = data[i]
+      var runEnd = i
+      while runEnd < data.len and data[runEnd] == fill and
+            analysis.byteTypes[runEnd] == Unknown:
+        inc runEnd
+      if runEnd - i >= minRunLength:
+        for j in i..<runEnd:
+          analysis.byteTypes[j] = Padding
+      i = runEnd
     else:
-      i += 1
-    
-    processedCount += 1
-    # Skip ahead in large unknown regions to speed up processing
-    if processedCount mod 10000 == 0 and i < data.len:
-      # Fast-forward through large unknown regions
-      while i < data.len and analysis.byteTypes[i] == Unknown and (i + 1) < data.len and analysis.byteTypes[i + 1] == Unknown:
-        i += 16
-
+      inc i

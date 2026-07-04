@@ -2,7 +2,7 @@
 
 import
   std/[os, osproc, strutils, strformat, times],
-  decompbound/common
+  decompbound/regions
 
 const
   GoldMasterRom = "bin/Earthbound (U) [!].smc"
@@ -35,20 +35,19 @@ type
     start: int
     `end`: int
 
-const
-  ImplementedRegions = @[
-    ByteRange(start: HiRomHeaderOffset, `end`: HiRomHeaderOffset + HeaderSize - 1),
-    ByteRange(start: ResetVectorOffset, `end`: ResetVectorOffset + ResetVectorSize - 1),
-    ByteRange(start: InitCodeOffset, `end`: InitCodeOffset + InitCodeSize - 1),
-    ByteRange(start: ResetHandlerOffset, `end`: ResetHandlerOffset + ResetHandlerSize - 1),
-    ByteRange(start: BrkHandlerOffset, `end`: BrkHandlerOffset + BrkHandlerSize - 1),
-    ByteRange(start: EarlySubroutineOffset, `end`: EarlySubroutineOffset + EarlySubroutineSize - 1),
-    ByteRange(start: SubroutineA156Offset, `end`: SubroutineA156Offset + SubroutineA156Size - 1)
-  ]
+let
+  implementedRegions = block:
+    ## Regions come from the central registry, so the compare harness can
+    ## never claim coverage the ROM builder does not actually produce.
+    var ranges: seq[ByteRange]
+    for region in allRegions():
+      ranges.add ByteRange(start: region.offset,
+                           `end`: region.offset + region.data.len - 1)
+    ranges
 
 proc isInImplementedRegion(offset: int): bool =
   ## Check if a byte offset is in an implemented region.
-  for region in ImplementedRegions:
+  for region in implementedRegions:
     if offset >= region.start and offset <= region.`end`:
       return true
   result = false

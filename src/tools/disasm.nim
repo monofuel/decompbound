@@ -1,108 +1,87 @@
 ## Disassembly tool for examining ROM code.
-## Usage: nim r src/tools/disasm.nim <rom_file> <offset> [length]
+## Usage: nim r src/tools/disasm.nim <rom_file> <offset> [count] [--emu|--m8|--x8]
+##   rom_file: path to ROM file
+##   offset:   hex file offset (e.g. 0x8141)
+##   count:    number of instructions to disassemble (default 100)
+##   --emu:    start in emulation-mode flag state (reset entry)
+##   --m8:     start with 8-bit accumulator
+##   --x8:     start with 8-bit index registers
 
 import
-  std/[os, strformat, strutils],
-  ../decompbound/disasm
-
-proc isHeaderedRom(data: seq[uint8]): bool =
-  ## Check if ROM has a 512-byte copier header.
-  result = data.len > 512 and data[0x7FD5] == 0x00
+  std/[os, sets, strformat, strutils],
+  ../decompbound/[assembler, disasm, memmap, opcodes]
 
 proc readRomFile(filepath: string): seq[uint8] =
-  ## Read ROM file and return bytes, handling headered/unheadered ROMs.
+  ## Read ROM file and return bytes, stripping a 512-byte copier header.
   let data = readFile(filepath)
-  result = newSeq[uint8](data.len)
-  for i in 0..<data.len:
-    result[i] = data[i].uint8
+  var start = 0
+  if data.len mod 1024 == 512:
+    start = 512
+  result = newSeq[uint8](data.len - start)
+  for i in 0..<result.len:
+    result[i] = data[start + i].uint8
 
 proc main() =
-  if paramCount() < 2:
-    echo "Usage: nim r src/tools/disasm.nim <rom_file> <offset> [length]"
-    echo "  rom_file: Path to ROM file"
-    echo "  offset:   Hex offset (e.g., 0x8141 or 8141)"
-    echo "  length:   Optional number of bytes to disassemble (default: 100 instructions)"
+  var positional: seq[string]
+  var flags = FlagState(m8: false, x8: false, emulation: false)
+  for i in 1..paramCount():
+    let arg = paramStr(i)
+    case arg:
+    of "--emu":
+      flags = initFlagState()
+    of "--m8":
+      flags.m8 = true
+    of "--x8":
+      flags.x8 = true
+    else:
+      positional.add arg
+
+  if positional.len < 2:
+    echo "Usage: nim r src/tools/disasm.nim <rom_file> <offset> [count] [--emu|--m8|--x8]"
     quit(1)
-  
-  let romFile = paramStr(1)
+
+  let romFile = positional[0]
   if not fileExists(romFile):
     stderr.writeLine &"Error: ROM file not found: {romFile}"
     quit(1)
-  
-  var offsetStr = paramStr(2)
+
+  var offsetStr = positional[1]
   if offsetStr.startsWith("0x") or offsetStr.startsWith("0X"):
     offsetStr = offsetStr[2..^1]
-  let offset = parseHexInt(offsetStr).uint32
-  
+  let offset = parseHexInt(offsetStr)
+
   var maxInstructions = 100
-  if paramCount() >= 3:
-    maxInstructions = parseInt(paramStr(3))
-  
+  if positional.len >= 3:
+    maxInstructions = parseInt(positional[2])
+
   let romData = readRomFile(romFile)
-  let isHeadered = isHeaderedRom(romData)
-  
-  var actualOffset = offset.int
-  if isHeadered and offset < 512:
-    stderr.writeLine "Warning: Offset is in header region, adjusting for headered ROM"
-    actualOffset = offset.int + 512
-  elif not isHeadered and offset >= 512:
-    stderr.writeLine "Warning: Offset suggests unheadered ROM but may be incorrect"
-  
-  if actualOffset >= romData.len:
-    stderr.writeLine &"Error: Offset {offset:06X} is beyond ROM size ({romData.len})"
+  if offset >= romData.len:
+    stderr.writeLine &"Error: Offset 0x{offset:06X} is beyond ROM size ({romData.len})"
     quit(1)
-  
-  echo &"Disassembling ROM: {romFile}"
-  echo &"Offset: ${offset:06X} (file offset: {actualOffset:06X})"
-  echo &"Headered: {isHeadered}"
+
+  let listing = disassemble(romData, offset, maxInstructions, flags)
+
+  var labels = initHashSet[int]()
+  for entry in listing:
+    let target = branchTargetSnes(entry.instr, fileToSnes(entry.fileOffset))
+    if target >= 0:
+      let fileTarget = snesToFile(target.uint32)
+      if fileTarget >= 0:
+        labels.incl fileTarget
+
+  echo &"Disassembling {romFile} from file offset 0x{offset:06X}"
   echo ""
-  echo "Address    Bytes              Instruction"
-  echo "--------   -----------------  --------------------"
-  
-  let instructions = disassemble(romData, actualOffset, maxInstructions)
-  var currentOffset = actualOffset
-  
-  # Collect labels from instructions
-  var labels: seq[uint32] = @[]
-  for instr in instructions:
-    if instr.opcode in ["JSR", "JSL", "JMP", "JML"]:
-      labels.add(instr.operand.uint32)
-    elif instr.mode in [Relative8, Relative16]:
-      let target = if instr.mode == Relative8:
-        # Sign-extend 8-bit value
-        var signedOffset: int
-        if (instr.operand and 0x80) != 0:
-          signedOffset = (instr.operand.int or 0xFFFFFF00)
-        else:
-          signedOffset = instr.operand.int
-        ((instr.address.int + 2 + signedOffset) and 0xFFFF).uint32
-      else:
-        # Sign-extend 16-bit value
-        var signedOffset: int
-        if (instr.operand and 0x8000) != 0:
-          signedOffset = (instr.operand.int or 0xFFFF0000)
-        else:
-          signedOffset = instr.operand.int
-        ((instr.address.int + 3 + signedOffset) and 0xFFFF).uint32
-      labels.add(target)
-  
-  for instr in instructions:
+  echo "SNES Addr  File Off  Bytes         Instruction"
+  echo "---------  --------  ------------  --------------------"
+  for entry in listing:
+    if entry.fileOffset in labels:
+      echo &"label_{entry.fileOffset:06X}:"
     var hexBytes = ""
-    for i in 0..<instr.size:
-      if currentOffset + i < romData.len:
-        hexBytes &= &"{romData[currentOffset + i]:02X} "
-      else:
-        hexBytes &= "?? "
-    hexBytes = hexBytes.strip()
-    
-    let addrStr = &"${instr.address:06X}"
-    let formatted = formatInstruction(instr, labels)
-    echo &"{addrStr}    {hexBytes:18}  {formatted}"
-    
-    currentOffset += instr.size
-    if currentOffset >= romData.len:
-      break
+    for i in 0..<entry.instr.size:
+      hexBytes &= &"{romData[entry.fileOffset + i]:02X} "
+    let snesAddr = fileToSnes(entry.fileOffset)
+    let text = formatWithLabels(entry.instr, snesAddr, labels)
+    echo &"${snesAddr:06X}    0x{entry.fileOffset:06X}  {hexBytes:12}  {text}"
 
 when isMainModule:
   main()
-
