@@ -1,4 +1,4 @@
-.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm
+.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play
 
 # bash + pipefail: the test loop pipes nim through sed, and without
 # pipefail the pipeline's exit status is sed's (always 0), which turns
@@ -15,6 +15,7 @@ help:
 	@echo "  make test         - run the full test suite"
 	@echo "  make boot         - trace the real ROM booting on the emulator"
 	@echo "  make screenshot   - render the boot state to bin/screenshot.png"
+	@echo "  make play         - windowed interactive player (arrows/ZXAS/Enter/RShift/Space/N/F12/+/ - /Esc)"
 	@echo "  make intro        - screenshot the 'War Against Giygas' title card"
 	@echo "  make title        - screenshot deep into the attract sequence"
 	@echo "  make song         - (WIP) render captured music to bin/song.wav"
@@ -50,6 +51,10 @@ intro: nim.cfg
 title: nim.cfg
 	nim r src/tools/screenshot.nim "$(ROM)" bin/title.png 64000000
 	@echo "wrote bin/title.png (deep attract / file select era)"
+
+play: nim.cfg
+	nim r src/tools/play.nim "$(ROM)"
+	@echo "player exited"
 
 song: nim.cfg
 	nim r src/tools/render_song.nim "$(ROM)" bin/song.wav 30
