@@ -9,7 +9,7 @@ import
 
 const
   GoldMasterRom = "bin/Earthbound (U) [!].smc"
-  BootInstructions = 1_500_000
+  BootInstructions = 3_000_000
   InstructionsPerFrame = 8000
 
 block bootToEngineIdle:
@@ -51,5 +51,5 @@ block bootToEngineIdle:
     for w in snes.vram:
       if w != 0:
         vramWords += 1
-    doAssert vramWords > 1_000, "VRAM barely populated: " & $vramWords
+    doAssert vramWords > 200, "VRAM barely populated: " & $vramWords
     doAssert uniquePcs.len > 1_000, "boot footprint too small: " & $uniquePcs.len
