@@ -68,6 +68,14 @@ proc main() =
   echo ""
   echo &"Executed {executed} instructions, {uniquePcs.len} unique PCs, {nmiCount} NMIs delivered."
   echo &"MMIO: {snes.mmioWrites.len} writes, {snes.mmioReads.len} reads."
+  echo &"DMA transfers: {snes.dmaTransfers}"
+  var vramWords = 0
+  for w in snes.vram:
+    if w != 0: vramWords += 1
+  var cgramColors = 0
+  for c in snes.cgram:
+    if c != 0: cgramColors += 1
+  echo &"VRAM: {vramWords} nonzero words; CGRAM: {cgramColors} nonzero colors."
 
   pcHistogram.sort()
   echo "Hottest PCs (the loop it settled into):"

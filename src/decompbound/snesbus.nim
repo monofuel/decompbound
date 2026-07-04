@@ -29,6 +29,20 @@ type
     vblankToggle: bool
     mmioReads*: seq[uint32]   ## Trace of MMIO reads (debug aid).
     mmioWrites*: seq[(uint32, uint8)]  ## Trace of MMIO writes.
+    ## PPU memory.
+    vram*: array[0x8000, uint16]   ## 64KB as 32K words.
+    cgram*: array[256, uint16]     ## 256 BGR555 palette entries.
+    oam*: array[544, uint8]        ## 512 + 32 bytes of sprite tables.
+    ## PPU port state.
+    ppuRegs*: array[0x100, uint8]  ## Raw shadow of $21xx writes.
+    vmain: uint8
+    vmadd: uint16
+    cgadd: uint16
+    cgLatch: int      ## -1 when no low byte is pending.
+    oamAddr: uint16
+    ## DMA channel registers, 8 channels x $43x0-$43x7.
+    dmaRegs*: array[0x80, uint8]
+    dmaTransfers*: int  ## Count of completed DMA transfers (debug aid).
 
 proc isMmio(offset: uint32): bool =
   ## System-area registers: $2100-$21FF (PPU/APU), $4000-$44FF (CPU/DMA).
@@ -69,9 +83,129 @@ proc mmioRead(snes: SnesBus, offset: uint32): uint8 =
   else:
     0x00
 
+proc vramIncrement(snes: SnesBus, highWrite: bool) =
+  ## Advance VMADD per VMAIN increment mode.
+  let incAfterHigh = (snes.vmain and 0x80) != 0
+  if highWrite == incAfterHigh:
+    let step = case snes.vmain and 0x03:
+      of 0: 1'u16
+      of 1: 32'u16
+      else: 128'u16
+    snes.vmadd = snes.vmadd + step
+
+proc ppuPortWrite(snes: SnesBus, offset: uint32, value: uint8): bool =
+  ## Handle PPU data-port writes that fill VRAM/CGRAM/OAM.
+  case offset:
+  of 0x2102:
+    snes.oamAddr = (snes.oamAddr and 0x0200) or (value.uint16 shl 1)
+    true
+  of 0x2103:
+    snes.oamAddr = ((value.uint16 and 1) shl 9) or (snes.oamAddr and 0x1FF)
+    true
+  of 0x2104:
+    if snes.oamAddr < 544:
+      snes.oam[snes.oamAddr] = value
+    snes.oamAddr = (snes.oamAddr + 1) and 0x3FF
+    true
+  of 0x2115:
+    snes.vmain = value
+    true
+  of 0x2116:
+    snes.vmadd = (snes.vmadd and 0xFF00) or value.uint16
+    true
+  of 0x2117:
+    snes.vmadd = (snes.vmadd and 0x00FF) or (value.uint16 shl 8)
+    true
+  of 0x2118:
+    let index = (snes.vmadd and 0x7FFF).int
+    snes.vram[index] = (snes.vram[index] and 0xFF00) or value.uint16
+    snes.vramIncrement(highWrite = false)
+    true
+  of 0x2119:
+    let index = (snes.vmadd and 0x7FFF).int
+    snes.vram[index] = (snes.vram[index] and 0x00FF) or (value.uint16 shl 8)
+    snes.vramIncrement(highWrite = true)
+    true
+  of 0x2121:
+    snes.cgadd = value.uint16
+    snes.cgLatch = -1
+    true
+  of 0x2122:
+    if snes.cgLatch < 0:
+      snes.cgLatch = value.int
+    else:
+      snes.cgram[snes.cgadd and 0xFF] =
+        snes.cgLatch.uint16 or (value.uint16 shl 8)
+      snes.cgadd = (snes.cgadd + 1) and 0xFF
+      snes.cgLatch = -1
+    true
+  else:
+    false
+
+proc mmioWrite(snes: SnesBus, offset: uint32, value: uint8)
+
+proc runDma(snes: SnesBus, channels: uint8) =
+  ## Execute enabled general-purpose DMA channels instantly.
+  for ch in 0..7:
+    if (channels and (1'u8 shl ch)) == 0:
+      continue
+    let base = ch * 0x10
+    let dmap = snes.dmaRegs[base]
+    let bbad = snes.dmaRegs[base + 1]
+    var aAddr = snes.dmaRegs[base + 2].uint32 or
+      (snes.dmaRegs[base + 3].uint32 shl 8)
+    let aBank = snes.dmaRegs[base + 4].uint32
+    var size = snes.dmaRegs[base + 5].int or (snes.dmaRegs[base + 6].int shl 8)
+    if size == 0:
+      size = 0x10000
+    let fixed = (dmap and 0x08) != 0
+    let decrement = (dmap and 0x10) != 0
+    let toA = (dmap and 0x80) != 0
+    # B-bus register sequence per transfer pattern.
+    let pattern: seq[uint8] = case dmap and 0x07:
+      of 0: @[0'u8]
+      of 1: @[0'u8, 1]
+      of 2, 6: @[0'u8, 0]
+      of 3, 7: @[0'u8, 0, 1, 1]
+      of 4: @[0'u8, 1, 2, 3]
+      else: @[0'u8, 1, 0, 1]
+    var patternIndex = 0
+    for i in 0..<size:
+      let bReg = 0x2100'u32 + bbad.uint32 + pattern[patternIndex].uint32
+      let aFull = (aBank shl 16) or (aAddr and 0xFFFF)
+      if toA:
+        # B to A: rare in boot paths; read the shadow.
+        let v = snes.ppuRegs[(bReg - 0x2100).int]
+        if not snes.bus.writeHook(aFull, v):
+          snes.bus.mem[aFull.int] = v
+      else:
+        var v: uint8
+        let hooked = snes.bus.readHook(aFull)
+        v = if hooked >= 0: hooked.uint8 else: snes.bus.mem[aFull.int]
+        snes.mmioWrite(bReg, v)
+      if not fixed:
+        if decrement: aAddr = (aAddr - 1) and 0xFFFF
+        else: aAddr = (aAddr + 1) and 0xFFFF
+      patternIndex = (patternIndex + 1) mod pattern.len
+    snes.dmaRegs[base + 2] = (aAddr and 0xFF).uint8
+    snes.dmaRegs[base + 3] = ((aAddr shr 8) and 0xFF).uint8
+    snes.dmaRegs[base + 5] = 0
+    snes.dmaRegs[base + 6] = 0
+    snes.dmaTransfers += 1
+
 proc mmioWrite(snes: SnesBus, offset: uint32, value: uint8) =
   ## Write an MMIO register.
   snes.mmioWrites.add (offset, value)
+  if offset >= 0x2100 and offset <= 0x21FF:
+    snes.ppuRegs[(offset - 0x2100).int] = value
+    if snes.ppuPortWrite(offset, value):
+      return
+  if offset >= 0x4300 and offset <= 0x437F:
+    snes.dmaRegs[(offset - 0x4300).int] = value
+    return
+  if offset == 0x420B:
+    snes.runDma(value)
+    return
   case offset:
   of 0x2140:
     # The CC kick-off starts the transfer protocol; afterwards the boot
