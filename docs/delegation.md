@@ -20,8 +20,10 @@ agnt list                    # recent task logs (~/.agnt/tasks/)
 ```
 
 - Run from the decompbound repo root so relative paths and the Makefile work.
-- Read-only is permission-layer only for grok (no kernel sandbox) - keep
-  genuinely destructive investigations off the table anyway.
+- **Grok's read-only (plan) mode is broken headless** (2026-07-04): any
+  tool-using task returns empty output. Use `agnt -w grok` with "analysis
+  only, do not modify files" in the prompt; verify with `git status` after.
+  Plan mode was permission-layer-only anyway (no kernel sandbox).
 - Every run logs prompt/result/stderr under `~/.agnt/tasks/<timestamp>/`.
 - Known grok failure mode: a dead MCP server can make it exit 0 with empty
   stdout. An empty result is a failed run, not a null finding - check
