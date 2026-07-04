@@ -17,10 +17,17 @@ store the comparison rom at `./bin/Earthbound (U) [!].smc`
 ## current state (2026-07-03)
 
 - the compare harness works and writes `report.md`.
-- **implemented regions: 100% matched** (5,004/5,004 bytes incl. header).
+- **implemented regions: 100% matched** (141,964/141,964 bytes incl. header —
+  4.5% of the ROM, every traced code region).
+- code regions are generated wholesale by `src/tools/convert_all.nim`: it
+  traces the ROM from its interrupt vectors and emits one assembler-DSL
+  module per code region into `src/decompbound/generated/` (266 modules,
+  ~66k instructions), with entry flag states the tracer actually observed.
 - regions live in a central registry (`src/decompbound/regions.nim`) shared by
   the ROM builder and the compare harness; boundaries follow the control-flow
   tracer's natural code regions, not arbitrary cuts.
+- the remaining 95% of the ROM is data (text, maps, sprites, music) plus code
+  reachable only through computed jumps — the current static-tracing frontier.
 - the shared opcode table exists (`src/decompbound/opcodes.nim`, all 256
   opcodes); the assembler (`assembler.nim`) and disassembler (`disasm.nim`)
   both derive from it. Round-trip + gold ROM tests in `tests/`.

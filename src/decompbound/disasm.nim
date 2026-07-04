@@ -19,6 +19,7 @@ type
     byteTypes*: seq[ByteType]
     entryPoints*: seq[int]  ## File offsets tracing started from.
     crossReferences*: Table[int, seq[int]]  ## File offset target -> sources.
+    entryFlagStates*: Table[int, FlagState]  ## Flag state at each run start.
 
   Disassembly* = object
     fileOffset*: int
@@ -114,6 +115,7 @@ proc analyzeControlFlow*(data: openArray[uint8], entryPoints: seq[int],
   result.byteTypes = newSeq[ByteType](data.len)
   result.entryPoints = entryPoints
   result.crossReferences = initTable[int, seq[int]]()
+  result.entryFlagStates = initTable[int, FlagState]()
 
   for region in dataRegions:
     for i in region.start..min(region.last, data.len - 1):
@@ -133,6 +135,8 @@ proc analyzeControlFlow*(data: openArray[uint8], entryPoints: seq[int],
     let (startOffset, entryFlags) = workQueue.pop()
     var offset = startOffset
     var flags = entryFlags
+    if startOffset notin result.entryFlagStates:
+      result.entryFlagStates[startOffset] = entryFlags
 
     while offset < data.len:
       if offset in decodedStarts or result.byteTypes[offset] == Data:
