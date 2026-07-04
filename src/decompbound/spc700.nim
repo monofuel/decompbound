@@ -23,17 +23,27 @@ type
     psw*: uint8
     ram*: ref array[0x10000, uint8]
     stopped*: bool
+    cycles*: int  ## Approximate cycle counter for timer pacing.
+    readHook*: proc(address: uint16): int  ## $F0-$FF I/O; -1 = plain RAM.
+    writeHook*: proc(address: uint16, value: uint8): bool
 
 proc newSpc*(): Spc =
   ## Fresh SPC700 with zeroed RAM.
   result.ram = new(array[0x10000, uint8])
 
 proc read8(spc: Spc, address: uint16): uint8 =
-  ## Read one byte of APU RAM.
+  ## Read one byte of APU RAM (I/O hooks cover $F0-$FF when installed).
+  if spc.readHook != nil and (address and 0xFFF0) == 0x00F0:
+    let hooked = spc.readHook(address)
+    if hooked >= 0:
+      return hooked.uint8
   spc.ram[address]
 
 proc write8(spc: var Spc, address: uint16, value: uint8) =
   ## Write one byte of APU RAM.
+  if spc.writeHook != nil and (address and 0xFFF0) == 0x00F0:
+    if spc.writeHook(address, value):
+      return
   spc.ram[address] = value
 
 proc setFlag(spc: var Spc, flag: uint8, on: bool) =
@@ -130,6 +140,7 @@ proc step*(spc: var Spc) =
   ## Execute one instruction.
   if spc.stopped:
     return
+  spc.cycles += 4
   let opcode = spc.fetch8()
 
   # The regular ALU grid: rows 0x00-0xB0 in pairs, columns 4-9 share

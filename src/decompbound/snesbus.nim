@@ -26,6 +26,16 @@ type
     apuReadStreak: int  ## Consecutive $2140 reads with no write: the
                         ## post-upload wait loop. After a threshold the
                         ## "driver" comes up and the ports read zero.
+    apuPort2: uint8
+    apuPort3: uint8
+    apuExpect: uint8   ## Next expected transfer counter.
+    apuPendingCounter: int  ## $2140 write awaiting its paired $2141 byte.
+    apuImage*: array[0x10000, uint8]  ## Reconstructed APU RAM upload.
+    apuCursor: int     ## Write position within the current block.
+    apuEntry*: uint16  ## Execute address from the final kick.
+    apuUploadBytes*: int
+    apuPostBoot*: seq[(uint32, uint8)]  ## Port writes after the driver ran.
+    apuJumps*: seq[(uint8, uint8, uint16)]  ## (counter, flag, target) pairs.
     vblankToggle: bool
     mmioReads*: seq[uint32]   ## Trace of MMIO reads (debug aid).
     mmioWrites*: seq[(uint32, uint8)]  ## Trace of MMIO writes.
@@ -222,16 +232,57 @@ proc mmioWrite(snes: SnesBus, offset: uint32, value: uint8) =
     # The CC kick-off starts the transfer protocol; afterwards the boot
     # ROM echoes the counter the CPU writes. When the game writes $FF to
     # a running driver it commands a return to the boot ROM (the reboot
-    # used between intro screens to upload new music).
+    # used between intro screens to upload new music). The IPL protocol
+    # is also parsed here to reconstruct the APU RAM image: data bytes
+    # arrive on $2141 with consecutive counters on $2140; a counter jump
+    # starts a new block at the address in $2142/43 ($2141 nonzero) or
+    # executes there ($2141 zero).
     if snes.apuState == ahsIdle and value == 0xCC:
       snes.apuState = ahsTransfer
+      snes.apuCursor = (snes.apuPort3.int shl 8) or snes.apuPort2.int
+      snes.apuExpect = 0
+      snes.apuPendingCounter = -1
     elif snes.apuState == ahsRunning and value == 0xFF:
       snes.apuState = ahsIdle
+    elif snes.apuState == ahsTransfer:
+      # The game uploads with 16-bit stores: counter lands here first,
+      # its paired data byte lands on $2141 next.
+      snes.apuPendingCounter = value.int
+    if snes.apuState == ahsRunning:
+      snes.apuPostBoot.add (0x2140'u32, value)
     snes.apuPort0 = value
     snes.apuReadStreak = 0
   of 0x2141:
+    if snes.apuState == ahsTransfer and snes.apuPendingCounter >= 0:
+      let counter = snes.apuPendingCounter.uint8
+      snes.apuPendingCounter = -1
+      if counter == snes.apuExpect:
+        snes.apuImage[snes.apuCursor and 0xFFFF] = value
+        snes.apuCursor += 1
+        snes.apuUploadBytes += 1
+        snes.apuExpect = counter + 1
+      else:
+        # Counter jump pair: data byte 0 = execute, nonzero = new block.
+        let target = (snes.apuPort3.uint16 shl 8) or snes.apuPort2.uint16
+        snes.apuJumps.add (counter, value, target)
+        if value == 0:
+          snes.apuEntry = target
+        else:
+          snes.apuCursor = target.int
+        # Each block restarts its transfer counter at zero.
+        snes.apuExpect = 0
+    if snes.apuState == ahsRunning:
+      snes.apuPostBoot.add (0x2141'u32, value)
     snes.apuPort1 = value
     snes.apuReadStreak = 0
+  of 0x2142:
+    if snes.apuState == ahsRunning:
+      snes.apuPostBoot.add (0x2142'u32, value)
+    snes.apuPort2 = value
+  of 0x2143:
+    if snes.apuState == ahsRunning:
+      snes.apuPostBoot.add (0x2143'u32, value)
+    snes.apuPort3 = value
   of 0x4200:
     snes.nmitimen = value
   else:
