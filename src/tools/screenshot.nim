@@ -46,21 +46,42 @@ proc main() =
   let snes = newSnesBus(rom)
   var cpu = snes.resetCpu()
 
-  for executed in 0..<maxInstructions:
-    if (snes.nmitimen and 0x80) != 0 and
-       executed mod InstructionsPerFrame == 0 and executed > 0:
-      cpu.nmiPending = true
-      if not noInput:
-        let frame = executed div InstructionsPerFrame
-        snes.joy1 = if frame mod 240 < 4: 0x1000'u16 else: 0
-    cpu.step(snes.bus)
-    if cpu.stopped:
-      break
+  const InstrPerLine = 30
+  var executed = 0
+  var line = 0
+  let image = newImage(ppu.ScreenWidth, ppu.ScreenHeight)
+  let backdrop = ppu.bgr555ToColor(snes.cgram[0])
+  image.fill(backdrop)
+  snes.initHdma()
+  while executed < maxInstructions and not cpu.stopped:
+    for i in 0..<InstrPerLine:
+      if (snes.nmitimen and 0x80) != 0 and line == 240 and i == 0:
+        cpu.nmiPending = true
+        if not noInput:
+          let frame = line div 262
+          snes.joy1 = if frame mod 240 < 4: 0x1000'u16 else: 0
+      cpu.step(snes.bus)
+      executed += 1
+      if executed >= maxInstructions or cpu.stopped:
+        break
+    if line < 224:
+      snes.runHdma()
+      # Composited per-line render (post-HDMA state): main + subscreen color
+      # math + brightness, so effects like the Giygas red static appear.
+      if (snes.ppuRegs[0x00] and 0x80) == 0:
+        ppu.renderScanline(snes, image, line)
+    line += 1
+    if line >= 262:
+      line = 0
+      snes.initHdma()
 
-  let image = snes.renderFrame()
+  # Sprites from final state (typically updated in vblank)
+  ppu.renderSprites(snes, image)
   image.writeFile(paramStr(2))
   echo &"Screenshot written to {paramStr(2)}"
-  echo &"BGMODE={snes.ppuRegs[0x05] and 7} TM={snes.ppuRegs[0x2C]:02X} INIDISP={snes.ppuRegs[0x00]:02X}"
+  echo &"BGMODE={snes.ppuRegs[0x05] and 7} TM={snes.ppuRegs[0x2C]:02X} TS={snes.ppuRegs[0x2D]:02X} INIDISP={snes.ppuRegs[0x00]:02X}"
+  echo &"CGADSUB={snes.ppuRegs[0x31]:02X} CGWSEL={snes.ppuRegs[0x30]:02X} COLDATA(last)={snes.ppuRegs[0x32]:02X} fixedR={snes.fixedColorR} G={snes.fixedColorG} B={snes.fixedColorB}"
+  echo &"HDMAEN={snes.hdmaen:02X} hdmaBbusWrites={snes.hdmaWrites.len}"
 
 when isMainModule:
   main()

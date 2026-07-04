@@ -198,6 +198,10 @@ void main() {
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
 
+  # Persistent frame buffer, built one scanline at a time each frame.
+  var frameImage = newImage(ScreenWidth, ScreenHeight)
+  frameImage.fill(rgbx(0, 0, 0, 255))
+
   # Initial black texture of native size.
   var initImage = newImage(ScreenWidth, ScreenHeight)
   initImage.fill(rgbx(0, 0, 0, 255))
@@ -290,29 +294,45 @@ void main() {
     if window.buttonPressed[KeyEqual]:
       inc framesPerTick
     if window.buttonPressed[KeyF12]:
-      let snap = snes.renderFrame()
-      snap.writeFile("bin/frame.png")
+      frameImage.writeFile("bin/frame.png")
       echo "wrote bin/frame.png"
     if window.buttonPressed[KeyEscape]:
       window.closeRequested = true
 
-    # Emulation advance.
+    # Emulation advance. Render each visible scanline right after its HDMA
+    # updates so per-line color-math effects (the Giygas red static) appear.
     if not paused or frameAdvance:
       let ticks = if frameAdvance: 1 else: framesPerTick
       for t in 0 ..< ticks:
         if (snes.nmitimen and 0x80) != 0:
           cpu.nmiPending = true
-        for i in 0 ..< InstructionsPerFrame:
-          cpu.step(snes.bus)
-          if cpu.stopped:
+        const InstrPerLine = 30
+        let forceBlank = (snes.ppuRegs[0x00] and 0x80) != 0
+        if not forceBlank:
+          let backdrop = ppu.bgr555ToColor(snes.cgram[0])
+          frameImage.fill(backdrop)
+        var l = 0
+        while l < 262:
+          for i in 0 ..< InstrPerLine:
+            cpu.step(snes.bus)
+            if cpu.stopped:
+              break
+          if l < 224:
+            snes.runHdma()
+            if (snes.ppuRegs[0x00] and 0x80) == 0:
+              ppu.renderScanline(snes, frameImage, l)
+          l += 1
+          if l >= 262:
+            snes.initHdma()
             break
+        ppu.renderSprites(snes, frameImage)
         frameCount += 1
         if frameAdvance:
           frameAdvance = false
           break
 
-    # Render and display.
-    let image = snes.renderFrame()
+    # Display the frame built during emulation.
+    let image = frameImage
     glBindTexture(GL_TEXTURE_2D, textureId)
     glTexImage2D(
       GL_TEXTURE_2D, 0, GL_RGBA8.GLint,

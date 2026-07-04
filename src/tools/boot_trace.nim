@@ -41,8 +41,10 @@ proc main() =
   var pcHistogram = initCountTable[uint32]()
   var uniquePcs = initHashSet[uint32]()
 
-  const InstructionsPerFrame = 8000
+  const InstrPerLine = 30
   var nmiCount = 0
+  var line = 0
+  snes.initHdma()
 
   while executed < maxInstructions and not cpu.stopped:
     let fullPc = (cpu.pbr.uint32 shl 16) or cpu.pc.uint32
@@ -53,17 +55,23 @@ proc main() =
         window[i] = snes.bus.read8(fullPc + i.uint32)
       let instr = decode(window, 0, flags)
       echo &"${fullPc:06X}  {formatInstruction(instr)}"
-    # Synthesize vblank NMI at a frame-ish cadence when the game has
-    # enabled it via NMITIMEN bit 7.
-    if (snes.nmitimen and 0x80) != 0 and
-       executed mod InstructionsPerFrame == 0 and executed > 0:
-      cpu.nmiPending = true
-      nmiCount += 1
-    if not cpu.waiting:
-      pcHistogram.inc fullPc
-      uniquePcs.incl fullPc
-    cpu.step(snes.bus)
-    executed += 1
+    for i in 0..<InstrPerLine:
+      if (snes.nmitimen and 0x80) != 0 and line == 240 and i == 0:
+        cpu.nmiPending = true
+        nmiCount += 1
+      if not cpu.waiting:
+        pcHistogram.inc fullPc
+        uniquePcs.incl fullPc
+      cpu.step(snes.bus)
+      executed += 1
+      if executed >= maxInstructions or cpu.stopped:
+        break
+    if line < 224:
+      snes.runHdma()
+    line += 1
+    if line >= 262:
+      line = 0
+      snes.initHdma()
 
   echo ""
   echo &"Executed {executed} instructions, {uniquePcs.len} unique PCs, {nmiCount} NMIs delivered."

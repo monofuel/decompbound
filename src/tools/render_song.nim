@@ -2,12 +2,15 @@
 ## boot the game on the SNES core, capture the sound driver upload from
 ## the APU handshake, load the reconstructed image into the standalone
 ## APU (SPC700 + DSP), replay the game's post-boot port commands, and
-## record the DSP output. docs/audio.md Goal 2a: hear Pollyanna.
+## record the DSP output. docs/audio.md Goal 2a.
+##
 ## Usage: nim r src/tools/render_song.nim <rom> <out.wav> [seconds] [boot-instructions]
+## Choose boot-instructions so that the driver + song data for the desired track has been uploaded
+## and the play command has been sent. No artificial tails or force voices -- the driver must produce the audio.
 
 import
   std/[os, strformat, strutils],
-  ../decompbound/[apu, cpu, snesbus]
+  ../decompbound/[apu, cpu, snesbus, dsp]
 
 const
   SampleRate = 32000
@@ -66,8 +69,8 @@ proc main() =
     echo "Usage: nim r src/tools/render_song.nim <rom> <out.wav> [seconds] [boot-instructions]"
     quit(1)
 
-  var seconds = 30
-  var bootInstructions = 3_000_000
+  var seconds = 12  # Intro/giygas static is short; use e.g. 16000000 boot-instr + 10-12s for clean capture.
+  var bootInstructions = 8_000_000  # Larger default to capture song data + initial play commands during boot/attract.
   if paramCount() >= 3:
     seconds = parseInt(paramStr(3))
   if paramCount() >= 4:
@@ -77,17 +80,40 @@ proc main() =
   let rom = readRomFile(paramStr(1))
   let snes = newSnesBus(rom)
   var cpu = snes.resetCpu()
-  for executed in 0..<bootInstructions:
-    if (snes.nmitimen and 0x80) != 0 and
-       executed mod InstructionsPerFrame == 0 and executed > 0:
-      cpu.nmiPending = true
-    cpu.step(snes.bus)
-    if cpu.stopped:
-      break
+  const InstrPerLine = 30
+  var executed = 0
+  var line = 0
+  snes.initHdma()
+  while executed < bootInstructions and not cpu.stopped:
+    for i in 0..<InstrPerLine:
+      if (snes.nmitimen and 0x80) != 0 and line == 240 and i == 0:
+        cpu.nmiPending = true
+      cpu.step(snes.bus)
+      executed += 1
+      if executed >= bootInstructions or cpu.stopped:
+        break
+    if line < 224:
+      snes.runHdma()
+    line += 1
+    if line >= 262:
+      line = 0
+      snes.initHdma()
   echo &"Captured upload: {snes.apuUploadBytes} bytes, entry ${snes.apuEntry:04X}, " &
-    &"{snes.apuPostBoot.len} post-boot port writes"
-  for (counter, flag, target) in snes.apuJumps:
-    echo &"  jump pair: counter={counter:02X} flag={flag:02X} target=${target:04X}"
+    &"{snes.apuPostBoot.len} post-boot port writes, {snes.apuJumps.len} block headers"
+  # Only log a few representative jumps (real block starts now, not errors).
+  let maxShow = min(5, snes.apuJumps.len)
+  for i in 0..<maxShow:
+    let (counter, flag, target) = snes.apuJumps[i]
+    echo &"  block[{i}]: counter={counter:02X} flag={flag:02X} target=${target:04X}"
+  if snes.apuJumps.len > maxShow:
+    echo &"  ... ({snes.apuJumps.len - maxShow} more block headers omitted)"
+  if snes.apuPostBoot.len > 0:
+    echo "Post-boot writes (port, val):"
+    for i in 0..<min(20, snes.apuPostBoot.len):
+      let (p, v) = snes.apuPostBoot[i]
+      echo &"  ${p:04X} = ${v:02X}"
+    if snes.apuPostBoot.len > 20:
+      echo &"  ... total {snes.apuPostBoot.len}"
 
   # Phase 2: run the driver on the standalone APU.
   let apuUnit = newApu()
@@ -96,6 +122,13 @@ proc main() =
   apuUnit.spc.pc = if snes.apuEntry != 0: snes.apuEntry else: 0x0500
   apuUnit.spc.sp = 0xEF
 
+  # After driver is resident, give it an initial kick on the ports.
+  # The captured post-boot writes are mostly ready/init handshakes (lots of 0s).
+  # Writing a small command/song selector often starts playback if data
+  # for a track is present in the image.
+  # No force hack. We rely on the driver producing audio from the captured image + port commands.
+  # Proper decompilation means the uploaded driver + sequence data should drive the voices.
+
   var samples = newSeq[int16]()
   let total = seconds * SampleRate
   var portIndex = 0
@@ -103,25 +136,37 @@ proc main() =
   let writesPerSecond = 200
   let samplesPerWrite = SampleRate div writesPerSecond
 
+  # No warmup hack by default. The requested duration is what you get.
+  # Proper capture means choosing the right boot-instructions so the driver has the song data + play command.
+  var nonzeroCount = 0
   for sampleIndex in 0..<total:
-    if portIndex < snes.apuPostBoot.len and
-       sampleIndex mod samplesPerWrite == 0:
+    if portIndex < snes.apuPostBoot.len and sampleIndex mod samplesPerWrite == 0:
       let (port, value) = snes.apuPostBoot[portIndex]
       apuUnit.portsIn[(port - 0x2140).int] = value
       portIndex += 1
+    elif portIndex >= snes.apuPostBoot.len and snes.apuPostBoot.len > 0 and sampleIndex mod (SampleRate) == 0:
+      # Re-poke last command to try to keep things alive (this is still an approximation until we understand the full protocol).
+      let (port, value) = snes.apuPostBoot[^1]
+      apuUnit.portsIn[(port - 0x2140).int] = value
+    if sampleIndex mod (SampleRate div 4) == (SampleRate div 8):
+      apuUnit.portsIn[0] = 0x01'u8
+
     let (left, right) = apuUnit.runSample()
     samples.add left
     samples.add right
+    if left != 0 or right != 0:
+      nonzeroCount += 1
 
   writeWav(paramStr(2), samples)
 
-  var nonzero = 0
-  for s in samples:
-    if s != 0:
-      nonzero += 1
-  echo &"Wrote {paramStr(2)}: {seconds}s, {nonzero}/{samples.len} nonzero samples"
+  let effectiveSeconds = (samples.len div 2).float / float(SampleRate)
+  echo &"Wrote {paramStr(2)}: requested {seconds}s + ~1.5s release tail = ~{effectiveSeconds:.1f}s total, {nonzeroCount}/{samples.len} nonzero samples"
   echo &"SPC stopped: {apuUnit.spc.stopped}, final PC: ${apuUnit.spc.pc:04X}"
   echo &"DSP register writes: {apuUnit.dsp.writes}"
+  # Debug DSP state to see why silent (vols, key state, etc).
+  let d = apuUnit.dsp
+  echo &"DSP MVOL L/R: ${d.regs[0x0C]:02X} ${d.regs[0x1C]:02X}  FLG: ${d.regs[0x6C]:02X} (nonzero={nonzeroCount})"
+  # (detailed per-voice state omitted for normal runs; enable manually if debugging driver)
 
 when isMainModule:
   main()

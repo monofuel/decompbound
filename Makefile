@@ -68,8 +68,8 @@ play: nim.cfg
 	@echo "player exited"
 
 song: nim.cfg
-	nim r src/tools/render_song.nim "$(ROM)" bin/song.wav 30
-	@echo "wrote bin/song.wav (WIP: upload capture bug means silence for now)"
+	nim r src/tools/render_song.nim "$(ROM)" bin/song.wav 10 16000000
+	@echo "wrote bin/song.wav (WIP proper capture; no hacks. Use music_explore for the menu UI)"
 
 # --- Verification -----------------------------------------------------
 

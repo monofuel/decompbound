@@ -190,6 +190,26 @@ proc stepEnvelope(dsp: Dsp, index: int) =
     else:
       discard
 
+proc forceKeyOnForTest*(dsp: Dsp, voice: int, sampleAddrHint: uint16 = 0) =
+  ## Temporary helper so the music render path can emit audible game BRR
+  ## while the port command / song start logic is completed. Sets up one
+  ## voice to play from a BRR location.
+  if voice < 0 or voice > 7: return
+  var v = dsp.voices[voice]
+  v.active = true
+  v.srcn = dsp.regs[voice * 0x10 + 4]
+  let entry = dsp.sampleTableAddr(voice)
+  v.brrAddr = dsp.ram[entry].uint16 or (dsp.ram[entry + 1].uint16 shl 8)
+  if sampleAddrHint != 0:
+    v.brrAddr = sampleAddrHint
+  v.loopAddr = dsp.ram[entry + 2].uint16 or (dsp.ram[entry + 3].uint16 shl 8)
+  v.brrHeader = dsp.ram[v.brrAddr]
+  v.brrIndex = 0
+  v.envPhase = epAttack
+  v.envLevel = 0x7FF
+  dsp.voices[voice] = v
+  dsp.regs[0x4C] = dsp.regs[0x4C] or (1'u8 shl voice)
+
 proc mixSample*(dsp: Dsp): tuple[left: int16, right: int16] =
   ## Produce one 32kHz stereo output sample from all voices.
   var left = 0'i32
