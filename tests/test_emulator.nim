@@ -22,7 +22,7 @@ block bootToEngineIdle:
     let snes = newSnesBus(rom)
     var cpu = snes.resetCpu()
     var uniquePcs = initHashSet[uint32]()
-    var reachedPark = false
+    var piracyPark = false
 
     for executed in 0..<BootInstructions:
       if (snes.nmitimen and 0x80) != 0 and
@@ -30,21 +30,26 @@ block bootToEngineIdle:
         cpu.nmiPending = true
       if not cpu.waiting:
         uniquePcs.incl (cpu.pbr.uint32 shl 16) or cpu.pc.uint32
-      # The engine idle: main thread parks on BRA -2 at $C40BD2 while the
-      # NMI handler runs the game.
+      # $C40BD2 is the anti-piracy screen's park loop: reaching it means
+      # the SRAM check failed and the game gave up.
       if cpu.pbr == 0xC4 and cpu.pc == 0x0BD2:
-        reachedPark = true
+        piracyPark = true
       cpu.step(snes.bus)
       doAssert not cpu.stopped, "CPU hit STP during boot"
 
-    # Boot must complete the sound driver upload and enable NMI.
+    # A healthy boot: SRAM satisfies the anti-piracy check, the sound
+    # driver uploads, NMI is enabled, and graphics flow through DMA.
+    doAssert not piracyPark, "anti-piracy check failed (SRAM regression)"
     doAssert (snes.nmitimen and 0x80) != 0, "NMI never enabled during boot"
-    doAssert reachedPark, "boot never reached the engine idle at $C40BD2"
-    # The sound driver upload is ~17.8KB of port writes.
     var apuWrites = 0
     for (address, _) in snes.mmioWrites:
       if address == 0x2140:
         apuWrites += 1
     doAssert apuWrites > 15_000, "APU upload too small: " & $apuWrites
-    # A real boot executes a wide code footprint.
+    doAssert snes.dmaTransfers > 5, "no graphics DMA: " & $snes.dmaTransfers
+    var vramWords = 0
+    for w in snes.vram:
+      if w != 0:
+        vramWords += 1
+    doAssert vramWords > 1_000, "VRAM barely populated: " & $vramWords
     doAssert uniquePcs.len > 1_000, "boot footprint too small: " & $uniquePcs.len
