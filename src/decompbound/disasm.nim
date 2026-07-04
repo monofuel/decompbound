@@ -15,11 +15,18 @@ type
     Data
     Padding
 
+  FrontierSite* = object
+    ## A computed/indirect jump the static tracer cannot follow: the exact
+    ## place where the code map ends and why.
+    fileOffset*: int
+    instr*: Instruction
+
   RomAnalysis* = object
     byteTypes*: seq[ByteType]
     entryPoints*: seq[int]  ## File offsets tracing started from.
     crossReferences*: Table[int, seq[int]]  ## File offset target -> sources.
     entryFlagStates*: Table[int, FlagState]  ## Flag state at each run start.
+    frontier*: seq[FrontierSite]  ## Computed jumps static tracing stops at.
 
   Disassembly* = object
     fileOffset*: int
@@ -157,6 +164,10 @@ proc analyzeControlFlow*(data: openArray[uint8], entryPoints: seq[int],
       let instr = decode(data, offset, flags)
       for i in 0..<instr.size:
         result.byteTypes[offset + i] = Code
+
+      if instr.mode in {amAbsIndirect, amAbsIndirectX, amAbsIndirectLong} and
+         instr.mnemonic in ["JMP", "JML", "JSR"]:
+        result.frontier.add FrontierSite(fileOffset: offset, instr: instr)
 
       let target = branchTargetSnes(instr, fileToSnes(offset))
       if target >= 0:

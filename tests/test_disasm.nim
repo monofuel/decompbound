@@ -102,6 +102,20 @@ block entryFlagRecording:
   doAssert analysis.entryFlagStates[0x8010] ==
     FlagState(m8: false, x8: false, emulation: false)
 
+block frontierRecording:
+  # Computed jumps must be recorded as frontier sites, not silently dropped.
+  var rom = newSeq[uint8](0x10000)
+  let code = @[
+    0x6C'u8, 0x20, 0x00,  # JMP ($0020): indirect, statically unfollowable.
+    0x60                  # RTS (unreachable, but keeps the region tidy).
+  ]
+  for i, b in code:
+    rom[0x8000 + i] = b
+  let analysis = analyzeControlFlow(rom, @[0x8000])
+  doAssert analysis.frontier.len == 1
+  doAssert analysis.frontier[0].fileOffset == 0x8000
+  doAssert formatInstruction(analysis.frontier[0].instr) == "JMP ($0020)"
+
 block paddingDetection:
   var rom = newSeq[uint8](512)
   for i in 0..<200:
