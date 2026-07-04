@@ -1,13 +1,15 @@
 ## Interactive real-time player for the emulator. Human can watch and
 ## control Earthbound for debugging. Boots ROM, runs at ~60 fps with
-## NMI injection, maps keyboard to joy1, renders via PPU each frame.
-## Usage: nim r src/tools/play.nim <rom>
+## NMI injection, maps keyboard + all paddy gamepads (as player 1) to joy1,
+## renders via PPU each frame.
+## Usage: nim r src/tools/play.nim [--verbose|-v] <rom>
 
 import
   std/[os, strformat],
   pixie,
   opengl,
   windy,
+  paddy,
   ../decompbound/[cpu, ppu, snesbus]
 
 proc readRomFile(filepath: string): seq[uint8] =
@@ -52,9 +54,23 @@ proc checkLink(program: GLuint) =
 
 proc main() =
   ## Open a windowed player, run the emulator at ~60 fps, accept input,
-  ## render frames, and support debug controls.
-  if paramCount() < 1:
-    echo "Usage: nim r src/tools/play.nim <rom>"
+  ## render frames, and support debug controls. Keyboard + all connected
+  ## paddy gamepads (treated as player 1) feed joy1 (ORed).
+  ## Pass --verbose to print input state changes to stdout.
+  var verbose = false
+  var romPath = ""
+  for i in 1..paramCount():
+    let arg = paramStr(i)
+    if arg == "--verbose" or arg == "-v":
+      verbose = true
+    elif romPath.len == 0:
+      romPath = arg
+    else:
+      echo "Unknown argument: ", arg
+      quit(1)
+
+  if romPath.len == 0:
+    echo "Usage: nim r src/tools/play.nim [--verbose|-v] <rom>"
     quit(1)
 
   const
@@ -70,7 +86,30 @@ proc main() =
     BtnRight = 0x0100'u16
     BtnA = 0x0080'u16
     BtnX = 0x0040'u16
-  let romPath = paramStr(1)
+    Controls = """
+Controls:
+  Arrows      D-pad (Up/Down/Left/Right)
+  Z           B
+  X           A
+  A           Y
+  S           X
+  Enter       Start
+  RightShift  Select
+  Space       Toggle pause
+  N           Advance one frame (when paused)
+  -           Decrease speed
+  =           Increase speed
+  F12         Write bin/frame.png
+  Esc         Quit
+
+  Gamepad (via paddy):
+    All connected gamepads act as player 1 (this is Earthbound-specific).
+    D-pad (real buttons OR left-stick axes for cheap fake-dpad pads) + face buttons, Select, Start feed joy1 (OR with keyboard).
+
+  --verbose / -v   Print input changes (joy1 + only active gamepads) for debugging
+"""
+  echo Controls
+
   let rom = readRomFile(romPath)
   let snes = newSnesBus(rom)
   var cpu = snes.resetCpu()
@@ -79,11 +118,20 @@ proc main() =
   var paused = false
   var frameAdvance = false
   var framesPerTick = 1
+  var lastJoy1: uint16 = 0
 
   let windowSize = ivec2(ScreenWidth * Scale, ScreenHeight * Scale)
   let window = newWindow("decompbound player - frame 0", windowSize)
   window.makeContextCurrent()
   loadExtensions()
+
+  initGamepads()
+
+  if verbose:
+    let initialPads = pollGamepads()
+    echo &"verbose: {initialPads.len} gamepad(s) detected by paddy"
+    for i, p in initialPads:
+      echo &"  [{i}] id={p.id} name=\"{p.name}\""
 
   # Fullscreen covering quad in NDC with UVs that map pixie top-left to screen top.
   var posData = @[
@@ -167,6 +215,7 @@ void main() {
     pollEvents()
 
     # Map current key state to joy1 every frame.
+    # Paddy gamepad (player 1) as alternative/additive input for SNES controller.
     var joy1: uint16 = 0
     if window.buttonDown[KeyUp]: joy1 = joy1 or BtnUp
     if window.buttonDown[KeyDown]: joy1 = joy1 or BtnDown
@@ -178,7 +227,58 @@ void main() {
     if window.buttonDown[KeyS]: joy1 = joy1 or BtnX
     if window.buttonDown[KeyEnter]: joy1 = joy1 or BtnStart
     if window.buttonDown[KeyRightShift]: joy1 = joy1 or BtnSel
+
+    # Paddy: aggregate ALL gamepads as player 1.
+    # This is an Earthbound-specific emulator (only player 1 matters), so every
+    # connected gamepad (including multiple SNES clones + random USB controllers)
+    # contributes to the same joy1 (ORed with keyboard).
+    let pads = pollGamepads()
+    for gp in pads:
+      if gp.button(GamepadUp): joy1 = joy1 or BtnUp
+      if gp.button(GamepadDown): joy1 = joy1 or BtnDown
+      if gp.button(GamepadLeft): joy1 = joy1 or BtnLeft
+      if gp.button(GamepadRight): joy1 = joy1 or BtnRight
+      if gp.button(GamepadB): joy1 = joy1 or BtnB
+      if gp.button(GamepadA): joy1 = joy1 or BtnA
+      if gp.button(GamepadY): joy1 = joy1 or BtnY
+      if gp.button(GamepadX): joy1 = joy1 or BtnX
+      if gp.button(GamepadStart): joy1 = joy1 or BtnStart
+      if gp.button(GamepadSelect): joy1 = joy1 or BtnSel
+
+      # Support cheap SNES imitation pads that report d-pad as fake left-stick axes
+      # (values like 1.0 / 0.0 / -1.0) instead of (or in addition to) real d-pad buttons.
+      let lx = gp.axis(GamepadLStickX)
+      let ly = gp.axis(GamepadLStickY)
+      const AxisThreshold = 0.5'f
+      if lx > AxisThreshold: joy1 = joy1 or BtnRight
+      if lx < -AxisThreshold: joy1 = joy1 or BtnLeft
+      if ly > AxisThreshold: joy1 = joy1 or BtnDown
+      if ly < -AxisThreshold: joy1 = joy1 or BtnUp
     snes.joy1 = joy1
+
+    if verbose:
+      if joy1 != lastJoy1:
+        echo &"joy1=0x{joy1:04x} (changed)"
+        lastJoy1 = joy1
+
+      # Only print gamepads that are currently sending input.
+      # This keeps output quiet when you have multiple controllers (some idle).
+      for i, gp in pads:
+        let lx = gp.axis(GamepadLStickX)
+        let ly = gp.axis(GamepadLStickY)
+        let hasInput = gp.buttons != 0 or
+                       abs(lx) > 0.01 or abs(ly) > 0.01
+
+        if hasInput:
+          echo &"paddy[{i}]: '{gp.name}' raw=0x{gp.buttons:016x}"
+          if abs(lx) > 0.01 or abs(ly) > 0.01:
+            echo &"  LStickX={lx:.2f} LStickY={ly:.2f}"
+          let relevant = [GamepadUp, GamepadDown, GamepadLeft, GamepadRight,
+                          GamepadA, GamepadB, GamepadX, GamepadY,
+                          GamepadSelect, GamepadStart]
+          for btn in relevant:
+            if gp.button(btn):
+              echo "  ", btn
 
     # One-shot controls.
     if window.buttonPressed[KeySpace]:
