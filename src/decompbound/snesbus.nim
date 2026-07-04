@@ -43,6 +43,11 @@ type
     ## DMA channel registers, 8 channels x $43x0-$43x7.
     dmaRegs*: array[0x80, uint8]
     dmaTransfers*: int  ## Count of completed DMA transfers (debug aid).
+    sram*: array[0x2000, uint8]  ## 8KB battery SRAM, mirrored across the
+                                 ## HiROM SRAM window (banks $20-$3F /
+                                 ## $A0-$BF at $6000-$7FFF). Earthbound's
+                                 ## anti-piracy check probes exactly this
+                                 ## size and mirroring.
 
 proc isMmio(offset: uint32): bool =
   ## System-area registers: $2100-$21FF (PPU/APU), $4000-$44FF (CPU/DMA).
@@ -209,9 +214,13 @@ proc mmioWrite(snes: SnesBus, offset: uint32, value: uint8) =
   case offset:
   of 0x2140:
     # The CC kick-off starts the transfer protocol; afterwards the boot
-    # ROM echoes the counter the CPU writes.
+    # ROM echoes the counter the CPU writes. When the game writes $FF to
+    # a running driver it commands a return to the boot ROM (the reboot
+    # used between intro screens to upload new music).
     if snes.apuState == ahsIdle and value == 0xCC:
       snes.apuState = ahsTransfer
+    elif snes.apuState == ahsRunning and value == 0xFF:
+      snes.apuState = ahsIdle
     snes.apuPort0 = value
     snes.apuReadStreak = 0
   of 0x2141:
@@ -254,6 +263,8 @@ proc newSnesBus*(rom: seq[uint8]): SnesBus =
         return snes.bus.mem[(0x7E0000'u32 or offset).int].int
       if isMmio(offset):
         return snes.mmioRead(offset).int
+      if offset >= 0x6000 and offset < 0x8000 and (bank and 0x3F) >= 0x20:
+        return snes.sram[(offset - 0x6000).int].int
     result = -1
 
   snes.bus.writeHook = proc(address: uint32, value: uint8): bool =
@@ -267,6 +278,9 @@ proc newSnesBus*(rom: seq[uint8]): SnesBus =
         return true
       if isMmio(offset):
         snes.mmioWrite(offset, value)
+        return true
+      if offset >= 0x6000 and offset < 0x8000 and (bank and 0x3F) >= 0x20:
+        snes.sram[(offset - 0x6000).int] = value
         return true
       if offset >= 0x8000:
         return true  # ROM: ignore writes.

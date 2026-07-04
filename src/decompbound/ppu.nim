@@ -22,7 +22,7 @@ proc bgr555ToColor(value: uint16): ColorRGBA =
 proc tilePixel(snes: SnesBus, chrBase: int, tile: int, x: int, y: int,
                bpp: int): int =
   ## Decode one pixel (palette index within the tile's palette) from a
-  ## 2bpp or 4bpp tile in VRAM.
+  ## 2bpp, 4bpp, or 8bpp tile in VRAM.
   let wordsPerTile = bpp * 4
   let base = chrBase + tile * wordsPerTile
   var index = 0
@@ -30,10 +30,17 @@ proc tilePixel(snes: SnesBus, chrBase: int, tile: int, x: int, y: int,
   let plane01 = snes.vram[(base + y) and 0x7FFF]
   if ((plane01 shr (7 - x)) and 1) != 0: index = index or 1
   if ((plane01 shr (15 - x)) and 1) != 0: index = index or 2
-  if bpp == 4:
+  if bpp >= 4:
     let plane23 = snes.vram[(base + 8 + y) and 0x7FFF]
     if ((plane23 shr (7 - x)) and 1) != 0: index = index or 4
     if ((plane23 shr (15 - x)) and 1) != 0: index = index or 8
+  if bpp == 8:
+    let plane45 = snes.vram[(base + 16 + y) and 0x7FFF]
+    let plane67 = snes.vram[(base + 24 + y) and 0x7FFF]
+    if ((plane45 shr (7 - x)) and 1) != 0: index = index or 0x10
+    if ((plane45 shr (15 - x)) and 1) != 0: index = index or 0x20
+    if ((plane67 shr (7 - x)) and 1) != 0: index = index or 0x40
+    if ((plane67 shr (15 - x)) and 1) != 0: index = index or 0x80
   result = index
 
 proc renderBg(snes: SnesBus, image: Image, bg: int, bpp: int,
@@ -85,6 +92,10 @@ proc renderFrame*(snes: SnesBus): Image =
     if (mainScreen and 0x04) != 0: snes.renderBg(result, 2, 2, 0)
     if (mainScreen and 0x02) != 0: snes.renderBg(result, 1, 4, 0)
     if (mainScreen and 0x01) != 0: snes.renderBg(result, 0, 4, 0)
+  of 3:
+    # Mode 3: BG1 8bpp (256 colors), BG2 4bpp.
+    if (mainScreen and 0x02) != 0: snes.renderBg(result, 1, 4, 0)
+    if (mainScreen and 0x01) != 0: snes.renderBg(result, 0, 8, 0)
   else:
     # Other modes not implemented yet; backdrop only.
     discard
