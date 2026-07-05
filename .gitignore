@@ -14,9 +14,23 @@ nimcache
 
 bin/*
 
-# Battery saves
+# --- Copyright hygiene: never commit the game or its assets ---
+# See AGENTS.md "Copyright hygiene" + docs/copywrite-notes.md.
+# ROM images (the copyrighted work). Anywhere in the tree, not just bin/.
+*.smc
+*.sfc
+# Captured audio ripped from the ROM (music/SFX are copyrighted assets).
+*.wav
+# Emulator savestates / memory dumps (partial copies of the ROM).
+*.state
+*.savestate
+# Root-level image captures (screenshots contain game graphics). Scoped to the
+# repo root so docs/ can still hold legit diagram images.
+/*.png
+/*.bmp
+# Battery saves (player data, but keep them out of the repo anyway).
 *.srm
 
-# Auto-capture screenshots (play.nim F11)
+# Auto-capture screenshots (play.nim F11) — contain game graphics.
 bin/autoshots/
 bin/sram_backups/

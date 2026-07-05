@@ -1,3 +1,8 @@
+> **The practical rule for this repo lives in [`AGENTS.md`](../AGENTS.md) →
+> "Copyright hygiene".** Short version: never commit ROMs, ROM-extracted assets
+> (graphics/audio/text), or memory/state dumps that embed them; reverse-engineered
+> code is our own new expression and is fine. This doc is the *why* behind that.
+
 - grok suggested copyright rules around git / CI
 
 - we are not lawyers take with a grain of salt

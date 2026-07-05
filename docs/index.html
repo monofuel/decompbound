@@ -65,6 +65,21 @@
   <a class="doc" href="audio.md"><div class="t">🔊 Audio <span class="tag">md</span></div><div class="d">SPC700 + S-DSP: the sound pipeline (Goal 2a).</div></a>
 </div>
 
+<h2>Companion apps &amp; observability</h2>
+<div class="cards">
+  <a class="doc feat" href="apps.md">
+    <div class="t">🕹️ Companion apps <span class="tag">md</span></div>
+    <div class="d">Three planned desktop apps built on data we've already mapped —
+    a live <b>music jukebox</b> (SPC700 + S-DSP), a <b>save-file report card</b>
+    (reads the SRAM into a character sheet), and a <b>live debug HUD</b> (a second
+    window of SNES internals during <code>make play</code>). Each with a definition of done.</div>
+  </a>
+  <a class="doc" href="llm-plays.md"><div class="t">🤖 LLM plays EarthBound <span class="tag">md</span></div><div class="d">An agent harness: an LLM authors sandboxed <b>Lua</b> that reads memory (read-only), sees the screen &amp; presses buttons — then revises its own script.</div></a>
+  <a class="doc" href="raspberry-pi.md"><div class="t">🥧 EarthBound on a Raspberry Pi <span class="tag">md</span></div><div class="d">Platform-port goal: run <code>make play</code> on a Pi 4/5 game box — GLES/framebuffer render path, perf tuning, gamepad-first, EmulationStation launch.</div></a>
+  <a class="doc" href="accuracy.md"><div class="t">🎯 Accuracy via test ROMs <span class="tag">md</span></div><div class="d">Raise fidelity against <b>hardware truth</b> — run SNES accuracy test ROMs (AccuracyCoin-style) &amp; even author our own with the Goal-1 assembler. No second emulator to trust.</div></a>
+  <a class="doc" href="input-replay.md"><div class="t">⏺️ Input recording &amp; replay <span class="tag">md</span></div><div class="d">A TAS format: record frame→joypad logs so a human or the LLM agent's playthrough replays byte-for-byte — reproducible bugs + automated regression.</div></a>
+</div>
+
 <h2>Reverse-engineering notes</h2>
 <div class="cards">
   <a class="doc" href="red-snow.md"><div class="t">❄️ Giygas "red snow" <span class="tag">md</span></div><div class="d">Why the intro shows the wrong slice of the death animation.</div></a>
@@ -79,7 +94,7 @@
   <a class="doc" href="goal-1.5.md"><div class="t">1️⃣·5 Adoption <span class="tag">md</span></div><div class="d">Replacing generated scaffolding with named code.</div></a>
   <a class="doc" href="issues.md"><div class="t">📋 Known issues <span class="tag">md</span></div><div class="d">Current rendering / audio / timing gaps + status.</div></a>
   <a class="doc" href="delegation.md"><div class="t">🤝 Delegation <span class="tag">md</span></div><div class="d">Handing verification-backed work to grok via agnt.</div></a>
-  <a class="doc" href="copywrite-notes.md"><div class="t">©️ Copyright notes <span class="tag">md</span></div><div class="d">Legal / provenance notes.</div></a>
+  <a class="doc" href="copyright-notes.md"><div class="t">©️ Copyright notes <span class="tag">md</span></div><div class="d">Legal / provenance notes.</div></a>
 </div>
 
 <footer>

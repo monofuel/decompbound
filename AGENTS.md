@@ -3,6 +3,48 @@
 - Earthbound (SNES) decompilation project in Nim.
 - This will be a complex and open ended progress, you will need to get creative and may have to make tools to help.
 
+## Copyright hygiene — keep the repo asset-free
+
+This is a decompilation project. Like `n64decomp/sm64` and the OoT decomp, the
+repo must contain **NO copyrighted material from the game**. Reverse-engineered
+*code* is our own new expression and is fine; the game's *assets and data* are
+not. When in doubt, do not commit it.
+
+- **NEVER commit these** (they are the copyrighted work, in whole or in part):
+  - **ROM images** — `*.smc` / `*.sfc`, the EarthBound ROM or any slice of it.
+  - **Assets extracted from the ROM** — graphics/tiles/palettes, audio (BRR
+    samples, music sequences), text/script, maps. These live in the user's own
+    ROM and are read at build/run time, never checked in.
+  - **Memory or state dumps that embed assets** — APU RAM images, VRAM/CGRAM/OAM
+    dumps, savestates, captured audio (`*.wav`), and screenshots / frame
+    captures (`*.png`) that show game graphics. A memory dump is a partial copy
+    of the ROM — treat it exactly like a ROM slice. This is the easy one to slip
+    up on: our own tools generate these constantly.
+
+- **Fine to commit** (our own new expression / functional reproduction):
+  - Reverse-engineered **Nim source** and tooling.
+  - **Code regions expressed as 65816 mnemonics** through our assembler.
+    Byte-matching disassembly is new expression, exactly as the SM64/OoT decomps
+    treat it. But **data regions must be declared as data**, never checked in
+    with real asset bytes — declare the shape/offset, not the copyrighted
+    contents.
+  - Tests using checksums, disassembly diffs, or small non-infringing inputs —
+    never shipped dumps.
+
+- **The ROM is user-supplied**, always. Every tool reads the user's own legally
+  dumped ROM from a local path (the `ROM` var in the Makefile); it is never
+  bundled. Users must own the original.
+
+- **Before every commit, confirm nothing slipped in** — run `git status` and
+  check for ROMs, assets, dumps, `*.wav`, `*.png`, or savestates. All generated
+  captures must land under `bin/` (git-ignored) or otherwise be gitignored; if
+  you add a tool that writes a capture, make sure its output path is ignored
+  before you run it.
+
+- Full reasoning + legal precedents (Sega v. Accolade, Sony v. Connectix, § 117)
+  live in `docs/copyright-notes.md`. We are not lawyers — this is the practical
+  policy that keeps us in the "tolerated clean decomp" lane.
+
 - we should avoid magic bytes as much as possible and instead figure out what they are representing properly.
   - but it's ok to hard code some magic bytes to get the ball rolling.
   - incremental process.

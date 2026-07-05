@@ -149,6 +149,19 @@ graphics, shady shaders), differential-testing each swap against the emulated
 original. Not a rewrite — a gradual, verified migration. Nothing here should
 be started until Goals 1 and 2 provide the harness that makes it checkable.
 
+## Companion apps (off the critical path)
+
+Small desktop apps that make the project browsable and surface bugs, all built
+on data we've already mapped — a live **music jukebox**, a **save-file report
+card**, and a **live debug HUD** during `make play`. Full specs + definitions
+of done: `docs/apps.md`. Plus an **LLM-plays-the-game** agent harness (an LLM
+authors sandboxed read-only Lua to play): `docs/llm-plays.md`. And a platform
+target: **EarthBound on a Raspberry Pi** game box (`docs/raspberry-pi.md`).
+Plus two verification goals: raising fidelity via **test ROMs**
+(`docs/accuracy.md`, the chosen alternative to multi-emulator diffing) and
+**input recording & replay** — a TAS format (`docs/input-replay.md`). Sanctioned
+fun; parallel-safe; none block Goals 1-3.
+
 ## Non-goals
 
 - Bug-for-bug hardware accuracy beyond what Earthbound needs.
