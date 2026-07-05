@@ -29,11 +29,11 @@ type
 # Fields confirmed/inferred from a real save (Ness early game: 39/39 HP,
 # 10/10 PP, $20 on hand, $64 ATM). Extend this table as --find maps more.
 const KnownFields = [
-  Field(name: "Money on hand", offset: 0x5C, size: 4, confidence: "confirmed ($20 matched)"),
+  Field(name: "Money on hand", offset: 0x5C, size: 4, confidence: "confirmed ($20/$71 across saves)"),
   Field(name: "ATM balance",   offset: 0x60, size: 4, confidence: "inferred"),
-  Field(name: "Char1 HP now",  offset: 0x23E, size: 2, confidence: "confirmed (39 matched)"),
+  Field(name: "Char1 HP now",  offset: 0x23E, size: 2, confidence: "confirmed (39/60 across saves)"),
   Field(name: "Char1 HP max",  offset: 0x240, size: 2, confidence: "confirmed"),
-  Field(name: "Char1 PP now",  offset: 0x244, size: 2, confidence: "confirmed (10 matched)"),
+  Field(name: "Char1 PP now",  offset: 0x244, size: 2, confidence: "confirmed (10/20 across saves)"),
   Field(name: "Char1 PP max",  offset: 0x246, size: 2, confidence: "confirmed"),
 ]
 
