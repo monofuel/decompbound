@@ -10,11 +10,11 @@ Filed: 2026-07-04
 **Status summary (2026-07-04):**
 - #1 red static — OPEN, diagnosis corrected (wrong animation *segment*).
 - #2 overworld intro — OPEN, budget hypothesis disproven; input/demo path.
-- #3 menu box — **PARTIAL**: border/cursor now render (BG3 priority), but the
-  menu *contents* (save slots) still don't.
+- #3 menu box — **FIXED**: BG3 priority (border/cursor) + the hardware math
+  unit (contents). Menu now renders "1/2/3: Start New Game" fully.
 - #4 no audio — **PARTIAL**: offline + headless live path verified, but no
   audio heard on the `make play` menu screen yet.
-- #5 game freezes on menu input — OPEN, new (blocks reaching gameplay).
+- #5 game freezes on menu input — **FIXED**: hardware multiply/divide unit.
 - #6 EarthBound logo fade-out glitch ("B" vanishes early) — OPEN, new.
 
 ---
@@ -74,10 +74,16 @@ input).
 
 ---
 
-## 3. Menu box renders, but the menu CONTENTS (save slots) do not — PARTIAL
+## 3. Menu box + contents — FIXED
 
-**Status:** **PARTIAL** (2026-07-04). Border + animating `>` cursor now render;
-the interior contents (the 3 save slots) still don't.
+**Status:** **FIXED** (2026-07-04). Two fixes: BG3 priority (border + cursor)
+and the hardware multiply/divide unit (contents). The file-select menu now
+renders fully: "1: Start New Game / 2: ... / 3: ...".
+
+The missing *contents* were not a priority bug — the menu computes its layout
+with hardware multiply/divide, which was unimplemented, so it returned 0 and
+never populated (and hung — see #5). Implementing the math unit made the slot
+rows appear. Original border-only analysis below.
 
 **What's fixed — the box border/cursor.** The file-select menu is Mode 1 with
 the **BG3 priority bit** ($2105 bit 3) set. The box frame + cursor live on
@@ -138,13 +144,15 @@ song change.
 
 ---
 
-## 5. Game freezes as soon as you press anything on the menu
+## 5. Game freezes as soon as you press anything on the menu — FIXED
 
-**Status:** OPEN — new (2026-07-04), high priority (blocks reaching gameplay).
-
-In `make play`, the file-select menu is alive (the `>` cursor animates), but
-**pressing any input freezes the game**. This is the biggest blocker — nothing
-past the menu is reachable until it's fixed.
+**Status:** **FIXED** (2026-07-04). Root cause: the **hardware multiply/divide
+unit** ($4202-$4206 / $4214-$4217) was unimplemented — operand writes ignored,
+result reads returned 0. The menu's input/selection code does multiplies and
+divides; getting 0 back, it spun forever (headless probe: after input, a
+~141-PC loop reading $4216 **93,052** times). Implementing the math unit
+dropped that to 356 reads with 3,034 unique PCs (real progress) on both Down
+and A. Fix committed with #3. Original analysis below.
 
 Likely a core-emulator problem hit by the menu's input/selection code path
 (which the idle attract path never exercises):
