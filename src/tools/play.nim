@@ -175,6 +175,11 @@ Controls:
   var cpu = snes.resetCpu()
 
   var frameCount = 0
+  # D-pad direction latch (Up/Down/Left/Right): cheap clone d-pads report a
+  # held diagonal intermittently (one axis flickers to 0), so a diagonal keeps
+  # collapsing to orthogonal. Hold each direction a few frames after it's last
+  # seen to bridge the flicker.
+  var dirLatch: array[4, int]
   var paused = false
   var frameAdvance = false
   var framesPerTick = 1
@@ -349,6 +354,17 @@ void main() {
       if lx < -AxisThreshold: joy1 = joy1 or BtnLeft
       if ly > AxisThreshold: joy1 = joy1 or BtnDown
       if ly < -AxisThreshold: joy1 = joy1 or BtnUp
+    # Diagonal-stabilizing latch: keep each d-pad direction held for a few
+    # frames after it's last actually pressed, so a flickery clone d-pad doesn't
+    # keep dropping a held diagonal back to orthogonal.
+    const LatchFrames = 3
+    const DirBits = [BtnUp, BtnDown, BtnLeft, BtnRight]
+    for i in 0 ..< 4:
+      if (joy1 and DirBits[i]) != 0:
+        dirLatch[i] = LatchFrames
+      elif dirLatch[i] > 0:
+        dirLatch[i] -= 1
+        joy1 = joy1 or DirBits[i]
     snes.joy1 = joy1
 
     if verbose:
