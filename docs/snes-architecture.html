@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SNES Architecture · EarthBound &amp; decompbound</title>
+<style>
+  :root{
+    --bg:#faf9f7; --panel:#ffffff; --ink:#1c1a17; --muted:#6b6560; --line:#e6e1da;
+    --accent:#c0392b; --accent2:#2c6e8f; --gold:#c8a24a; --green:#3a7d44;
+    --rom:#c0392b; --wram:#2c6e8f; --sram:#c8a24a; --mmio:#7d5ba6; --mirror:#9aa0a6;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#16140f; --panel:#211d17; --ink:#ece6dc; --muted:#9c948a; --line:#332d24;
+      --rom:#e05a4c; --wram:#4d9ec4; --sram:#d8b45e; --mmio:#a985d0; --mirror:#6b6660; }
+  }
+  :root[data-theme="light"]{ --bg:#faf9f7; --panel:#fff; --ink:#1c1a17; --muted:#6b6560; --line:#e6e1da;
+    --rom:#c0392b; --wram:#2c6e8f; --sram:#c8a24a; --mmio:#7d5ba6; --mirror:#9aa0a6; }
+  :root[data-theme="dark"]{ --bg:#16140f; --panel:#211d17; --ink:#ece6dc; --muted:#9c948a; --line:#332d24;
+    --rom:#e05a4c; --wram:#4d9ec4; --sram:#d8b45e; --mmio:#a985d0; --mirror:#6b6660; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.6;font-size:16px}
+  .wrap{max-width:960px;margin:0 auto;padding:0 22px 96px}
+  header.hero{padding:64px 0 28px;border-bottom:1px solid var(--line);margin-bottom:8px}
+  .kicker{font-family:var(--mono);font-size:12.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+  h1{font-size:clamp(30px,5vw,46px);line-height:1.08;margin:.28em 0 .2em;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:18px;max-width:64ch}
+  h2{font-size:26px;margin:56px 0 6px;letter-spacing:-.01em;scroll-margin-top:20px}
+  h3{font-size:18px;margin:28px 0 4px}
+  p{margin:.55em 0}
+  a{color:var(--accent2);text-decoration:none;border-bottom:1px solid transparent}
+  a:hover{border-bottom-color:currentColor}
+  code{font-family:var(--mono);font-size:.9em;background:color-mix(in srgb,var(--accent2) 12%,transparent);
+    padding:.08em .4em;border-radius:4px}
+  .toc{display:flex;flex-wrap:wrap;gap:8px 18px;margin:22px 0 4px;font-size:14.5px}
+  .toc a{color:var(--muted);font-family:var(--mono)}
+  .toc a:hover{color:var(--ink)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin:18px 0}
+  .lede{font-size:17px}
+  table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14.5px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+  td.mono,th.mono,.mono{font-family:var(--mono)}
+  tbody tr:hover{background:color-mix(in srgb,var(--accent2) 6%,transparent)}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;margin:10px 0 2px;font-size:13px;color:var(--muted)}
+  .sw{display:inline-flex;align-items:center;gap:7px}
+  .sw i{width:13px;height:13px;border-radius:3px;display:inline-block}
+  figure{margin:20px 0}
+  figcaption{color:var(--muted);font-size:13px;margin-top:8px;text-align:center}
+  .scroll{overflow-x:auto}
+  svg{display:block;max-width:100%;height:auto;margin:0 auto}
+  .note{border-left:3px solid var(--gold);padding:4px 0 4px 16px;color:var(--muted);margin:16px 0}
+  .pill{font-family:var(--mono);font-size:11.5px;padding:2px 8px;border-radius:999px;border:1px solid var(--line)}
+  footer{margin-top:64px;padding-top:22px;border-top:1px solid var(--line);color:var(--muted);font-size:13.5px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:640px){.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="kicker">decompbound · reference</div>
+  <h1>The SNES, as EarthBound sees it</h1>
+  <p class="sub">A map of the hardware our Nim emulator reproduces — memory layout, ROM &amp;
+  SRAM storage, the MMIO registers, and the three processors — scoped to exactly what
+  <em>EarthBound (U)</em> touches.</p>
+</header>
+
+<nav class="toc">
+  <a href="#map">Memory map</a>
+  <a href="#rom">ROM storage</a>
+  <a href="#wram">WRAM</a>
+  <a href="#sram">SRAM &amp; saves</a>
+  <a href="#mmio">MMIO registers</a>
+  <a href="#cpu">65816 CPU</a>
+  <a href="#ppu">PPU</a>
+  <a href="#apu">APU</a>
+  <a href="#code">In the code</a>
+</nav>
+
+<p class="lede" style="margin-top:26px">The Super Nintendo is three processors sharing a
+24-bit address space: the <strong>65816</strong> main CPU, the <strong>PPU</strong> (picture)
+and the <strong>APU</strong> (sound, its own SPC700 CPU). EarthBound is a <strong>HiROM,
+3&nbsp;MB (24&nbsp;Mbit)</strong> cartridge with <strong>8&nbsp;KB of battery-backed SRAM</strong>.
+Everything below is what <code>decompbound</code> implements on demand — registers the game
+actually uses get real behavior; everything else reads open-bus zero.</p>
+
+<!-- ================= MEMORY MAP ================= -->
+<h2 id="map">The 24-bit address space</h2>
+<p>An address is <code>bank:offset</code> — an 8-bit bank ($00–$FF) and a 16-bit offset
+($0000–$FFFF), giving 16&nbsp;MB of addressable space. The SNES fills it with a mix of ROM,
+RAM, and hardware registers. Here is the whole space, colored by what lives where:</p>
+
+<figure>
+<div class="legend">
+  <span class="sw"><i style="background:var(--rom)"></i>ROM (cartridge)</span>
+  <span class="sw"><i style="background:var(--wram)"></i>WRAM (work RAM)</span>
+  <span class="sw"><i style="background:var(--sram)"></i>SRAM (battery save)</span>
+  <span class="sw"><i style="background:var(--mmio)"></i>MMIO (hardware regs)</span>
+  <span class="sw"><i style="background:var(--mirror)"></i>WRAM mirror / system</span>
+</div>
+<div class="scroll">
+<svg viewBox="0 0 760 300" role="img" aria-label="SNES memory map by bank">
+  <style>
+    .bl{font:11px var(--mono,monospace);fill:var(--muted)}
+    .bt{font:12px var(--sans,sans-serif);fill:var(--ink)}
+    .seg{stroke:var(--bg);stroke-width:1}
+  </style>
+  <!-- columns = bank ranges; each column split into low ($0000-7FFF) & high ($8000-FFFF) -->
+  <!-- Bank groups: 00-3F | 40-7D | 7E-7F | 80-BF | C0-FF -->
+  <text x="0" y="16" class="bt" font-weight="600">Banks</text>
+  <text x="380" y="16" class="bt" font-weight="600">what each bank half holds</text>
+
+  <!-- group 00-3F -->
+  <g transform="translate(0,34)">
+    <text x="0" y="14" class="bl">$00–$3F</text>
+    <rect class="seg" x="90" y="0" width="300" height="30" fill="var(--mirror)"/>
+    <rect class="seg" x="120" y="0" width="120" height="30" fill="var(--mmio)"/>
+    <rect class="seg" x="240" y="0" width="60" height="30" fill="var(--sram)"/>
+    <rect class="seg" x="390" y="0" width="360" height="30" fill="var(--rom)"/>
+    <text x="96" y="19" class="bl" fill="#fff">WRAM mir</text>
+    <text x="150" y="19" class="bl" fill="#fff">MMIO</text>
+    <text x="246" y="19" class="bl" fill="#000">SRAM*</text>
+    <text x="540" y="19" class="bl" fill="#fff">ROM ($8000–$FFFF)</text>
+  </g>
+  <!-- group 40-7D -->
+  <g transform="translate(0,80)">
+    <text x="0" y="14" class="bl">$40–$7D</text>
+    <rect class="seg" x="90" y="0" width="660" height="30" fill="var(--rom)"/>
+    <text x="360" y="19" class="bl" fill="#fff">ROM — full 64&nbsp;KB banks (mirror of $C0–$FD)</text>
+  </g>
+  <!-- group 7E-7F -->
+  <g transform="translate(0,126)">
+    <text x="0" y="14" class="bl">$7E–$7F</text>
+    <rect class="seg" x="90" y="0" width="660" height="30" fill="var(--wram)"/>
+    <text x="330" y="19" class="bl" fill="#fff">WRAM — 128&nbsp;KB, flat &amp; contiguous</text>
+  </g>
+  <!-- group 80-BF -->
+  <g transform="translate(0,172)">
+    <text x="0" y="14" class="bl">$80–$BF</text>
+    <rect class="seg" x="90" y="0" width="300" height="30" fill="var(--mirror)"/>
+    <rect class="seg" x="120" y="0" width="120" height="30" fill="var(--mmio)"/>
+    <rect class="seg" x="240" y="0" width="60" height="30" fill="var(--sram)"/>
+    <rect class="seg" x="390" y="0" width="360" height="30" fill="var(--rom)"/>
+    <text x="96" y="19" class="bl" fill="#fff">WRAM mir</text>
+    <text x="150" y="19" class="bl" fill="#fff">MMIO</text>
+    <text x="246" y="19" class="bl" fill="#000">SRAM*</text>
+    <text x="540" y="19" class="bl" fill="#fff">ROM (fast mirror of $00–$3F)</text>
+  </g>
+  <!-- group C0-FF -->
+  <g transform="translate(0,218)">
+    <text x="0" y="14" class="bl">$C0–$FF</text>
+    <rect class="seg" x="90" y="0" width="660" height="30" fill="var(--rom)"/>
+    <text x="300" y="19" class="bl" fill="#fff">ROM — full 64&nbsp;KB banks (HiROM home) · vectors at $FFE0–$FFFF</text>
+  </g>
+
+  <!-- offset axis -->
+  <g transform="translate(90,262)">
+    <line x1="0" y1="0" x2="660" y2="0" stroke="var(--line)"/>
+    <text x="0" y="16" class="bl">$0000</text>
+    <text x="300" y="16" class="bl">$8000</text>
+    <text x="628" y="16" class="bl">$FFFF</text>
+  </g>
+</svg>
+</div>
+<figcaption>The 256 banks, grouped. *SRAM appears at <code>$6000–$7FFF</code> only in banks
+<code>$20–$3F</code> and <code>$A0–$BF</code>. Low half of $00–$3F/$80–$BF is the "system area";
+its bottom 8&nbsp;KB mirrors WRAM.</figcaption>
+</figure>
+
+<div class="card">
+<h3 style="margin-top:0">What the low half ($0000–$7FFF) of a system bank holds</h3>
+<table>
+  <thead><tr><th class="mono">Offset</th><th>Region</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td class="mono">$0000–$1FFF</td><td>WRAM mirror</td><td>Fast access to the first 8&nbsp;KB of $7E work RAM — the zero-page-ish hot RAM.</td></tr>
+    <tr><td class="mono">$2100–$213F</td><td>PPU registers</td><td>Video: layers, scroll, VRAM/CGRAM/OAM ports, color math.</td></tr>
+    <tr><td class="mono">$2140–$2143</td><td>APU I/O ports</td><td>The 4-byte mailbox between the CPU and the sound chip.</td></tr>
+    <tr><td class="mono">$4200–$44FF</td><td>CPU / DMA regs</td><td>NMI enable, joypad, multiply/divide, the 8 DMA/HDMA channels.</td></tr>
+    <tr><td class="mono">$6000–$7FFF</td><td>SRAM</td><td>Only in banks $20–$3F / $A0–$BF. 8&nbsp;KB, mirrored — the save.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ================= ROM ================= -->
+<h2 id="rom">How the ROM is stored — HiROM</h2>
+<p>The cartridge is a mask-ROM chip holding EarthBound's ~3&nbsp;MB of code, graphics, music
+and text. "HiROM" is the mapping that decides how that linear chip appears in the address
+space. Unlike LoROM (which only exposes the upper 32&nbsp;KB of each bank), <strong>HiROM
+maps full 64&nbsp;KB banks</strong>, so the ROM sits contiguously in <code>$C0–$FF</code>
+(its home), mirrors into <code>$40–$7D</code>, and is <em>also</em> visible in the upper half
+(<code>$8000–$FFFF</code>) of the system banks <code>$00–$3F</code> / <code>$80–$BF</code>.</p>
+
+<div class="grid2">
+  <div class="card">
+    <h3 style="margin-top:0">File offset → SNES address</h3>
+    <p style="margin:.3em 0">A byte at <span class="pill">file offset N</span> appears at multiple
+    SNES addresses. Its canonical HiROM home:</p>
+    <p class="mono" style="font-size:14px">snesAddr = $C00000 + N</p>
+    <p style="margin:.3em 0;color:var(--muted);font-size:14px">…and mirrored so the same byte is
+    reachable from the fast banks and the $8000–$FFFF windows. decompbound copies the ROM into
+    every mirror at boot so any legal address just works.</p>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">The vectors</h3>
+    <p style="margin:.3em 0">On power-on the 65816 reads its <strong>reset vector</strong> from
+    <code>$FFFC/$FFFD</code> (bank 0) and jumps there. NMI (vblank), IRQ, BRK and COP vectors sit
+    just below at <code>$FFE0–$FFFF</code>. For HiROM these come from the very top of the ROM
+    image.</p>
+  </div>
+</div>
+<p class="note">A 512-byte "copier header" sometimes precedes the ROM data in a dumped file.
+decompbound detects it (<code>fileSize mod 1024 == 512</code>) and strips it so offsets line up.</p>
+
+<!-- ================= WRAM ================= -->
+<h2 id="wram">WRAM — the 128 KB work RAM</h2>
+<p>Two full banks, <code>$7E</code> and <code>$7F</code>, are 128&nbsp;KB of general-purpose RAM.
+This is where the game's live state lives: the party, the map, flags, and — relevant to us —
+the buffers EarthBound's effects churn through. The Giygas "death static," for instance, is
+generated procedurally into WRAM at <code>$7F0200</code>+ each frame, then DMA'd to video RAM.
+The bottom 8&nbsp;KB (<code>$7E:0000–$1FFF</code>) is the hot RAM mirrored into every bank's
+<code>$0000–$1FFF</code> for one-byte-shorter addressing.</p>
+
+<!-- ================= SRAM ================= -->
+<h2 id="sram">SRAM &amp; the save format</h2>
+<p>An 8&nbsp;KB battery-backed static RAM holds the save. On real hardware a coin-cell keeps it
+alive between power-ups; in decompbound it's persisted to a gitignored
+<code>&lt;rom&gt;.srm</code> file (real non-volatile storage the way a dead-battery cart never
+had). It's mapped at <code>$6000–$7FFF</code> in banks <code>$20–$3F</code> (and the
+<code>$A0–$BF</code> fast mirror) — EarthBound's anti-piracy check probes exactly this size and
+mirroring.</p>
+
+<p>We reverse-engineered part of the save format live, by watching bytes move as real stats
+changed across saves, deaths, and bank withdrawals. Confirmed offsets:</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th class="mono">Offset</th><th>Size</th><th>Field</th><th>Confirmed value(s)</th></tr></thead>
+  <tbody>
+    <tr><td class="mono">$0000</td><td>20&nbsp;B</td><td>Signature <code>"HAL Laboratory, inc."</code></td><td>save-validity marker</td></tr>
+    <tr><td class="mono">$005C</td><td>4 (u32)</td><td>Money on hand</td><td>$20 → $71</td></tr>
+    <tr><td class="mono">$0060</td><td>4 (u32)</td><td>ATM balance</td><td>$0 / $64 / $109</td></tr>
+    <tr><td class="mono">$023E</td><td>2 (u16)</td><td>Char&nbsp;1 HP (current)</td><td>39 → 60 → 44</td></tr>
+    <tr><td class="mono">$0244</td><td>2 (u16)</td><td>Char&nbsp;1 PP (current)</td><td>10 → 20</td></tr>
+    <tr><td class="mono">$0500</td><td>—</td><td>Backup copy</td><td>every field mirrors at <code>+$500</code></td></tr>
+  </tbody>
+</table>
+</div>
+<p class="note">EarthBound writes the save <em>twice</em> (primary + backup at <code>+$500</code>)
+for corruption resistance — <code>--find</code>ing a value always turns up a pair. Inspect any
+save with <code>make sram</code>, and map new fields with <code>make sram ARGS="--find &lt;value&gt;"</code>.</p>
+
+<!-- ================= MMIO ================= -->
+<h2 id="mmio">MMIO — talking to the hardware</h2>
+<p>Reads and writes to the register windows don't touch memory — they command the PPU, APU,
+and DMA units. These are the ones EarthBound leans on (and that decompbound therefore
+implements):</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th class="mono">Addr</th><th>Name</th><th>Does</th></tr></thead>
+  <tbody>
+    <tr><td class="mono">$2100</td><td>INIDISP</td><td>Master brightness (0–15) &amp; force-blank — the fade knob.</td></tr>
+    <tr><td class="mono">$2105</td><td>BGMODE</td><td>BG mode (0/1/3…) &amp; the BG3-priority bit.</td></tr>
+    <tr><td class="mono">$2116–$2119</td><td>VMADD/VMDATA</td><td>VRAM address + data port (tiles &amp; tilemaps).</td></tr>
+    <tr><td class="mono">$2121–$2122</td><td>CGADD/CGDATA</td><td>Palette (CGRAM) address + data — BGR555 colors.</td></tr>
+    <tr><td class="mono">$212C–$212D</td><td>TM / TS</td><td>Which layers appear on the main / sub screen.</td></tr>
+    <tr><td class="mono">$2130–$2132</td><td>CGWSEL/CGADSUB/COLDATA</td><td>Color math — add/sub a subscreen or fixed color.</td></tr>
+    <tr><td class="mono">$2140–$2143</td><td>APUIO0–3</td><td>The CPU↔SPC700 mailbox (uploads + play commands).</td></tr>
+    <tr><td class="mono">$4200</td><td>NMITIMEN</td><td>Enable the vblank NMI &amp; auto-joypad read.</td></tr>
+    <tr><td class="mono">$4202–$4206</td><td>WRMPY/WRDIV</td><td>Hardware multiply / divide operands…</td></tr>
+    <tr><td class="mono">$4214–$4217</td><td>RDDIV/RDMPY</td><td>…and results. EarthBound's menus hang without these.</td></tr>
+    <tr><td class="mono">$4218–$4219</td><td>JOY1</td><td>Auto-read controller 1 state.</td></tr>
+    <tr><td class="mono">$420B–$420C</td><td>MDMAEN/HDMAEN</td><td>Kick general DMA / enable per-scanline HDMA.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ================= CPU ================= -->
+<h2 id="cpu">The 65816 main CPU</h2>
+<p>A 16-bit descendant of the 6502. Two quirks dominate EarthBound's code:</p>
+<ul>
+  <li><strong>M and X flags</strong> — the accumulator and index registers each toggle between
+  8- and 16-bit width at runtime via the <code>M</code> and <code>X</code> status bits. The same
+  opcode reads a different number of bytes depending on them, so a disassembler must track flag
+  state, not just decode bytes.</li>
+  <li><strong>Emulation mode</strong> — it powers on pretending to be a 6502 and the game switches
+  to native mode early. HiROM 24-bit addressing (data-bank + program-bank registers) does the
+  rest.</li>
+</ul>
+<p>decompbound's core is verified instruction-by-instruction against the TomHarte
+SingleStepTests vectors — every opcode, every addressing mode.</p>
+
+<!-- ================= PPU ================= -->
+<h2 id="ppu">The PPU — building the picture</h2>
+<p>The picture processor composites layers into a 256×224 frame from three memories: 64&nbsp;KB
+<strong>VRAM</strong> (tiles + tilemaps), 512&nbsp;B <strong>CGRAM</strong> (256 BGR555 palette
+colors), and 544&nbsp;B <strong>OAM</strong> (sprite table). EarthBound uses:</p>
+<div class="grid2">
+  <div class="card"><h3 style="margin-top:0">Layers &amp; priority</h3><p style="margin:.3em 0">Up to
+  4 background layers + sprites, ordered by a per-tile/per-sprite priority. The menu &amp; battle
+  UI ride high-priority <strong>BG3</strong> so text sits over everything.</p></div>
+  <div class="card"><h3 style="margin-top:0">Color math</h3><p style="margin:.3em 0">Add or subtract
+  a "subscreen" (or fixed color) from the main image — half-transparency, flashes, and the
+  Giygas red static are all color math.</p></div>
+  <div class="card"><h3 style="margin-top:0">HDMA</h3><p style="margin:.3em 0">DMA that fires once
+  <em>per scanline</em>, rewriting registers mid-frame. It builds gradients, and splits the battle
+  screen into horizontal bands (menu / battlefield / status).</p></div>
+  <div class="card"><h3 style="margin-top:0">Windows</h3><p style="margin:.3em 0">Rectangular masks
+  whose edges HDMA can move per scanline — the black iris/shutter that irises in around a scene is
+  a window tracing a shrinking circle.</p></div>
+</div>
+
+<!-- ================= APU ================= -->
+<h2 id="apu">The APU — a whole second computer for sound</h2>
+<p>Sound is offloaded to an entirely separate CPU, the <strong>SPC700</strong>, with its own
+64&nbsp;KB of RAM and the <strong>S-DSP</strong> that mixes 8 voices of ADSR-enveloped
+<strong>BRR</strong> samples. The main CPU can't touch it directly — it speaks through the 4-byte
+<code>$2140–$2143</code> mailbox.</p>
+<p>At power-on a tiny 64-byte <strong>IPL boot ROM</strong> runs on the SPC700 and performs the
+upload handshake: the game streams its sound driver + music/sample data across the mailbox, then
+tells it to play. decompbound runs the real SPC700 + DSP + IPL live in the bus, so the note
+sequences and the instrument samples always stay coherent — the same reason the stereo pan of
+Pokey's door-knock shifts correctly when you change floors.</p>
+
+<!-- ================= CODE ================= -->
+<h2 id="code">Where this lives in the code</h2>
+<div class="scroll">
+<table>
+  <thead><tr><th>Concept</th><th class="mono">Source</th></tr></thead>
+  <tbody>
+    <tr><td>Memory map, MMIO, DMA/HDMA, APU mailbox, SRAM</td><td class="mono">src/decompbound/snesbus.nim</td></tr>
+    <tr><td>HiROM file↔SNES address mapping</td><td class="mono">src/decompbound/memmap.nim</td></tr>
+    <tr><td>65816 CPU core</td><td class="mono">src/decompbound/cpu.nim</td></tr>
+    <tr><td>PPU renderer (layers, color math, HDMA, windows)</td><td class="mono">src/decompbound/ppu.nim</td></tr>
+    <tr><td>SPC700 + S-DSP + IPL</td><td class="mono">src/decompbound/{spc700,dsp,apu}.nim</td></tr>
+    <tr><td>Save format map + inspector</td><td class="mono">src/tools/sram_info.nim · docs/sram-format.md</td></tr>
+  </tbody>
+</table>
+</div>
+
+<footer>
+  decompbound — an EarthBound (SNES) decompilation &amp; emulator in Nim.
+  This page documents the hardware the emulator reproduces, scoped to EarthBound (U).
+  <br>Companion: <code>docs/sram-format.md</code> (save layout), and the assembly reference (next).
+</footer>
+
+</div>
+<script>
+  // Respect a ?theme= override for embedding; otherwise follow the OS.
+  const t = new URLSearchParams(location.search).get('theme');
+  if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+</script>
+</body>
+</html>
