@@ -348,6 +348,14 @@ void main() {
     if window.buttonPressed[KeyF12]:
       frameImage.writeFile("bin/frame.png")
       echo "wrote bin/frame.png"
+      # Dump the PPU state too, so scene-specific rendering bugs (e.g. the
+      # battle HP/PP window) can be diagnosed from a single capture.
+      echo &"  BGMODE={snes.ppuRegs[0x05] and 7} bg3prio={(snes.ppuRegs[0x05] and 8) != 0} " &
+        &"TM(main)={snes.ppuRegs[0x2C]:02X} TS(sub)={snes.ppuRegs[0x2D]:02X} INIDISP={snes.ppuRegs[0x00]:02X}"
+      echo &"  CGADSUB={snes.ppuRegs[0x31]:02X} CGWSEL={snes.ppuRegs[0x30]:02X} HDMAEN={snes.hdmaen:02X}"
+      echo &"  windows: W12SEL={snes.ppuRegs[0x23]:02X} W34SEL={snes.ppuRegs[0x24]:02X} " &
+        &"WOBJSEL={snes.ppuRegs[0x25]:02X} WH0-3={snes.ppuRegs[0x26]:02X}/{snes.ppuRegs[0x27]:02X}/" &
+        &"{snes.ppuRegs[0x28]:02X}/{snes.ppuRegs[0x29]:02X} TMW={snes.ppuRegs[0x2E]:02X} TSW={snes.ppuRegs[0x2F]:02X}"
     # (No Esc-to-quit: it was too easy to hit mid-game and lose your run. Close
     # the window or Ctrl+C the terminal to exit.)
 
