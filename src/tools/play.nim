@@ -126,7 +126,8 @@ Controls:
   N           Advance one frame (when paused)
   -           Decrease speed
   =           Increase speed
-  F12         Write bin/frame.png
+  F11         Toggle auto-screenshots (bin/autoshots/ every 5s; on by default)
+  F12         Write bin/frame.png (+ dump PPU registers to the terminal)
   (close the window or Ctrl+C to quit — no Esc-to-quit, too easy to fat-finger)
 
   Gamepad (via paddy):
@@ -151,6 +152,12 @@ Controls:
   var fpsAccum = 0
   var fpsClock = getMonoTime()
   var fpsShown = 0.0
+  # Auto-capture: every 5s dump the frame + PPU state to bin/autoshots/
+  # (gitignored) so scenes can be reviewed/diagnosed after the fact. F11 toggles.
+  var autoShot = true
+  var lastShotTime = getMonoTime()
+  var shotCount = 0
+  createDir("bin/autoshots")
   var lastJoy1: uint16 = 0
 
   # Audio is driven by the live APU in the bus (snes.tickApu) — no per-frame
@@ -345,6 +352,9 @@ void main() {
       dec framesPerTick
     if window.buttonPressed[KeyEqual]:
       inc framesPerTick
+    if window.buttonPressed[KeyF11]:
+      autoShot = not autoShot
+      echo "auto-screenshots: ", (if autoShot: "ON (bin/autoshots/ every 5s)" else: "OFF")
     if window.buttonPressed[KeyF12]:
       frameImage.writeFile("bin/frame.png")
       echo "wrote bin/frame.png"
@@ -453,6 +463,22 @@ void main() {
     let newTitle = &"decompbound player - {fpsShown:.0f} fps - frame {frameCount}{pausedStr} x{framesPerTick}"
     if window.title != newTitle:
       window.title = newTitle
+
+    # Auto-capture: every ~5s dump the frame + a PPU-register line to the
+    # gitignored bin/autoshots/ so scenes can be reviewed/diagnosed later.
+    if autoShot and (getMonoTime() - lastShotTime).inSeconds >= 5:
+      frameImage.writeFile(&"bin/autoshots/shot_{shotCount:04}.png")
+      let regLine = &"shot_{shotCount:04}  frame={frameCount} fps={fpsShown:.0f}  " &
+        &"BGMODE={snes.ppuRegs[0x05] and 7} bg3prio={(snes.ppuRegs[0x05] and 8) != 0} " &
+        &"TM={snes.ppuRegs[0x2C]:02X} TS={snes.ppuRegs[0x2D]:02X} INIDISP={snes.ppuRegs[0x00]:02X} " &
+        &"CGADSUB={snes.ppuRegs[0x31]:02X} CGWSEL={snes.ppuRegs[0x30]:02X} " &
+        &"fixedRGB={snes.fixedColorR},{snes.fixedColorG},{snes.fixedColorB} HDMAEN={snes.hdmaen:02X} " &
+        &"W12={snes.ppuRegs[0x23]:02X} TMW={snes.ppuRegs[0x2E]:02X} TSW={snes.ppuRegs[0x2F]:02X}"
+      let lf = open("bin/autoshots/registers.log", fmAppend)
+      lf.writeLine(regLine)
+      lf.close()
+      inc shotCount
+      lastShotTime = getMonoTime()
 
     # Autosave the battery SRAM shortly after the game writes it (throttled so a
     # multi-byte in-game save coalesces into one .srm flush).

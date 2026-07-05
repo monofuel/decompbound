@@ -337,6 +337,28 @@ PPU state at vblank-end. Related to the general lack of frame-accurate timing.
 
 ---
 
+## 12. Lighting effect stuck "super bright" after the Buzz Buzz scene
+
+**Status:** OPEN — new (2026-07-04).
+
+The Buzz Buzz / meteor-crash scene does lightning-flash lighting changes to the
+overworld. After the scene ends, the world stays **stuck super bright** instead
+of returning to normal.
+
+"Super bright" (beyond full INIDISP) means **color math is adding brightness**
+— almost certainly a fixed-color add (COLDATA $2132 + CGADSUB $2131) used for
+the flash that isn't being cleared afterward, so our per-scanline compositor
+keeps adding the bright fixed color every frame.
+
+**Leads:** F12 during the stuck-bright state and read the dump — check CGADSUB
+(is color math still enabled?), CGWSEL, the fixed color (COLDATA), and INIDISP.
+Then find where the scene *should* clear it and why our state persists (likely a
+COLDATA reset or a CGADSUB-disable write we mis-handle).
+
+**Scope:** core-emulator color math / fixed-color state — claude-code.
+
+---
+
 ## Notes on the shared theme
 
 The original guess that #1 and #2 shared a "per-frame budget too low" root

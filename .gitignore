@@ -16,3 +16,6 @@ bin/*
 
 # Battery saves
 *.srm
+
+# Auto-capture screenshots (play.nim F11)
+bin/autoshots/
