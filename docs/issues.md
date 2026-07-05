@@ -9,7 +9,8 @@ Filed: 2026-07-04
 
 **Status summary (2026-07-04):**
 - #1 red static — OPEN, diagnosis corrected (wrong animation *segment*).
-- #2 overworld intro — OPEN, budget hypothesis disproven; input/demo path.
+- #2 overworld intro — **MOSTLY FIXED** by the math unit (characters walk,
+  scenes change); missing the iris/shutter (window masking) + audio.
 - #3 menu box — **FIXED**: BG3 priority (border/cursor) + the hardware math
   unit (contents). Menu now renders "1/2/3: Start New Game" fully.
 - #4 audio — **PARTIAL**: **SFX work** in `make play`; **BGM (music) is
@@ -41,37 +42,35 @@ death-animation frames for the intro vs. end-game (claude-code).
 
 ---
 
-## 2. "Characters walking around the world" intro is static
+## 2. Overworld intro — mostly WORKS now; missing the iris transition + audio
 
-**Status:** OPEN — budget disproven; movement-input path suspected.
+**Status:** **MOSTLY FIXED** (2026-07-04). Characters now walk and scenes
+change. Two gaps remain: the scene-transition iris and the audio.
 
-The overworld attract scene (camera circling the party at Summers, characters
-walking) renders cleanly but does not move:
+**What fixed the motion: the hardware multiply/divide unit (see #5).** The
+scene originally looked frozen (camera/characters static). The earlier
+"budget too low" theory was disproven; the real blocker was the **missing math
+unit** — the movement/camera/scene-script logic does multiplies and divides,
+got 0 back, and stalled. With the math unit implemented, the intro now plays:
+characters walk, scenes change. (Good example of one core fix cascading.)
 
-- Characters do **not** walk; the camera does **not** pan/circle.
-- Background is **byte-identical across thousands of frames** (zero scroll).
-- Sprite *appearance* does cycle (blonde -> red-capped), so the display
-  pipeline and per-frame animation run — the scene is NOT frozen/crashed.
+**Remaining gap A — the "black camera shutter circle" (iris) is missing.**
+Between scenes EarthBound closes a shrinking black circle (an iris/shutter)
+around the action. This is **SNES window masking** — an HDMA-driven window
+(WH0/WH1 per scanline traces the circle) that blanks the layers outside it to
+black. We don't implement windows at all, so the iris never appears. This is
+the same feature behind the "camera circle" wording in earlier notes — it's a
+window mask, not a camera pan.
 
-**Budget hypothesis DISPROVEN:** rendered the scene at a realistic
-instructions-per-frame budget (IPL=180, ~23k/frame vs the default ~7.8k) —
-the camera *still* did not pan and characters *still* did not move. So
-per-frame starvation is not the cause.
+- Registers: W12SEL/W34SEL/WOBJSEL ($2123-$2125), WH0-WH3 ($2126-$2129),
+  WBGLOG/WOBJLOG ($212A/$212B), TMW/TSW ($212E/$212F), color window (CGWSEL).
+- Implement window ranges + per-layer window-disable in the compositor;
+  the iris is HDMA writing WH0/WH1 each scanline.
 
-The camera follows the player, so both freezing collapses to one question:
-**why doesn't the (demo-driven) player move?** Most likely the attract demo's
-recorded input isn't reaching the movement code (input edge handling, demo
-input read, or the always-on $4218 auto-joypad read clobbering injected
-input).
+**Remaining gap B — audio is wrong.** Same root cause as #4 (BGM / song
+transitions through the snapshot-replay APU).
 
-**Investigation leads:**
-- Trace the player-position WRAM variable across frames — static or moving?
-- Find where EB reads controller input during attract and whether the demo
-  feeds it; check if our auto-joypad read overwrites demo input.
-- The "2 glitchy sprites" note: verify OAM decode / sprite-table base once the
-  motion path is understood.
-
-**Scope:** core-emulator input/demo + sprite/OAM (claude-code).
+**Scope:** core-emulator PPU windowing (claude-code) + audio (#4).
 
 ---
 
@@ -115,12 +114,19 @@ doesn't complete its setup, the slot rows never get drawn.
 
 ## 4. Audio: SFX work, but BGM (music) is silent — PARTIAL
 
-**Status:** **PARTIAL** (2026-07-04). In `make play` **sound effects play**
-(menu navigation blips), but **background music does not**.
+**Status:** **PARTIAL** (2026-07-04). SFX play. Some BGM plays (the Giygas
+red-static music is audible), but **song *transitions* break**: when the intro
+switches to the EarthBound title fanfare it doesn't flip over — it plays a
+quiet, glitchy tune instead. And the menu has no BGM at all.
 
 **Confirmed:** a headless probe mirroring play.nim's audio path boots to the
 menu and measures a steady no-input window: **0% nonzero samples** (dead
-silent) vs. ~74% on the attract demo. So the menu has no BGM in our emulator.
+silent) vs. ~74% on the attract demo. So BGM is inconsistent across scenes.
+
+**The song-transition glitch is the tell:** each new song is a large upload,
+which trips our re-init and **resets the SPC700 mid-transition**, so the new
+track comes up as garbage/quiet instead of flipping cleanly. First song fine,
+the switch is not.
 
 **Root cause — the snapshot-replay APU can't hold music state.** play.nim runs
 a *standalone* APU seeded from the captured RAM image, and **re-initializes it
