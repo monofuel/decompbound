@@ -500,26 +500,67 @@ proc mmioWrite(snes: SnesBus, offset: uint32, value: uint8) =
   else:
     discard
 
+proc detectLoRom(rom: seq[uint8]): bool =
+  ## Detect the cartridge map mode from the internal header. The header sits at
+  ## file $FFC0 (HiROM) or $7FC0 (LoROM); score each candidate by a valid
+  ## checksum/complement pair (they must sum to $FFFF), the map-mode bit, and a
+  ## printable title, then pick the better. EarthBound (HiROM) scores at $FFC0;
+  ## generic LoROM test ROMs score at $7FC0. A ROM too small to hold a $FFC0
+  ## header can only be LoROM.
+  proc score(base: int): int =
+    if base + 0x20 > rom.len: return -1
+    let complement = rom[base + 0x1C].int or (rom[base + 0x1D].int shl 8)
+    let checksum = rom[base + 0x1E].int or (rom[base + 0x1F].int shl 8)
+    let mapByte = rom[base + 0x15].int
+    result = 0
+    if checksum != 0 and (complement + checksum) == 0xFFFF:
+      result += 8
+    # Map-mode bit 0: 1 = HiROM. The HiROM header lives at $FFC0, LoROM at $7FC0.
+    let wantsHi = base == 0xFFC0
+    if ((mapByte and 1) != 0) == wantsHi:
+      result += 2
+    var printable = 0
+    for i in 0 ..< 21:
+      let c = rom[base + i]
+      if c >= 0x20'u8 and c < 0x7F'u8:
+        inc printable
+    if printable >= 16:
+      result += 1
+  result = score(0x7FC0) > score(0xFFC0)
+
 proc newSnesBus*(rom: seq[uint8]): SnesBus =
-  ## Build the SNES bus: ROM copied into every HiROM mirror, WRAM live in
-  ## banks $7E/$7F, low-RAM/MMIO windows hooked in the system banks.
+  ## Build the SNES bus: ROM copied into its mirror layout (HiROM for EarthBound,
+  ## LoROM for generic test ROMs), WRAM live in banks $7E/$7F, low-RAM/MMIO
+  ## windows hooked in the system banks.
   let snes = SnesBus(bus: newBus(), rom: rom)
 
-  # ROM into banks C0-FF (full) and the read mirrors.
-  for fileOffset in 0..<rom.len:
-    let snesAddr = fileToSnes(fileOffset)
-    snes.bus.mem[snesAddr.int] = rom[fileOffset]
-    # Banks 40-7D mirror C0-FD fully (7E/7F are WRAM, excluded).
-    let mirrorBank = (snesAddr shr 16) - 0x80
-    if mirrorBank <= 0x7D:
-      snes.bus.mem[((mirrorBank shl 16) or (snesAddr and 0xFFFF)).int] =
-        rom[fileOffset]
-    # Upper halves of banks 00-3F and 80-BF.
-    if (snesAddr and 0xFFFF) >= 0x8000:
-      let bank = (snesAddr shr 16) and 0x3F
-      snes.bus.mem[((bank shl 16) or (snesAddr and 0xFFFF)).int] = rom[fileOffset]
-      snes.bus.mem[(((bank + 0x80) shl 16) or (snesAddr and 0xFFFF)).int] =
-        rom[fileOffset]
+  if detectLoRom(rom):
+    # LoROM: each 32KB file chunk maps to the upper half ($8000-$FFFF) of a
+    # sequential bank, present in $00-$7D and mirrored into $80-$FF.
+    for fileOffset in 0..<rom.len:
+      let chunk = fileOffset div 0x8000
+      let bankAddr = 0x8000 + (fileOffset mod 0x8000)
+      if chunk <= 0x7D:
+        snes.bus.mem[((chunk shl 16) or bankAddr).int] = rom[fileOffset]
+      let hiBank = chunk + 0x80
+      if hiBank <= 0xFF:
+        snes.bus.mem[((hiBank shl 16) or bankAddr).int] = rom[fileOffset]
+  else:
+    # HiROM (EarthBound): ROM into banks C0-FF (full) + the read mirrors.
+    for fileOffset in 0..<rom.len:
+      let snesAddr = fileToSnes(fileOffset)
+      snes.bus.mem[snesAddr.int] = rom[fileOffset]
+      # Banks 40-7D mirror C0-FD fully (7E/7F are WRAM, excluded).
+      let mirrorBank = (snesAddr shr 16) - 0x80
+      if mirrorBank <= 0x7D:
+        snes.bus.mem[((mirrorBank shl 16) or (snesAddr and 0xFFFF)).int] =
+          rom[fileOffset]
+      # Upper halves of banks 00-3F and 80-BF.
+      if (snesAddr and 0xFFFF) >= 0x8000:
+        let bank = (snesAddr shr 16) and 0x3F
+        snes.bus.mem[((bank shl 16) or (snesAddr and 0xFFFF)).int] = rom[fileOffset]
+        snes.bus.mem[(((bank + 0x80) shl 16) or (snesAddr and 0xFFFF)).int] =
+          rom[fileOffset]
 
   snes.bus.readHook = proc(address: uint32): int =
     let bank = address shr 16
@@ -595,11 +636,13 @@ proc newSnesBus*(rom: seq[uint8]): SnesBus =
   result = snes
 
 proc resetCpu*(snes: SnesBus): Cpu =
-  ## CPU state at power-on: emulation mode, vector from $FFFC.
+  ## CPU state at power-on: emulation mode, reset vector from $00:FFFC. Read
+  ## through the mapped bus memory (not the raw file), so it is correct for both
+  ## HiROM and LoROM layouts and can never index past a short ROM.
   result.emulation = true
   result.p = FlagM or FlagX or FlagI
   result.s = 0x01FF
-  result.pc = snes.rom[0xFFFC].uint16 or (snes.rom[0xFFFD].uint16 shl 8)
+  result.pc = snes.bus.mem[0xFFFC].uint16 or (snes.bus.mem[0xFFFD].uint16 shl 8)
   result.pbr = 0
   result.dbr = 0
 
