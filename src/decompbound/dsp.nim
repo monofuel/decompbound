@@ -1,8 +1,10 @@
 ## S-DSP: the SNES audio mixer (Goal 2a, docs/audio.md).
 ## First-pass accuracy: BRR sample decoding, ADSR/GAIN envelopes, pitch
-## stepping with gaussian-ish linear interpolation, 8-voice stereo mix at
-## 32kHz. Echo/FIR and noise land later - docs/audio.md warns Earthbound
-## leans on echo, so expect dry output until then.
+## stepping with linear interpolation, 8-voice stereo mix at 32kHz, plus the
+## echo unit (buffer + 8-tap FIR + feedback, EON/EFB/EVOL/ESA/EDL) and the
+## noise generator (LFSR + NON). Echo restores EarthBound's reverb + loudness
+## (it leans on echo hard); noise drives percussive SFX. Gaussian interpolation
+## is still approximated as linear.
 
 type
   EnvPhase = enum
@@ -32,6 +34,11 @@ type
     ram*: ref array[0x10000, uint8]  ## Shared with the SPC700.
     voices: array[8, Voice]
     sampleCounter: int
+    firHistL: array[8, int32]   ## Echo FIR delay line (left channel).
+    firHistR: array[8, int32]   ## Echo FIR delay line (right channel).
+    echoOffset: int             ## Byte offset into the echo buffer; wraps at EDL size.
+    noiseLfsr: uint16           ## 15-bit noise LFSR (must stay non-zero to run).
+    noiseCounter: int           ## Samples since the last noise-LFSR step.
 
 const
   # Envelope rate table: samples per step for rates 0-31 (approximate
@@ -49,6 +56,7 @@ proc newDsp*(ram: ref array[0x10000, uint8]): Dsp =
   for i in 0..<128:
     result.regs[i] = 0xFF
   result.regs[0x6C] = 0xE0  # FLG: reset + mute + echo disable.
+  result.noiseLfsr = 0x4000  # Non-zero seed; a zero LFSR would never advance.
 
 proc sampleTableAddr(dsp: Dsp, voice: int): uint16 =
   ## Sample directory entry address for a voice's SRCN.
@@ -210,40 +218,115 @@ proc forceKeyOnForTest*(dsp: Dsp, voice: int, sampleAddrHint: uint16 = 0) =
   dsp.voices[voice] = v
   dsp.regs[0x4C] = dsp.regs[0x4C] or (1'u8 shl voice)
 
+proc clampS16(v: int32): int32 =
+  ## Clamp a value to the signed 16-bit range.
+  max(-32768'i32, min(32767'i32, v))
+
 proc mixSample*(dsp: Dsp): tuple[left: int16, right: int16] =
-  ## Produce one 32kHz stereo output sample from all voices.
-  var left = 0'i32
-  var right = 0'i32
+  ## Produce one 32kHz stereo output sample: the dry voice mix (scaled by the
+  ## master volume) plus the echo return (the FIR-filtered echo buffer scaled by
+  ## the echo volume). Echo-enabled voices (EON) also feed the echo buffer.
+  var dryL = 0'i32
+  var dryR = 0'i32
+  var echoInL = 0'i32
+  var echoInR = 0'i32
+  let non = dsp.regs[0x3D]   # Per-voice noise enable.
+  let eon = dsp.regs[0x4D]   # Per-voice echo enable.
+
+  # Advance the noise LFSR at the rate selected by FLG bits 0-4, then form the
+  # signed noise sample (used by any voice whose NON bit is set).
+  let noiseRate = (dsp.regs[0x6C] and 0x1F).int
+  if noiseRate != 0:
+    dsp.noiseCounter += 1
+    if dsp.noiseCounter >= RatePeriods[noiseRate]:
+      dsp.noiseCounter = 0
+      let feedback = (dsp.noiseLfsr xor (dsp.noiseLfsr shr 1)) and 1
+      dsp.noiseLfsr = (dsp.noiseLfsr shr 1) or (feedback shl 14)
+  let noiseSample = cast[int16](dsp.noiseLfsr shl 1).int32
+
   for i in 0..7:
     if not dsp.voices[i].active:
       continue
     let v = addr dsp.voices[i]
-    let pitch = (dsp.regs[i * 0x10 + 2].uint32 or
-      ((dsp.regs[i * 0x10 + 3].uint32 and 0x3F) shl 8))
-    v.pitchCounter += pitch
-    while v.pitchCounter >= 0x1000:
-      v.pitchCounter -= 0x1000
-      # Shift the interpolation window and decode the next BRR sample.
-      v.samples[0] = v.samples[1]
-      v.samples[1] = v.samples[2]
-      v.samples[2] = v.samples[3]
-      v.samples[3] = decodeBrrNibble(v[], dsp.ram)
+    var sample: int32
+    if ((non shr i) and 1) != 0:
+      # Noise voice: ignore BRR + pitch, just envelope the global noise source.
+      dsp.stepEnvelope(i)
       if not v.active:
-        break
-    if not v.active:
-      continue
-    dsp.stepEnvelope(i)
-    # Linear interpolation between the last two decoded samples.
-    let frac = (v.pitchCounter and 0xFFF).int32
-    let sample = (v.samples[2] * (0x1000 - frac) + v.samples[3] * frac) shr 12
+        continue
+      sample = noiseSample
+    else:
+      let pitch = (dsp.regs[i * 0x10 + 2].uint32 or
+        ((dsp.regs[i * 0x10 + 3].uint32 and 0x3F) shl 8))
+      v.pitchCounter += pitch
+      while v.pitchCounter >= 0x1000:
+        v.pitchCounter -= 0x1000
+        # Shift the interpolation window and decode the next BRR sample.
+        v.samples[0] = v.samples[1]
+        v.samples[1] = v.samples[2]
+        v.samples[2] = v.samples[3]
+        v.samples[3] = decodeBrrNibble(v[], dsp.ram)
+        if not v.active:
+          break
+      if not v.active:
+        continue
+      dsp.stepEnvelope(i)
+      # Linear interpolation between the last two decoded samples.
+      let frac = (v.pitchCounter and 0xFFF).int32
+      sample = (v.samples[2] * (0x1000 - frac) + v.samples[3] * frac) shr 12
     let enveloped = (sample * v.envLevel) shr 11
     let volL = cast[int8](dsp.regs[i * 0x10 + 0]).int32
     let volR = cast[int8](dsp.regs[i * 0x10 + 1]).int32
-    left += (enveloped * volL) shr 7
-    right += (enveloped * volR) shr 7
+    let contribL = (enveloped * volL) shr 7
+    let contribR = (enveloped * volR) shr 7
+    dryL += contribL
+    dryR += contribR
+    if ((eon shr i) and 1) != 0:
+      echoInL += contribL
+      echoInR += contribR
+
+  # Echo: read the delayed sample from the buffer (ESA<<8, size EDL*2KB, 4 bytes
+  # per stereo sample), run the 8-tap FIR, add the return to the mix, and write
+  # (echo input + feedback) back into the buffer unless FLG bit 5 disables it.
+  let esa = dsp.regs[0x6D].int
+  let edl = (dsp.regs[0x7D] and 0x0F).int
+  let bufBytes = if edl == 0: 4 else: edl * 0x800
+  let echoPtr = ((esa shl 8) + dsp.echoOffset) and 0xFFFF
+  let bufL = cast[int16](dsp.ram[echoPtr].uint16 or
+    (dsp.ram[(echoPtr + 1) and 0xFFFF].uint16 shl 8)).int32
+  let bufR = cast[int16](dsp.ram[(echoPtr + 2) and 0xFFFF].uint16 or
+    (dsp.ram[(echoPtr + 3) and 0xFFFF].uint16 shl 8)).int32
+  for t in 0..6:
+    dsp.firHistL[t] = dsp.firHistL[t + 1]
+    dsp.firHistR[t] = dsp.firHistR[t + 1]
+  dsp.firHistL[7] = bufL
+  dsp.firHistR[7] = bufR
+  var firL = 0'i32
+  var firR = 0'i32
+  for t in 0..7:
+    let coef = cast[int8](dsp.regs[t * 0x10 + 0x0F]).int32
+    firL += (dsp.firHistL[t] * coef) shr 7
+    firR += (dsp.firHistR[t] * coef) shr 7
+  firL = clampS16(firL)
+  firR = clampS16(firR)
+  if (dsp.regs[0x6C] and 0x20) == 0:   # Echo write enabled.
+    let efb = cast[int8](dsp.regs[0x0D]).int32
+    let wL = clampS16(echoInL + ((firL * efb) shr 7))
+    let wR = clampS16(echoInR + ((firR * efb) shr 7))
+    dsp.ram[echoPtr] = (wL and 0xFF).uint8
+    dsp.ram[(echoPtr + 1) and 0xFFFF] = ((wL shr 8) and 0xFF).uint8
+    dsp.ram[(echoPtr + 2) and 0xFFFF] = (wR and 0xFF).uint8
+    dsp.ram[(echoPtr + 3) and 0xFFFF] = ((wR shr 8) and 0xFF).uint8
+  dsp.echoOffset += 4
+  if dsp.echoOffset >= bufBytes:
+    dsp.echoOffset = 0
+
+  # Final DAC mix: dry * master volume + echo return * echo volume.
   let mvolL = cast[int8](dsp.regs[0x0C]).int32
   let mvolR = cast[int8](dsp.regs[0x1C]).int32
-  left = (left * mvolL) shr 7
-  right = (right * mvolR) shr 7
-  result.left = int16(max(-32768'i32, min(32767'i32, left)))
-  result.right = int16(max(-32768'i32, min(32767'i32, right)))
+  let evolL = cast[int8](dsp.regs[0x2C]).int32
+  let evolR = cast[int8](dsp.regs[0x3C]).int32
+  let outL = ((dryL * mvolL) shr 7) + ((firL * evolL) shr 7)
+  let outR = ((dryR * mvolR) shr 7) + ((firR * evolR) shr 7)
+  result.left = int16(clampS16(outL))
+  result.right = int16(clampS16(outR))
