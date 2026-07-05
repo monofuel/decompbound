@@ -82,6 +82,8 @@ type
                                  ## $A0-$BF at $6000-$7FFF). Earthbound's
                                  ## anti-piracy check probes exactly this
                                  ## size and mirroring.
+    sramDirty*: bool             ## Set on any SRAM write so the player can
+                                 ## flush the battery save to a .srm file.
 
 proc isMmio(offset: uint32): bool =
   ## System-area registers: $2100-$21FF (PPU/APU), $4000-$44FF (CPU/DMA).
@@ -548,6 +550,7 @@ proc newSnesBus*(rom: seq[uint8]): SnesBus =
         return true
       if offset >= 0x6000 and offset < 0x8000 and (bank and 0x3F) >= 0x20:
         snes.sram[(offset - 0x6000).int] = value
+        snes.sramDirty = true
         return true
       if offset >= 0x8000:
         return true  # ROM: ignore writes.

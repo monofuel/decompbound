@@ -13,3 +13,6 @@ nimcache
 .*
 
 bin/*
+
+# Battery saves
+*.srm

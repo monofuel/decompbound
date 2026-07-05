@@ -23,6 +23,28 @@ proc readRomFile(filepath: string): seq[uint8] =
   for i in 0..<result.len:
     result[i] = data[start + i].uint8
 
+proc sramPathFor(romPath: string): string =
+  ## The battery-save file sits next to the ROM with a .srm extension, e.g.
+  ## "bin/Earthbound (U) [!].srm". Gitignored.
+  romPath.changeFileExt("srm")
+
+proc loadSram(snes: SnesBus, path: string) =
+  ## Load a battery save into SRAM if the .srm file exists (else start fresh).
+  if fileExists(path):
+    let data = readFile(path)
+    for i in 0 ..< min(data.len, snes.sram.len):
+      snes.sram[i] = data[i].uint8
+    echo "loaded save: ", path, " (", data.len, " bytes)"
+
+proc saveSram(snes: SnesBus, path: string) =
+  ## Write the 8KB battery SRAM out to the .srm file.
+  var s = newString(snes.sram.len)
+  for i in 0 ..< snes.sram.len:
+    s[i] = snes.sram[i].char
+  writeFile(path, s)
+  snes.sramDirty = false
+  echo "saved: ", path
+
 proc compileShader(kind: GLenum, source: string): GLuint =
   ## Compile one shader and return its id, or quit on error.
   let shader = glCreateShader(kind)
@@ -117,6 +139,8 @@ Controls:
 
   let rom = readRomFile(romPath)
   let snes = newSnesBus(rom)
+  let sramPath = sramPathFor(romPath)
+  snes.loadSram(sramPath)   # battery save: load if a .srm exists
   var cpu = snes.resetCpu()
 
   var frameCount = 0
@@ -412,7 +436,14 @@ void main() {
     if window.title != newTitle:
       window.title = newTitle
 
-  # Shutdown audio cleanly on exit.
+    # Autosave the battery SRAM shortly after the game writes it (throttled so a
+    # multi-byte in-game save coalesces into one .srm flush).
+    if snes.sramDirty and frameCount mod 60 == 0:
+      snes.saveSram(sramPath)
+
+  # Flush any pending battery save, then shut audio down cleanly, on exit.
+  if snes.sramDirty:
+    snes.saveSram(sramPath)
   ss.close()
   slappyClose()
 
