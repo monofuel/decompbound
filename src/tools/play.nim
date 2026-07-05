@@ -254,8 +254,12 @@ void main() {
       if gp.button(GamepadDown): joy1 = joy1 or BtnDown
       if gp.button(GamepadLeft): joy1 = joy1 or BtnLeft
       if gp.button(GamepadRight): joy1 = joy1 or BtnRight
-      if gp.button(GamepadB): joy1 = joy1 or BtnB
-      if gp.button(GamepadA): joy1 = joy1 or BtnA
+      # Map by PHYSICAL position, not label (paddy is positional/SDL-style):
+      # paddy A=bottom, B=right, X=top, Y=left; SNES has B=bottom, A=right,
+      # X=top, Y=left. So paddy A/B map to SNES B/A (the classic Nintendo A/B
+      # swap); X/Y already line up by position.
+      if gp.button(GamepadA): joy1 = joy1 or BtnB
+      if gp.button(GamepadB): joy1 = joy1 or BtnA
       if gp.button(GamepadY): joy1 = joy1 or BtnY
       if gp.button(GamepadX): joy1 = joy1 or BtnX
       if gp.button(GamepadStart): joy1 = joy1 or BtnStart

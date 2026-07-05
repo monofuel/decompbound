@@ -12,10 +12,11 @@ Filed: 2026-07-04
 - #2 overworld intro — OPEN, budget hypothesis disproven; input/demo path.
 - #3 menu box — **FIXED**: BG3 priority (border/cursor) + the hardware math
   unit (contents). Menu now renders "1/2/3: Start New Game" fully.
-- #4 no audio — **PARTIAL**: offline + headless live path verified, but no
-  audio heard on the `make play` menu screen yet.
+- #4 audio — **PARTIAL**: **SFX work** in `make play`; **BGM (music) is
+  silent** — the snapshot-replay APU can't hold music state. Needs a live APU.
 - #5 game freezes on menu input — **FIXED**: hardware multiply/divide unit.
 - #6 EarthBound logo fade-out glitch ("B" vanishes early) — OPEN, new.
+- #7 gamepad A/B swapped — **FIXED**: map paddy buttons by physical position.
 
 ---
 
@@ -112,16 +113,33 @@ doesn't complete its setup, the slot rows never get drawn.
 
 ---
 
-## 4. No music or sound effects play — PARTIAL
+## 4. Audio: SFX work, but BGM (music) is silent — PARTIAL
 
-**Status:** **PARTIAL** (2026-07-04). Offline render + a headless live-path
-probe both produce sustained non-silent PCM, but **no audio has been heard on
-the `make play` menu screen yet** — needs runtime confirmation of where audio
-does/doesn't play interactively (title vs. menu vs. gameplay). Possible causes:
-the menu's song is selected by a port command (not a >=16KB upload) so our
-re-init heuristic never (re)starts it for that scene, or the interactive path
-reaches the menu before/without the song data our probe saw on the attract
-path. Verify by logging apuStarted / nonzero-sample counts live in play.nim.
+**Status:** **PARTIAL** (2026-07-04). In `make play` **sound effects play**
+(menu navigation blips), but **background music does not**.
+
+**Confirmed:** a headless probe mirroring play.nim's audio path boots to the
+menu and measures a steady no-input window: **0% nonzero samples** (dead
+silent) vs. ~74% on the attract demo. So the menu has no BGM in our emulator.
+
+**Root cause — the snapshot-replay APU can't hold music state.** play.nim runs
+a *standalone* APU seeded from the captured RAM image, and **re-initializes it
+(resets the SPC700 to $0500) on each >=16KB upload** — 4 times by menu-time.
+SFX are stateless "play this sound now" port commands, so they fire on a
+freshly-reset driver. **BGM is a running sequence**: resetting the driver wipes
+its music state, and replaying the captured command history does not restore it
+(tested: still 0%). The re-init heuristic that made attract music ~work is
+fundamentally fragile for sustained BGM across scene changes.
+
+**Proper fix — a live two-way APU.** Run the SPC700 continuously *inside the
+bus* with real port I/O (using the real SPC700 IPL boot ROM for the upload
+handshake), instead of the HLE handshake + snapshot-replay. Then the driver
+keeps its music state naturally and both BGM and SFX play like hardware. This
+is a focused rework (risk: the HLE handshake is currently what lets the game
+boot past the APU check, so the live path must handle the upload protocol).
+
+**Scope:** audio pipeline rework (claude-code); mechanical parts (IPL ROM
+bytes, port wiring) could be a grok ticket once the design is set.
 
 The audio engine (SPC700 + S-DSP) already produced non-silent PCM offline
 (`render_song`: ~48% nonzero samples). It just wasn't wired into the live
@@ -193,6 +211,25 @@ don't reproduce at the right rate).
   schedule we advance incorrectly.
 
 **Scope:** core-emulator PPU fade/animation (claude-code).
+
+---
+
+## 7. Gamepad A/B (and X/Y) buttons felt wrong — FIXED
+
+**Status:** **FIXED** (2026-07-04) for standard controllers.
+
+play.nim mapped paddy gamepad buttons by **label** (GamepadA->SNES A, etc.).
+But paddy is **positional** (SDL-style): GamepadA=bottom, GamepadB=right,
+GamepadX=top, GamepadY=left. The SNES face layout is X(top) Y(left) A(right)
+B(bottom). By position the correct map is: paddy A(bottom)->SNES B, paddy
+B(right)->SNES A, paddy X(top)->SNES X, paddy Y(left)->SNES Y — i.e. the
+classic Nintendo **A/B swap** (X/Y already lined up). Fixed in play.nim.
+
+**Caveat:** cheap SNES-clone USB pads sometimes report non-standard evdev
+codes. If a specific pad is still wrong, run `make play` with `--verbose`,
+press each face button, and read what paddy reports to map it exactly.
+
+**Scope:** input mapping (play.nim).
 
 ---
 
