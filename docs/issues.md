@@ -313,6 +313,24 @@ missing pieces.
 
 ---
 
+## 11. Flicker in the top ~4 scanlines
+
+**Status:** OPEN — new (2026-07-04), low priority.
+
+A thin band at the very top of the screen (~top 4 rows) flickers frame to
+frame. Likely a per-scanline timing artifact: we render each scanline as the
+CPU executes, so lines 0-3 are drawn very early in the frame — before the game
+has finished its vblank PPU setup (scroll latch, CGRAM, the HDMA table for the
+new frame). Mid-update state at the top renders inconsistently each frame.
+
+**Leads:** compare the PPU/scroll/HDMA state at line 0 vs. after the game's
+vblank writes; consider deferring the first N scanlines' render, or snapshotting
+PPU state at vblank-end. Related to the general lack of frame-accurate timing.
+
+**Scope:** core-emulator render timing — claude-code.
+
+---
+
 ## Notes on the shared theme
 
 The original guess that #1 and #2 shared a "per-frame budget too low" root
