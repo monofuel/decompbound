@@ -61,6 +61,9 @@ proc newApu*(): Apu =
       if (value and 0x20) != 0:
         apu.portsIn[2] = 0
         apu.portsIn[3] = 0
+      # Bit 7 maps/unmaps the IPL ROM at $FFC0-$FFFF. The uploaded driver
+      # clears it to reclaim that RAM once boot is done.
+      apu.spc.iplEnabled = (value and 0x80) != 0
       true
     of 0x00F2:
       apu.dspAddr = value
@@ -78,6 +81,21 @@ proc newApu*(): Apu =
     else: false
 
   result = apu
+
+proc bootWithIpl*(apu: Apu) =
+  ## Cold-boot the APU so it runs the real IPL ROM handshake (for the live
+  ## two-way path). The reset vector in the IPL points at $FFC0; from there the
+  ## IPL clears low RAM, signals readiness on the ports, and services the main
+  ## CPU's driver upload. Contrast the offline player, which warm-starts by
+  ## loading a captured image and jumping straight to the driver entry.
+  apu.spc.iplEnabled = true
+  apu.spc.pc = 0xFFC0
+  apu.spc.sp = 0xEF
+  apu.spc.a = 0
+  apu.spc.x = 0
+  apu.spc.y = 0
+  apu.spc.psw = 0
+  apu.spc.stopped = false
 
 proc tickTimers*(apu: Apu, cycles: int) =
   ## Advance timers: T0/T1 at 8kHz (128 cycles), T2 at 64kHz (16 cycles).

@@ -13,6 +13,16 @@ const
   PswV* = 0x40'u8  ## Overflow.
   PswN* = 0x80'u8  ## Negative.
 
+const
+  IplRom*: array[64, uint8] = [
+    0xCD'u8, 0xEF, 0xBD, 0xE8, 0x00, 0xC6, 0x1D, 0xD0, 0xFC, 0x8F, 0xAA, 0xF4, 0x8F, 0xBB, 0xF5, 0x78,
+    0xCC, 0xF4, 0xD0, 0xFB, 0x2F, 0x19, 0xEB, 0xF4, 0xD0, 0xFC, 0x7E, 0xF4, 0xD0, 0x0B, 0xE4, 0xF5,
+    0xCB, 0xF4, 0xD7, 0x00, 0xFC, 0xD0, 0xF3, 0xAB, 0x01, 0x10, 0xEF, 0x7E, 0xF4, 0x10, 0xEB, 0xBA,
+    0xF6, 0xDA, 0x00, 0xBA, 0xF4, 0xC4, 0xF4, 0xDD, 0x5D, 0xD0, 0xDB, 0x1F, 0x00, 0x00, 0xC0, 0xFF]
+    ## The standard 64-byte SPC700 IPL boot ROM at $FFC0-$FFFF. Its reset
+    ## vector ($FFFE/F) points at $FFC0; it runs the upload handshake the main
+    ## CPU speaks over the APU ports. Only mapped in when iplEnabled (real boot).
+
 type
   Spc* = object
     a*: uint8
@@ -23,6 +33,9 @@ type
     psw*: uint8
     ram*: ref array[0x10000, uint8]
     stopped*: bool
+    iplEnabled*: bool  ## When set, $FFC0-$FFFF reads the IPL ROM (default off:
+                       ## plain RAM, so vector tests are unaffected). $F1 bit 7
+                       ## clears it once the game's driver takes over.
     cycles*: int  ## Approximate cycle counter for timer pacing.
     readHook*: proc(address: uint16): int  ## $F0-$FF I/O; -1 = plain RAM.
     writeHook*: proc(address: uint16, value: uint8): bool
@@ -32,11 +45,14 @@ proc newSpc*(): Spc =
   result.ram = new(array[0x10000, uint8])
 
 proc read8(spc: Spc, address: uint16): uint8 =
-  ## Read one byte of APU RAM (I/O hooks cover $F0-$FF when installed).
+  ## Read one byte of APU RAM (I/O hooks cover $F0-$FF when installed; the IPL
+  ## ROM overlays $FFC0-$FFFF while iplEnabled).
   if spc.readHook != nil and (address and 0xFFF0) == 0x00F0:
     let hooked = spc.readHook(address)
     if hooked >= 0:
       return hooked.uint8
+  if spc.iplEnabled and address >= 0xFFC0:
+    return IplRom[(address - 0xFFC0).int]
   spc.ram[address]
 
 proc write8(spc: var Spc, address: uint16, value: uint8) =

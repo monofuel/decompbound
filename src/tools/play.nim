@@ -105,7 +105,7 @@ Controls:
   -           Decrease speed
   =           Increase speed
   F12         Write bin/frame.png
-  Esc         Quit
+  (close the window or Ctrl+C to quit — no Esc-to-quit, too easy to fat-finger)
 
   Gamepad (via paddy):
     All connected gamepads act as player 1 (this is Earthbound-specific).
@@ -125,10 +125,8 @@ Controls:
   var framesPerTick = 1
   var lastJoy1: uint16 = 0
 
-  var apuUnit: Apu = nil
-  var apuStarted = false
-  var postBootConsumed = 0
-  var lastUpload = 0
+  # Audio is driven by the live APU in the bus (snes.tickApu) — no per-frame
+  # snapshot/replay state is needed here anymore.
 
   let windowSize = ivec2(ScreenWidth * Scale, ScreenHeight * Scale)
   let window = newWindow("decompbound player - frame 0", windowSize)
@@ -320,8 +318,8 @@ void main() {
     if window.buttonPressed[KeyF12]:
       frameImage.writeFile("bin/frame.png")
       echo "wrote bin/frame.png"
-    if window.buttonPressed[KeyEscape]:
-      window.closeRequested = true
+    # (No Esc-to-quit: it was too easy to hit mid-game and lose your run. Close
+    # the window or Ctrl+C the terminal to exit.)
 
     # Emulation advance. Render each visible scanline right after its HDMA
     # updates so per-line color-math effects (the Giygas red static) appear.
@@ -335,6 +333,17 @@ void main() {
         if not forceBlank:
           let backdrop = ppu.bgr555ToColor(snes.cgram[0])
           frameImage.fill(backdrop)
+        # Audio: pull one frame of samples from the LIVE APU, ticked per scanline
+        # so the boot handshake + music driver stay in step with the main CPU.
+        # The note sequence and the BRR instrument samples both live in the real
+        # SPC700 RAM, so they can never drift out of coherence (the old
+        # snapshot-replay played the right melody with the wrong instruments).
+        # Only queue at normal speed; during fast-forward we still tick the APU
+        # (so the driver keeps running) but don't queue pitch-garbled audio.
+        const SamplesPerFrame = 32000 div 60
+        let genAudio = framesPerTick == 1 and not frameAdvance
+        var pcm = newSeq[uint8](SamplesPerFrame * 4)
+        var smp = 0
         var l = 0
         while l < 262:
           for i in 0 ..< InstrPerLine:
@@ -345,60 +354,31 @@ void main() {
             snes.runHdma()
             if (snes.ppuRegs[0x00] and 0x80) == 0:
               ppu.renderScanline(snes, frameImage, l)
+          for k in 0 ..< 2:
+            let (lft, rgt) = snes.tickApu()
+            if genAudio and smp < SamplesPerFrame:
+              let off = smp * 4
+              pcm[off + 0] = (lft and 0xFF).uint8
+              pcm[off + 1] = ((lft shr 8) and 0xFF).uint8
+              pcm[off + 2] = (rgt and 0xFF).uint8
+              pcm[off + 3] = ((rgt shr 8) and 0xFF).uint8
+              smp += 1
           l += 1
           if l >= 262:
             snes.initHdma()
             break
+        # Top up to a full frame (262*2 = 524 < 533) so slappy never underruns.
+        while genAudio and smp < SamplesPerFrame:
+          let (lft, rgt) = snes.tickApu()
+          let off = smp * 4
+          pcm[off + 0] = (lft and 0xFF).uint8
+          pcm[off + 1] = ((lft shr 8) and 0xFF).uint8
+          pcm[off + 2] = (rgt and 0xFF).uint8
+          pcm[off + 3] = ((rgt shr 8) and 0xFF).uint8
+          smp += 1
         ppu.renderSprites(snes, frameImage)
         frameCount += 1
-
-        # Live audio: (re)load the standalone APU from the captured upload image
-        # (same init as render_song.nim), then generate ~1/60s of 32kHz samples
-        # per frame by feeding accumulated post-boot port writes and running it.
-        #
-        # Why re-init on upload growth: the game uploads the driver early (~65KB,
-        # entry $0500) but streams each scene's SONG data in *later*, larger
-        # uploads. Initializing once at first upload captures only the driver and
-        # plays near-silence. Re-initializing when apuUploadBytes jumps by a
-        # song's worth (>=16KB) picks up each new song. Behavioral probe (headless,
-        # 3000 frames): single-init ~0.4% nonzero samples; re-init on +16KB ~74%
-        # with only ~3 driver restarts (minimal audible discontinuity). The proper
-        # fix is a fully live two-way APU in the bus; this is the HLE MVP.
-        if snes.apuUploadBytes > 0 and snes.apuEntry != 0 and
-           (not apuStarted or snes.apuUploadBytes > lastUpload + 16384):
-          apuUnit = newApu()
-          for i in 0..<0x10000:
-            apuUnit.spc.ram[i] = snes.apuImage[i]
-          apuUnit.spc.pc = if snes.apuEntry != 0: snes.apuEntry else: 0x0500
-          apuUnit.spc.sp = 0xEF
-          apuStarted = true
-          lastUpload = snes.apuUploadBytes
-
-        # Only generate/queue audio at normal speed (framesPerTick==1, not stepping).
-        # This keeps music at correct rate; during fast-forward (framesPerTick>1)
-        # we skip feeding so we don't produce speed/pitch garbage or buffer storms.
-        # (Tradeoff: during ff, audio will lag video. Acceptable for debug tool.)
-        # Each re-init restarts the driver at $0500 (a brief discontinuity); the
-        # >=16KB threshold keeps that to ~a few per scene change, not per frame.
-        if apuStarted and framesPerTick == 1 and not frameAdvance:
-          const SamplesPerFrame = 32000 div 60
-          # Feed newly-accumulated port writes from snes.apuPostBoot, spread across
-          # the frame's samples (a few per sample) rather than all at sample 0.
-          # Mirrors render_song.nim's pacing spirit for live growing list.
-          var pcm = newSeq[uint8](SamplesPerFrame * 4)
-          for si in 0..<SamplesPerFrame:
-            var fed = 0
-            while postBootConsumed < snes.apuPostBoot.len and fed < 4:
-              let (port, value) = snes.apuPostBoot[postBootConsumed]
-              apuUnit.portsIn[(port - 0x2140).int] = value
-              postBootConsumed += 1
-              fed += 1
-            let (l, r) = apuUnit.runSample()
-            let off = si * 4
-            pcm[off + 0] = (l and 0xFF).uint8
-            pcm[off + 1] = ((l shr 8) and 0xFF).uint8
-            pcm[off + 2] = (r and 0xFF).uint8
-            pcm[off + 3] = ((r shr 8) and 0xFF).uint8
+        if genAudio:
           ss.queueData(pcm)
 
         if frameAdvance:

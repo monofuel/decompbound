@@ -64,7 +64,7 @@ frames: nim.cfg
 	@echo "wrote bin/frame_10000.png (attract-mode world exploration with credits)"
 
 play: nim.cfg
-	nim r src/tools/play.nim "$(ROM)"
+	nim r -d:release src/tools/play.nim "$(ROM)"
 	@echo "player exited"
 
 song: nim.cfg

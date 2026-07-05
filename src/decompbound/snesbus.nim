@@ -7,7 +7,7 @@
 ## just enough for the game's sound driver upload to proceed.
 
 import
-  ./[cpu, memmap]
+  ./[cpu, memmap, apu]
 
 type
   ApuHandshakeState = enum
@@ -18,6 +18,10 @@ type
   SnesBus* = ref object
     bus*: Bus
     rom*: seq[uint8]
+    ## Live audio: the real SPC700 + S-DSP, driven over the $2140-$2143 ports
+    ## exactly as on hardware (via the IPL boot ROM). When present it supersedes
+    ## the legacy HLE handshake below, so music sequence + samples stay coherent.
+    apu*: Apu
     ## MMIO shadow state.
     nmitimen*: uint8
     ## Hardware multiply/divide unit ($4202-$4206 in, $4214-$4217 out).
@@ -97,6 +101,8 @@ proc mmioRead(snes: SnesBus, offset: uint32): uint8 =
     # TODO: magic bytes AA/BB/CC/FF and streak threshold are from IPL
     # protocol + observed EB upload behavior; document the real IPL if
     # we move beyond HLE.
+    if snes.apu != nil:
+      return snes.apu.portsOut[(offset - 0x2140).int]
     case snes.apuState:
     of ahsIdle:
       if offset == 0x2140: 0xAA'u8 else: 0xBB'u8
@@ -411,6 +417,11 @@ proc mmioWrite(snes: SnesBus, offset: uint32, value: uint8) =
       snes.fixedColorG = value and 0x1F
     if (value and 0x20) != 0:
       snes.fixedColorB = value and 0x1F
+  # Live APU: forward S-CPU port writes straight to the SPC700 input ports and
+  # skip the legacy HLE capture. The real driver + IPL handle the protocol.
+  if snes.apu != nil and offset >= 0x2140 and offset <= 0x2143:
+    snes.apu.portsIn[(offset - 0x2140).int] = value
+    return
   case offset:
   of 0x2140:
     # The CC kick-off starts the transfer protocol; afterwards the boot
@@ -573,6 +584,11 @@ proc newSnesBus*(rom: seq[uint8]): SnesBus =
   snes.apuJumps = @[]
   # apuImage zeros by default.
 
+  # Live two-way APU: real SPC700 + DSP, cold-booted through the IPL ROM. From
+  # here the main CPU speaks the real upload protocol over $2140-$2143.
+  snes.apu = newApu()
+  snes.apu.bootWithIpl()
+
   result = snes
 
 proc resetCpu*(snes: SnesBus): Cpu =
@@ -583,3 +599,13 @@ proc resetCpu*(snes: SnesBus): Cpu =
   result.pc = snes.rom[0xFFFC].uint16 or (snes.rom[0xFFFD].uint16 shl 8)
   result.pbr = 0
   result.dbr = 0
+
+proc tickApu*(snes: SnesBus): tuple[left, right: int16] =
+  ## Advance the live APU by one 32kHz sample (SPC700 + timers + DSP) and return
+  ## the mixed stereo sample. Call SamplesPerFrame (~533) times per emulated
+  ## frame so the APU boot handshake and the music driver run in step with the
+  ## main CPU. Boot/render loops that don't need audio can discard the result;
+  ## play.nim streams it to the speakers. No-op (returns 0) if no live APU.
+  if snes.apu == nil:
+    return (0'i16, 0'i16)
+  snes.apu.runSample()

@@ -67,6 +67,10 @@ proc main() =
       executed += 1
       if executed >= maxInstructions or cpu.stopped:
         break
+    # Advance the live APU (~2 samples/scanline ~= 533/frame) so the game's
+    # boot handshake and sound driver run in step with the main CPU.
+    for k in 0 ..< 2:
+      discard snes.tickApu()
     if line < 224:
       snes.runHdma()
       # Composited per-line render (post-HDMA state): main + subscreen color
