@@ -296,6 +296,23 @@ press each face button, and read what paddy reports to map it exactly.
 
 ---
 
+## 10. Battle screen rendering gaps
+
+**Status:** OPEN — new (2026-07-04), low priority. Combat is playable; these are
+missing pieces.
+
+- The **battle swirl transition** (green/blue/red spiral that opens a battle)
+  does not render. Likely a Mode 7 rotation/zoom or an HDMA/window-driven
+  effect we don't implement.
+- The **lower battle UI does not render**: below the (working) battle
+  background, the player nameplate / **HP/PP windows** are missing. Probably
+  the same class as #9 (a high-priority BG3 / windowed UI layer) or a
+  windowed region we clip away.
+
+**Scope:** core-emulator PPU (Mode 7 + windowing + priority) — claude-code.
+
+---
+
 ## Notes on the shared theme
 
 The original guess that #1 and #2 shared a "per-frame budget too low" root
