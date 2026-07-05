@@ -273,9 +273,11 @@ void main() {
 
       # Support cheap SNES imitation pads that report d-pad as fake left-stick axes
       # (values like 1.0 / 0.0 / -1.0) instead of (or in addition to) real d-pad buttons.
+      # A low threshold so diagonals engage easily — with 0.5 a not-quite-45-degree
+      # push only crossed one axis, so diagonals "snapped" to orthogonal.
       let lx = gp.axis(GamepadLStickX)
       let ly = gp.axis(GamepadLStickY)
-      const AxisThreshold = 0.5'f
+      const AxisThreshold = 0.35'f
       if lx > AxisThreshold: joy1 = joy1 or BtnRight
       if lx < -AxisThreshold: joy1 = joy1 or BtnLeft
       if ly > AxisThreshold: joy1 = joy1 or BtnDown

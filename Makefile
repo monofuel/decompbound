@@ -1,4 +1,4 @@
-.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play frames
+.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-verbose frames
 
 # bash + pipefail: the test loop pipes nim through sed, and without
 # pipefail the pipeline's exit status is sed's (always 0), which turns
@@ -65,6 +65,12 @@ frames: nim.cfg
 
 play: nim.cfg
 	nim r -d:release src/tools/play.nim "$(ROM)"
+	@echo "player exited"
+
+# Same as play, but prints which paddy gamepad buttons/axes fire — use this to
+# report how a specific controller maps its face buttons + d-pad.
+play-verbose: nim.cfg
+	nim r -d:release src/tools/play.nim --verbose "$(ROM)"
 	@echo "player exited"
 
 song: nim.cfg
