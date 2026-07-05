@@ -20,6 +20,11 @@ type
     rom*: seq[uint8]
     ## MMIO shadow state.
     nmitimen*: uint8
+    ## Hardware multiply/divide unit ($4202-$4206 in, $4214-$4217 out).
+    mulOperandA: uint8   ## $4202 multiplicand.
+    divDividend: uint16  ## $4204/$4205 dividend.
+    rddiv: uint16        ## $4214/$4215: divide quotient.
+    rdmpy: uint16        ## $4216/$4217: multiply product / divide remainder.
     apuState: ApuHandshakeState
     apuPort0: uint8   ## Last value the CPU wrote to $2140.
     apuPort1: uint8
@@ -109,6 +114,14 @@ proc mmioRead(snes: SnesBus, offset: uint32): uint8 =
     if snes.vblankToggle: 0xC2'u8 else: 0x42'u8
   of 0x4211:
     0x00  # TIMEUP: no IRQ pending.
+  of 0x4214:
+    (snes.rddiv and 0xFF).uint8   # RDDIVL: divide quotient low.
+  of 0x4215:
+    (snes.rddiv shr 8).uint8      # RDDIVH: divide quotient high.
+  of 0x4216:
+    (snes.rdmpy and 0xFF).uint8   # RDMPYL: product / divide remainder low.
+  of 0x4217:
+    (snes.rdmpy shr 8).uint8      # RDMPYH: product / divide remainder high.
   of 0x4218:
     (snes.joy1 and 0xFF).uint8
   of 0x4219:
@@ -361,6 +374,34 @@ proc mmioWrite(snes: SnesBus, offset: uint32, value: uint8) =
     return
   if offset == 0x420C:
     snes.hdmaen = value
+    return
+  # Hardware multiply/divide unit. EarthBound's menu (and much game logic) does
+  # 8x8 multiplies and 16/8 divides through these; without them, result reads
+  # return 0 and layout/selection loops hang. Results are available immediately
+  # (we ignore the 8/16-cycle hardware latency).
+  if offset == 0x4202:
+    snes.mulOperandA = value       # WRMPYA: multiplicand.
+    return
+  if offset == 0x4203:
+    # WRMPYB: multiplier; writing it starts the 8x8 unsigned multiply.
+    snes.rdmpy = snes.mulOperandA.uint16 * value.uint16
+    return
+  if offset == 0x4204:
+    snes.divDividend = (snes.divDividend and 0xFF00) or value.uint16
+    return
+  if offset == 0x4205:
+    snes.divDividend = (snes.divDividend and 0x00FF) or (value.uint16 shl 8)
+    return
+  if offset == 0x4206:
+    # WRDIVB: divisor; writing it starts the 16/8 unsigned divide. Quotient ->
+    # RDDIV ($4214/5), remainder -> RDMPY ($4216/7). Divide-by-zero yields the
+    # hardware result: quotient $FFFF, remainder = dividend.
+    if value == 0:
+      snes.rddiv = 0xFFFF
+      snes.rdmpy = snes.divDividend
+    else:
+      snes.rddiv = snes.divDividend div value.uint16
+      snes.rdmpy = snes.divDividend mod value.uint16
     return
   if offset == 0x2132:
     # COLDATA: accumulate components as per hardware (bits 7/6/5 select R/G/B).
