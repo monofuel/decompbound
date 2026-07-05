@@ -335,6 +335,20 @@ proc renderSprites*(snes: SnesBus, image: Image) =
         color.b = ((color.b.int * bright) div 16).uint8
         image[screenX, screenY] = color
 
+proc overlayBg3Priority*(snes: SnesBus, image: Image) =
+  ## Re-draw high-priority BG3 tiles over sprites, for mode 1 with the BG3
+  ## priority bit ($2105.3) set. EarthBound's dialogue/HUD windows live on
+  ## high-priority BG3 and must sit ABOVE character sprites — but our sprite
+  ## pass runs after the BG composite and would otherwise bury the UI. Call
+  ## this AFTER renderSprites. Targeted fix for the common UI-over-sprite case;
+  ## full per-pixel OBJ/BG priority interleaving is a later refactor.
+  if (snes.ppuRegs[0x05] and 0x07) != 1: return   # mode 1 only
+  if (snes.ppuRegs[0x05] and 0x08) == 0: return   # BG3-priority bit not set
+  if (snes.ppuRegs[0x2C] and 0x04) == 0: return   # BG3 not on the main screen
+  if (snes.ppuRegs[0x00] and 0x80) != 0: return   # force blank
+  for py in 0..<ScreenHeight:
+    snes.renderBgScanline(image, py, 2, 2, 0, 1)   # BG3, 2bpp, pal 0, high-prio
+
 proc renderFrame*(snes: SnesBus): Image =
   ## Render the current PPU state: backdrop, then BG layers back to front.
   ## Applies brightness from INIDISP and basic color math (fixed color add/sub

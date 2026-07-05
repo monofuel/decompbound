@@ -39,28 +39,28 @@ compare: nim.cfg
 # --- Emulator ---------------------------------------------------------
 
 boot: nim.cfg
-	nim r src/tools/boot_trace.nim "$(ROM)" 2000000 25
+	nim r -d:release src/tools/boot_trace.nim "$(ROM)" 2000000 25
 
 screenshot: nim.cfg
-	nim r src/tools/screenshot.nim "$(ROM)" bin/screenshot.png 2500000
+	nim r -d:release src/tools/screenshot.nim "$(ROM)" bin/screenshot.png 2500000
 	@echo "wrote bin/screenshot.png (APE logo era)"
 
 intro: nim.cfg
-	nim r src/tools/screenshot.nim "$(ROM)" bin/intro.png 16000000 noinput
+	nim r -d:release src/tools/screenshot.nim "$(ROM)" bin/intro.png 16000000 noinput
 	@echo "wrote bin/intro.png (the War Against Giygas title card)"
 
 title: nim.cfg
-	nim r src/tools/screenshot.nim "$(ROM)" bin/title.png 64000000
+	nim r -d:release src/tools/screenshot.nim "$(ROM)" bin/title.png 64000000
 	@echo "wrote bin/title.png (deep attract / file select era)"
 
 frames: nim.cfg
-	nim r src/tools/screenshot.nim "$(ROM)" bin/frame_3629.png frame:3629 noinput
+	nim r -d:release src/tools/screenshot.nim "$(ROM)" bin/frame_3629.png frame:3629 noinput
 	@echo "wrote bin/frame_3629.png (EarthBound logo assembled, pre-gradient)"
-	nim r src/tools/screenshot.nim "$(ROM)" bin/frame_4200.png frame:4200 noinput
+	nim r -d:release src/tools/screenshot.nim "$(ROM)" bin/frame_4200.png frame:4200 noinput
 	@echo "wrote bin/frame_4200.png (logo with glow)"
-	nim r src/tools/screenshot.nim "$(ROM)" bin/frame_8000.png frame:8000 noinput
+	nim r -d:release src/tools/screenshot.nim "$(ROM)" bin/frame_8000.png frame:8000 noinput
 	@echo "wrote bin/frame_8000.png (attract-mode world exploration with credits)"
-	nim r src/tools/screenshot.nim "$(ROM)" bin/frame_10000.png frame:10000 noinput
+	nim r -d:release src/tools/screenshot.nim "$(ROM)" bin/frame_10000.png frame:10000 noinput
 	@echo "wrote bin/frame_10000.png (attract-mode world exploration with credits)"
 
 play: nim.cfg

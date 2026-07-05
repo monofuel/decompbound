@@ -19,8 +19,8 @@ math-unit fix (#5) was the keystone. What remains are polish gaps, below.
 - #2 overworld intro — **MOSTLY FIXED** by the math unit; missing the iris
   (window masking) + audio.
 - #3 menu — **FIXED** (BG3 priority + math unit).
-- #4 audio — **PARTIAL/BROKEN**: inconsistent across scenes; needs a live APU
-  (see below — the dominant remaining issue).
+- #4 audio — **FIXED**: live two-way APU (real SPC700 + IPL boot ROM in the
+  bus). Music/SFX play coherently (name jingle, Onett intro, etc. confirmed).
 - #5 freeze on input — **FIXED** (math unit).
 - #6 logo "B" fade — **FIXED**: sprites now honor INIDISP brightness.
 - #7 gamepad A/B swap — **FIXED** (positional mapping).

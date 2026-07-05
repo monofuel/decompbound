@@ -377,6 +377,8 @@ void main() {
           pcm[off + 3] = ((rgt shr 8) and 0xFF).uint8
           smp += 1
         ppu.renderSprites(snes, frameImage)
+        # High-priority BG3 (dialogue/HUD) draws over sprites.
+        ppu.overlayBg3Priority(snes, frameImage)
         frameCount += 1
         if genAudio:
           ss.queueData(pcm)

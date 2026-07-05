@@ -85,6 +85,8 @@ proc main() =
 
   # Sprites from final state (typically updated in vblank)
   ppu.renderSprites(snes, image)
+  # High-priority BG3 (dialogue/HUD) draws over sprites.
+  ppu.overlayBg3Priority(snes, image)
   image.writeFile(paramStr(2))
   echo &"Screenshot written to {paramStr(2)}"
   echo &"BGMODE={snes.ppuRegs[0x05] and 7} TM={snes.ppuRegs[0x2C]:02X} TS={snes.ppuRegs[0x2D]:02X} INIDISP={snes.ppuRegs[0x00]:02X}"
