@@ -310,12 +310,20 @@ missing pieces.
 - The **battle swirl transition** (green/blue/red spiral that opens a battle)
   does not render. Likely a Mode 7 rotation/zoom or an HDMA/window-driven
   effect we don't implement.
-- The **lower battle UI does not render**: below the (working) battle
-  background, the player nameplate / **HP/PP windows** are missing. Probably
-  the same class as #9 (a high-priority BG3 / windowed UI layer) or a
-  windowed region we clip away.
+- The **lower battle UI does not render right**: below the (working) command
+  menu + battlefield, the party status band (**HP/PP nameplate**) shows a small
+  glitched box instead of the full-width rolling HP/PP meters.
 
-**Scope:** core-emulator PPU (Mode 7 + windowing + priority) — claude-code.
+**Confirmed via auto-capture (2026-07-04):** the battle is an **HDMA
+per-scanline screen split** — `TM=00, HDMAEN=24`, no windows. EB rewrites PPU
+registers mid-frame to build horizontal bands (command-menu band, battlefield
+band, status band). Our per-scanline renderer already handles most bands
+correctly (menu + Starman Jr. + swirl bg all render), but the **bottom status
+band** comes out wrong — the HDMA reconfigures registers for that band in a way
+we mishandle. Diagnosis needs a per-scanline HDMA-write trace across the battle
+frame to see exactly which register the status band depends on.
+
+**Scope:** core-emulator PPU — per-scanline HDMA register handling (claude-code).
 
 ---
 
