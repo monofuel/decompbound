@@ -29,6 +29,7 @@
           libGL
           udev
           libevdev
+          openal
           zlib
           curl
         ];
@@ -45,6 +46,7 @@
             pkgs.libGL
             pkgs.udev
             pkgs.libevdev
+            pkgs.openal
             pkgs.zlib
             pkgs.curl
           ]}:$LD_LIBRARY_PATH"

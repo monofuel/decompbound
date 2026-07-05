@@ -10,7 +10,8 @@ import
   opengl,
   windy,
   paddy,
-  ../decompbound/[cpu, ppu, snesbus]
+  slappy,
+  ../decompbound/[apu, cpu, ppu, snesbus]
 
 proc readRomFile(filepath: string): seq[uint8] =
   ## Read ROM file and return bytes, stripping a 512-byte copier header.
@@ -120,6 +121,11 @@ Controls:
   var framesPerTick = 1
   var lastJoy1: uint16 = 0
 
+  var apuUnit: Apu = nil
+  var apuStarted = false
+  var postBootConsumed = 0
+  var lastUpload = 0
+
   let windowSize = ivec2(ScreenWidth * Scale, ScreenHeight * Scale)
   let window = newWindow("decompbound player - frame 0", windowSize)
   window.makeContextCurrent()
@@ -215,8 +221,14 @@ void main() {
   glUseProgram(program)
   glUniform1i(texLoc, 0)
 
+  # Audio streaming setup (real-time APU playback via slappy).
+  # slappyInit once at startup; ss lives for the session.
+  slappyInit()
+  let ss = newStreamingSource(frequency = 32000, channels = 2, bits = 16)
+
   while not window.closeRequested:
     pollEvents()
+    ss.pump()  # reclaim finished buffers every iteration (paused or not)
 
     # Map current key state to joy1 every frame.
     # Paddy gamepad (player 1) as alternative/additive input for SNES controller.
@@ -327,6 +339,56 @@ void main() {
             break
         ppu.renderSprites(snes, frameImage)
         frameCount += 1
+
+        # Live audio: (re)load the standalone APU from the captured upload image
+        # (same init as render_song.nim), then generate ~1/60s of 32kHz samples
+        # per frame by feeding accumulated post-boot port writes and running it.
+        #
+        # Why re-init on upload growth: the game uploads the driver early (~65KB,
+        # entry $0500) but streams each scene's SONG data in *later*, larger
+        # uploads. Initializing once at first upload captures only the driver and
+        # plays near-silence. Re-initializing when apuUploadBytes jumps by a
+        # song's worth (>=16KB) picks up each new song. Behavioral probe (headless,
+        # 3000 frames): single-init ~0.4% nonzero samples; re-init on +16KB ~74%
+        # with only ~3 driver restarts (minimal audible discontinuity). The proper
+        # fix is a fully live two-way APU in the bus; this is the HLE MVP.
+        if snes.apuUploadBytes > 0 and snes.apuEntry != 0 and
+           (not apuStarted or snes.apuUploadBytes > lastUpload + 16384):
+          apuUnit = newApu()
+          for i in 0..<0x10000:
+            apuUnit.spc.ram[i] = snes.apuImage[i]
+          apuUnit.spc.pc = if snes.apuEntry != 0: snes.apuEntry else: 0x0500
+          apuUnit.spc.sp = 0xEF
+          apuStarted = true
+          lastUpload = snes.apuUploadBytes
+
+        # Only generate/queue audio at normal speed (framesPerTick==1, not stepping).
+        # This keeps music at correct rate; during fast-forward (framesPerTick>1)
+        # we skip feeding so we don't produce speed/pitch garbage or buffer storms.
+        # (Tradeoff: during ff, audio will lag video. Acceptable for debug tool.)
+        # Each re-init restarts the driver at $0500 (a brief discontinuity); the
+        # >=16KB threshold keeps that to ~a few per scene change, not per frame.
+        if apuStarted and framesPerTick == 1 and not frameAdvance:
+          const SamplesPerFrame = 32000 div 60
+          # Feed newly-accumulated port writes from snes.apuPostBoot, spread across
+          # the frame's samples (a few per sample) rather than all at sample 0.
+          # Mirrors render_song.nim's pacing spirit for live growing list.
+          var pcm = newSeq[uint8](SamplesPerFrame * 4)
+          for si in 0..<SamplesPerFrame:
+            var fed = 0
+            while postBootConsumed < snes.apuPostBoot.len and fed < 4:
+              let (port, value) = snes.apuPostBoot[postBootConsumed]
+              apuUnit.portsIn[(port - 0x2140).int] = value
+              postBootConsumed += 1
+              fed += 1
+            let (l, r) = apuUnit.runSample()
+            let off = si * 4
+            pcm[off + 0] = (l and 0xFF).uint8
+            pcm[off + 1] = ((l shr 8) and 0xFF).uint8
+            pcm[off + 2] = (r and 0xFF).uint8
+            pcm[off + 3] = ((r shr 8) and 0xFF).uint8
+          ss.queueData(pcm)
+
         if frameAdvance:
           frameAdvance = false
           break
@@ -353,6 +415,10 @@ void main() {
     let newTitle = &"decompbound player - frame {frameCount}{pausedStr} x{framesPerTick}"
     if window.title != newTitle:
       window.title = newTitle
+
+  # Shutdown audio cleanly on exit.
+  ss.close()
+  slappyClose()
 
 when isMainModule:
   main()
