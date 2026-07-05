@@ -7,7 +7,7 @@
 ## Usage: nim r src/tools/gamepad_test.nim   (Ctrl+C to quit)
 
 import
-  std/[os, strformat, sets],
+  std/[os, strformat, strutils, sets],
   paddy
 
 proc snesName(b: GamepadButton): string =
@@ -54,15 +54,28 @@ echo "If a physical button maps to the wrong SNES button, that's the fix I need.
 echo "Ctrl+C to quit."
 echo ""
 
+# The d-pad latch (same logic as play.nim): hold each direction `latchFrames`
+# frames after it's last seen, to bridge a flickery clone d-pad. Tune with the
+# LATCH env var, e.g. `LATCH=8 make gamepad-test`, then set the winning value in
+# play.nim. SMOOTH shows the latched result you'd actually get in-game.
+let latchFrames = (if getEnv("LATCH").len > 0: parseInt(getEnv("LATCH")) else: 4)
+echo "d-pad latch = ", latchFrames, " frames  (set LATCH=N to tune; SMOOTH = in-game result)"
+echo ""
+
+const DirNames = ["Up", "Down", "Left", "Right"]
 var
   prev: seq[HashSet[GamepadButton]]
   prevDir: seq[string]
+  prevSmooth: seq[string]
+  latch: seq[array[4, int]]
 
 while true:
   let pads = pollGamepads()
   while prev.len < pads.len:
     prev.add initHashSet[GamepadButton]()
     prevDir.add ""
+    prevSmooth.add ""
+    latch.add [0, 0, 0, 0]
   for i, gp in pads:
     var now = initHashSet[GamepadButton]()
     for b in Checked:
@@ -77,6 +90,19 @@ while true:
     let d = dirOf(lx, ly)
     if d != prevDir[i]:
       if d.len > 0:
-        echo &"[pad {i}] stick -> {d}  (x={lx:.2f} y={ly:.2f})"
+        echo &"[pad {i}] raw    -> {d}  (x={lx:.2f} y={ly:.2f})"
       prevDir[i] = d
+    # Raw directions from axes OR d-pad buttons, then latch -> SMOOTH.
+    let rawDir = [(ly < -0.4) or (GamepadUp in now),
+                  (ly > 0.4) or (GamepadDown in now),
+                  (lx < -0.4) or (GamepadLeft in now),
+                  (lx > 0.4) or (GamepadRight in now)]
+    var smooth = ""
+    for k in 0 .. 3:
+      if rawDir[k]: latch[i][k] = latchFrames
+      elif latch[i][k] > 0: latch[i][k] -= 1
+      if latch[i][k] > 0: smooth.add DirNames[k]
+    if smooth != prevSmooth[i]:
+      echo &"[pad {i}] SMOOTH -> {(if smooth.len > 0: smooth else: \"(none)\")}"
+      prevSmooth[i] = smooth
   sleep(16)

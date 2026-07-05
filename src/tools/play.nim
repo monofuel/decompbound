@@ -5,7 +5,7 @@
 ## Usage: nim r src/tools/play.nim [--verbose|-v] <rom>
 
 import
-  std/[os, strformat, monotimes, times, algorithm],
+  std/[os, strformat, strutils, monotimes, times, algorithm],
   pixie,
   opengl,
   windy,
@@ -180,6 +180,10 @@ Controls:
   # collapsing to orthogonal. Hold each direction a few frames after it's last
   # seen to bridge the flicker.
   var dirLatch: array[4, int]
+  # Frames to hold a d-pad direction after last press (bridges flickery clone
+  # d-pads so diagonals stay diagonal). Tune with LATCH=N; find the value in
+  # `make gamepad-test` first.
+  let latchFrames = (if getEnv("LATCH").len > 0: parseInt(getEnv("LATCH")) else: 4)
   var paused = false
   var frameAdvance = false
   var framesPerTick = 1
@@ -357,11 +361,10 @@ void main() {
     # Diagonal-stabilizing latch: keep each d-pad direction held for a few
     # frames after it's last actually pressed, so a flickery clone d-pad doesn't
     # keep dropping a held diagonal back to orthogonal.
-    const LatchFrames = 3
     const DirBits = [BtnUp, BtnDown, BtnLeft, BtnRight]
     for i in 0 ..< 4:
       if (joy1 and DirBits[i]) != 0:
-        dirLatch[i] = LatchFrames
+        dirLatch[i] = latchFrames
       elif dirLatch[i] > 0:
         dirLatch[i] -= 1
         joy1 = joy1 or DirBits[i]
