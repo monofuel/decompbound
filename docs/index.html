@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>decompbound · docs</title>
+<style>
+  :root{
+    --bg:#faf9f7; --panel:#ffffff; --ink:#1c1a17; --muted:#6b6560; --line:#e6e1da;
+    --accent:#c0392b; --accent2:#2c6e8f;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#16140f; --panel:#211d17; --ink:#ece6dc; --muted:#9c948a; --line:#332d24;
+      --accent:#e05a4c; --accent2:#4d9ec4; }
+  }
+  :root[data-theme="light"]{ --bg:#faf9f7;--panel:#fff;--ink:#1c1a17;--muted:#6b6560;--line:#e6e1da;--accent:#c0392b;--accent2:#2c6e8f}
+  :root[data-theme="dark"]{ --bg:#16140f;--panel:#211d17;--ink:#ece6dc;--muted:#9c948a;--line:#332d24;--accent:#e05a4c;--accent2:#4d9ec4}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.55;font-size:16px}
+  .wrap{max-width:900px;margin:0 auto;padding:0 22px 90px}
+  header{padding:60px 0 24px;border-bottom:1px solid var(--line);margin-bottom:28px}
+  .kicker{font-family:var(--mono);font-size:12.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+  h1{font-size:clamp(30px,5vw,44px);margin:.25em 0 .18em;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:18px;max-width:62ch}
+  h2{font-size:14px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:38px 0 12px;font-weight:600}
+  a{color:inherit;text-decoration:none}
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:620px){.cards{grid-template-columns:1fr}}
+  .doc{display:block;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;transition:border-color .12s,transform .12s}
+  .doc:hover{border-color:var(--accent2);transform:translateY(-1px)}
+  .doc .t{font-weight:600;font-size:16.5px;display:flex;align-items:center;gap:9px}
+  .doc .d{color:var(--muted);font-size:14px;margin-top:3px}
+  .tag{font-family:var(--mono);font-size:10.5px;padding:2px 7px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+  .tag.html{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
+  .feat{grid-column:1/-1;background:linear-gradient(135deg,color-mix(in srgb,var(--accent2) 10%,var(--panel)),var(--panel))}
+  .feat .t{font-size:19px}
+  code{font-family:var(--mono);font-size:.88em;background:color-mix(in srgb,var(--accent2) 12%,transparent);padding:.06em .4em;border-radius:4px}
+  footer{margin-top:52px;padding-top:20px;border-top:1px solid var(--line);color:var(--muted);font-size:13.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="kicker">decompbound</div>
+  <h1>Documentation</h1>
+  <p class="sub">An EarthBound (SNES) decompilation &amp; emulator in Nim. Reference material,
+  reverse-engineering notes, and project docs. Rendered pages are <span class="tag html">HTML</span>;
+  the rest are markdown source (served as text).</p>
+</header>
+
+<h2>Hardware reference</h2>
+<div class="cards">
+  <a class="doc feat" href="snes-architecture.html">
+    <div class="t">🧠 SNES Architecture <span class="tag html">HTML</span></div>
+    <div class="d">The hardware our emulator reproduces — memory map (with diagram), HiROM storage,
+    the 8&nbsp;KB SRAM &amp; reverse-engineered save format, MMIO registers, and the 65816 / PPU / APU,
+    scoped to exactly what EarthBound touches.</div>
+  </a>
+  <a class="doc" href="rom-format.md"><div class="t">💾 ROM format <span class="tag">md</span></div><div class="d">How the cartridge image is laid out &amp; addressed.</div></a>
+  <a class="doc" href="sram-format.md"><div class="t">🗃️ SRAM save format <span class="tag">md</span></div><div class="d">Mapped save offsets (money, HP/PP, backup copy) + how to map more.</div></a>
+  <a class="doc" href="graphics.md"><div class="t">🎨 Graphics <span class="tag">md</span></div><div class="d">Tiles, palettes, layers, sprites.</div></a>
+  <a class="doc" href="snes-asm.md"><div class="t">⚙️ 65816 assembly <span class="tag">md</span></div><div class="d">The instruction set as EarthBound uses it.</div></a>
+  <a class="doc" href="audio.md"><div class="t">🔊 Audio <span class="tag">md</span></div><div class="d">SPC700 + S-DSP: the sound pipeline (Goal 2a).</div></a>
+</div>
+
+<h2>Reverse-engineering notes</h2>
+<div class="cards">
+  <a class="doc" href="red-snow.md"><div class="t">❄️ Giygas "red snow" <span class="tag">md</span></div><div class="d">Why the intro shows the wrong slice of the death animation.</div></a>
+  <a class="doc" href="text-log.md"><div class="t">💬 Text log (tabled) <span class="tag">md</span></div><div class="d">Design for streaming EB's dialogue to stdout.</div></a>
+  <a class="doc" href="snes_glitches.md"><div class="t">🐛 SNES glitches <span class="tag">md</span></div><div class="d">Hardware quirks worth knowing.</div></a>
+</div>
+
+<h2>Project &amp; process</h2>
+<div class="cards">
+  <a class="doc" href="goal.md"><div class="t">🎯 Goals <span class="tag">md</span></div><div class="d">The overall scope: decompile → assemble → emulate.</div></a>
+  <a class="doc" href="goal-1.md"><div class="t">1️⃣ Goal 1 <span class="tag">md</span></div><div class="d">The byte-matching assembler/disassembler MVP.</div></a>
+  <a class="doc" href="goal-1.5.md"><div class="t">1️⃣·5 Adoption <span class="tag">md</span></div><div class="d">Replacing generated scaffolding with named code.</div></a>
+  <a class="doc" href="issues.md"><div class="t">📋 Known issues <span class="tag">md</span></div><div class="d">Current rendering / audio / timing gaps + status.</div></a>
+  <a class="doc" href="delegation.md"><div class="t">🤝 Delegation <span class="tag">md</span></div><div class="d">Handing verification-backed work to grok via agnt.</div></a>
+  <a class="doc" href="copywrite-notes.md"><div class="t">©️ Copyright notes <span class="tag">md</span></div><div class="d">Legal / provenance notes.</div></a>
+</div>
+
+<footer>
+  Serve this locally with <code>make serve</code> (Mummy, port 8080), then open
+  <code>http://localhost:8080/</code>. Force a theme with <code>?theme=dark</code>.
+</footer>
+</div>
+<script>
+  const t = new URLSearchParams(location.search).get('theme');
+  if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+</script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-verbose gamepad-test sram frames
+.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-verbose gamepad-test sram serve frames
 
 # bash + pipefail: the test loop pipes nim through sed, and without
 # pipefail the pipeline's exit status is sed's (always 0), which turns
@@ -82,6 +82,12 @@ gamepad-test: nim.cfg
 # `make sram ARGS="--find 20"` locates a value so we can map more of the format.
 sram: nim.cfg
 	nim r -d:release src/tools/sram_info.nim $(ARGS)
+
+# Serve docs/ locally (HTML docs + diagrams) via Mummy. Open http://localhost:8080/
+# Override the port with: make serve PORT=9000
+PORT ?= 8080
+serve: nim.cfg
+	nim r -d:release src/tools/serve.nim $(PORT)
 
 song: nim.cfg
 	@echo "use: nim r src/tools/music_explore.nim   (menu explorer)"
