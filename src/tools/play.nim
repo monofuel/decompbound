@@ -156,9 +156,11 @@ Controls:
   N           Advance one frame (when paused)
   -           Decrease speed
   =           Increase speed
-  F10         Dump per-scanline TM/TS band profile (bin/autoshots/scanline_trace.txt)
+  F10         Dump per-scanline TM/TS band profile only (bin/autoshots/scanline_trace.txt)
   F11         Toggle auto-screenshots (bin/autoshots/ every 5s; OFF by default)
-  F12         Write bin/frame.png (+ dump PPU registers to the terminal)
+  F12         Capture a FULL diagnostic bundle: frame + PPU regs + scanline trace + CGRAM
+              (bin/autoshots/). The emulator ALSO auto-captures a bundle whenever an
+              HDMA screen-split starts (a battle/iris) — no keypress needed.
   (close the window or Ctrl+C to quit — no Esc-to-quit, too easy to fat-finger)
 
   Gamepad (via paddy):
@@ -199,6 +201,11 @@ Controls:
   var traceTS: array[262, uint8]
   var traceCG: array[262, uint8]   # CGADSUB (color math) per scanline
   var traceCW: array[262, uint8]   # CGWSEL per scanline
+  # F12 / auto-anomaly full bundle: frame + PPU regs + CGRAM alongside the trace.
+  var captureBundle = false
+  # Prev-frame HDMAEN, to auto-capture on a 0 -> non-zero HDMA edge (a screen
+  # split starting: battle swirl/bands, scene iris) with no human keypress.
+  var prevHdmaen: uint8 = 0
   var lastJoy1: uint16 = 0
 
   # Audio is driven by the live APU in the bus (snes.tickApu) — no per-frame
@@ -409,10 +416,13 @@ void main() {
       autoShot = not autoShot
       echo "auto-screenshots: ", (if autoShot: "ON (bin/autoshots/ every 5s)" else: "OFF")
     if window.buttonPressed[KeyF12]:
-      frameImage.writeFile("bin/frame.png")
-      echo "wrote bin/frame.png"
-      # Dump the PPU state too, so scene-specific rendering bugs (e.g. the
-      # battle HP/PP window) can be diagnosed from a single capture.
+      # One-press full diagnostic bundle: arm the scanline trace and capture the
+      # frame + PPU regs + CGRAM together (written when the trace fires). Plus an
+      # immediate terminal readout for quick eyeballing.
+      captureBundle = true
+      traceScanlines = true
+      traceArmed = 0
+      echo "F12: capturing diagnostic bundle -> bin/autoshots/ (frame + regs + scanline trace + CGRAM)"
       echo &"  BGMODE={snes.ppuRegs[0x05] and 7} bg3prio={(snes.ppuRegs[0x05] and 8) != 0} " &
         &"TM(main)={snes.ppuRegs[0x2C]:02X} TS(sub)={snes.ppuRegs[0x2D]:02X} INIDISP={snes.ppuRegs[0x00]:02X}"
       echo &"  CGADSUB={snes.ppuRegs[0x31]:02X} CGWSEL={snes.ppuRegs[0x30]:02X} HDMAEN={snes.hdmaen:02X}"
@@ -511,8 +521,39 @@ void main() {
               bstart = l2
           tf.close()
           traceScanlines = false
-          echo "wrote bin/autoshots/scanline_trace.txt"
+          # Full bundle (from F12 or an auto-anomaly): frame + PPU regs + CGRAM
+          # written alongside the trace, so one capture has everything a render
+          # bug needs (e.g. the swirl's palette for the red-vs-green colour).
+          if captureBundle:
+            frameImage.writeFile("bin/autoshots/bundle_frame.png")
+            let rf = open("bin/autoshots/bundle_regs.txt", fmWrite)
+            rf.writeLine(&"frame {frameCount}  BGMODE={snes.ppuRegs[0x05] and 7} " &
+              &"bg3prio={(snes.ppuRegs[0x05] and 8) != 0} TM={snes.ppuRegs[0x2C]:02X} " &
+              &"TS={snes.ppuRegs[0x2D]:02X} INIDISP={snes.ppuRegs[0x00]:02X} " &
+              &"CGADSUB={snes.ppuRegs[0x31]:02X} CGWSEL={snes.ppuRegs[0x30]:02X} HDMAEN={snes.hdmaen:02X}")
+            rf.writeLine("CGRAM (BGR555, 16 palettes x 16 colours):")
+            for pal in 0 ..< 16:
+              var row = &"  pal{pal:02}:"
+              for c in 0 ..< 16:
+                row.add(&" {snes.cgram[pal * 16 + c]:04X}")
+              rf.writeLine(row)
+            rf.close()
+            captureBundle = false
+            echo "wrote diagnostic bundle -> bin/autoshots/ " &
+              "(scanline_trace.txt + bundle_frame.png + bundle_regs.txt)"
+          else:
+            echo "wrote bin/autoshots/scanline_trace.txt"
         frameCount += 1
+        # Automated anomaly capture: when HDMA turns on (0 -> non-zero) a screen
+        # split just began (battle swirl/bands, scene iris) — auto-arm a full
+        # bundle so the human never has to catch the exact frame. Once per edge.
+        if prevHdmaen == 0'u8 and snes.hdmaen != 0'u8 and
+           not (traceScanlines or captureBundle):
+          captureBundle = true
+          traceScanlines = true
+          traceArmed = 0
+          echo &"auto-capture: HDMA split started (HDMAEN={snes.hdmaen:02X}) — grabbing a bundle"
+        prevHdmaen = snes.hdmaen
         if genAudio:
           ss.queueData(pcm)
 
