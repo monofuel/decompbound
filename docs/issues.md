@@ -94,12 +94,16 @@ got 0 back, and stalled. With the math unit implemented, the intro now plays:
 characters walk, scenes change. (Good example of one core fix cascading.)
 
 **Remaining gap A — the "black camera shutter circle" (iris) is missing.**
-Between scenes EarthBound closes a shrinking black circle (an iris/shutter)
-around the action. This is **SNES window masking** — an HDMA-driven window
-(WH0/WH1 per scanline traces the circle) that blanks the layers outside it to
-black. We don't implement windows at all, so the iris never appears. This is
-the same feature behind the "camera circle" wording in earlier notes — it's a
-window mask, not a camera pan.
+Confirmed still missing in play (2026-07-04): the party-walking intro works, but
+the shutter circle does not render. Between scenes EarthBound closes a shrinking
+black circle (an iris/shutter) around the action. This is **SNES window
+masking**, NOT Mode 7 (a hard-edged black circle is a window effect, not
+rotation/scaling): an HDMA-driven window (WH0/WH1 rewritten per scanline traces
+the circle) blanks the layers outside it to black. We don't implement windows at
+all, so the iris never appears. Same feature behind the "camera circle" wording
+in earlier notes — a window mask, not a camera pan. The single highest-leverage
+unimplemented PPU feature: window masking would deliver this iris, the battle
+swirl edges + likely the HP/PP window (#10), and any other windowed effects.
 
 - Registers: W12SEL/W34SEL/WOBJSEL ($2123-$2125), WH0-WH3 ($2126-$2129),
   WBGLOG/WOBJLOG ($212A/$212B), TMW/TSW ($212E/$212F), color window (CGWSEL).
