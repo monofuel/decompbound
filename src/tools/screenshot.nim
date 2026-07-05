@@ -49,6 +49,7 @@ proc main() =
   const InstrPerLine = 30
   var executed = 0
   var line = 0
+  var frameNum = 0
   let image = newImage(ppu.ScreenWidth, ppu.ScreenHeight)
   let backdrop = ppu.bgr555ToColor(snes.cgram[0])
   image.fill(backdrop)
@@ -58,8 +59,10 @@ proc main() =
       if (snes.nmitimen and 0x80) != 0 and line == 240 and i == 0:
         cpu.nmiPending = true
         if not noInput:
-          let frame = line div 262
-          snes.joy1 = if frame mod 240 < 4: 0x1000'u16 else: 0
+          # Press Start as an EDGE: held ~8 frames, released ~112. A permanently
+          # held button never re-triggers a "press Start" advance, so we must
+          # release between presses to walk attract -> title -> file-select menu.
+          snes.joy1 = if frameNum mod 120 < 8: 0x1000'u16 else: 0
       cpu.step(snes.bus)
       executed += 1
       if executed >= maxInstructions or cpu.stopped:
@@ -73,6 +76,7 @@ proc main() =
     line += 1
     if line >= 262:
       line = 0
+      frameNum += 1
       snes.initHdma()
 
   # Sprites from final state (typically updated in vblank)
