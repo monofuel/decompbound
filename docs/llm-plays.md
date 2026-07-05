@@ -160,6 +160,13 @@ readout the LLM sees is human-legible, not raw hex.
       — e.g. walks Ness out of his room, or wins a Starman Jr. battle.
 - [ ] Runs headless for unattended sessions.
 
+## Sibling: the LLM that *rewrites* the game
+
+This harness makes an LLM *play* EarthBound. Its sibling, `docs/llm-remix.md`,
+makes an LLM *rewrite* it (regenerate the writing, patch it in). They compose:
+the playing agent can **playtest** the rewriting agent's remix — one LLM writes
+the game, the other checks it doesn't break.
+
 ## Non-goals (for now)
 
 - **Audio to the LLM** — the agent plays deaf; music/SFX are out of scope.

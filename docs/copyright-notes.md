@@ -104,6 +104,27 @@ animations, and event scripting. Applies to *this* project's scripts track
 
 - **Best practices observed in real projects**: Decomp teams avoid including any Nintendo data. CI often uses checksums, disassembly diffs, or behavior tests without shipping full dumps.
 
+### 5. Romhacks / game patches: distribute the diff, not the ROM
+
+Once we can modify EarthBound (`docs/post-decomp.md`), the clean distribution
+model — and it *is* cleaner than shipping ROMs — is the standard romhack pattern:
+
+- **Distribute an IPS/BPS patch**, not a playable ROM. A patch is a diff that is
+  useless without the user's own legally-dumped ROM; the user applies it locally.
+  This is how romhacking.net and every decomp-adjacent mod ships.
+- **Never distribute the patched, playable ROM** — that's the same infringement
+  as shipping any ROM.
+- **Small/additive patches are safest** (a bugfix, a run button). Patches that
+  replace large copyrighted chunks (a fully rewritten script, ripped-then-edited
+  assets) carry the derivative-work caveat — the changed *content* is still built
+  on the original expression.
+- **Emulator-side hacks** (widescreen, shaders, save states — `post-decomp.md`
+  Family 2) are entirely our own code and sidestep this: no ROM change, nothing
+  copyrighted distributed.
+
+Same lane as the rest of this doc: non-commercial, requires the user's own ROM,
+no easy-play piracy. Not legal advice.
+
 ### Quick summary table of "is it legal?"
 
 | Activity | Generally Legal? | Why / Caveats |
@@ -116,6 +137,9 @@ animations, and event scripting. Applies to *this* project's scripts track
 | Distribute regular save files | Usually yes | Player data |
 | Distribute savestates | Risky / no | Contains game memory |
 | Use savestates privately in CI for decomp testing | Yes | Fair use / research |
+| Distribute a romhack as an IPS/BPS patch | Usually yes | Diff only; needs user's ROM |
+| Distribute a patched, playable ROM | No | Same as shipping a ROM |
+| Emulator-side hacks (widescreen, shaders, save states) | Yes | Our own code; no ROM change |
 
 Decomp projects live in the "tolerated grey" because they advance preservation/modding without directly enabling easy piracy (unlike ROM sites). Companies like Nintendo hate anything that bypasses their control, but pure code repos have proven durable.
 
