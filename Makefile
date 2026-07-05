@@ -1,4 +1,4 @@
-.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-verbose gamepad-test frames
+.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-verbose gamepad-test sram frames
 
 # bash + pipefail: the test loop pipes nim through sed, and without
 # pipefail the pipeline's exit status is sed's (always 0), which turns
@@ -77,6 +77,11 @@ play-verbose: nim.cfg
 # and which SNES button each maps to. No window/ROM needed. Ctrl+C to quit.
 gamepad-test: nim.cfg
 	nim r -d:release src/tools/gamepad_test.nim
+
+# Inspect the EarthBound battery save (SRAM). `make sram` dumps mapped fields;
+# `make sram ARGS="--find 20"` locates a value so we can map more of the format.
+sram: nim.cfg
+	nim r -d:release src/tools/sram_info.nim $(ARGS)
 
 song: nim.cfg
 	@echo "use: nim r src/tools/music_explore.nim   (menu explorer)"
