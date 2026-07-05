@@ -123,7 +123,14 @@ of SRAM. Round-trip DoD: decode a table → re-encode → byte-exact.
 - **Item table** — `0x27`-byte records; `price` u16 at `+0x00` (verified: Cookie
   `$7`, Bread Roll `$12`, Hamburger `$14`). Type/equip/effect fields + base id-0:
   next dig.
-- **PSI + stat-growth tables:** not yet located.
+- **PSI table** — located at file `0x158C50` (SNES `$D58C50`), ~15-byte records
+  directly before the EXP table; verified byte-exact, with PSI Rockin α's PP=10
+  (`0x0A`) present. Fields (per grok, tentative): name idx, greek tier, type,
+  target, effect-id (u16), Ness/Paula/Poo learn levels, menu position, and a
+  4-byte description pointer. **Caveats:** the exact per-field offsets (PP vs
+  power vs element) and the record *count* aren't pinned — 53×15 would overrun
+  the EXP table at `0x158F51` (only ~51 fit), so the width/count needs a dynamic
+  trace. Learn-set is embedded in the same table. Stat-growth: still open.
 
 ## Relationship to the numbered goals
 

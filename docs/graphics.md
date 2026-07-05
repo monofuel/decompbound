@@ -49,6 +49,23 @@ output can also be pixel-compared against an emulator frame as a secondary check
 4. **`sprites_explore.nim`** — the silky browser that visualizes decoded tiles,
    palettes, and sprite frames (currently a one-line TODO stub).
 
+## Findings so far (verified)
+
+The sprite *output path* is mapped (the actual OBJ CHR + definition tables are
+still open):
+- **OAM DMA:** the NMI handler at SNES `$C08196` (file `0x8196`) DMAs the 544-byte
+  OAM table (128 sprites × 4 + the 32-byte high table) from a WRAM buffer at
+  `$000500` / `$000800` (double-buffered, selected by `$2C`) to the OAM data port
+  `$2104`. Verified byte-exact.
+- **Entity/sprite update loop:** `$C09470` walks the entity linked list (`$0A50`
+  head) and drives each entity via the `$C09558` action-script engine — the same
+  script dispatch as events/doors (`docs/scripts.md`). Animation is script-driven.
+- **Still open (the graphics themselves):** the sprite-definition table (ID → CHR
+  + palette + size + frame layout), the OBJ CHR location, and the routine that
+  *builds* the OAM buffer from entity poses. These resisted static RE — best
+  cracked by watching the OBJ CHR DMA during a known sprite (the emulator-as-
+  instrument approach).
+
 ## Definition of done
 
 - [ ] Tile + palette codecs round-trip byte-exact against gold.
