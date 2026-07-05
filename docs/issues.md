@@ -25,7 +25,9 @@ math-unit fix (#5) was the keystone. What remains are polish gaps, below.
 - #6 logo "B" fade — **FIXED**: sprites now honor INIDISP brightness.
 - #7 gamepad A/B swap — **FIXED** (positional mapping).
 - #8 input polish — L/R **FIXED**; B/X swap, touchy diagonals, rapid-tap — open.
-- #9 sprite/UI render order (per-pixel BG/OBJ priority) — OPEN, new.
+- #9 sprite render order — **PARTIAL**: sprites no longer draw over the UI
+  (confirmed in play); some sprite-vs-BG/sprite ordering still wrong (full
+  per-pixel OBJ/BG priority remains).
 
 ## Playtest findings (2026-07-04, gameplay session)
 
