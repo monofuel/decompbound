@@ -194,6 +194,7 @@ Controls:
   # F10: one-shot per-scanline TM/TS profile -> bin/autoshots/scanline_trace.txt,
   # for diagnosing HDMA screen-splits (e.g. the battle's bottom status band).
   var traceScanlines = false
+  var traceArmed = 0    # frames since F10 armed; wait for an HDMA-active frame.
   var traceTM: array[262, uint8]
   var traceTS: array[262, uint8]
   var traceCG: array[262, uint8]   # CGADSUB (color math) per scanline
@@ -402,7 +403,8 @@ void main() {
       inc framesPerTick
     if window.buttonPressed[KeyF10]:
       traceScanlines = true
-      echo "scanline trace armed (writes bin/autoshots/scanline_trace.txt this frame)"
+      traceArmed = 0
+      echo "scanline trace armed (captures the next HDMA-split frame, e.g. a battle)"
     if window.buttonPressed[KeyF11]:
       autoShot = not autoShot
       echo "auto-screenshots: ", (if autoShot: "ON (bin/autoshots/ every 5s)" else: "OFF")
@@ -490,7 +492,12 @@ void main() {
         # High-priority BG (foreground tiles, dialogue/HUD, battle UI) interleaves
         # in front of the sprites the priority ladder places behind it.
         ppu.overlayForegroundBg(snes, frameImage)
+        # Once armed, wait for a frame where HDMA is actually active (the battle
+        # screen split) so the capture is useful; fall back after ~180 frames so
+        # non-HDMA scenes (e.g. the top-line flicker) still get a trace.
         if traceScanlines:
+          inc traceArmed
+        if traceScanlines and (snes.hdmaen != 0 or traceArmed >= 180):
           let tf = open("bin/autoshots/scanline_trace.txt", fmWrite)
           tf.writeLine(&"per-scanline profile (frame {frameCount}): " &
             &"BGMODE={snes.ppuRegs[0x05] and 7} bg3prio={(snes.ppuRegs[0x05] and 8) != 0} " &
