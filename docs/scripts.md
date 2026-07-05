@@ -88,6 +88,21 @@ live interpreter hook (`docs/text-log.md`): watch real script bytes decode as th
 game runs. The dispatch + encoding + operand mechanics are the solid foundation;
 the opcode meanings are the next dig.
 
+**Two more layers located (verified byte-exact):**
+
+- **Event/object-script opcode dispatch: file `0x9558`** (SNES `$C09558`) — a
+  56-entry jump table (opcodes `0x00–0x6F`, bounded by `CMP #$0070`), reached via
+  `JSR ($9558,X)` from `$C0952B`. This is the main event/entity bytecode
+  interpreter — the `[$80],Y` stream system that drives NPCs, cutscenes, *and*
+  doors — distinct from the `$C179AA` *text* control-code dispatch. (Resolved as
+  a Goal-1 frontier jump door.)
+- **Dialogue text-block pointer table: file `0x8CDED`** (SNES `$C8CDED`) — 4-byte
+  entries (`id * 4`), each a 24-bit far pointer to an encoded script block (first
+  entries point to `$C8BC2D`+). Parallel tables at `~0x8D1ED` / `~0x8D5ED`; lookup
+  code at file `0x18815` / `0x44676`. Bulk script bytes are scattered (verified
+  blocks at `0x45B67`, `0x63040`, and the `~0x8BCxx` cluster). A top-level master
+  dialogue-ID table wasn't isolated — that needs the dynamic hook.
+
 ## What goes in git (and what never does)
 
 The **extractor, the character/opcode tables, and the format docs are code —

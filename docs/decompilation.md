@@ -90,7 +90,17 @@ stated TODO), with a keybind to overlay impassable tiles.
 **Located (verified byte-exact):** a **tilemap pointer table** at file `0x100000`
 (4-byte entries → bank `$CF`), **tilemap data** at file `0x101800` (2-byte
 tile+attr words, standard SNES BG format), and **tileset graphics** at file
-`0x3E408` (loaded via `JSL $C3E4CA` etc.). Sector table + door/warp table: next dig.
+`0x3E408` (loaded via `JSL $C3E4CA` etc.).
+
+- **Sectors** — the per-sector graphic-set config is an 8-byte-record table at file
+  `0x03E250` (SNES `$C3E250`), resolved through a `~0x35`-entry RAM cache (`$88E4`)
+  keyed by sector ID (`$89CA`, set via `JSL $C3E74F`). A single flat
+  `{tileset, music, flags}` record isn't isolated (music/palette/teleport are split
+  across tables) and the position→sector calc is still open.
+- **Doors/warps** — *not* a flat table: exits are per-entity **script streams**
+  run by the `[$80],Y` object interpreter (the same `$C09558` engine, see
+  `scripts.md`), executor at file `0x009D9E` (`JML [$0A5A]`), chained via `$125A`.
+  The per-map door *data source* (the real "table") is upstream in area-load: next dig.
 
 ### 📊 Game data (track, not yet its own doc)
 
@@ -104,7 +114,16 @@ of SRAM. Round-trip DoD: decode a table → re-encode → byte-exact.
 **Located (verified byte-exact):** the **EXP-per-level table** at file `0x158F51`
 (SNES `$D58F51`), 4-byte LE u32, four per-character tables `0x190` apart
 (Ness/Paula/Jeff/Poo). Answers "EXP to next level" = `table[level] − current EXP`.
-Enemy / item / PSI tables: next dig.
+
+- **Enemy-stat table** — `0x30`-byte records; verified against Pogo Punk (record
+  at file `0x15C6DE`): `HP` u16 `+0x00`, `PP +0x02`, `EXP-reward +0x04`,
+  `money +0x08`, then two 3-byte gfx pointers, and `Offense/Defense/Speed` as u16
+  at `+0x17 / +0x19 / +0x1B` (odd offsets — our review corrected grok's off-by-one).
+  Canonical table base + indexing code: next dig.
+- **Item table** — `0x27`-byte records; `price` u16 at `+0x00` (verified: Cookie
+  `$7`, Bread Roll `$12`, Hamburger `$14`). Type/equip/effect fields + base id-0:
+  next dig.
+- **PSI + stat-growth tables:** not yet located.
 
 ## Relationship to the numbered goals
 
