@@ -5,7 +5,7 @@
 ## Usage: nim r src/tools/play.nim [--verbose|-v] <rom>
 
 import
-  std/[os, strformat, monotimes, times],
+  std/[os, strformat, monotimes, times, algorithm],
   pixie,
   opengl,
   windy,
@@ -36,14 +36,44 @@ proc loadSram(snes: SnesBus, path: string) =
       snes.sram[i] = data[i].uint8
     echo "loaded save: ", path, " (", data.len, " bytes)"
 
-proc saveSram(snes: SnesBus, path: string) =
-  ## Write the 8KB battery SRAM out to the .srm file.
-  var s = newString(snes.sram.len)
+proc sramBytes(snes: SnesBus): string =
+  ## Serialize the 8KB SRAM to a byte string.
+  result = newString(snes.sram.len)
   for i in 0 ..< snes.sram.len:
-    s[i] = snes.sram[i].char
-  writeFile(path, s)
+    result[i] = snes.sram[i].char
+
+proc sramValid(snes: SnesBus): bool =
+  ## True if the SRAM carries EB's "HAL Laboratory, inc." save signature — a
+  ## real save, not an empty/garbage state — so we never back up junk.
+  const Sig = "HAL Laboratory, inc."
+  for i in 0 ..< Sig.len:
+    if snes.sram[i].char != Sig[i]: return false
+  true
+
+proc saveSram(snes: SnesBus, path: string) =
+  ## Write the 8KB battery SRAM to the .srm, plus a rotating, timestamped backup
+  ## (of valid saves only) in bin/sram_backups/, keeping the newest 40 — so a
+  ## corrupted write or a glitchy moment can't wipe out your progress.
+  let bytes = snes.sramBytes()
+  writeFile(path, bytes)
   snes.sramDirty = false
   echo "saved: ", path
+  if snes.sramValid():
+    const MaxBackups = 40
+    let dir = "bin/sram_backups"
+    createDir(dir)
+    let base = path.splitFile.name
+    let backup = dir / (base & "_" & now().format("yyyyMMdd-HHmmss") & ".srm")
+    if not fileExists(backup):
+      writeFile(backup, bytes)
+      echo "  backup: ", backup
+    # Prune to the newest MaxBackups (timestamped names sort chronologically).
+    var files: seq[string]
+    for f in walkFiles(dir / (base & "_*.srm")):
+      files.add f
+    files.sort()
+    for i in 0 ..< max(0, files.len - MaxBackups):
+      removeFile(files[i])
 
 proc compileShader(kind: GLenum, source: string): GLuint =
   ## Compile one shader and return its id, or quit on error.
@@ -126,7 +156,7 @@ Controls:
   N           Advance one frame (when paused)
   -           Decrease speed
   =           Increase speed
-  F11         Toggle auto-screenshots (bin/autoshots/ every 5s; on by default)
+  F11         Toggle auto-screenshots (bin/autoshots/ every 5s; OFF by default)
   F12         Write bin/frame.png (+ dump PPU registers to the terminal)
   (close the window or Ctrl+C to quit — no Esc-to-quit, too easy to fat-finger)
 
@@ -153,8 +183,10 @@ Controls:
   var fpsClock = getMonoTime()
   var fpsShown = 0.0
   # Auto-capture: every 5s dump the frame + PPU state to bin/autoshots/
-  # (gitignored) so scenes can be reviewed/diagnosed after the fact. F11 toggles.
-  var autoShot = true
+  # (gitignored) so scenes can be reviewed/diagnosed after the fact. OFF by
+  # default (the periodic PNG write costs one frame ~every 5s = a small
+  # stutter); press F11 to enable it when you want to capture a bug.
+  var autoShot = false
   var lastShotTime = getMonoTime()
   var shotCount = 0
   createDir("bin/autoshots")

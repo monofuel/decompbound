@@ -19,3 +19,4 @@ bin/*
 
 # Auto-capture screenshots (play.nim F11)
 bin/autoshots/
+bin/sram_backups/
