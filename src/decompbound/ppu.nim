@@ -86,9 +86,12 @@ proc renderBg(snes: SnesBus, image: Image, bg: int, bpp: int,
 
 proc bgScanlineInto(snes: SnesBus, buf: var openArray[ColorRGBA],
                     drawn: var openArray[bool], py: int, bg: int, bpp: int,
-                    paletteBase: int) =
+                    paletteBase: int, prio: int = -1) =
   ## Fill a 256-wide line buffer with one BG layer's pixels for scanline py,
   ## marking which pixels were opaque. Honors latched scroll and map size.
+  ## prio filters by the tilemap per-tile priority bit (0x2000): -1 = all
+  ## tiles, 0 = low-priority tiles only, 1 = high-priority tiles only. Used to
+  ## split a layer across the priority order (e.g. BG3-priority menus).
   let scReg = snes.ppuRegs[0x07 + bg]
   let tilemapBase = ((scReg.int shr 2) shl 10) and 0x7FFF
   let sizeBits = scReg.int and 3
@@ -110,6 +113,8 @@ proc bgScanlineInto(snes: SnesBus, buf: var openArray[ColorRGBA],
     var mapBase = tilemapBase + screenX * 0x400
     mapBase += screenY * (if sizeBits == 3: 0x800 else: 0x400)
     let entry = snes.vram[(mapBase + (ty mod 32) * 32 + (tx mod 32)) and 0x7FFF]
+    if prio >= 0 and ((entry and 0x2000) != 0).int != prio:
+      continue
     let tile = (entry and 0x3FF).int
     let palette = ((entry shr 10) and 0x07).int
     let sx = if (entry and 0x4000) != 0: 7 - (wx mod 8) else: wx mod 8
@@ -121,12 +126,19 @@ proc bgScanlineInto(snes: SnesBus, buf: var openArray[ColorRGBA],
     buf[px] = bgr555ToColor(snes.cgram[colorIndex and 0xFF])
     drawn[px] = true
 
-proc modeLayers(mode: int): seq[tuple[bg, bpp, pal: int]] =
-  ## Back-to-front BG list for a mode: (layer, bpp, palette base).
+proc modeLayers(mode: int, bg3prio: bool): seq[tuple[bg, bpp, pal, prio: int]] =
+  ## Back-to-front BG passes for a mode: (layer, bpp, palette base, priority
+  ## filter). prio -1 = all tiles; 0 = low-priority tiles only; 1 = high only.
+  ## In mode 1 with the BG3-priority bit ($2105 bit 3) set, BG3 is split: its
+  ## low-priority tiles stay at the back, but its high-priority tiles draw in
+  ## FRONT of BG1/BG2 (this is how EarthBound's menus put their text window over
+  ## the checkerboard BG2).
   case mode:
-  of 0: @[(3, 2, 96), (2, 2, 64), (1, 2, 32), (0, 2, 0)]
-  of 1: @[(2, 2, 0), (1, 4, 0), (0, 4, 0)]
-  of 3: @[(1, 4, 0), (0, 8, 0)]
+  of 0: @[(3, 2, 96, -1), (2, 2, 64, -1), (1, 2, 32, -1), (0, 2, 0, -1)]
+  of 1:
+    if bg3prio: @[(2, 2, 0, 0), (1, 4, 0, -1), (0, 4, 0, -1), (2, 2, 0, 1)]
+    else: @[(2, 2, 0, -1), (1, 4, 0, -1), (0, 4, 0, -1)]
+  of 3: @[(1, 4, 0, -1), (0, 8, 0, -1)]
   else: @[]
 
 proc compositeScreen(snes: SnesBus, py: int, mask: uint8,
@@ -135,16 +147,18 @@ proc compositeScreen(snes: SnesBus, py: int, mask: uint8,
   ## Composite one screen (main or sub) for scanline py: backdrop, then the
   ## mask-enabled BG layers of the current mode, back to front.
   let mode = (snes.ppuRegs[0x05] and 0x07).int
+  let bg3prio = (snes.ppuRegs[0x05] and 0x08) != 0
   for px in 0..<ScreenWidth:
     result.buf[px] = backdrop
   var line: array[ScreenWidth, ColorRGBA]
   var lineDrawn: array[ScreenWidth, bool]
-  for layer in modeLayers(mode):
+  for layer in modeLayers(mode, bg3prio):
     if (mask.int and (1 shl layer.bg)) == 0:
       continue
     for px in 0..<ScreenWidth:
       lineDrawn[px] = false
-    snes.bgScanlineInto(line, lineDrawn, py, layer.bg, layer.bpp, layer.pal)
+    snes.bgScanlineInto(line, lineDrawn, py, layer.bg, layer.bpp, layer.pal,
+                        layer.prio)
     for px in 0..<ScreenWidth:
       if lineDrawn[px]:
         result.buf[px] = line[px]

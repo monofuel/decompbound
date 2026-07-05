@@ -7,127 +7,123 @@ these are fidelity gaps, not "it's black" bugs.
 
 Filed: 2026-07-04
 
----
-
-## 1. Giygas "red snow" intro shows the wrong animation phase
-
-**Status:** OPEN — compositor fixed, animation fidelity remains.
-
-The intro before the "THE WAR AGAINST GIYGAS!" title card should show **red
-TV snow** — incoherent churning static with red mixed in (the *end* of the
-Giygas death animation). We instead render a **coherent, recognizable Giygas
-face** that cycles colors — the *early/structured* phase, not the snow.
-
-The color-math compositor is correct now (BG1 face main + BG2 noise subscreen,
-HDMA-scrolled per scanline, CGADSUB=03 / CGWSEL=02). The remaining problem is
-**timing fidelity**: the snow is *motion*, not a graphic. The game re-seeds the
-noise source every frame in its NMI handler ~60x/s; if that per-frame churn
-doesn't advance at the right rate we get a slowly-drifting face instead of
-fast snow. Full detail + investigation leads in [red-snow.md](red-snow.md).
-
-**Scope:** core-emulator timing (claude-code).
+**Status summary (2026-07-04):**
+- #1 red static — OPEN, diagnosis corrected (wrong animation *segment*).
+- #2 overworld intro — OPEN, budget hypothesis disproven; input/demo path.
+- #3 menu box — **FIXED** (BG3 priority).
+- #4 no audio — **FIXED** (live APU streaming via slappy).
 
 ---
 
-## 2. "Characters walking around the world" intro sequence is static/glitchy
+## 1. Giygas "red snow" intro shows the wrong part of the animation
 
-**Status:** OPEN.
+**Status:** OPEN — diagnosis corrected; needs an animation-data dig.
 
-The overworld intro (camera circling the party at Summers, characters walking)
-is broken in several ways:
+There is ONE Giygas death animation: **swirl -> random red/black/white TV
+snow**. End-game shows the full progression. The intro deliberately shows
+**only the snow tail** (the game hides that the snow IS Giygas until the very
+end — the beginning is secretly the ending). We render the **swirl start**
+instead: the wrong slice of the animation, spoiling the reveal.
 
-- It does **not** show the characters walking.
-- It **does** show 2 glitchy sprites (wrong tiles / wrong position).
-- It only shows the **initial frame at Summers** — nothing after that animates.
-- The camera does **not** do its "circle" pan around the players.
-- No animations play at all — the scene is frozen on frame 1.
+Confirmed (frame sweep 1300-1920): the effect **churns** (animates) but shows
+the swirl the whole window; it never shows the snow. **Budget is NOT the
+cause** — a ~6x instructions-per-frame bump did not change what is shown. So
+this is **wrong-animation-segment selection**, not the compositor and not raw
+timing. Full detail + investigation leads in [red-snow.md](red-snow.md).
 
-This smells like the same **per-frame update not advancing** root cause as
-issue #1: the game's NMI-driven logic (sprite OAM updates, scroll/camera
-writes, animation frame counters) isn't running frame-to-frame. If the scene
-is frozen on its first frame, the game's main loop / NMI cadence likely isn't
-churning the OAM + scroll registers each frame.
+**Scope:** core-emulator reverse engineering — how EB indexes/streams the
+death-animation frames for the intro vs. end-game (claude-code).
+
+---
+
+## 2. "Characters walking around the world" intro is static
+
+**Status:** OPEN — budget disproven; movement-input path suspected.
+
+The overworld attract scene (camera circling the party at Summers, characters
+walking) renders cleanly but does not move:
+
+- Characters do **not** walk; the camera does **not** pan/circle.
+- Background is **byte-identical across thousands of frames** (zero scroll).
+- Sprite *appearance* does cycle (blonde -> red-capped), so the display
+  pipeline and per-frame animation run — the scene is NOT frozen/crashed.
+
+**Budget hypothesis DISPROVEN:** rendered the scene at a realistic
+instructions-per-frame budget (IPL=180, ~23k/frame vs the default ~7.8k) —
+the camera *still* did not pan and characters *still* did not move. So
+per-frame starvation is not the cause.
+
+The camera follows the player, so both freezing collapses to one question:
+**why doesn't the (demo-driven) player move?** Most likely the attract demo's
+recorded input isn't reaching the movement code (input edge handling, demo
+input read, or the always-on $4218 auto-joypad read clobbering injected
+input).
 
 **Investigation leads:**
-- Confirm whether *anything* advances frame-to-frame in `make play` here
-  (F12 two frames apart, diff the PNGs) — is the whole scene frozen or just
-  the sprites?
-- Trace what writes OAM during this scene: are sprite positions/tiles being
-  updated each frame, or written once and never again?
-- Check the camera: is the game writing BG scroll registers ($210D-$2114)
-  each frame? If the scroll latch isn't advancing, the camera can't pan.
-- The 2 glitchy sprites suggest an OAM decode or sprite-table base issue —
-  verify against the OBSEL/name-base handling (the earlier table-1 precedence
-  bug may have a sibling here).
+- Trace the player-position WRAM variable across frames — static or moving?
+- Find where EB reads controller input during attract and whether the demo
+  feeds it; check if our auto-joypad read overwrites demo input.
+- The "2 glitchy sprites" note: verify OAM decode / sprite-table base once the
+  motion path is understood.
 
-**Scope:** core-emulator timing + sprite/OAM (claude-code).
+**Scope:** core-emulator input/demo + sprite/OAM (claude-code).
 
 ---
 
-## 3. Game menu renders background but not the menu itself
+## 3. Game menu renders background but not the menu box  — FIXED
 
-**Status:** OPEN.
+**Status:** **FIXED** (2026-07-04).
 
-The in-game menu's **checkerboard background renders correctly**, but the
-**menu box / text on top of it does not render**. So one layer composites and
-the other doesn't.
+**Confirmed root cause:** the file-select menu is Mode 1 with the **BG3
+priority bit** ($2105 bit 3) set. The menu window/text lives on **BG3** (954
+nonzero tilemap entries, 494 with the per-tile priority bit); the checkerboard
+is opaque **BG2**. Our compositor drew BG3 at the *back*, so the opaque BG2
+checkerboard painted right over the menu. Proven by isolating layers: BG3
+alone = the menu box; BG2 alone = the checkerboard.
 
-This points at a **specific BG layer or window** not making it into the
-composite:
-- The menu text/box is likely on a different BG layer (or uses a window mask)
-  than the checkerboard. If that layer isn't in the main-screen mask (TM/$2C)
-  or is being masked out by a window, it won't show.
-- Could also be a tilemap/char base pointing at the wrong VRAM address for the
-  menu layer, or the layer being force-blanked/disabled.
+**Fix:** `ppu.nim` now honors per-tile priority. `bgScanlineInto` takes a
+priority filter (all / low-only / high-only via tilemap bit 0x2000), and in
+Mode 1 with the BG3-priority bit set, BG3 is split: low-priority tiles stay at
+the back, **high-priority BG3 tiles draw in front of BG1/BG2**. Verified: the
+menu window now renders over the checkerboard; war-card and overworld frames
+unchanged; `make test` green.
 
-**Investigation leads:**
-- Dump TM/$2C and TS/$2D during the menu — which BG layers are enabled?
-- Check the window registers (W12SEL/W34SEL/WOBJSEL, WH0-WH3, TMW/TSW) — is a
-  window clipping the menu layer out?
-- Verify the menu layer's tilemap + char base addresses point at real menu
-  data in VRAM (not stale/zero).
-- Check BG priority: is the menu on a layer that's being drawn *behind* the
-  checkerboard and losing the priority test?
+(Reaching the menu headlessly also required fixing the screenshot tool's
+Start-input to inject a press *edge* instead of a permanent hold.)
 
-**Scope:** core-emulator PPU layers/windows (claude-code).
+**Follow-up:** full SNES per-tile/sprite priority interleaving is still
+approximate; this fix covers the BG3-priority menu case.
 
 ---
 
-## 4. No music or sound effects play
+## 4. No music or sound effects play — FIXED
 
-**Status:** OPEN.
+**Status:** **FIXED** (2026-07-04).
 
-Nothing audible currently plays — no BGM, no SFX. The APU handshake / SPC700 +
-S-DSP path exists and is vector-accurate, but the rendered audio isn't reaching
-the speakers in `make play`.
+The audio engine (SPC700 + S-DSP) already produced non-silent PCM offline
+(`render_song`: ~48% nonzero samples). It just wasn't wired into the live
+player.
 
-**Plan:** wire playback through **treeform/slappy** (already a documented
-dependency, see [audio.md](audio.md) — the "easy slappy example tools" path).
-The S-DSP mixes 8 BRR voices into a PCM buffer; slappy is the simplest route
-to actually push that buffer to the host audio device from the play loop.
+**Fix:** `play.nim` now runs the standalone APU in real time and streams
+32kHz stereo PCM to a **slappy** `StreamingSource` each frame. It loads the
+captured driver image and feeds the game's post-boot APU port writes live.
+Key detail found by a headless probe: the game uploads the driver early
+(~65KB) but streams each scene's **song data** in later, larger uploads — so
+a single init plays near-silence (~0.4% nonzero). Re-initializing the APU on a
+large upload jump (>=16KB = a new song) yields **~74% nonzero, sustained
+audio** with only ~3 driver restarts. Deps (slappy/openal/supersnappy +
+openal-soft in the flake) wired; `make test` green; live path verified to
+produce sustained non-silent PCM.
 
-**Investigation leads:**
-- Confirm the S-DSP is producing non-silent PCM at all (dump a buffer to WAV
-  from the play loop and inspect — the music_explore tool already touches
-  this path).
-- Is the APU handshake completing so the game uploads its song/SFX data? If
-  the HLE handshake stalls, the SPC never gets its sequence data and stays
-  silent.
-- Wire a slappy audio sink into `play.nim`: pull the S-DSP output buffer each
-  frame and feed it to slappy for real-time playback.
-- Start with BGM (proves the SPC700 sequencer + DSP mixing end-to-end), then
-  SFX.
-
-**Scope:** audio pipeline + slappy integration. Good candidate to spec as a
-grok ticket once the S-DSP-produces-PCM question is answered, since the slappy
-wiring is mechanical; the "is it silent and why" diagnosis stays with claude.
+**Follow-up:** the proper fix is a fully live two-way APU in the bus (no HLE
+handshake, no re-init); the current MVP has a brief discontinuity on each
+song change.
 
 ---
 
-## Common thread
+## Notes on the shared theme
 
-Issues #1 and #2 (and possibly the animated parts of others) share a likely
-root cause: **per-frame game logic isn't advancing at the right rate**. Our
-synthetic NMI cadence + HLE-APU timing may not give the game's main loop the
-instruction budget it expects per frame, so frame counters / RNG / OAM updates
-stall. Fixing frame-accuracy once should sharpen several of these at once.
+The original guess that #1 and #2 shared a "per-frame budget too low" root
+cause was **tested and disproven** — raising the budget changed neither the
+red-static phase nor the overworld camera. #1 is animation-data selection; #2
+is the demo/input path. They are separate digs, both core-emulator work.
