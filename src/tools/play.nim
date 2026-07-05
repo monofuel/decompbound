@@ -156,6 +156,7 @@ Controls:
   N           Advance one frame (when paused)
   -           Decrease speed
   =           Increase speed
+  F10         Dump per-scanline TM/TS band profile (bin/autoshots/scanline_trace.txt)
   F11         Toggle auto-screenshots (bin/autoshots/ every 5s; OFF by default)
   F12         Write bin/frame.png (+ dump PPU registers to the terminal)
   (close the window or Ctrl+C to quit — no Esc-to-quit, too easy to fat-finger)
@@ -199,6 +200,11 @@ Controls:
   var lastShotTime = getMonoTime()
   var shotCount = 0
   createDir("bin/autoshots")
+  # F10: one-shot per-scanline TM/TS profile -> bin/autoshots/scanline_trace.txt,
+  # for diagnosing HDMA screen-splits (e.g. the battle's bottom status band).
+  var traceScanlines = false
+  var traceTM: array[262, uint8]
+  var traceTS: array[262, uint8]
   var lastJoy1: uint16 = 0
 
   # Audio is driven by the live APU in the bus (snes.tickApu) — no per-frame
@@ -403,6 +409,9 @@ void main() {
       dec framesPerTick
     if window.buttonPressed[KeyEqual]:
       inc framesPerTick
+    if window.buttonPressed[KeyF10]:
+      traceScanlines = true
+      echo "scanline trace armed (writes bin/autoshots/scanline_trace.txt this frame)"
     if window.buttonPressed[KeyF11]:
       autoShot = not autoShot
       echo "auto-screenshots: ", (if autoShot: "ON (bin/autoshots/ every 5s)" else: "OFF")
@@ -451,6 +460,9 @@ void main() {
               break
           if l < 224:
             snes.runHdma()
+            if traceScanlines:
+              traceTM[l] = snes.ppuRegs[0x2C]
+              traceTS[l] = snes.ppuRegs[0x2D]
             if (snes.ppuRegs[0x00] and 0x80) == 0:
               ppu.renderScanline(snes, frameImage, l)
           for k in 0 ..< 2:
@@ -478,6 +490,19 @@ void main() {
         ppu.renderSprites(snes, frameImage)
         # High-priority BG3 (dialogue/HUD) draws over sprites.
         ppu.overlayBg3Priority(snes, frameImage)
+        if traceScanlines:
+          let tf = open("bin/autoshots/scanline_trace.txt", fmWrite)
+          tf.writeLine(&"per-scanline profile (frame {frameCount}): " &
+            &"BGMODE={snes.ppuRegs[0x05] and 7} bg3prio={(snes.ppuRegs[0x05] and 8) != 0} " &
+            &"CGADSUB={snes.ppuRegs[0x31]:02X} CGWSEL={snes.ppuRegs[0x30]:02X} HDMAEN={snes.hdmaen:02X}")
+          var bstart = 0
+          for l2 in 1 .. 224:
+            if l2 == 224 or traceTM[l2] != traceTM[bstart] or traceTS[l2] != traceTS[bstart]:
+              tf.writeLine(&"  lines {bstart:>3}..{l2-1:>3}  TM={traceTM[bstart]:02X}  TS={traceTS[bstart]:02X}")
+              bstart = l2
+          tf.close()
+          traceScanlines = false
+          echo "wrote bin/autoshots/scanline_trace.txt"
         frameCount += 1
         if genAudio:
           ss.queueData(pcm)
