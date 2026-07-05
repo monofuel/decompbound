@@ -1,4 +1,4 @@
-.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-verbose frames
+.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-verbose gamepad-test frames
 
 # bash + pipefail: the test loop pipes nim through sed, and without
 # pipefail the pipeline's exit status is sed's (always 0), which turns
@@ -72,6 +72,11 @@ play: nim.cfg
 play-verbose: nim.cfg
 	nim r -d:release src/tools/play.nim --verbose "$(ROM)"
 	@echo "player exited"
+
+# Standalone USB controller tester: shows how a pad reports its buttons/d-pad
+# and which SNES button each maps to. No window/ROM needed. Ctrl+C to quit.
+gamepad-test: nim.cfg
+	nim r -d:release src/tools/gamepad_test.nim
 
 song: nim.cfg
 	@echo "use: nim r src/tools/music_explore.nim   (menu explorer)"
