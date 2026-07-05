@@ -87,6 +87,8 @@ proc main() =
     BtnRight = 0x0100'u16
     BtnA = 0x0080'u16
     BtnX = 0x0040'u16
+    BtnL = 0x0020'u16
+    BtnR = 0x0010'u16
     Controls = """
 Controls:
   Arrows      D-pad (Up/Down/Left/Right)
@@ -94,6 +96,8 @@ Controls:
   X           A
   A           Y
   S           X
+  Q           L
+  E           R
   Enter       Start
   RightShift  Select
   Space       Toggle pause
@@ -241,6 +245,8 @@ void main() {
     if window.buttonDown[KeyX]: joy1 = joy1 or BtnA
     if window.buttonDown[KeyA]: joy1 = joy1 or BtnY
     if window.buttonDown[KeyS]: joy1 = joy1 or BtnX
+    if window.buttonDown[KeyQ]: joy1 = joy1 or BtnL
+    if window.buttonDown[KeyE]: joy1 = joy1 or BtnR
     if window.buttonDown[KeyEnter]: joy1 = joy1 or BtnStart
     if window.buttonDown[KeyRightShift]: joy1 = joy1 or BtnSel
 
@@ -262,6 +268,8 @@ void main() {
       if gp.button(GamepadB): joy1 = joy1 or BtnA
       if gp.button(GamepadY): joy1 = joy1 or BtnY
       if gp.button(GamepadX): joy1 = joy1 or BtnX
+      if gp.button(GamepadL1): joy1 = joy1 or BtnL
+      if gp.button(GamepadR1): joy1 = joy1 or BtnR
       if gp.button(GamepadStart): joy1 = joy1 or BtnStart
       if gp.button(GamepadSelect): joy1 = joy1 or BtnSel
 

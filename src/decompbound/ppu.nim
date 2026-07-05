@@ -255,6 +255,13 @@ proc renderBgScanline*(snes: SnesBus, image: Image, py: int, bg: int, bpp: int,
 proc renderSprites*(snes: SnesBus, image: Image) =
   ## Render OAM sprites (no per-scanline limits; front-to-back priority
   ## approximated by drawing sprite 127 first so sprite 0 wins overlaps).
+  ## Sprites honor INIDISP master brightness (like BG layers) so fades dim OBJ
+  ## and BG together — otherwise a brightness-ramp fade (e.g. the EarthBound
+  ## logo dissolve) dims the BG letters but leaves sprite glows full-bright, so
+  ## the BG parts (like the "B") appear to vanish early.
+  if (snes.ppuRegs[0x00] and 0x80) != 0:
+    return  # force blank: nothing is displayed
+  let bright = (snes.ppuRegs[0x00].int and 0x0F) + 1
   let obsel = snes.ppuRegs[0x01]
   let chrBase = ((obsel.int and 0x07) shl 13) and 0x7FFF
   let sizeSelect = (obsel.int shr 5) and 0x07
@@ -322,7 +329,10 @@ proc renderSprites*(snes: SnesBus, image: Image) =
         let index = snes.tilePixel(tileBase, tileIndex, sx mod 8, sy mod 8, 4)
         if index == 0:
           continue
-        let color = bgr555ToColor(snes.cgram[128 + paletteGroup * 16 + index])
+        var color = bgr555ToColor(snes.cgram[128 + paletteGroup * 16 + index])
+        color.r = ((color.r.int * bright) div 16).uint8
+        color.g = ((color.g.int * bright) div 16).uint8
+        color.b = ((color.b.int * bright) div 16).uint8
         image[screenX, screenY] = color
 
 proc renderFrame*(snes: SnesBus): Image =
