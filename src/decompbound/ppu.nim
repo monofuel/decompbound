@@ -214,9 +214,11 @@ proc renderScanline*(snes: SnesBus, image: Image, py: int) =
     m.b = ((m.b.int * bright) div 16).uint8
     image[px, py] = m
 
-proc renderBgScanline*(snes: SnesBus, image: Image, py: int, bg: int, bpp: int, paletteBase: int) =
+proc renderBgScanline*(snes: SnesBus, image: Image, py: int, bg: int, bpp: int,
+                       paletteBase: int, prio: int = -1) =
   ## Render one scanline of a single BG layer (legacy per-line path, kept
-  ## for callers that do not need color math).
+  ## for callers that do not need color math). prio filters by the tilemap
+  ## per-tile priority bit (0x2000): -1 = all, 0 = low only, 1 = high only.
   let scReg = snes.ppuRegs[0x07 + bg]
   let tilemapBase = ((scReg.int shr 2) shl 10) and 0x7FFF
   let sizeBits = scReg.int and 3
@@ -238,6 +240,8 @@ proc renderBgScanline*(snes: SnesBus, image: Image, py: int, bg: int, bpp: int, 
     var mapBase = tilemapBase + screenX * 0x400
     mapBase += screenY * (if sizeBits == 3: 0x800 else: 0x400)
     let entry = snes.vram[(mapBase + (ty mod 32) * 32 + (tx mod 32)) and 0x7FFF]
+    if prio >= 0 and ((entry and 0x2000) != 0).int != prio:
+      continue
     let tile = (entry and 0x3FF).int
     let palette = ((entry shr 10) and 0x07).int
     let sx = if (entry and 0x4000) != 0: 7 - (wx mod 8) else: wx mod 8
