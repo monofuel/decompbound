@@ -102,6 +102,54 @@ tests, built with our own toolchain, targeting exactly the behaviors our issues
 implicate (window masking, color math, HDMA per-scanline register timing). This
 is the most on-brand option and needs no external ROM at all.
 
+## Acquisition & boot-feasibility (survey)
+
+First concrete accuracy-track step: acquire the freely-licensed homebrew test
+ROMs and see what our EarthBound-scoped (HiROM-only) emulator does with each.
+ROMs live in git-ignored `bin/testroms/` (never committed; only the game ROM is
+copyrighted — these homebrew tests are freely distributable). Booted headless
+via `src/tools/screenshot.nim <rom> <out.png> 2000000 noinput`.
+
+| ROM | Source URL | License | Download status | Boots on our emulator? |
+|-----|-----------|---------|-----------------|------------------------|
+| **Blargg's SNES hardware tests** (11 `.smc`: `test_speed`, `test_timer_speed`, `test_timer_stop`, `speed_2_freezes2`, `timer_at_power_reset`, …; 64 KB each) | `http://snescentral.com/1/1/1/1115/blargg_2010-03-14.zip` (mirror of blargg.8bitalley.com — origin TLS cert expired) | No explicit license; blargg released these for emulator authors, freely mirrored for decades | Downloaded → `bin/testroms/blargg_snes/` | **YES.** Most boot, enable a BG layer (TM=02, INIDISP=0F) and render legible on-screen text. `test_speed` and `test_timer_speed` print their value table plus the test name and **`Failed`** — a real hardware-truth result (expected: our timing isn't cycle-accurate). `timer_at_power_reset` stays blank (resets the console). **This is the working path.** |
+| **240p Test Suite (SNES)** — Artemio | itch.io `https://artemiourbina.itch.io/240p-test-suite`; source `https://github.com/ArtemioUrbina/240pTestSuite`; binary mirror `https://sourceforge.net/projects/testsuite240p/files/OldFiles/SNES_SFC/` (`240pSuite-SNES-1.03.zip`) | GPLv2+ | Downloaded → `bin/testroms/240p/240pSuite.sfc` (512 KB, LoROM) | **NO.** Runs without crashing but never initialises (INIDISP/TM/BGMODE all 0 → black screen). LoROM: reset vector lands on the wrong code under our HiROM map. |
+| **gradient-test (CGWSEL)** — NovaSquirrel | `https://bin.smwcentral.net/u/1780/gradient-test.sfc` (listed on snes.nesdev.org/wiki/Emulator_tests) | No explicit license (NovaSquirrel test ROM, freely distributed) | Downloaded → `bin/testroms/gradient-test.sfc` (256 KB) | **NO.** Runs, no init, black screen. LoROM. |
+| **ctrltest** — rainwarrior (Brad Smith) | `https://github.com/bbbradsmith/SNES_stuff/tree/main/ctrltest` (raw `.../main/ctrltest/ctrltest.sfc`, `ctrltest_auto.sfc`) | No LICENSE file in repo (Brad Smith test ROM, freely distributed) | Downloaded → `bin/testroms/ctrltest.sfc`, `ctrltest_auto.sfc` (32 KB, LoROM) | **NO — hard crash.** `IndexDefect: index 65532 not in 0 .. 32767`. A 32 KB ROM has no byte at file offset `$FFFC`, where `resetCpu` reads the reset vector. |
+| **CPU multiplier test** (`$4203`/`$4204`, "wrmpyb-in-flight") — undisbeliever | `https://github.com/undisbeliever/snes-test-roms` (thread `forums.nesdev.org/viewtopic.php?t=24087`) | zlib License | **Not downloaded** — repo ships **source only**; building needs the `bass` assembler + its GNUmakefile (no prebuilt `.sfc`). | Not tested (no ROM to run). |
+| PPU bus activity — lidnariq (supporting) | `https://gitlab.com/higan/snes-test-roms` → `lidnariq-ppu-bus-activity/ppubusact.sfc` | Part of the higan/snes-test-roms collection (freely distributed) | Downloaded → `bin/testroms/ppubusact.sfc` (128 KB) | **NO.** Runs, no init, black. LoROM. |
+| blargg SPC-6 DSP test — blargg (supporting) | `https://gitlab.com/higan/snes-test-roms` → `blargg-spc-6/spc_dsp6.sfc` | blargg, freely distributed | Downloaded → `bin/testroms/spc_dsp6.sfc` (489 KB) | **NO.** Runs, no init, black. |
+
+### Root cause & strategic finding
+
+The split is entirely a **memory-map issue**, not a per-ROM quirk. `snesbus.nim`
+lays the ROM down as a pure **HiROM linear image**, and `resetCpu` reads the
+reset vector straight from **file offset `$FFFC`/`$FFFD`** (`snesbus.nim`
+`resetCpu`; `memmap.nim` `snesToFile`). Consequently:
+
+- **HiROM / 64 KB ROMs boot** — blargg's 64 KB tests have a valid vector at file
+  `$FFFC` that points at code the linear map places correctly, so they run and
+  render. These are usable **today**.
+- **Larger LoROM ROMs silently no-op** (240p, gradient-test, ppubusact,
+  spc_dsp6) — their real reset vector sits at the LoROM location and their code
+  is `$8000`-banked, so under our HiROM map the CPU starts on the wrong bytes →
+  no PPU init → black screen.
+- **Sub-64 KB LoROM ROMs crash** (ctrltest, 32 KB) — file offset `$FFFC` is past
+  end-of-file, so the raw `rom[…]` read throws `IndexDefect`.
+
+**Viability verdict:** the test-ROM approach is **proven viable** — blargg's
+suite already boots headless, renders its scoreboard, and self-reports
+PASS/FAIL (here: `Failed`, correctly flagging our non-cycle-accurate timing).
+That alone gives us a repeatable CPU/timing/DMA oracle right now. **But** the
+Tier-2/Tier-3 ROMs that target our *actual* open issues — 240p (PPU/video),
+gradient-test (CGWSEL/#12), ctrltest (input/#8) — are **all LoROM and won't boot
+until the bus is generalised**. Unlocking them needs a small, contained change
+outside the accuracy doc: (1) **detect LoROM vs HiROM** (map-mode byte / header
+at `$7FC0` vs `$FFC0`) and map + read the reset vector accordingly, and (2)
+**bounds-guard the `rom[…]` reads** so an undersized ROM fails gracefully instead
+of crashing. Recommend that as the immediate follow-up before leaning on the
+PPU/input test ROMs.
+
 ## How we'd read results
 
 Two ways, depending on the ROM:

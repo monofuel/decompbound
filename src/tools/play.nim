@@ -176,15 +176,6 @@ Controls:
   var cpu = snes.resetCpu()
 
   var frameCount = 0
-  # D-pad direction latch (Up/Down/Left/Right): cheap clone d-pads report a
-  # held diagonal intermittently (one axis flickers to 0), so a diagonal keeps
-  # collapsing to orthogonal. Hold each direction a few frames after it's last
-  # seen to bridge the flicker.
-  var dirLatch: array[4, int]
-  # Frames to hold a d-pad direction after last press (bridges flickery clone
-  # d-pads so diagonals stay diagonal). Tune with LATCH=N; find the value in
-  # `make gamepad-test` first.
-  let latchFrames = (if getEnv("LATCH").len > 0: parseInt(getEnv("LATCH")) else: 10)
   var paused = false
   var frameAdvance = false
   var framesPerTick = 1
@@ -372,16 +363,8 @@ void main() {
       if lx < -AxisThreshold: joy1 = joy1 or BtnLeft
       if ly > AxisThreshold: joy1 = joy1 or BtnDown
       if ly < -AxisThreshold: joy1 = joy1 or BtnUp
-    # Diagonal-stabilizing latch: keep each d-pad direction held for a few
-    # frames after it's last actually pressed, so a flickery clone d-pad doesn't
-    # keep dropping a held diagonal back to orthogonal.
-    const DirBits = [BtnUp, BtnDown, BtnLeft, BtnRight]
-    for i in 0 ..< 4:
-      if (joy1 and DirBits[i]) != 0:
-        dirLatch[i] = latchFrames
-      elif dirLatch[i] > 0:
-        dirLatch[i] -= 1
-        joy1 = joy1 or DirBits[i]
+    # No input latch: faithful d-pad, no held-frame band-aid. A good controller
+    # handles its own diagonals; we don't hack around bad hardware.
     snes.joy1 = joy1
 
     if verbose:
@@ -444,7 +427,13 @@ void main() {
       for t in 0 ..< ticks:
         if (snes.nmitimen and 0x80) != 0:
           cpu.nmiPending = true
-        const InstrPerLine = 30
+        # Instructions per scanline. The SNES gives the CPU a fixed CYCLE budget
+        # (~227 CPU cycles/scanline on FastROM); we approximate with a fixed
+        # instruction count (goal.md: no cycle accuracy). 30 starved EB's main
+        # loop, so its animation lagged behind the (independently-ticked) audio;
+        # ~40 matches hardware throughput so graphics keep pace. Tune if scenes
+        # run fast/slow.
+        const InstrPerLine = 40
         let forceBlank = (snes.ppuRegs[0x00] and 0x80) != 0
         if not forceBlank:
           let backdrop = ppu.bgr555ToColor(snes.cgram[0])
@@ -498,8 +487,9 @@ void main() {
           pcm[off + 3] = ((rgt shr 8) and 0xFF).uint8
           smp += 1
         ppu.renderSprites(snes, frameImage)
-        # High-priority BG3 (dialogue/HUD) draws over sprites.
-        ppu.overlayBg3Priority(snes, frameImage)
+        # High-priority BG (foreground tiles, dialogue/HUD, battle UI) interleaves
+        # in front of the sprites the priority ladder places behind it.
+        ppu.overlayForegroundBg(snes, frameImage)
         if traceScanlines:
           let tf = open("bin/autoshots/scanline_trace.txt", fmWrite)
           tf.writeLine(&"per-scanline profile (frame {frameCount}): " &
@@ -532,9 +522,26 @@ void main() {
       GL_RGBA, GL_UNSIGNED_BYTE, cast[pointer](image.data[0].addr)
     )
 
-    glViewport(0, 0, window.size.x, window.size.y)
+    # Aspect-preserving viewport with black borders: fit the largest rect of the
+    # framebuffer's aspect (ScreenWidth:ScreenHeight) inside the window, centered,
+    # so resizing letter/pillar-boxes instead of stretching. glClear paints the
+    # whole window black first, so the uncovered margins become the bars.
+    const TargetAspect = ScreenWidth.float / ScreenHeight.float
+    let winW = window.size.x
+    let winH = window.size.y
+    var vpW, vpH: int32
+    if winW.float / winH.float > TargetAspect:
+      vpH = winH                                  # window wider than frame: pillarbox
+      vpW = (winH.float * TargetAspect).int32
+    else:
+      vpW = winW                                  # window taller than frame: letterbox
+      vpH = (winW.float / TargetAspect).int32
+    let vpX = (winW - vpW) div 2
+    let vpY = (winH - vpH) div 2
+
     glClearColor(0.0, 0.0, 0.0, 1.0)
     glClear(GL_COLOR_BUFFER_BIT)
+    glViewport(vpX, vpY, vpW, vpH)
 
     glBindVertexArray(vao)
     glDrawArrays(GL_TRIANGLES, 0, 6)

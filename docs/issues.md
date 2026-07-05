@@ -29,6 +29,72 @@ math-unit fix (#5) was the keystone. What remains are polish gaps, below.
   (confirmed in play); some sprite-vs-BG/sprite ordering still wrong (full
   per-pixel OBJ/BG priority remains).
 
+## Playtest wave — 2026-07-05 (PPU windowing + sprite compositing landed; timing/input/audio bugs found)
+
+A long live playtest (PS5 pad). Big rendering wins landed (uncommitted, pending
+final visual confirmation), plus a batch of timing/input/audio bugs newly
+isolated. All findings below are backed by F10/F12 captures and/or verified
+against the ROM.
+
+### Landed this wave (uncommitted working tree)
+- **#2 iris — window masking implemented** (`ppu.nim`). The scene-transition iris
+  now renders in-game (confirmed live: "very close"). Per-scanline layer windows
+  (TMW/TSW), two-window logic, and the CGWSEL force-main-black region (HDMA-
+  animated). Bug caught in review: the W12SEL/WOBJSEL per-window bits are
+  `[invert, enable]`, not `[enable, invert]` (fixed). Remaining polish: iris
+  flicker + timing (ties to #15).
+- **#9 sprite/BG priority + iris sprite-clip + battle-UI-over-sprites — sprite
+  compositing reworked** (`ppu.nim`, new `overlayForegroundBg`). Root cause:
+  sprites were a whole-frame pass on top of everything, bypassing per-pixel
+  priority + window/force-black. Now high-priority BG tiles (desk, command UI)
+  draw over lower-priority OBJ (mode-1 ladder), and sprites are clipped by the OBJ
+  window + force-black (inside the iris). Verified **0% regression** on normal
+  attract frames; the three specific cases need live confirmation.
+
+### #10 battle bands / swirl — mechanism CONFIRMED (fix pending)
+Via F10/F12 captures + grok analysis (`bvv01ltqg`): the battle is **BGMODE 1 with
+an HDMA-driven per-scanline screen split** — `HDMAEN=24` (ch 2+5), battlefield on
+the **subscreen** (`TS=70`), HDMA flipping `TM` per band per scanline
+(`TM=00`/`17`/`15`). **Not Mode 7, not windows** (W12=00, TMW=00, TSW=00,
+CGWSEL=00). So the reported bugs — bands jumping frame-to-frame, the bottom border
+covering the HP/PP meter, the glitchy/partial swirl — are our **HDMA per-line
+TM/TS handling**, not a missing feature. Setup traced `$C04116` → `$C198BE`
+(`LDA #$0024`) → the `$420C` enablers. Next: fix the per-line band boundaries
+against the captured trace.
+
+### New bugs isolated
+
+#### 14. D-pad input "hangs" — no fine nudges
+`play.nim`'s diagonal-stabilizing latch holds each direction **10 frames**
+(`latchFrames=10`) after release — a band-aid for a cheap SNES-clone pad that
+fakes a joystick d-pad. On decent hardware it stretches every tap, so fine nudges
+are impossible and a stale direction fires right before an A-press (cursor jumps).
+**Fix: remove the latch outright** (per monofuel: don't hack around bad hardware),
+plus the axis-as-d-pad fallback. Immediate workaround: `LATCH=0 make play`.
+
+#### 15. In-game lag at a steady 60fps + audio skips + music timing
+The player shows a solid 60fps yet the *game* lags with only a few sprites (real
+EB lags only with many). Cause: the loop runs a **fixed instruction budget**
+(`InstrPerLine=30` → 7,860 instr/frame) instead of the SNES's fixed *cycle* budget
+(~59,659 CPU cyc/frame FastROM). Instructions cost variable cycles, so a fixed
+count under-serves the CPU and EB's main loop can't finish → lag far earlier than
+hardware. Compounding: the loop has **no real-time frame limiter** (speed rides
+vsync), so the 32 kHz audio stream under/overruns → **skips** + music desync. Fix:
+**fixed 60 Hz timestep** + **raise the instruction budget** (cycle-accuracy is out
+of scope per goal.md; tune the budget empirically — `cpu.nim` has no cycle model).
+
+#### 16. Some SFX play wrong (e.g. "enemy defeated")
+The live DSP is first-pass (`dsp.nim`): **no echo/FIR, no noise generator, linear
+(not Gaussian) interpolation** — all flagged non-optional in `audio.md`. SFX that
+lean on echo or the noise channel come out "recognizable but wrong." A documented
+deferral, not a regression. Fix: finish the DSP (echo + noise + Gaussian interp).
+
+### Also
+- **Green line at the top** when the Giygas animation finishes — new top-scanline
+  artifact, likely #11-family (lines 0-3 render before vblank setup). Trace saved.
+- Held-and-ready `play.nim` fixes: remove the latch (#14); add 60 Hz pacing + bump
+  the instruction budget (#15). Held during the sprite fork; ready to apply.
+
 ## Playtest findings (2026-07-04, gameplay session)
 
 **Audio (all #4 — the snapshot-replay APU is inadequate):** wildly
