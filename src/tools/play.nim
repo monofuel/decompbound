@@ -185,6 +185,13 @@ Controls:
   var fpsAccum = 0
   var fpsClock = getMonoTime()
   var fpsShown = 0.0
+  # Real-time 60 Hz pacing: run emulated frames off a wall-clock accumulator so
+  # the emulator holds ~60 fps (times the speed multiplier) regardless of vsync /
+  # monitor refresh. This stops the 32kHz audio stream from under/overrunning
+  # (the hitching) and keeps game speed steady run-to-run.
+  const TargetFrameNs = 1_000_000_000 div 60
+  var frameAcc: int64 = 0
+  var lastFrameTime = getMonoTime()
   # Auto-capture: every 5s dump the frame + PPU state to bin/autoshots/
   # (gitignored) so scenes can be reviewed/diagnosed after the fact. OFF by
   # default (the periodic PNG write costs one frame ~every 5s = a small
@@ -435,10 +442,22 @@ void main() {
     # Emulation advance. Render each visible scanline right after its HDMA
     # updates so per-line color-math effects (the Giygas red static) appear.
     if not paused or frameAdvance:
-      let ticks = if frameAdvance: 1 else: framesPerTick
+      let ticks =
+        if frameAdvance: 1
+        else:
+          let nowT = getMonoTime()
+          frameAcc += (nowT - lastFrameTime).inNanoseconds
+          lastFrameTime = nowT
+          # One emulated frame per TargetFrameNs of real time (divided by the
+          # speed multiplier for fast-forward). Cap catch-up so a stall can't
+          # trigger a runaway burst.
+          let dueNs = max(1'i64, TargetFrameNs div framesPerTick)
+          var n = 0
+          while frameAcc >= dueNs and n < 4:
+            frameAcc -= dueNs
+            inc n
+          n
       for t in 0 ..< ticks:
-        if (snes.nmitimen and 0x80) != 0:
-          cpu.nmiPending = true
         # Instructions per scanline. The SNES gives the CPU a fixed CYCLE budget
         # (~227 CPU cycles/scanline on FastROM); we approximate with a fixed
         # instruction count (goal.md: no cycle accuracy). 30 starved EB's main
@@ -463,6 +482,11 @@ void main() {
         var smp = 0
         var l = 0
         while l < 262:
+          # NMI fires at vblank start (line 224), AFTER the visible scanlines are
+          # drawn — so the game's vblank handler updates scroll/CGRAM/HDMA for the
+          # NEXT frame, not mid-render (which flickered the top lines + the iris).
+          if l == 224 and (snes.nmitimen and 0x80) != 0:
+            cpu.nmiPending = true
           for i in 0 ..< InstrPerLine:
             cpu.step(snes.bus)
             if cpu.stopped:
@@ -560,6 +584,10 @@ void main() {
         if frameAdvance:
           frameAdvance = false
           break
+    else:
+      # Paused: keep the pacing clock current so unpausing doesn't burst-catch-up.
+      lastFrameTime = getMonoTime()
+      frameAcc = 0
 
     # Display the frame built during emulation.
     let image = frameImage
