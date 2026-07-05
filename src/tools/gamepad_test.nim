@@ -58,7 +58,7 @@ echo ""
 # frames after it's last seen, to bridge a flickery clone d-pad. Tune with the
 # LATCH env var, e.g. `LATCH=8 make gamepad-test`, then set the winning value in
 # play.nim. SMOOTH shows the latched result you'd actually get in-game.
-let latchFrames = (if getEnv("LATCH").len > 0: parseInt(getEnv("LATCH")) else: 4)
+let latchFrames = (if getEnv("LATCH").len > 0: parseInt(getEnv("LATCH")) else: 10)
 echo "d-pad latch = ", latchFrames, " frames  (set LATCH=N to tune; SMOOTH = in-game result)"
 echo ""
 

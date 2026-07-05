@@ -183,7 +183,7 @@ Controls:
   # Frames to hold a d-pad direction after last press (bridges flickery clone
   # d-pads so diagonals stay diagonal). Tune with LATCH=N; find the value in
   # `make gamepad-test` first.
-  let latchFrames = (if getEnv("LATCH").len > 0: parseInt(getEnv("LATCH")) else: 4)
+  let latchFrames = (if getEnv("LATCH").len > 0: parseInt(getEnv("LATCH")) else: 10)
   var paused = false
   var frameAdvance = false
   var framesPerTick = 1
