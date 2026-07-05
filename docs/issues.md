@@ -200,15 +200,33 @@ Likely a core-emulator problem hit by the menu's input/selection code path
 
 ---
 
-## 6. EarthBound logo fade-out glitch ("B" vanishes early)
+## 6. EarthBound logo -> menu fade transition is broken
 
-**Status:** OPEN — new (2026-07-04).
+**Status:** OPEN — new (2026-07-04), detail added.
 
-When starting the game, the EarthBound logo fade-out looks wrong: the letter
-"B" seems to vanish immediately and the transition reads as odd. Likely a
-fade/color-math or per-object animation timing detail in how the logo dissolves
-(the logo letters may fade via palette/color-math steps or per-tile updates we
-don't reproduce at the right rate).
+**Reference (real playthrough):** the EarthBound logo fades out ENTIRELY, then
+the file-select **blue checkerboard fades IN**. A smooth cross-fade.
+
+**Ours (`make play`):**
+1. The menu does **not** fade out/in — the checkerboard just appears (no fade).
+2. The logo's **"B" vanishes immediately** the instant the fade-out begins,
+   while the rest of the logo is still there. Very strange / non-uniform.
+
+So we are missing the fade transition entirely AND mis-handling the logo during
+it. That the "B" alone drops instantly says the fade is NOT a uniform INIDISP
+brightness ramp (that would dim all letters together) — more likely a CGRAM
+palette fade (stepping palette entries toward black) or color-math, where the
+"B" is a distinct palette/tile group we step or clear on the wrong schedule.
+And the menu not fading in points at the same fade path not being reproduced.
+
+**Investigation leads:**
+- Frame-step the logo->menu window; dump INIDISP ($2100), CGADSUB/CGWSEL, and
+  the logo palette entries each frame — is brightness ramping, or is CGRAM
+  stepping toward black? Which palette does the "B" use vs the other letters?
+- If it's CGRAM/color-math fade, confirm our renderer applies it per-frame at
+  the sampled cadence (we may be skipping the intermediate fade frames).
+
+Under investigation by grok (analysis-only) + a render check on the Claude side.
 
 **Investigation leads:**
 - Frame-sweep the logo fade window and watch the per-step palette/CGRAM and
