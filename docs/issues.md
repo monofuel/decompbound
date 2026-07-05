@@ -367,7 +367,23 @@ COLDATA reset or a CGADSUB-disable write we mis-handle).
 
 ---
 
-## Notes on the shared theme
+## 13. Intermittent black screen on load/boot (transient)
+
+**Status:** OPEN — new (2026-07-05), low priority (a reload always fixes it).
+
+Occasionally, restarting `make play` and hitting Continue lands on a black
+screen instead of the saved location. Quitting and reloading fixes it every
+time — it's intermittent, not a corrupted save (the .srm verified intact each
+time). Likely a **boot-timing race**: the live APU (real SPC700 + IPL) handshake
+occasionally doesn't complete on a given cold boot, so the game hangs on a blank
+setup screen. The per-scanline APU tick rate + our fixed-cadence NMI make boot
+timing slightly non-deterministic run to run.
+
+**Leads:** run the boot loop N times headless and check how often the game
+fails to reach a rendered frame; if it's the APU handshake, give the APU a few
+extra ticks during early boot, or detect the wait-loop and pump the APU harder.
+
+**Scope:** core-emulator boot timing / APU handshake (claude-code).
 
 The original guess that #1 and #2 shared a "per-frame budget too low" root
 cause was **tested and disproven** — raising the budget changed neither the
