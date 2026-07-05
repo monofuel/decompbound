@@ -7,17 +7,46 @@ these are fidelity gaps, not "it's black" bugs.
 
 Filed: 2026-07-04
 
+## 🎉 MILESTONE (2026-07-04): the game is PLAYABLE
+
+`make play` now reaches and runs actual gameplay. Confirmed in a live session:
+naming screen, start a new game, Ness's room, talk to Mom, change into day
+clothes + sports cap, open the menu, equip the Cracked Bat, walk outside. The
+math-unit fix (#5) was the keystone. What remains are polish gaps, below.
+
 **Status summary (2026-07-04):**
 - #1 red static — OPEN, diagnosis corrected (wrong animation *segment*).
-- #2 overworld intro — **MOSTLY FIXED** by the math unit (characters walk,
-  scenes change); missing the iris/shutter (window masking) + audio.
-- #3 menu box — **FIXED**: BG3 priority (border/cursor) + the hardware math
-  unit (contents). Menu now renders "1/2/3: Start New Game" fully.
-- #4 audio — **PARTIAL**: **SFX work** in `make play`; **BGM (music) is
-  silent** — the snapshot-replay APU can't hold music state. Needs a live APU.
-- #5 game freezes on menu input — **FIXED**: hardware multiply/divide unit.
-- #6 EarthBound logo fade-out glitch ("B" vanishes early) — OPEN, new.
-- #7 gamepad A/B swapped — **FIXED**: map paddy buttons by physical position.
+- #2 overworld intro — **MOSTLY FIXED** by the math unit; missing the iris
+  (window masking) + audio.
+- #3 menu — **FIXED** (BG3 priority + math unit).
+- #4 audio — **PARTIAL/BROKEN**: inconsistent across scenes; needs a live APU
+  (see below — the dominant remaining issue).
+- #5 freeze on input — **FIXED** (math unit).
+- #6 logo "B" fade — **FIXED**: sprites now honor INIDISP brightness.
+- #7 gamepad A/B swap — **FIXED** (positional mapping).
+- #8 input polish — L/R **FIXED**; B/X swap, touchy diagonals, rapid-tap — open.
+- #9 sprite/UI render order (per-pixel BG/OBJ priority) — OPEN, new.
+
+## Playtest findings (2026-07-04, gameplay session)
+
+**Audio (all #4 — the snapshot-replay APU is inadequate):** wildly
+inconsistent scene to scene. name-menu Onett music plays but on a short
+repeating loop; the "wow wow" name-confirm jingle doesn't play; Onett intro
+music doesn't play; asteroid-crash music sometimes plays / sometimes doesn't;
+police-siren music doesn't play; stepping outside the house the asteroid music
+plays but with the WRONG sound effects. Animations always work. → BGM/SFX
+correctness needs the **live two-way APU** rework; this is now the top item.
+
+**Input (#8):** L and R now mapped (were entirely missing). Still open: B and X
+feel swapped (likely a clone-controller-specific evdev mapping — need a
+`--verbose` capture of what each face button reports); diagonals (up-left,
+down-right) are very touchy / hard to hold; rapid d-pad taps don't all register
+(likely emulated-frame cadence slower than real-time, so quick taps merge).
+
+**Rendering (#9):** sprites and UI sometimes draw in the wrong order (a sprite
+in front of UI that should be behind it, etc.). This is per-pixel BG/OBJ
+priority, which our renderer only approximates. Real fix: honor per-tile BG
+priority and OBJ priority-vs-BG in the compositor.
 
 ---
 
