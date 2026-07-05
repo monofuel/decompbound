@@ -34,8 +34,18 @@ inconsistent scene to scene. name-menu Onett music plays but on a short
 repeating loop; the "wow wow" name-confirm jingle doesn't play; Onett intro
 music doesn't play; asteroid-crash music sometimes plays / sometimes doesn't;
 police-siren music doesn't play; stepping outside the house the asteroid music
-plays but with the WRONG sound effects. Animations always work. → BGM/SFX
-correctness needs the **live two-way APU** rework; this is now the top item.
+plays but with the WRONG sound effects. Talking to Mom, music kicks in but with
+an "offset" — the **correct melody/sequence plays against the WRONG instrument
+samples** (sounded like the intro melody with Tenda-tribe tones). Animations
+always work. → This is a **coherence** failure: the SPC sequence and the BRR
+sample directory / instrument table come from mismatched upload states in the
+snapshot-replay image, so notes play with the wrong instruments. The real fix
+is the **live two-way APU** (run the SPC700 continuously in the bus with real
+$2140-$2143 I/O + the real IPL boot ROM), so sequence + samples stay coherent
+exactly as on hardware. This is now the top remaining item — but it is
+BOOT-CRITICAL (it replaces the HLE handshake that currently lets the game boot
+into the now-working gameplay), so it must be done carefully with a fallback so
+the playable boot is not regressed.
 
 **Input (#8):** L and R now mapped (were entirely missing). Still open: B and X
 feel swapped (likely a clone-controller-specific evdev mapping — need a
