@@ -96,6 +96,28 @@ sample directories, and instrument tables are laid out and packed before upload.
 This track and the player track meet in the middle: the player proves we can
 *produce* the audio; the data track proves we can *read* how EB describes it.
 
+### Findings (verified against the ROM)
+
+- **APU upload routine: SNES `$C0AB06`** (file `0x00AB06`) — the IPL handshake +
+  block streamer. Sets up a 24-bit far pointer in `$C6/$C8` to the package stream
+  and drives the `$2140-$2143` port protocol (addr → `$2142/3`, flag → `$2141`,
+  counter+data → `$2140`), wait loop at `$C0AB90`. Matches the HLE the emulator
+  already models in `snesbus.nim`.
+- **Music is streamed as data "packages"**, not a fixed driver blob + songs: a
+  song's driver + sequence + instrument set upload together via `$C0AB06`.
+- **Song loader/selector: `$C4FBBD`** (file `0x04FBBD`), called with a song ID.
+- **Song table (song ID → 3 pack indices): file `0x04F70A`** — 3 bytes/song,
+  indexed `(id-1)*3`.
+- **Pack table (pack index → far ptr): file `0x04F947`** — 3 bytes/pack
+  `[bank, addrL, addrH]`.
+- **SFX vs music:** a music change is a full package re-upload; SFX are
+  fire-and-forget port pokes to the resident driver (helpers `$C0AC01`, `$C0AC0C`,
+  `$C0ABE0`, `$C0ABBD`); `$FF` to a port reboots to the IPL between tracks.
+- **Frontier:** the BRR sample directory lives *inside* an uploaded package (not a
+  standalone ROM table), and the exact 3-slot assignment (sequence vs samples) +
+  the SFX command encoding are driver-internal — best pinned by correlating live
+  APU RAM after an upload (the emulator-as-instrument approach).
+
 ## Easy slappy example tools
 
 [slappy](https://github.com/treeform/slappy) (local checkout: `../slappy`) is

@@ -87,6 +87,11 @@ graphics track. Round-trip DoD: decode a map region → re-encode → byte-exact
 `map_explore.nim` renders the whole overworld as one big browsable image (its
 stated TODO), with a keybind to overlay impassable tiles.
 
+**Located (verified byte-exact):** a **tilemap pointer table** at file `0x100000`
+(4-byte entries → bank `$CF`), **tilemap data** at file `0x101800` (2-byte
+tile+attr words, standard SNES BG format), and **tileset graphics** at file
+`0x3E408` (loaded via `JSL $C3E4CA` etc.). Sector table + door/warp table: next dig.
+
 ### 📊 Game data (track, not yet its own doc)
 
 The flat tables that define the RPG: enemy stats + battle groups, item
@@ -95,6 +100,11 @@ definitions, PSI, character stat growth and the **EXP-to-next-level** tables
 shops, prices. Mostly fixed-width records — the most tractable data to map with
 the `--find` value-locator approach (`sram_info.nim`), just against ROM instead
 of SRAM. Round-trip DoD: decode a table → re-encode → byte-exact.
+
+**Located (verified byte-exact):** the **EXP-per-level table** at file `0x158F51`
+(SNES `$D58F51`), 4-byte LE u32, four per-character tables `0x190` apart
+(Ness/Paula/Jeff/Poo). Answers "EXP to next level" = `table[level] − current EXP`.
+Enemy / item / PSI tables: next dig.
 
 ## Relationship to the numbered goals
 

@@ -61,6 +61,33 @@ common ones — the same honesty the 65816 assembler gave the code.
    listing; the browsable payoff.
 5. **Round-trip assembler** — re-encode the listing to byte-exact ROM data.
 
+## Findings so far (verified byte-exact against the ROM)
+
+Two grok digs, both spot-verified:
+
+**Text encoding — DONE.** Printable characters are `byte - 0x30` (ASCII + 0x30).
+Confirmed by decoding two independent blocks to clean English (file `0x63040` →
+"INPUT YOUR COMMAND.", `0x45B67` → "PSI info.Unconscious"). Line break = `0x00`.
+
+**Control-code / event dispatch — located.** The interpreter's opcode dispatch is
+at SNES **`$C179AA`** (file `0x179AA`: a `REP #$31` + `TXA` + CMP-chain switch).
+The high control codes **0x1B–0x28** form a chain of `CMP #$00xx / BNE / JMP
+handler` at file **`0x17A05`+** (e.g. `0x17A0D` = `C9 1C 00 D0 03 4C D9 7A`,
+verified). A second sub-dispatch handles low values 0x00–0x0B at file `0x17B56`.
+Common exit: `PLD; RTS` at `0x17B55`.
+
+**Operand model.** The interpreter walks a byte stream via a far pointer held in a
+struct (indexed by Y / dp), reading operands then advancing by the opcode's width
+and writing the pointer back (e.g. op `0x02` advances +4: `ADC #$0004` near
+`0x17C9D`).
+
+**The frontier (needs the dynamic hook).** The per-opcode *semantics* — which byte
+is give-item vs set-flag vs start-battle vs teleport — are delegated to the
+returned handlers, invisible in the dispatch alone. Pinning them down wants the
+live interpreter hook (`docs/text-log.md`): watch real script bytes decode as the
+game runs. The dispatch + encoding + operand mechanics are the solid foundation;
+the opcode meanings are the next dig.
+
 ## What goes in git (and what never does)
 
 The **extractor, the character/opcode tables, and the format docs are code —
