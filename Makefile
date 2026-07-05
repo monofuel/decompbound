@@ -65,6 +65,8 @@ frames: nim.cfg
 	@echo "wrote bin/frame_10000.png (attract-mode world exploration with credits)"
 
 play: nim.cfg
+	@mkdir -p bin
+	@printf '%s  commit %s%s  ROM=%s\n' "$$(date '+%Y-%m-%d %H:%M:%S')" "$$(git rev-parse --short HEAD 2>/dev/null || echo unknown)" "$$(git diff --quiet HEAD 2>/dev/null || echo ' +dirty')" "$(ROM)" | tee -a bin/play_sessions.log
 	nim r -d:release src/tools/play.nim "$(ROM)"
 	@echo "player exited"
 
