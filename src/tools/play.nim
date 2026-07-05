@@ -336,7 +336,13 @@ void main() {
     # This is an Earthbound-specific emulator (only player 1 matters), so every
     # connected gamepad (including multiple SNES clones + random USB controllers)
     # contributes to the same joy1 (ORed with keyboard).
-    let pads = pollGamepads()
+    # Polling can throw if a controller is unplugged/hotplugged mid-read — catch
+    # it so yanking a gamepad never crashes the game (just drops its input).
+    var pads: seq[Gamepad] = @[]
+    try:
+      pads = pollGamepads()
+    except CatchableError:
+      pads = @[]
     for gp in pads:
       if gp.button(GamepadUp): joy1 = joy1 or BtnUp
       if gp.button(GamepadDown): joy1 = joy1 or BtnDown
