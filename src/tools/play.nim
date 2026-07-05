@@ -5,7 +5,7 @@
 ## Usage: nim r src/tools/play.nim [--verbose|-v] <rom>
 
 import
-  std/[os, strformat],
+  std/[os, strformat, monotimes, times],
   pixie,
   opengl,
   windy,
@@ -147,6 +147,10 @@ Controls:
   var paused = false
   var frameAdvance = false
   var framesPerTick = 1
+  # Live FPS measurement for the title bar (diagnoses perceived slowness).
+  var fpsAccum = 0
+  var fpsClock = getMonoTime()
+  var fpsShown = 0.0
   var lastJoy1: uint16 = 0
 
   # Audio is driven by the live APU in the bus (snes.tickApu) — no per-frame
@@ -431,8 +435,14 @@ void main() {
 
     window.swapBuffers()
 
+    inc fpsAccum
+    let fpsElapsed = (getMonoTime() - fpsClock).inMilliseconds
+    if fpsElapsed >= 500:
+      fpsShown = fpsAccum.float * 1000.0 / fpsElapsed.float
+      fpsAccum = 0
+      fpsClock = getMonoTime()
     let pausedStr = if paused: " (paused)" else: ""
-    let newTitle = &"decompbound player - frame {frameCount}{pausedStr} x{framesPerTick}"
+    let newTitle = &"decompbound player - {fpsShown:.0f} fps - frame {frameCount}{pausedStr} x{framesPerTick}"
     if window.title != newTitle:
       window.title = newTitle
 
