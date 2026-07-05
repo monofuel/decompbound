@@ -205,6 +205,8 @@ Controls:
   var traceScanlines = false
   var traceTM: array[262, uint8]
   var traceTS: array[262, uint8]
+  var traceCG: array[262, uint8]   # CGADSUB (color math) per scanline
+  var traceCW: array[262, uint8]   # CGWSEL per scanline
   var lastJoy1: uint16 = 0
 
   # Audio is driven by the live APU in the bus (snes.tickApu) — no per-frame
@@ -463,6 +465,8 @@ void main() {
             if traceScanlines:
               traceTM[l] = snes.ppuRegs[0x2C]
               traceTS[l] = snes.ppuRegs[0x2D]
+              traceCG[l] = snes.ppuRegs[0x31]
+              traceCW[l] = snes.ppuRegs[0x30]
             if (snes.ppuRegs[0x00] and 0x80) == 0:
               ppu.renderScanline(snes, frameImage, l)
           for k in 0 ..< 2:
@@ -497,8 +501,10 @@ void main() {
             &"CGADSUB={snes.ppuRegs[0x31]:02X} CGWSEL={snes.ppuRegs[0x30]:02X} HDMAEN={snes.hdmaen:02X}")
           var bstart = 0
           for l2 in 1 .. 224:
-            if l2 == 224 or traceTM[l2] != traceTM[bstart] or traceTS[l2] != traceTS[bstart]:
-              tf.writeLine(&"  lines {bstart:>3}..{l2-1:>3}  TM={traceTM[bstart]:02X}  TS={traceTS[bstart]:02X}")
+            if l2 == 224 or traceTM[l2] != traceTM[bstart] or traceTS[l2] != traceTS[bstart] or
+               traceCG[l2] != traceCG[bstart] or traceCW[l2] != traceCW[bstart]:
+              tf.writeLine(&"  lines {bstart:>3}..{l2-1:>3}  TM={traceTM[bstart]:02X} TS={traceTS[bstart]:02X} " &
+                &"CGADSUB={traceCG[bstart]:02X} CGWSEL={traceCW[bstart]:02X}")
               bstart = l2
           tf.close()
           traceScanlines = false
