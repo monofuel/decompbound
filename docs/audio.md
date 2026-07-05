@@ -70,6 +70,32 @@ reference implementation to check behavior against).
   music engine (how EB uploads songs to the APU) becomes a natural
   decompilation target with a working test bed.
 
+## ROM-side: the music DATA format (the decomp track)
+
+Everything above is the **player** (SPC700 + DSP — how audio is *produced*).
+The complementary **decompilation track** is how the music is *stored in the
+ROM*: the data half of `docs/decompilation.md`.
+
+The APU is a blank computer at power-on; the game uploads **all** of it — the
+music driver, the **song sequences**, the **instrument set** (a directory of
+BRR samples), and **SFX**. So the ROM-side format is: how those sequences,
+sample directories, and instrument tables are laid out and packed before upload.
+
+- **The instrument:** hook the **APU upload path** (the `$2140-$2143` handshake
+  we already emulate) and capture exactly what the game sends for a given scene
+  — the driver, then each song's sequence + sample set. Correlate the uploaded
+  bytes back to their ROM source to map the format.
+- **Round-trip DoD** (per the hub): decode a song sequence / instrument table →
+  re-encode → **byte-exact** against the gold ROM.
+- **The browser:** `sound_explore.nim` (silky stub) + the **music jukebox**
+  (`docs/apps.md`) — once we know which song ID selects which sequence + sample
+  set, the jukebox plays any track coherently. This directly resolves issue #4's
+  audio-coherence problem (sequence + samples must come from a *matched* upload
+  state), which is really a symptom of not yet understanding this format.
+
+This track and the player track meet in the middle: the player proves we can
+*produce* the audio; the data track proves we can *read* how EB describes it.
+
 ## Easy slappy example tools
 
 [slappy](https://github.com/treeform/slappy) (local checkout: `../slappy`) is

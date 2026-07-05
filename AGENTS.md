@@ -6,44 +6,61 @@
 ## Copyright hygiene — keep the repo asset-free
 
 This is a decompilation project. Like `n64decomp/sm64` and the OoT decomp, the
-repo must contain **NO copyrighted material from the game**. Reverse-engineered
-*code* is our own new expression and is fine; the game's *assets and data* are
-not. When in doubt, do not commit it.
+repo must contain **NO copyrighted content from the game** — only our own
+reverse-engineered code, tools, and docs. The user supplies their own legally
+dumped ROM; everything copyrighted is extracted from it at build/run time and
+never committed. When in doubt, do not commit it.
 
-- **NEVER commit these** (they are the copyrighted work, in whole or in part):
-  - **ROM images** — `*.smc` / `*.sfc`, the EarthBound ROM or any slice of it.
-  - **Assets extracted from the ROM** — graphics/tiles/palettes, audio (BRR
-    samples, music sequences), text/script, maps. These live in the user's own
-    ROM and are read at build/run time, never checked in.
-  - **Memory or state dumps that embed assets** — APU RAM images, VRAM/CGRAM/OAM
-    dumps, savestates, captured audio (`*.wav`), and screenshots / frame
-    captures (`*.png`) that show game graphics. A memory dump is a partial copy
-    of the ROM — treat it exactly like a ROM slice. This is the easy one to slip
-    up on: our own tools generate these constantly.
+**The line: the code is ours, the data is theirs.**
 
-- **Fine to commit** (our own new expression / functional reproduction):
+- **Committable — our own new expression / functional reproduction:**
   - Reverse-engineered **Nim source** and tooling.
-  - **Code regions expressed as 65816 mnemonics** through our assembler.
-    Byte-matching disassembly is new expression, exactly as the SM64/OoT decomps
-    treat it. But **data regions must be declared as data**, never checked in
-    with real asset bytes — declare the shape/offset, not the copyrighted
-    contents.
-  - Tests using checksums, disassembly diffs, or small non-infringing inputs —
-    never shipped dumps.
+  - **Annotated 65816 disassembly** — code expressed as mnemonics through our
+    assembler, with our labels, comments, and cross-references. Byte-matching
+    disassembly of *code* is transformative new expression (same basis as
+    SM64/OoT), and the annotation is the added authorship. This is the whole
+    point of the project — it is fine, and it is safe to commit.
+  - **Interpreters / engines** — the code that *reads* scripts, graphics, and
+    audio is code. Reverse the engine; commit it. (Then extract the data — see
+    below.)
+  - **Format documentation + codecs** — how the data is laid out, and the
+    encode/decode logic. The *description* of a format is ours; the *contents*
+    are not.
+  - Tests using checksums, disasm diffs, or tiny synthetic inputs.
 
-- **The ROM is user-supplied**, always. Every tool reads the user's own legally
-  dumped ROM from a local path (the `ROM` var in the Makefile); it is never
-  bundled. Users must own the original.
+- **NEVER commit — the copyrighted work, in whole or in part:**
+  - **ROM images** — `*.smc` / `*.sfc`, or any slice of the ROM.
+  - **Game scripts** — dialogue text (a literary work) *and* the event/script
+    data (cutscene logic, flags, sequences — creative expression). Reversing the
+    script **interpreter** is fine; the **extracted script content is a
+    copyrighted asset**, exactly like graphics or music. No dialogue dumps, no
+    event blobs, ever — "see the scripts" means *run the extractor on your ROM*,
+    not *open a file in the repo*.
+  - **Other extracted assets** — graphics/tiles/palettes, audio (BRR samples,
+    song sequences), maps, and any data-region bytes. Declare a data region's
+    shape/offset in source; never check in the real asset bytes.
+  - **Memory / state dumps that embed assets** — APU RAM images, VRAM/CGRAM/OAM
+    dumps, savestates, captured `*.wav`, screenshots/`*.png` of game graphics. A
+    dump is a partial copy of the ROM — treat it like a ROM slice. Our own tools
+    generate these constantly; this is the easy slip.
 
-- **Before every commit, confirm nothing slipped in** — run `git status` and
-  check for ROMs, assets, dumps, `*.wav`, `*.png`, or savestates. All generated
-  captures must land under `bin/` (git-ignored) or otherwise be gitignored; if
-  you add a tool that writes a capture, make sure its output path is ignored
-  before you run it.
+- **The build-time extraction pattern** (how real decomps stay clean): the repo
+  ships the *extractor/codec*; the **user's own ROM** is the source of the bytes;
+  extraction runs at build/run time and its output lands in a **git-ignored**
+  path (`bin/` or `extracted/`), never committed. A `make` step turns the user's
+  baserom into assets/scripts locally; the repo stays asset-free.
 
-- Full reasoning + legal precedents (Sega v. Accolade, Sony v. Connectix, § 117)
-  live in `docs/copyright-notes.md`. We are not lawyers — this is the practical
-  policy that keeps us in the "tolerated clean decomp" lane.
+- **The ROM is always user-supplied** (the `ROM` var in the Makefile); it is
+  never bundled. Users must own the original.
+
+- **Before every commit, confirm nothing slipped in** — `git status` for ROMs,
+  extracted scripts/assets, dumps, `*.wav`, `*.png`, savestates. If you add a
+  tool that writes extracted data, point its output at a git-ignored path first.
+
+- Full reasoning + precedents (Sega v. Accolade, Sony v. Connectix, § 117, plus
+  the asm-disassembly and script-extraction specifics) live in
+  `docs/copyright-notes.md`. We are not lawyers — this is the practical policy
+  that keeps us in the "tolerated clean decomp" lane.
 
 - we should avoid magic bytes as much as possible and instead figure out what they are representing properly.
   - but it's ok to hard code some magic bytes to get the ball rolling.

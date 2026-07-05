@@ -38,6 +38,54 @@ Decompilation/reverse engineering itself is **not** automatically piracy. Key pr
 
 **Bottom line**: Hosting/distributing a clean decomp source repo (no assets, requires user ROM) is widely viewed as legal under fair use + RE precedents and has been tolerated. Using your own dumped ROM to build/test privately is fine. Anything that lets someone play without owning the original crosses into piracy.
 
+### 2a. ASM disassembly specifically (our case)
+
+We disassemble to annotated 65816 assembly, not high-level C. That is "closer to
+the metal" than an SM64-style C decomp and *feels* more literal — the original
+was written in asm, and a raw disassembly is a near-mechanical opcode→mnemonic
+translation a court could view as derivative more readily than a C reimpl.
+
+In practice it is widely done and tolerated, on the same legal basis:
+- Sega v. Accolade / Sony v. Connectix (disassembly as intermediate copying to
+  reach functional elements) still applies.
+- **Annotation is the added authorship**: meaningful labels, comments,
+  cross-references, macros, and separated data tables are new expressive content
+  → transformative, not a slavish copy.
+- Real precedent: many fully-commented NES/SNES disassemblies (Super Metroid,
+  Final Fantasy VI, A Link to the Past, Yoshi's Island, EarthBound, etc.) have
+  lived openly on GitHub / romhacking.net for years. Tools (DiztinGUIsh,
+  snes2asm) output reassemblable projects with asset-extraction pipelines.
+
+Risk: microscopically higher than a C decomp, still low for a non-commercial,
+asset-free repo. Strikes happen when someone ships prebuilt ROMs or assets, not
+over annotated source.
+
+### 2b. Scripts and script data are copyrighted assets
+
+SNES-era "scripts" are data-driven (bytecode / event tables / pointer-driven
+dialogue) that the engine interprets — not embedded Lua/C. That data is **fully
+copyrighted**:
+- Dialogue text = a literary work.
+- Event sequences, flags, cutscene logic = creative expression (part of the
+  audiovisual work / program).
+- Even number tables can be protected when their selection/arrangement is creative.
+
+Verbatim extracted scripts = infringement, exactly like shipping graphics or music.
+
+**Safe pattern (the standard one):**
+1. **Reverse the interpreter/engine** (the asm/Nim that reads + runs scripts) —
+   this is code, and it's fine to commit.
+2. **Treat script *data* like any asset**: ship extraction/conversion tools that
+   turn the user's baserom blobs into readable formats (text dumps, JSON/CSV,
+   `.inc` / structured arrays), run at build time from the user's own ROM.
+3. **Never ship the creative content** — no full dialogue dumps, no complete
+   event blobs. For tests, use tiny synthetic examples or require the user to run
+   the extractor against their own ROM.
+
+This is exactly how large NES/SNES decomp/romhack efforts handle text, maps,
+animations, and event scripting. Applies to *this* project's scripts track
+(`docs/scripts.md`): commit the extractor, never the extracted scripts.
+
 ### 3. Save state dumps (savestates)
 - **Regular save files** (in-game SRAM/EEPROM saves): Generally **not** considered infringing when distributed. They are mostly player-generated data (progress, names, etc.), not creative expression owned by the developer. Sites have hosted them for decades with little issue.
   - Exception: If they unlock DLC, contain ripped assets, or are marketed as "infinite money" cheats that substitute for paid content → riskier (Microsoft argued saves are copyrighted "map data" in *Datel v. Microsoft*, but it settled).

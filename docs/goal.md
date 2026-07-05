@@ -141,6 +141,24 @@ standalone SPC player with zero SNES emulation — no need to wait for the
 emulator. Shares no code with Goal 1, so it runs in parallel without blocking
 it. Full plan, components, and verification rules: `docs/audio.md`.
 
+## The data: decompiling the other 90% of the ROM
+
+Goal 1 conquered the boot-path **code**, but most of the 3MB ROM is **data** —
+text and event scripts, graphics, music, maps, and game tables. Reverse-
+engineering these formats is the bulk of "decompile EarthBound," and it is not
+optional the way the companion apps are — it is the core mission the emulator
+work has been quietly enabling.
+
+Tracked as parallel data-RE tracks unified by the same honesty rule as Goal 1:
+**`encode(decode(bytes)) == bytes`**, per asset, against the gold ROM. The
+emulator (Goal 2) is the *instrument* that makes it tractable — it watches the
+game decode its own data (VRAM DMA → graphics, APU uploads → music, the
+text/event interpreters → scripts), so static disassembly stops guessing.
+
+Full hub + tracks (graphics, audio data, scripts/events, maps, game tables):
+**`docs/decompilation.md`**. This is a prerequisite for Goal 3 — you cannot
+reimplement a game whose data you cannot read.
+
 ## Goal 3 (someday): verified native reimplementation
 
 Once the emulator runs the original code, a native Nim port becomes a

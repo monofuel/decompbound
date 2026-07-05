@@ -60,9 +60,21 @@
   </a>
   <a class="doc" href="rom-format.md"><div class="t">💾 ROM format <span class="tag">md</span></div><div class="d">How the cartridge image is laid out &amp; addressed.</div></a>
   <a class="doc" href="sram-format.md"><div class="t">🗃️ SRAM save format <span class="tag">md</span></div><div class="d">Mapped save offsets (money, HP/PP, backup copy) + how to map more.</div></a>
-  <a class="doc" href="graphics.md"><div class="t">🎨 Graphics <span class="tag">md</span></div><div class="d">Tiles, palettes, layers, sprites.</div></a>
   <a class="doc" href="snes-asm.md"><div class="t">⚙️ 65816 assembly <span class="tag">md</span></div><div class="d">The instruction set as EarthBound uses it.</div></a>
-  <a class="doc" href="audio.md"><div class="t">🔊 Audio <span class="tag">md</span></div><div class="d">SPC700 + S-DSP: the sound pipeline (Goal 2a).</div></a>
+</div>
+
+<h2>Decompiling the data — the other 90%</h2>
+<div class="cards">
+  <a class="doc feat" href="decompilation.md">
+    <div class="t">🧩 Decompiling the data <span class="tag">md</span></div>
+    <div class="d">Most of the 3&nbsp;MB ROM is <b>data</b>, not code — Goal 1 conquered the machine, these
+    tracks conquer the game. Hub for the RE tracks (graphics, audio, scripts, maps, tables),
+    unified by the round-trip rule <code>encode(decode(bytes)) == bytes</code>, with the emulator
+    as the dynamic-RE instrument.</div>
+  </a>
+  <a class="doc" href="scripts.md"><div class="t">💬 Scripts &amp; events <span class="tag">md</span></div><div class="d">Dialogue text (char table + control codes) <b>and</b> the event system that drives the game — extracted into a readable dump.</div></a>
+  <a class="doc" href="graphics.md"><div class="t">🎨 Graphics format <span class="tag">md</span></div><div class="d">Tiles, palettes, sprites, battle backgrounds, font &amp; the graphics compression — round-tripped.</div></a>
+  <a class="doc" href="audio.md"><div class="t">🔊 Audio format <span class="tag">md</span></div><div class="d">The SPC player (Goal 2a) + the ROM-side music data: song sequences, BRR instruments, SFX.</div></a>
 </div>
 
 <h2>Companion apps &amp; observability</h2>

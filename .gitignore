@@ -30,6 +30,9 @@ bin/*
 /*.bmp
 # Battery saves (player data, but keep them out of the repo anyway).
 *.srm
+# Build-time extraction output from the user's ROM (scripts/graphics/audio/etc.
+# are copyrighted assets — extracted locally, never committed). Designated dir.
+extracted/
 
 # Auto-capture screenshots (play.nim F11) — contain game graphics.
 bin/autoshots/
