@@ -5,7 +5,6 @@
 
 import
   pixie,
-  std/algorithm,
   ./snesbus
 
 const
@@ -410,24 +409,11 @@ proc renderSprites*(snes: SnesBus, image: Image) =
     of 5: (32, 64)
     else: (16, 32)
 
-  # Collect visible sprites with their priority for better layering
-  type SpriteInfo = object
-    idx: int
-    prio: int
-  var sprites: seq[SpriteInfo] = @[]
-  for sprite in 0..<128:
-    let base = sprite * 4
-    let y = snes.oam[base + 1]
-    if y >= 224: continue  # rough offscreen
-    let attr = snes.oam[base + 3]
-    let prio = int((attr shr 4) and 0x03)
-    sprites.add SpriteInfo(idx: sprite, prio: prio)
-
-  # Draw higher priority first (on top)
-  sprites.sort(proc(a, b: SpriteInfo): int = cmp(b.prio, a.prio))
-
-  for si in sprites:
-    let sprite = si.idx
+  # OBJ-vs-OBJ order is OAM index only: a lower index is frontmost. (The 2-bit
+  # attribute priority does NOT order sprites against each other — it only picks
+  # the OBJ-vs-BG band, recorded in objSpritePrio for overlayForegroundBg.) Draw
+  # 127 down to 0 so sprite 0 ends up on top.
+  for sprite in countdown(127, 0):
     let base = sprite * 4
     let extra = snes.oam[512 + sprite div 4]
     let extraShift = (sprite mod 4) * 2
@@ -435,12 +421,18 @@ proc renderSprites*(snes: SnesBus, image: Image) =
     let large = ((extra shr (extraShift + 1)) and 1) != 0
     let size = if large: sizes[1] else: sizes[0]
 
+    let y = snes.oam[base + 1].int
+    # Skip sprites with no visible row: entirely in the off-screen 224-255 band
+    # and not wrapping past line 256 back to the top.
+    if y >= ScreenHeight and y + size <= 256:
+      continue
+
     var x = snes.oam[base].int or (xHigh.int shl 8)
     if x >= 256:
       x -= 512
-    let y = snes.oam[base + 1].int
     let tile = snes.oam[base + 2].int
     let attr = snes.oam[base + 3]
+    let prio = int((attr shr 4) and 0x03)
     let paletteGroup = (attr.int shr 1) and 0x07
     let table = (attr and 1).int
     let flipX = (attr and 0x40) != 0
@@ -450,8 +442,10 @@ proc renderSprites*(snes: SnesBus, image: Image) =
 
     for py in 0..<size:
       let sy = if flipY: size - 1 - py else: py
-      let screenY = y + py
-      if screenY < 0 or screenY >= ScreenHeight:
+      # Sprite Y wraps at 256: a sprite near line 256 shows its wrapped rows at
+      # the top of the screen (how sprites enter from the top edge).
+      let screenY = (y + py) and 0xFF
+      if screenY >= ScreenHeight:
         continue
       for px in 0..<size:
         let sx = if flipX: size - 1 - px else: px
@@ -471,7 +465,7 @@ proc renderSprites*(snes: SnesBus, image: Image) =
         color.g = ((color.g.int * bright) div 16).uint8
         color.b = ((color.b.int * bright) div 16).uint8
         image[screenX, screenY] = color
-        objSpritePrio[screenY][screenX] = si.prio.int8
+        objSpritePrio[screenY][screenX] = prio.int8
         anySpriteDrawn = true
 
 proc overlayForegroundBg*(snes: SnesBus, image: Image) =
