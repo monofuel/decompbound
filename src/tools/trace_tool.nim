@@ -90,6 +90,8 @@ proc main() =
       fromFrame = parseInt(arg[13 .. ^1])
     elif romPath.len == 0 and not arg.startsWith("--"):
       romPath = arg
+    elif arg == "--":
+      discard  # bare separator passed through by `nim r ... --`; ignore
     else:
       echo "Unknown arg or missing value: ", arg
       quit(1)

@@ -1,4 +1,4 @@
-.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai testrom script-dump gfx-roundtrip
+.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai testrom script-dump gfx-roundtrip trace
 
 # bash + pipefail: the test loop pipes nim through sed, and without
 # pipefail the pipeline's exit status is sed's (always 0), which turns
@@ -140,6 +140,13 @@ script-dump: nim.cfg
 # Verify the graphics compression codec round-trips byte-exact against the ROM.
 gfx-roundtrip: nim.cfg
 	nim r src/tools/gfx_roundtrip.nim "$(ROM)"
+
+# Trace emulator state changes to bin/trace.log — the decomp instrument. Pass
+# options via ARGS, e.g. make trace ARGS="--frames 240 --watch 0x0020-0x0120"
+# (add --load-srm to boot your .srm and reach a real game state).
+trace: nim.cfg
+	@mkdir -p bin
+	nim r src/tools/trace_tool.nim -- $(ARGS) "$(ROM)"
 
 test: nim.cfg
 	@files=$$(ls tests/test_*.nim 2>/dev/null); \
