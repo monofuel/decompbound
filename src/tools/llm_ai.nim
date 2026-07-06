@@ -19,6 +19,12 @@ const
   DefaultFrames = 60
   DefaultLlmInterval = 20
   DefaultPngEvery = 0
+  AzemBaseUrl = "http://10.11.2.22:1234/v1"
+    ## LM Studio on azem (local, free, always-on). Change for a cloud/other host.
+  AzemApiKey = "lm-studio"
+    ## LM Studio ignores the key; any non-empty value avoids the OPENAI_API_KEY env.
+  PolicyModel = "qwen3.6-35b-a3b@q4_k_m"
+    ## Fast MoE (~3B active) — good latency for the per-N-frame policy-rewrite loop.
 
 type
   PolicyProvider = proc(summary: string, currentLua: string): string
@@ -38,9 +44,9 @@ end
 """
 
 proc realProvider(summary: string, currentLua: string): string =
-  ## Real LLM call via openai_leap. Expects OPENAI_API_KEY in env (or set via
-  ## newOpenAiApi(apiKey=...)). Returns a policy string or falls back to current.
-  let openai = newOpenAiApi()
+  ## Real LLM call via openai_leap -> LM Studio on azem (AzemBaseUrl). Returns a
+  ## policy string, or falls back to the current one on any error.
+  let openai = newOpenAiApi(baseUrl = AzemBaseUrl, apiKey = AzemApiKey)
   const SystemPrompt = """You are an expert at writing compact Lua policies that play EarthBound using a sandboxed emulator API.
 
 The policy defines a function update() called once per emulated frame. Output ONLY valid Lua source that starts with 'function update()' and ends with 'end'. No markdown, no prose, no fences.
@@ -70,7 +76,7 @@ Produce an improved or continued 'function update() ... end' that drives visible
 
   var raw: string
   try:
-    raw = openai.createChatCompletion("gpt-4o-mini", SystemPrompt, userPrompt)
+    raw = openai.createChatCompletion(PolicyModel, SystemPrompt, userPrompt)
   except CatchableError as e:
     echo "LLM ERROR: ", e.msg
     openai.close()
