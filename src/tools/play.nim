@@ -210,6 +210,11 @@ Controls:
   var traceCW: array[262, uint8]   # CGWSEL per scanline
   # F12 / auto-anomaly full bundle: frame + PPU regs + CGRAM alongside the trace.
   var captureBundle = false
+  # True when the bundle was triggered by F12 (a deliberate manual capture) rather
+  # than an auto-anomaly. Manual captures get numbered f12_NNN_* copies so a later
+  # HDMA auto-capture can't clobber the frame you actually wanted (e.g. HP/PP menu).
+  var captureManual = false
+  var f12Count = 0
   # Prev-frame HDMAEN, to auto-capture on a 0 -> non-zero HDMA edge (a screen
   # split starting: battle swirl/bands, scene iris) with no human keypress.
   var prevHdmaen: uint8 = 0
@@ -432,6 +437,7 @@ void main() {
       # frame + PPU regs + CGRAM together (written when the trace fires). Plus an
       # immediate terminal readout for quick eyeballing.
       captureBundle = true
+      captureManual = true
       traceScanlines = true
       traceArmed = 0
       echo "F12: capturing diagnostic bundle -> bin/autoshots/ (frame + regs + scanline trace + CGRAM)"
@@ -469,13 +475,20 @@ void main() {
             inc n
           n
       for t in 0 ..< ticks:
-        # Instructions per scanline. The SNES gives the CPU a fixed CYCLE budget
-        # (~227 CPU cycles/scanline on FastROM); we approximate with a fixed
-        # instruction count (goal.md: no cycle accuracy). 30 starved EB's main
-        # loop, so its animation lagged behind the (independently-ticked) audio;
-        # ~40 matches hardware throughput so graphics keep pace. Tune if scenes
-        # run fast/slow.
-        const InstrPerLine = 40
+        # Instructions per scanline = the CPU's per-frame budget (× 262 lines). The
+        # SNES gives the CPU a fixed CYCLE budget/frame; we approximate with an
+        # instruction count (goal.md: no cycle accuracy). This budget must cover the
+        # game's HEAVIEST frames — area loads + intro-card transitions that decompress
+        # graphics. At 40 (~10.5k/frame) those heavy frames were STARVED: the scene
+        # logic spilled across many emulated frames while the APU (ticked per scanline,
+        # decoupled from CPU *work*) kept perfect real-time tempo — so audio ran AHEAD
+        # of the lagging visuals (Scaraba music over the Twoson scene; long inter-card
+        # + hotel-exit/area-load delays). ~150 (~39k/frame) meets/exceeds hardware
+        # throughput so heavy frames finish in hardware-like frame counts and the scene
+        # keeps pace with the music. Light frames self-limit (the game spin-waits its
+        # once-per-frame NMI, so it can't run logic faster), and the APU tick rate is
+        # unchanged — so gameplay pacing + audio tempo are preserved. Tune if needed.
+        const InstrPerLine = 150
         let forceBlank = (snes.ppuRegs[0x00] and 0x80) != 0
         if not forceBlank:
           let backdrop = ppu.bgr555ToColor(snes.cgram[0])
@@ -595,6 +608,19 @@ void main() {
             captureBundle = false
             echo "wrote diagnostic bundle -> bin/autoshots/ " &
               "(scanline_trace.txt + bundle_frame.png + bundle_regs.txt)"
+            if captureManual:
+              # F12 (manual) captures get numbered copies the HDMA auto-capture
+              # can't overwrite — so a deliberate F12 (e.g. on the battle HP/PP
+              # menu) survives even if a later HDMA edge fires an auto-capture.
+              copyFile("bin/autoshots/bundle_frame.png",
+                &"bin/autoshots/f12_{f12Count:03}_frame.png")
+              copyFile("bin/autoshots/bundle_regs.txt",
+                &"bin/autoshots/f12_{f12Count:03}_regs.txt")
+              copyFile("bin/autoshots/scanline_trace.txt",
+                &"bin/autoshots/f12_{f12Count:03}_trace.txt")
+              echo &"  F12 bundle preserved -> bin/autoshots/f12_{f12Count:03}_*"
+              inc f12Count
+              captureManual = false
           else:
             echo "wrote bin/autoshots/scanline_trace.txt"
         frameCount += 1
