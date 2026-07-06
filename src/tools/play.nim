@@ -5,13 +5,13 @@
 ## Usage: nim r src/tools/play.nim [--verbose|-v] <rom>
 
 import
-  std/[os, strformat, strutils, monotimes, times, algorithm, osproc],
+  std/[os, strformat, strutils, monotimes, times, algorithm, osproc, options],
   pixie,
   opengl,
   windy,
   paddy,
   slappy,
-  ../decompbound/[apu, cpu, ppu, save_state, snesbus]
+  ../decompbound/[apu, cpu, ppu, save_state, snesbus, png_state]
 
 proc readRomFile(filepath: string): seq[uint8] =
   ## Read ROM file and return bytes, stripping a 512-byte copier header.
@@ -105,12 +105,18 @@ proc checkLink(program: GLuint) =
     echo "Program link error: ", log
     quit(1)
 
-proc saveScreenshot(frameImage: Image, dir: string) =
-  ## Save the raw game frame (256x224) as a timestamped PNG under the given dir.
+proc saveScreenshot(frameImage: Image, dir: string, state: seq[byte], romHash: uint32) =
+  ## Save the raw game frame (256x224) as a timestamped PNG under the given dir,
+  ## embedding the current state via ebSt chunk (for drag-drop restore).
   ## Creates a name of the form earthbound_yyyyMMdd-HHmmss.png. Echoes full path.
   let ts = now().format("yyyyMMdd-HHmmss")
   let path = dir / &"earthbound_{ts}.png"
-  frameImage.writeFile(path)
+  let pngStr = frameImage.encodeImage(PngFormat)
+  var pngBytes = newSeq[uint8](pngStr.len)
+  if pngBytes.len > 0:
+    copyMem(addr pngBytes[0], unsafeAddr pngStr[0], pngBytes.len)
+  let embedded = embedState(pngBytes, state, romHash)
+  writeFile(path, cast[string](embedded))
   echo "screenshot: ", path
 
 proc main() =
@@ -377,6 +383,56 @@ void main() {
   var prevMousePos = window.mousePos
   var mouseIdleFrames = 0
 
+  # Windy file drop: set the callback (fires via pollEvents). Only F12 screenshots
+  # embed state; plain PNGs or wrong-ROM shots are rejected with a message (no crash).
+  # Live drag-drop restore requires the actual window running (headless can't deliver drops).
+  window.onFileDrop = proc(fileName: string, fileData: string) =
+    if not (fileName.endsWith(".png") or fileName.endsWith(".PNG")):
+      echo "drop ignored (not .png): ", fileName
+      return
+    var png = newSeq[uint8](fileData.len)
+    if png.len > 0:
+      copyMem(addr png[0], unsafeAddr fileData[0], png.len)
+    let extractedOpt = extractState(png)
+    if extractedOpt.isNone:
+      echo "drop rejected (no ebSt / bad magic / version): ", fileName
+      return
+    # Extract romHash from ebSt (extractState validated magic+ver+len; we read the hash field).
+    # Inline minimal walker (png_state internals private; only edit play.nim per task).
+    var embeddedHash: uint32 = 0
+    var hashFound = false
+    block findHash:
+      const PngSigLen = 8
+      if png.len < PngSigLen + 12: break findHash
+      var pos = PngSigLen
+      while pos + 12 <= png.len:
+        let clen = (png[pos+0].uint32 shl 24) or (png[pos+1].uint32 shl 16) or
+                   (png[pos+2].uint32 shl 8) or png[pos+3].uint32
+        if png[pos+4] == 'e'.uint8 and png[pos+5] == 'b'.uint8 and
+           png[pos+6] == 'S'.uint8 and png[pos+7] == 't'.uint8:
+          let ds = pos + 8
+          if ds + 10 <= png.len:
+            embeddedHash = png[ds+6].uint32 or (png[ds+7].uint32 shl 8) or
+                           (png[ds+8].uint32 shl 16) or (png[ds+9].uint32 shl 24)
+            hashFound = true
+          break findHash
+        pos += 8 + clen.int + 4
+    if not hashFound:
+      echo "drop rejected (no romHash in ebSt): ", fileName
+      return
+    let currentHash = romHashOf(rom)
+    if embeddedHash != currentHash:
+      echo &"drop rejected (romHash mismatch: 0x{embeddedHash:08X} != current 0x{currentHash:08X}): ", fileName
+      return
+    let stateData = extractedOpt.get
+    try:
+      deserializeState(stateData, snes, cpu)
+      echo "restored state from ", fileName
+      writeLog(&"restored state from drop: {fileName}")
+    except CatchableError as e:
+      echo "drop restore failed (deserialize): ", e.msg
+      # never crash the live game
+
   while not window.closeRequested:
     pollEvents()
     ss.pump()  # reclaim finished buffers every iteration (paused or not)
@@ -544,7 +600,9 @@ void main() {
     if window.buttonPressed[KeyF12]:
       # F12 = screenshot, matching Steam's screenshot-key convention (Steam
       # intercepts F12, so aligning ours avoids the surprise).
-      saveScreenshot(frameImage, screenshotsDir)
+      let stateBytes = serializeState(snes, cpu)
+      let rhash = romHashOf(rom)
+      saveScreenshot(frameImage, screenshotsDir, stateBytes, rhash)
       writeLog("screenshot (F12)")
       echo &"  BGMODE={snes.ppuRegs[0x05] and 7} bg3prio={(snes.ppuRegs[0x05] and 8) != 0} " &
         &"TM(main)={snes.ppuRegs[0x2C]:02X} TS(sub)={snes.ppuRegs[0x2D]:02X} INIDISP={snes.ppuRegs[0x00]:02X}"
