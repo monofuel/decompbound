@@ -1,4 +1,4 @@
-.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-verbose gamepad-test sram serve frames lua-test llm-play
+.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai testrom script-dump gfx-roundtrip
 
 # bash + pipefail: the test loop pipes nim through sed, and without
 # pipefail the pipeline's exit status is sed's (always 0), which turns
@@ -120,6 +120,26 @@ lua-test: nim.cfg
 llm-play: nim.cfg
 	@mkdir -p bin
 	nim r src/tools/llm_play.nim --frames 240 "$(ROM)" examples/policy_demo.lua
+
+# LLM plays EarthBound: an azem-hosted model (qwen3.6-35b-a3b) writes the Lua
+# policy live. Drops frames to bin/ (--png-every) so you can watch its progress.
+llm-ai: nim.cfg
+	@mkdir -p bin
+	nim r src/tools/llm_ai.nim -- --no-mock --frames 600 --png-every 30 "$(ROM)"
+
+# Run a SNES test ROM through the accuracy harness (PASS/FAIL/UNKNOWN + a frame
+# dump). e.g. make testrom ROM=bin/testroms/blargg/test_speed.smc FRAMES=400
+testrom: nim.cfg
+	nim r src/tools/testrom.nim -- "$(ROM)" $(FRAMES)
+
+# Decode + dump a dialogue block from the ROM to stdout (never committed).
+# e.g. make script-dump OFF=0x63040
+script-dump: nim.cfg
+	nim r src/tools/script_dump.nim "$(ROM)" $(OFF)
+
+# Verify the graphics compression codec round-trips byte-exact against the ROM.
+gfx-roundtrip: nim.cfg
+	nim r src/tools/gfx_roundtrip.nim "$(ROM)"
 
 test: nim.cfg
 	@files=$$(ls tests/test_*.nim 2>/dev/null); \
