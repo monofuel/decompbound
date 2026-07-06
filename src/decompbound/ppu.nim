@@ -128,14 +128,16 @@ proc bgScanlineInto(snes: SnesBus, buf: var openArray[ColorRGBA],
 proc modeLayers(mode: int, bg3prio: bool): seq[tuple[bg, bpp, pal, prio: int]] =
   ## Back-to-front BG passes for a mode: (layer, bpp, palette base, priority
   ## filter). prio -1 = all tiles; 0 = low-priority tiles only; 1 = high only.
-  ## In mode 1 with the BG3-priority bit ($2105 bit 3) set, BG3 is split: its
-  ## low-priority tiles stay at the back, but its high-priority tiles draw in
-  ## FRONT of BG1/BG2 (this is how EarthBound's menus put their text window over
-  ## the checkerboard BG2).
+  ## In mode 1 with the BG3-priority bit ($2105 bit 3) set, BG3 high-prio tiles
+  ## move to the front; additionally BG1/BG2 are split by per-tile priority so
+  ## the full hardware ladder is respected: BG3p0 < BG2p0 < BG1p0 < BG2p1 < BG1p1 < BG3p1
+  ## (back to front). This ensures e.g. a BG2 high-prio UI window draws in front
+  ## of a BG1 low-prio animated battle BG (while still keeping BG3p1 frontmost
+  ## for overworld menus and BG1 overall front of same-prio BG2).
   case mode:
   of 0: @[(3, 2, 96, -1), (2, 2, 64, -1), (1, 2, 32, -1), (0, 2, 0, -1)]
   of 1:
-    if bg3prio: @[(2, 2, 0, 0), (1, 4, 0, -1), (0, 4, 0, -1), (2, 2, 0, 1)]
+    if bg3prio: @[(2, 2, 0, 0), (1, 4, 0, 0), (0, 4, 0, 0), (1, 4, 0, 1), (0, 4, 0, 1), (2, 2, 0, 1)]
     else: @[(2, 2, 0, -1), (1, 4, 0, -1), (0, 4, 0, -1)]
   of 3: @[(1, 4, 0, -1), (0, 8, 0, -1)]
   else: @[]
