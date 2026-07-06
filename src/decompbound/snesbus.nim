@@ -205,6 +205,16 @@ proc ppuPortWrite(snes: SnesBus, offset: uint32, value: uint8): bool =
       snes.cgadd = (snes.cgadd + 1) and 0xFF
       snes.cgLatch = -1
     true
+  of 0x2132:
+    # COLDATA fixed color: each write sets one or more channel intensities per
+    # its select bits (7/6/5 -> R/G/B in this store's convention, which the ppu's
+    # fixed-color pack mirrors). Handled here so DMA/HDMA writes update the fixed
+    # color too — gradient effects ramp COLDATA per scanline via HDMA, and the
+    # HDMA path reaches the PPU ports only through this proc, not mmioWrite.
+    if (value and 0x80) != 0: snes.fixedColorR = value and 0x1F
+    if (value and 0x40) != 0: snes.fixedColorG = value and 0x1F
+    if (value and 0x20) != 0: snes.fixedColorB = value and 0x1F
+    true
   else:
     false
 

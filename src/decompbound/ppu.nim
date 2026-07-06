@@ -266,8 +266,8 @@ proc renderScanline*(snes: SnesBus, image: Image, py: int) =
   let cgadsub = snes.ppuRegs[0x31]
   let cgwsel = snes.ppuRegs[0x30]
   let mathLayers = cgadsub and 0x3F
-  let doSub = (cgadsub and 0x40) != 0
-  let doHalf = (cgadsub and 0x80) != 0
+  let doSub = (cgadsub and 0x80) != 0    # CGADSUB bit 7: 0=add, 1=subtract.
+  let doHalf = (cgadsub and 0x40) != 0   # CGADSUB bit 6: halve the math result.
   let useSubScreen = (cgwsel and 0x02) != 0
 
   let main = snes.compositeScreen(py, mainMask, snes.ppuRegs[0x2E], backdrop)  # TMW.
@@ -396,6 +396,19 @@ proc renderSprites*(snes: SnesBus, image: Image) =
   if (snes.ppuRegs[0x00] and 0x80) != 0:
     return  # force blank: nothing is displayed
   let bright = (snes.ppuRegs[0x00].int and 0x0F) + 1
+  # OBJ color math: when CGADSUB enables OBJ (bit 4), sprites in palettes 4-7
+  # take the same fixed-color add/subtract (+ optional half) as the BG layers —
+  # so a world-wide darken (a subtract, e.g. the boss-intro dim) dims those
+  # sprites too instead of leaving them full-bright. Only the fixed-color operand
+  # is handled (the common global-dim case); subscreen-operand OBJ math is left
+  # approximate. Per hardware, OBJ math applies only to OBJ palettes 4-7.
+  let cgadsub = snes.ppuRegs[0x31]
+  let objMath = (cgadsub and 0x10) != 0
+  let objSub = (cgadsub and 0x80) != 0
+  let objHalf = (cgadsub and 0x40) != 0
+  let objUseFixed = (snes.ppuRegs[0x30] and 0x02) == 0
+  let objFixed = bgr555ToColor(snes.fixedColorB.uint16 or
+    (snes.fixedColorG.uint16 shl 5) or (snes.fixedColorR.uint16 shl 10))
   let obsel = snes.ppuRegs[0x01]
   let chrBase = ((obsel.int and 0x07) shl 13) and 0x7FFF
   let sizeSelect = (obsel.int shr 5) and 0x07
@@ -461,6 +474,15 @@ proc renderSprites*(snes: SnesBus, image: Image) =
         if index == 0:
           continue
         var color = bgr555ToColor(snes.cgram[128 + paletteGroup * 16 + index])
+        if objMath and objUseFixed and paletteGroup >= 4:
+          var r = if objSub: color.r.int - objFixed.r.int else: color.r.int + objFixed.r.int
+          var g = if objSub: color.g.int - objFixed.g.int else: color.g.int + objFixed.g.int
+          var b = if objSub: color.b.int - objFixed.b.int else: color.b.int + objFixed.b.int
+          if objHalf:
+            r = r div 2
+            g = g div 2
+            b = b div 2
+          color = ColorRGBA(r: clamp8(r), g: clamp8(g), b: clamp8(b), a: 255)
         color.r = ((color.r.int * bright) div 16).uint8
         color.g = ((color.g.int * bright) div 16).uint8
         color.b = ((color.b.int * bright) div 16).uint8
