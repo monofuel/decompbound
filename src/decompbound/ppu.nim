@@ -606,8 +606,8 @@ proc renderFrame*(snes: SnesBus): Image =
   # Color math: blend main with subscreen or fixed color where enabled.
   # This is what makes the red tv static overlay the war card (and giygas death).
   if (cgadsub and 0x3F) != 0:
-    let doAdd = (cgadsub and 0x40) == 0
-    let doHalf = (cgadsub and 0x80) != 0
+    let doAdd = (cgadsub and 0x80) == 0    # CGADSUB bit 7: 0=add, 1=subtract
+    let doHalf = (cgadsub and 0x40) != 0   # CGADSUB bit 6: halve the math result
     let fixed15 = snes.fixedColorB.uint16 or
                   (snes.fixedColorG.uint16 shl 5) or
                   (snes.fixedColorR.uint16 shl 10)
