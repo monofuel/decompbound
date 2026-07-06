@@ -40,6 +40,12 @@ const
   # Actual value from vendor/lua/lua.h and ldebug.c is 8.)
   MASKCOUNT* = 1 shl 3
 
+  # Registry index for storing lightuserdata ctx and other per-state values.
+  # This build of liblua.a pulls in ltests.h which forces LUAI_MAXSTACK=50000.
+  RegistryIndex* = -50000 - 1000
+
+  # Button bitmasks are not here; the policy runner owns the mapping and joy1.
+
 type
   # Type of numbers in Lua (for marshaling). Lua 5.3 defaults to 64-bit lua_Integer
   # (long long) on 64-bit platforms unless LUA_32BITS or LUA_C89_NUMBERS defined.
@@ -124,6 +130,25 @@ proc sethook*(L: PState, fn: Hook, mask: cint, count: cint) {.ilua.}
 proc close*(L: PState) {.ilua.}
   ## Close the Lua state and free all associated memory.
 
+  # --- 2b additions: lightuserdata for ctx passing, table construction for namespaced API ---
+proc pushlightuserdata*(L: PState, p: pointer) {.ilua.}
+  ## Push a light userdata pointer (used to pass Nim ctx into Lua closures via upvalues or registry).
+
+proc touserdata*(L: PState, idx: cint): pointer {.ilua.}
+  ## Read a userdata (light or full) pointer from stack idx.
+
+proc createtable*(L: PState, narr: cint, nrec: cint) {.ilua.}
+  ## Create a new table with narr array slots and nrec hash slots preallocated.
+
+proc setfield*(L: PState, idx: cint, k: cstring) {.ilua.}
+  ## Pop value and set t[k] = value where t is at idx (for building screen/mem/pad tables).
+
+proc getfield*(L: PState, idx: cint, k: cstring) {.ilua.}
+  ## Push t[k] onto stack (for retrieving ctx from registry if needed).
+
+proc getglobal*(L: PState, name: cstring) {.ilua.}
+  ## Push the global 'name' onto the stack (equivalent to getfield(globals, name)).
+
 {.pop.}
 
 proc pushcfunction*(L: PState, f: CFunction) {.inline.} =
@@ -158,3 +183,25 @@ proc toBool*(L: PState, idx: cint): bool {.inline.} =
 proc getType*(L: PState, idx: cint): cint {.inline.} =
   ## Alias to avoid keyword. Nim-friendly.
   L.`type`(idx)
+
+proc upvalueindex*(i: cint): cint {.inline.} =
+  ## Return pseudo-index for upvalue i (1-based) when inside a CFunction closure.
+  ## Equivalent to LUA_REGISTRYINDEX - i.
+  RegistryIndex - i
+
+proc newtable*(L: PState) {.inline.} =
+  ## Create empty table (0,0). Nim-friendly.
+  L.createtable(0, 0)
+
+proc openSandbox*(L: PState) =
+  ## Open a minimal sandboxed set of libs (base + math + string + table) and
+  ## explicitly remove dangerous globals (os, io, package, debug, dofile, loadfile,
+  ## load, require) so that untrusted Lua policies cannot access the host FS or
+  ## network. Print is left for debuggability during development.
+  L.openlibs()
+  for bad in ["os", "io", "package", "debug"]:
+    L.pushnil()
+    L.setglobal(bad.cstring)
+  for bad in ["dofile", "loadfile", "load", "loadstring", "require"]:
+    L.pushnil()
+    L.setglobal(bad.cstring)

@@ -1,4 +1,4 @@
-.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-verbose gamepad-test sram serve frames lua-test
+.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-verbose gamepad-test sram serve frames lua-test llm-play
 
 # bash + pipefail: the test loop pipes nim through sed, and without
 # pipefail the pipeline's exit status is sed's (always 0), which turns
@@ -116,6 +116,10 @@ disasm: nim.cfg
 
 lua-test: nim.cfg
 	nim r src/tools/lua_test.nim
+
+llm-play: nim.cfg
+	@mkdir -p bin
+	nim r src/tools/llm_play.nim --frames 240 "$(ROM)" examples/policy_demo.lua
 
 test: nim.cfg
 	@files=$$(ls tests/test_*.nim 2>/dev/null); \
