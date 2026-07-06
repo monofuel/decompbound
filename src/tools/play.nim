@@ -566,6 +566,25 @@ void main() {
               for c in 0 ..< 16:
                 row.add(&" {snes.cgram[pal * 16 + c]:04X}")
               rf.writeLine(row)
+            # Active HDMA channels: which $21xx register each targets per scanline
+            # (e.g. a channel writing $2131=CGADSUB or $212C/D=TM/TS is how a band
+            # gets color math / layers). Reveals the battle HP/PP-band mechanism.
+            rf.writeLine("HDMA channels (active per HDMAEN — target = $21xx reg):")
+            for ch in 0 ..< 8:
+              if (snes.hdmaen and (1'u8 shl ch)) != 0:
+                let b = ch * 0x10
+                rf.writeLine(&"  ch{ch}: DMAP={snes.dmaRegs[b]:02X} " &
+                  &"target=$21{snes.dmaRegs[b + 1]:02X} " &
+                  &"A1={snes.dmaRegs[b + 4]:02X}:{snes.dmaRegs[b + 3]:02X}{snes.dmaRegs[b + 2]:02X} " &
+                  &"indirect={(snes.dmaRegs[b] and 0x40) != 0}")
+            # OAM sprites in the lower screen (y >= 160): shows whether the HP/PP
+            # band is drawn by OBJ (sprites) or is a color-math'd subscreen band.
+            rf.writeLine("OAM sprites with y >= 160 (bottom region):")
+            for s in 0 ..< 128:
+              let sy = snes.oam[s * 4 + 1]
+              if sy >= 160'u8 and sy < 240'u8:
+                rf.writeLine(&"  spr{s:>3}: x={snes.oam[s * 4]:02X} y={sy:02X} " &
+                  &"tile={snes.oam[s * 4 + 2]:02X} attr={snes.oam[s * 4 + 3]:02X}")
             rf.close()
             captureBundle = false
             echo "wrote diagnostic bundle -> bin/autoshots/ " &
