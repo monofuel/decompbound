@@ -59,7 +59,7 @@ proc saveSram(snes: SnesBus, path: string) =
   snes.sramDirty = false
   echo "saved: ", path
   if snes.sramValid():
-    const MaxBackups = 40
+    const MaxBackups = 2000  # 8KB each -> ~16MB max; keep deep save history, basically never prune.
     let dir = "bin/sram_backups"
     createDir(dir)
     let base = path.splitFile.name
