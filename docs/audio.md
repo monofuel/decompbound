@@ -124,9 +124,18 @@ This track and the player track meet in the middle: the player proves we can
   `$6E00`, and the driver + sequence + BRR samples at APU `$7000`+ (with
   `$4800/$5000/$6000` overlays in multi-pack songs). The samples live in the
   package payloads — no standalone ROM BRR table.
-- **Frontier:** the exact **sequence bytecode** (the driver's command alphabet —
-  `E0+` = instrument/control, notes `< 0x80`, loop/call markers) is driver-
-  internal; pin it by tracing the uploaded SPC driver, or PCM-diff after upload.
+- **Sequence bytecode (hypothesized — packs verified byte-exact, command
+  semantics tentative):** per-track byte streams the resident driver walks.
+  `< 0x80` = note pitch (often repeated / followed by a duration byte); `0x00` =
+  rest / track-end; **`0xE0 xx` = instrument select** (strong: 115 occurrences in
+  pack 5 with args matching the instrument count); `0xE1 xx` = volume/expression;
+  `0xED xx` = pan; `0xF4 xx` = duration/tempo; `0xEF …` = call/sub-pattern;
+  `0xF0`/`0xF7`/`0xFA` = loop markers. Multi-track songs use a u16-LE pointer
+  table (e.g. pack 4 at file `0x1FEC46`, block target APU `$4800`) into the leaf
+  streams. Example base pack: pack 5 at file `0x2B520C` (BRR dir block `$6C00`,
+  driver+seq+samples `$7000`). **Frontier:** the exact operand widths + the
+  note/duration split need the resident driver's dispatch loop (in the `$7000`
+  payload) traced, or a PCM-diff after upload.
 
 ## Easy slappy example tools
 
