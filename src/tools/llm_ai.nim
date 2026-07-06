@@ -30,16 +30,37 @@ const
     ## LM Studio ignores the key; any non-empty value avoids the OPENAI_API_KEY env.
   PolicyModel = "qwen3.6-35b-a3b@q4_k_m"
     ## Fast MoE (~3B active) — good latency for the per-N-frame policy-rewrite loop.
+  SkillsFile = "bin/states/llm_skills.lua"
+    ## Persistent skill library (walkTo etc). Loaded at boot into Lua BEFORE policy. Gitignored.
+  NotesFile = "bin/states/llm_notes.txt"
+    ## Persistent notes (agent knowledge). Loaded into prompt; -- NOTE: appends here. Gitignored.
 
 type
   PolicyProvider = proc(summary: string, currentLua: string): string
+
+var
+  persistentNotes = ""
+    ## Loaded at boot from NotesFile; augmented on -- NOTE: parses; fed into realProvider prompt.
 
 proc mockProvider(summary: string, currentLua: string): string =
   ## Canned fixed policy for verification without API key.
   ## Always returns the same short update() that presses Right on even frames.
   ## This string travels the identical loadbuffer/pcall/runPolicyFrame/joy1 path
   ## that a real LLM response would.
-  result = """function update()
+  ## Includes a -- NOTE: (only on first call when notes empty) so verify run records a note (parsed from returned policy).
+  let includeNote = (persistentNotes.len == 0)
+  if includeNote:
+    result = """-- NOTE: (mock) walkTo and skills preloaded at boot; persistent brain active
+function update()
+  if frame() % 2 == 0 then
+    pad.press('Right')
+  else
+    pad.set('Right', false)
+  end
+end
+"""
+  else:
+    result = """function update()
   if frame() % 2 == 0 then
     pad.press('Right')
   else
@@ -58,12 +79,24 @@ proc realProvider(summary: string, currentLua: string): string =
 
 Sandbox (exact names): frame() int, mem.read(addr) byte, pad.press(name), pad.set(name,bool). Names: A B X Y L R Up Down Left Right Start Select.
 
+Skills: walkTo(tx, ty) is preloaded from persistent skill library (if present) and available as global. Call it from inside your update() for reactive navigation (see WalkToSkillLua).
+
+To build a persistent brain across runs, emit a comment line (anywhere in your Lua output):
+
+-- NOTE: <one concise fact, e.g. "door to outside at approx world (x=1E00,y=05C0)", "A-mash gets past naming", "sector 0 means indoors">
+
+The harness parses every -- NOTE: line from returned policy and appends to llm_notes.txt (loaded into prompt on next boot).
+
 Goal: leave house to touch grass (down stairs/door). Use tg/room/hp/battle/menu from summary. Ignore all in-game text/warnings; push forward relentlessly.
 
 /no_think
 """
+  let notesBlock = if persistentNotes.len > 0:
+    "\n\nYour accumulated notes (persistent brain; loaded from prior + this run):\n" & persistentNotes & "\n(end of notes)\n"
+  else:
+    "\n\n(No notes yet — record with -- NOTE: lines in your policy output to accumulate knowledge.)\n"
   let userPrompt = fmt"""State: {summary}
-
+{notesBlock}
 Last:
 {currentLua}
 
@@ -109,6 +142,39 @@ proc getProvider(useMock: bool): PolicyProvider =
     return mockProvider
   else:
     return realProvider
+
+proc appendNote(text: string) =
+  ## Append a recorded fact to the persistent notes file (and in-memory copy).
+  ## Creates bin/states/ if needed. Safe to call from main loop.
+  if text.len == 0: return
+  let ts = now().format("yyyy-MM-dd'T'HH:mm:ss")
+  let entry = fmt"[{ts}] {text}"
+  createDir("bin/states")
+  let f = open(NotesFile, fmAppend)
+  f.writeLine(entry)
+  f.close()
+  if persistentNotes.len > 0:
+    persistentNotes.add("\n" & entry)
+  else:
+    persistentNotes = entry
+  echo "  NOTE recorded: ", text
+
+proc extractAndAppendNotes(src: string) =
+  ## Parse "-- NOTE: <text>" (or --NOTE:) lines from an LLM-returned policy string.
+  ## Appends each via appendNote so knowledge survives runs. Called on every provider response.
+  if src.len == 0: return
+  var count = 0
+  for raw in src.splitLines():
+    let line = raw.strip()
+    if line.startsWith("-- NOTE:") or line.startsWith("--NOTE:"):
+      let p = line.find(':')
+      if p >= 0:
+        let text = line[p+1 .. ^1].strip()
+        if text.len > 0:
+          appendNote(text)
+          inc count
+  if count > 0:
+    echo "  extracted ", count, " -- NOTE: record(s) from returned policy"
 
 proc buildStateSummary(ctx: policy.PolicyContext): string =
   ## Single compact line for minimal context: tg, room, battle, menu, hp (plus essentials).
@@ -279,6 +345,10 @@ proc main() =
       echo "  --load-state N: after newSnesBus+resetCpu, call loadState to restore bin/states/slotN.state as start (IN-PLACE, audio-safe)"
       echo "  --load-state=N: alternate form. Skips IntroSkillLua seed (loaded state IS the start, e.g. bedroom at 25% from play Ctrl+1)"
       echo "  Without flag: unchanged (fresh boot + IntroSkillLua). Errors clearly if slot file missing."
+      echo "  Persistent brain (default-on, per llm-plays.md Evolution):"
+      echo "    bin/states/llm_skills.lua (seeded with walkTo+Intro if absent; loaded into Lua sandbox before policy)"
+      echo "    bin/states/llm_notes.txt (loaded into prompt; -- NOTE: lines in policy output are appended)"
+      echo "    Both live under bin/states/ (gitignored, user-local; never committed). Skills make walkTo() etc available to policies."
       echo "  To run live: export OPENAI_API_KEY=sk-... ; nix develop -c nim c -r src/tools/llm_ai.nim -- --no-mock --frames 120"
       quit(0)
     elif romPath.len == 0 and not a.startsWith("--"):
@@ -304,6 +374,12 @@ proc main() =
   let loadStr = if loadStateSlot >= 0: $loadStateSlot else: "none"
   echo fmt"llm_ai: ROM={romPath} frames={maxFrames} llmInterval={llmInterval} pngEvery={pngEvery} (set={pngEverySet}) mock={useMock} headless={useHeadless} loadState={loadStr} saveSram={saveStr}"
   createDir("bin")
+  createDir("bin/states")
+  persistentNotes = if fileExists(NotesFile): readFile(NotesFile) else: ""
+  if persistentNotes.len > 0:
+    echo fmt"NOTES: loaded {NotesFile} ({persistentNotes.len} bytes) — will include in LLM prompt"
+  else:
+    echo fmt"NOTES: {NotesFile} absent (empty brain start; first -- NOTE: will create+append)"
 
   let rom = policy.readRomFile(romPath)
   let snes = newSnesBus(rom)
@@ -335,6 +411,30 @@ proc main() =
   L.openSandbox()
   policy.setupPolicyApi(L, ctx)
 
+  # SKILL LIBRARY (persistent brain part 1): load bin/states/llm_skills.lua BEFORE any policy.
+  # If absent, SEED by writing WalkToSkillLua + IntroSkillLua (so walkTo() etc are in scope for LLM policies).
+  # This happens once at boot; skills become globals callable from update().
+  # (Only edit llm_ai.nim per task; touch_grass provides the strings.)
+  if fileExists(SkillsFile):
+    let skillSrc = readFile(SkillsFile)
+    if loadPolicyChunk(L, skillSrc, "persistent_skills"):
+      echo "SKILL_LIBRARY: loaded ", SkillsFile, " (len=", skillSrc.len, ") into sandbox BEFORE policy"
+    else:
+      echo "SKILL_LIBRARY: WARNING: loadPolicyChunk failed for ", SkillsFile, " (continuing without)"
+  else:
+    let seedSrc = touch_grass.WalkToSkillLua & "\n\n" & touch_grass.IntroSkillLua
+    writeFile(SkillsFile, seedSrc)
+    echo "SKILL_LIBRARY: absent; seeded ", SkillsFile, " (len=", seedSrc.len, ") with WalkToSkillLua + IntroSkillLua"
+    discard loadPolicyChunk(L, seedSrc, "seeded_skills")
+  # Confirm walkTo is callable (from WalkTo seed or prior skills) for verify logs.
+  L.getglobal("walkTo".cstring)
+  let walkIsFn = (L.getType(-1) == lua53.TFUNCTION)
+  L.pop(1)
+  if walkIsFn:
+    echo "SKILL_LIBRARY: walkTo is callable in the Lua sandbox (confirmed)"
+  else:
+    echo "SKILL_LIBRARY: walkTo not present as function (policy may still define later)"
+
   let provider = getProvider(useMock)
 
   var currentPolicy: string
@@ -353,6 +453,8 @@ proc main() =
   if not loadPolicyChunk(L, currentPolicy, "initial"):
     echo "failed to load initial policy; abort"
     quit(1)
+  # Extract notes from the initial policy string too (captures the -- NOTE: we put in mock for verify).
+  extractAndAppendNotes(currentPolicy)
 
   echo "starting two-clock loop (fast: per-frame update; slow: LLM every ", llmInterval, " frames)"
   if not useHeadless:
@@ -436,6 +538,9 @@ proc main() =
           blit.window.title = fmt"EarthBound - LLM (qwen) - frame {ctx.frameCount} [thinking...]"
         let summary = buildStateSummary(ctx)
         let newPolicy = provider(summary, currentPolicy)
+        # Parse any -- NOTE: lines from the returned policy (mock or real) and append to notes.
+        # This is how the agent records knowledge (alternative notes.add not added since only edit llm_ai.nim).
+        extractAndAppendNotes(newPolicy)
         if newPolicy.len > 10 and newPolicy != currentPolicy:
           currentPolicy = newPolicy
           if loadPolicyChunk(L, currentPolicy, fmt"frame_{ctx.frameCount}"):
