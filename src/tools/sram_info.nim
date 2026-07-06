@@ -1,9 +1,11 @@
 ## EarthBound battery-save (SRAM) inspector.
 ##
 ## Reads an 8KB .srm and reports what we've mapped of the EB save format, plus
-## a value-finder to help map more of it. Now also dumps character LEVEL/EXP/HP/PP,
+## a value-finder to help map more of it. Dumps character LEVEL/EXP/HP/PP,
 ## INVENTORY (14 slots), PSI-learned (14 raw bytes), and Escargo Express (36)
 ## using the verified layout (char table @0x1F9 stride 0x5F, slot base 0/0x500).
+## Party membership is a separate small ID array (not the char stat table);
+## active roster read from slot+0xB6 (7-byte 1-based IDs, 0=empty).
 ## The format is only PARTIALLY reverse engineered here (confirmed fields are marked);
 ## the --find mode is how we discover new fields.
 ##
@@ -49,6 +51,19 @@ const
   InvLen = 14
   PsiLen = 14
   EquipLen = 4
+
+  # Party roster / membership (near header in persistent block). EB stores a small
+  # array of character IDs (1-based: 1=Ness, 2=Paula, 3=Jeff, 4=Poo; 0=empty slot).
+  # This is SEPARATE from the always-present 4 char stat entries (which hold pre-baked
+  # stats for unjoined chars like Paula/Jeff/Poo even early). Cross-ref: datacrystal
+  # EB RAM map (0x988B-0x9891 "current party members", copied to/from SRAM) + delta
+  # 0x97D5 from verified Money (0x5C <-> RAM 0x9831) / Escargo. On this save (Ness
+  # solo, post-Titanic-Ant): bytes at slot+0xB6 = 01 00 00 00 00 00 00 .
+  # TODO: magic offset 0xB6 + len (and 0xBD/0xCE) -- hard-coded after community cross-ref
+  # + local byte match; all magic bytes have TODO+comments per AGENTS.md. Use first N
+  # non-zero IDs for active party order.
+  PartyRosterOff = 0xB6
+  PartyRosterLen = 7
 
   # Non-data magic for slot detection heuristics (content test, not format)
   # TODO: these are internal to active-base selection, not part of EB save format.
@@ -129,10 +144,43 @@ proc detectActiveBase(data: string): int =
       bestStamp = stamp
   return best
 
+proc dumpChar(data: string, slotBase: int, charIdx: int, tag: string = "") =
+  ## Dump one playable char's stats/inv/PSI from the table at CharTableBase.
+  ## `tag` appended to name line if provided (e.g. " (not in party)").
+  let eb = slotBase + CharTableBase + charIdx * CharStride
+  let name = decodeSaveName(data, eb + CharNameOff)
+  let level = if eb + CharLevelOff < data.len: data[eb + CharLevelOff].uint8 else: 0'u8
+  let exp = readLE(data, eb + CharExpOff, 4)
+  let hpN = readLE(data, eb + CharHpNowOff, 2).uint16
+  let hpM = readLE(data, eb + CharHpMaxOff, 2).uint16
+  let ppN = readLE(data, eb + CharPpNowOff, 2).uint16
+  let ppM = readLE(data, eb + CharPpMaxOff, 2).uint16
+  # inventory
+  var invStrs: seq[string] = @[]
+  for j in 0 ..< InvLen:
+    let io = eb + CharInvOff + j
+    let id = if io < data.len: data[io].uint8 else: 0'u8
+    invStrs.add itemStr(id)
+  let inv = invStrs.join(" ")
+  # PSI 14 raw bytes as hex
+  var psiHex = ""
+  for j in 0 ..< PsiLen:
+    let po = eb + CharPsiOff + j
+    let b = if po < data.len: data[po].uint8 else: 0'u8
+    psiHex.add &"{b:02X}"
+    if j < PsiLen-1: psiHex.add " "
+  let tagStr = if tag.len > 0: " " & tag else: ""
+  echo &"  {name} (lv{level}){tagStr}:"
+  echo &"    EXP {exp}"
+  echo &"    HP {hpN}/{hpM}  PP {ppN}/{ppM}"
+  echo &"    inventory: {inv}"
+  echo &"    PSI-learned: {psiHex}"
+
 proc dumpPartyAndStorage(data: string) =
-  ## For each of the 4 playable characters: print name, level, EXP, HP/PP
-  ## (now/max), 14 inventory item IDs (hex or mapped), and the 14-byte PSI
-  ## learned region (hex). Also dump the 36-slot Escargo Express storage.
+  ## Print active party members (in roster order) from the separate party roster
+  ## array, then list not-yet-joined chars (with tag). The char stat table always
+  ## contains pre-baked entries for all 4; membership is tracked independently.
+  ## Also dump the 36-slot Escargo Express storage.
   ## Uses active slot base so it works against either mirror.
   let slotBase = detectActiveBase(data)
   # Touch layout consts (money/atm/equip) so they are used; the primary dump of
@@ -143,34 +191,33 @@ proc dumpPartyAndStorage(data: string) =
   discard EquipLen
   echo ""
   echo &"party + storage (active slot base 0x{slotBase:03X}):"
+  # Read party roster (small ID array, 0=empty). Derive active in order.
+  var roster: seq[int] = @[]  # 0-based char indices in party order
+  for j in 0 ..< PartyRosterLen:
+    let ro = slotBase + PartyRosterOff + j
+    if ro < data.len:
+      let id = data[ro].uint8.int
+      if id >= 1 and id <= PlayableCharCount:
+        roster.add(id - 1)
+  # Active party (in the order from roster)
+  echo "  In party (order):"
+  if roster.len == 0:
+    echo "    (none)"
+  else:
+    for ci in roster:
+      dumpChar(data, slotBase, ci)
+  # Not yet joined
+  var inPartySet: set[range[0..3]] = {}
+  for ci in roster:
+    inPartySet.incl(ci)
+  echo "  Roster (not yet joined):"
+  var anyNotJoined = false
   for i in 0 ..< PlayableCharCount:
-    let eb = slotBase + CharTableBase + i * CharStride
-    let name = decodeSaveName(data, eb + CharNameOff)
-    let level = if eb + CharLevelOff < data.len: data[eb + CharLevelOff].uint8 else: 0'u8
-    let exp = readLE(data, eb + CharExpOff, 4)
-    let hpN = readLE(data, eb + CharHpNowOff, 2).uint16
-    let hpM = readLE(data, eb + CharHpMaxOff, 2).uint16
-    let ppN = readLE(data, eb + CharPpNowOff, 2).uint16
-    let ppM = readLE(data, eb + CharPpMaxOff, 2).uint16
-    # inventory
-    var invStrs: seq[string] = @[]
-    for j in 0 ..< InvLen:
-      let io = eb + CharInvOff + j
-      let id = if io < data.len: data[io].uint8 else: 0'u8
-      invStrs.add itemStr(id)
-    let inv = invStrs.join(" ")
-    # PSI 14 raw bytes as hex
-    var psiHex = ""
-    for j in 0 ..< PsiLen:
-      let po = eb + CharPsiOff + j
-      let b = if po < data.len: data[po].uint8 else: 0'u8
-      psiHex.add &"{b:02X}"
-      if j < PsiLen-1: psiHex.add " "
-    echo &"  {name} (lv{level}):"
-    echo &"    EXP {exp}"
-    echo &"    HP {hpN}/{hpM}  PP {ppN}/{ppM}"
-    echo &"    inventory: {inv}"
-    echo &"    PSI-learned: {psiHex}"
+    if i notin inPartySet:
+      anyNotJoined = true
+      dumpChar(data, slotBase, i, "(not in party)")
+  if not anyNotJoined:
+    echo "    (none)"
   # Escargo Express
   let escBase = slotBase + EscargoOff
   var escStrs: seq[string] = @[]
