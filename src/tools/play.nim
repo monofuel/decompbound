@@ -5,7 +5,7 @@
 ## Usage: nim r src/tools/play.nim [--verbose|-v] <rom>
 
 import
-  std/[os, strformat, strutils, monotimes, times, algorithm],
+  std/[os, strformat, strutils, monotimes, times, algorithm, osproc],
   pixie,
   opengl,
   windy,
@@ -181,6 +181,7 @@ Controls:
 
   --verbose / -v   Print input changes (joy1 + only active gamepads) for debugging
   Mouse cursor hides after 3s (180 frames) idle; reappears on movement.
+  Events (input changes, saves/loads, F9-F12, pause/speed) are logged to bin/play_log.txt
 """
   echo Controls
 
@@ -216,6 +217,32 @@ Controls:
   createDir("bin/states")
   let screenshotsDir = getHomeDir() / "Pictures" / "Screenshots"
   createDir(screenshotsDir)
+
+  var logOpened = false
+  var logFile: File
+  logOpened = open(logFile, "bin/play_log.txt", fmAppend)
+  if logOpened:
+    let ts0 = now().format("yyyy-MM-dd HH:mm:ss")
+    var commitInfo = ""
+    try:
+      let (headOut, _) = execCmdEx("git rev-parse --short HEAD")
+      let h = headOut.strip()
+      let (statOut, _) = execCmdEx("git status --porcelain")
+      let isDirty = statOut.strip().len > 0
+      if h.len > 0:
+        commitInfo = " commit " & h & (if isDirty: " +dirty" else: "")
+    except CatchableError:
+      commitInfo = ""
+    logFile.writeLine(&"{ts0}  PLAY SESSION START{commitInfo}  ROM={romPath}")
+    logFile.flushFile()
+
+  proc writeLog(msg: string) =
+    ## Append a timestamped event line to bin/play_log.txt (flushed immediately so useful after crash).
+    if logOpened:
+      let ts = now().format("yyyy-MM-dd HH:mm:ss")
+      logFile.writeLine(&"{ts}  {msg}")
+      logFile.flushFile()
+
   # F10: one-shot per-scanline TM/TS profile -> bin/autoshots/scanline_trace.txt,
   # for diagnosing HDMA screen-splits (e.g. the battle's bottom status band).
   var traceScanlines = false
@@ -441,7 +468,7 @@ void main() {
     const BtnNamePairs = [
       (BtnUp, "Up"), (BtnDown, "Down"), (BtnLeft, "Left"), (BtnRight, "Right"),
       (BtnA, "A"), (BtnB, "B"), (BtnX, "X"), (BtnY, "Y"),
-      (BtnL, "L"), (BtnR, "R"), (BtnStart, "Start"), (BtnSel, "Sel")
+      (BtnL, "L"), (BtnR, "R"), (BtnStart, "Start"), (BtnSel, "Select")
     ]
     var inputParts: seq[string] = @[]
     for (bit, name) in BtnNamePairs:
@@ -455,6 +482,7 @@ void main() {
     if joy1 != lastJoy1:
       let src = if sourceNote.len > 0: " (" & sourceNote & ")" else: ""
       echo &"input: {inputDisplay}{src}  joy1=0x{joy1:04x}"
+      writeLog(&"input: {inputDisplay}{src}  joy1=0x{joy1:04x}")
       currentInputDisplay = inputDisplay
       lastJoy1 = joy1
 
@@ -483,21 +511,28 @@ void main() {
     # One-shot controls.
     if window.buttonPressed[KeySpace]:
       paused = not paused
+      writeLog(&"pause: {(if paused: \"ON\" else: \"OFF\")}")
     if window.buttonPressed[KeyN] and paused:
       frameAdvance = true
+      writeLog("frame advance")
     if window.buttonPressed[KeyMinus] and framesPerTick > 1:
       dec framesPerTick
+      writeLog(&"speed: x{framesPerTick}")
     if window.buttonPressed[KeyEqual]:
       inc framesPerTick
+      writeLog(&"speed: x{framesPerTick}")
     if window.buttonPressed[KeyF9]:
       saveScreenshot(frameImage, screenshotsDir)
+      writeLog("screenshot (F9)")
     if window.buttonPressed[KeyF10]:
       traceScanlines = true
       traceArmed = 0
       echo "scanline trace armed (captures the next HDMA-split frame, e.g. a battle)"
+      writeLog("F10: scanline trace armed")
     if window.buttonPressed[KeyF11]:
       autoShot = not autoShot
       echo "auto-screenshots: ", (if autoShot: "ON (bin/autoshots/ every 5s)" else: "OFF")
+      writeLog(&"F11: auto-screenshots {(if autoShot: \"ON\" else: \"OFF\")}")
     if window.buttonPressed[KeyF12]:
       # One-press full diagnostic bundle: arm the scanline trace and capture the
       # frame + PPU regs + CGRAM together (written when the trace fires). Plus an
@@ -507,6 +542,7 @@ void main() {
       traceScanlines = true
       traceArmed = 0
       echo "F12: capturing diagnostic bundle -> bin/autoshots/ (frame + regs + scanline trace + CGRAM)"
+      writeLog("F12: diagnostic bundle capture armed")
       echo &"  BGMODE={snes.ppuRegs[0x05] and 7} bg3prio={(snes.ppuRegs[0x05] and 8) != 0} " &
         &"TM(main)={snes.ppuRegs[0x2C]:02X} TS(sub)={snes.ppuRegs[0x2D]:02X} INIDISP={snes.ppuRegs[0x00]:02X}"
       echo &"  CGADSUB={snes.ppuRegs[0x31]:02X} CGWSEL={snes.ppuRegs[0x30]:02X} HDMAEN={snes.hdmaen:02X}"
@@ -528,12 +564,15 @@ void main() {
         if isCtrl:
           saveState(snes, cpu, slot)
           echo &"saved slot {slot} -> {p}"
+          writeLog(&"saved slot {slot}")
         else:
           if fileExists(p):
             loadState(snes, cpu, slot)
             echo &"loaded slot {slot} <- {p}"
+            writeLog(&"loaded slot {slot}")
           else:
             echo &"no state for slot {slot}"
+            writeLog(&"load failed for slot {slot} (no file)")
     # (No Esc-to-quit: it was too easy to hit mid-game and lose your run. Close
     # the window or Ctrl+C the terminal to exit.)
 
@@ -695,6 +734,7 @@ void main() {
             captureBundle = false
             echo "wrote diagnostic bundle -> bin/autoshots/ " &
               "(scanline_trace.txt + bundle_frame.png + bundle_regs.txt)"
+            writeLog("F12/auto: wrote diagnostic bundle (scanline_trace + frame + regs)")
             if captureManual:
               # F12 (manual) captures get numbered copies the HDMA auto-capture
               # can't overwrite — so a deliberate F12 (e.g. on the battle HP/PP
@@ -706,10 +746,12 @@ void main() {
               copyFile("bin/autoshots/scanline_trace.txt",
                 &"bin/autoshots/f12_{f12Count:03}_trace.txt")
               echo &"  F12 bundle preserved -> bin/autoshots/f12_{f12Count:03}_*"
+              writeLog(&"F12: bundle preserved as f12_{f12Count:03}_*")
               inc f12Count
               captureManual = false
           else:
             echo "wrote bin/autoshots/scanline_trace.txt"
+            writeLog("wrote scanline_trace.txt")
         frameCount += 1
         # Automated anomaly capture: when HDMA turns on (0 -> non-zero) a screen
         # split just began (battle swirl/bands, scene iris) — auto-arm a full
@@ -720,6 +762,7 @@ void main() {
           traceScanlines = true
           traceArmed = 0
           echo &"auto-capture: HDMA split started (HDMAEN={snes.hdmaen:02X}) — grabbing a bundle"
+          writeLog(&"auto-capture: HDMA split started (HDMAEN={snes.hdmaen:02X})")
         prevHdmaen = snes.hdmaen
         if genAudio:
           ss.queueData(pcm)
@@ -805,6 +848,9 @@ void main() {
     snes.saveSram(sramPath)
   ss.close()
   slappyClose()
+  if logOpened:
+    writeLog("PLAY SESSION END")
+    logFile.close()
 
 when isMainModule:
   main()
