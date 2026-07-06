@@ -71,6 +71,7 @@ type
     hdmaLineCounter*: array[8, uint8]
     hdmaDoTransfer*: array[8, bool]
     hdmaIndirectAddr*: array[8, uint16]
+    hdmaDone*: array[8, bool]  ## Per-channel terminator flag: once 0x00 count read this frame, channel is inactive; no further table reads or B-bus writes. Last TM/TS value holds for remaining lines.
     fixedColorR*: uint8  ## 0-31 from COLDATA $2132.
     fixedColorG*: uint8
     fixedColorB*: uint8
@@ -279,11 +280,14 @@ proc runDma(snes: SnesBus, channels: uint8) =
 
 proc initHdma*(snes: SnesBus) =
   ## Initialize HDMA channels at the start of a frame for currently enabled ones.
+  ## Resets per-channel done flags so active channels can run until their terminator.
   let en = snes.hdmaen
   for ch in 0..7:
     if (en and (1'u8 shl ch)) == 0:
       snes.hdmaDoTransfer[ch] = false
+      snes.hdmaDone[ch] = true
       continue
+    snes.hdmaDone[ch] = false
     let base = ch * 0x10
     let dmap = snes.dmaRegs[base]
     let indirect = (dmap and 0x40) != 0
@@ -296,6 +300,14 @@ proc initHdma*(snes: SnesBus) =
     snes.hdmaLineCounter[ch] = count
     snes.dmaRegs[base + 10] = count
     taddr += 1
+    if count == 0:
+      # Initial terminator: channel done immediately, no transfer this frame.
+      snes.hdmaDoTransfer[ch] = false
+      snes.hdmaTableAddr[ch] = taddr
+      snes.dmaRegs[base + 8] = (taddr and 0xFF).uint8
+      snes.dmaRegs[base + 9] = ((taddr shr 8) and 0xFF).uint8
+      snes.hdmaDone[ch] = true
+      continue
     if indirect:
       let ilo = snes.bus.read8(taddr)
       let ihi = snes.bus.read8(taddr + 1)
@@ -310,11 +322,20 @@ proc initHdma*(snes: SnesBus) =
 
 proc runHdma*(snes: SnesBus) =
   ## Execute one scanline of HDMA for enabled channels (call for visible lines).
+  ## When a channel reloads a 0x00 line-count byte (terminator), it is marked
+  ## done for the remainder of the frame; no further reads or writes occur and
+  ## the last value written to affected ports (e.g. $212C/$212D TM/TS) holds.
+  ## Per-channel processing is strictly bounded (safety cap) to guarantee
+  ## termination even on corrupt tables or prior reload bugs.
   let en = snes.hdmaen
   if en == 0:
     return
   for ch in 0..7:
     if (en and (1'u8 shl ch)) == 0:
+      continue
+    if snes.hdmaDone[ch]:
+      # Channel hit terminator earlier this frame; stop all activity. Last
+      # TM/TS (or other) value written by HDMA holds for remaining lines.
       continue
     let base = ch * 0x10
     let dmap = snes.dmaRegs[base]
@@ -354,28 +375,45 @@ proc runHdma*(snes: SnesBus) =
     let rep = (ctr and 0x80) != 0
     snes.hdmaDoTransfer[ch] = rep
     if (ctr and 0x7F) == 0:
+      # Reload path. The per-line table walk here is provably bounded by the
+      # for-loop cap: even if the table contains a long run of 0-bytes or
+      # garbage after a terminator, we consume at most MaxReloadIters entries
+      # per scanline and then force the channel done. This can NEVER hang
+      # (prior reload-every-line bug or bad while-loop fix would).
       var taddr = snes.hdmaTableAddr[ch]
-      let nextc = snes.bus.read8(taddr)
-      snes.hdmaLineCounter[ch] = nextc
-      snes.dmaRegs[base + 10] = nextc
-      taddr += 1
-      if nextc == 0:
-        snes.hdmaDoTransfer[ch] = false
+      const MaxReloadIters = 8  # real HDMA tables advance 0 or 1 entry per reload
+      var didReload = false
+      for ri in 0 ..< MaxReloadIters:
+        let nextc = snes.bus.read8(taddr)
+        taddr += 1
+        snes.hdmaLineCounter[ch] = nextc
+        snes.dmaRegs[base + 10] = nextc
+        if nextc == 0:
+          snes.hdmaDoTransfer[ch] = false
+          snes.hdmaTableAddr[ch] = taddr
+          snes.dmaRegs[base + 8] = (taddr and 0xFF).uint8
+          snes.dmaRegs[base + 9] = ((taddr shr 8) and 0xFF).uint8
+          snes.hdmaDone[ch] = true
+          didReload = true
+          break
+        # non-terminator entry: position addr at its data (transfer on next line)
+        if indirect:
+          let ilo = snes.bus.read8(taddr)
+          let ihi = snes.bus.read8(taddr + 1)
+          snes.hdmaIndirectAddr[ch] = ilo.uint16 or (ihi.uint16 shl 8)
+          snes.dmaRegs[base + 5] = ilo
+          snes.dmaRegs[base + 6] = ihi
+          taddr += 2
         snes.hdmaTableAddr[ch] = taddr
         snes.dmaRegs[base + 8] = (taddr and 0xFF).uint8
         snes.dmaRegs[base + 9] = ((taddr shr 8) and 0xFF).uint8
-        continue
-      if indirect:
-        let ilo = snes.bus.read8(taddr)
-        let ihi = snes.bus.read8(taddr + 1)
-        snes.hdmaIndirectAddr[ch] = ilo.uint16 or (ihi.uint16 shl 8)
-        snes.dmaRegs[base + 5] = ilo
-        snes.dmaRegs[base + 6] = ihi
-        taddr += 2
-      snes.hdmaTableAddr[ch] = taddr
-      snes.dmaRegs[base + 8] = (taddr and 0xFF).uint8
-      snes.dmaRegs[base + 9] = ((taddr shr 8) and 0xFF).uint8
-      snes.hdmaDoTransfer[ch] = true
+        snes.hdmaDoTransfer[ch] = true
+        didReload = true
+        break
+      if not didReload:
+        # Exhausted cap (should not happen on valid tables): stop the channel.
+        snes.hdmaDone[ch] = true
+        snes.hdmaDoTransfer[ch] = false
 
 proc mmioWrite(snes: SnesBus, offset: uint32, value: uint8) =
   ## Write an MMIO register.
@@ -615,6 +653,7 @@ proc newSnesBus*(rom: seq[uint8]): SnesBus =
     snes.hdmaTableAddr[i] = 0
     snes.hdmaLineCounter[i] = 0
     snes.hdmaIndirectAddr[i] = 0
+    snes.hdmaDone[i] = false
   snes.fixedColorR = 0
   snes.fixedColorG = 0
   snes.fixedColorB = 0
