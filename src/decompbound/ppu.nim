@@ -555,8 +555,11 @@ proc renderFrame*(snes: SnesBus): Image =
   # The whole-frame path does not populate the per-scanline OBJ suppression mask
   # (that comes from renderScanline); clear it so renderSprites here never
   # suppresses sprites based on stale window state from another render path.
+  anySpriteDrawn = false
   for py in 0..<ScreenHeight:
     objSuppressActive[py] = false
+    for px in 0..<ScreenWidth:
+      objSpritePrio[py][px] = -1
 
   let mode = snes.ppuRegs[0x05] and 0x07
   let mainScreen = snes.ppuRegs[0x2C]  # TM: enabled main screen layers.
@@ -634,12 +637,24 @@ proc renderFrame*(snes: SnesBus): Image =
                   (snes.fixedColorG.uint16 shl 5) or
                   (snes.fixedColorR.uint16 shl 10)
     let fixedPx = bgr555ToColor(fixed15)
+    let objMathEnabled = (cgadsub and 0x10) != 0  # CGADSUB bit 4: OBJ layer enable for color math
     for i in 0 ..< result.data.len:
       var m = result.data[i]
       var s = if useFixedSub or subImg == nil:
                 fixedPx
               else:
                 subImg.data[i]
+      let y = i div ScreenWidth
+      let x = i mod ScreenWidth
+      if objSpritePrio[y][x] >= 0 and not objMathEnabled:
+        # Gate OBJ color-math on (cgadsub & 0x10) != 0 for this frame.
+        # When CGADSUB bit 4 (OBJ) not set, do not apply fixed math here:
+        # sprites must render at NORMAL palette color, no tint.
+        continue
+      if objSpritePrio[y][x] >= 0:
+        # Bit set: renderSprites already applied (gated) tint using live COLDATA;
+        # skip here to prevent double application on sprite pixels.
+        continue
       var br = m.r.int
       var bg = m.g.int
       var bb = m.b.int
