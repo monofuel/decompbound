@@ -6,7 +6,7 @@
 ## (via shared policy module) so LLM-authored strings are proven equivalent.
 ## LLM call is swappable: default --mock uses a fixed canned policy for headless verify
 ## (no API key needed); real path uses openai_leap when --no-mock and key present.
-## Usage: nix develop -c nim c -r src/tools/llm_ai.nim -- [--frames N] [--llm-interval K] [--png-every M] [--headless] [--mock|--no-mock] [rom]
+## Usage: nix develop -c nim c -r src/tools/llm_ai.nim -- [--frames N] [--llm-interval K] [--png-every M] [--headless] [--mock|--no-mock] [--load-state N | --load-state=N] [--save-srm ...] [rom]
 ## Default is windowed (GL + windy) so you can watch the LLM play alongside `make play`.
 ## --headless preserves the old no-window behavior for CI. PNG dumps (when enabled)
 ## now go to bin/llm_frames/ only when --png-every is passed.
@@ -17,7 +17,7 @@ import
   pixie,
   windy,
   openai_leap,
-  ../decompbound/[cpu, ppu, snesbus, lua53, policy],
+  ../decompbound/[cpu, ppu, snesbus, lua53, policy, save_state],
   ./[glblit, touch_grass]
 
 const
@@ -224,6 +224,7 @@ proc main() =
   var pngEverySet = false
   var saveSramPath = ""
   var saveSramEnabled = false
+  var loadStateSlot = -1
   var i = 1
   while i <= paramCount():
     let a = paramStr(i)
@@ -260,8 +261,13 @@ proc main() =
     elif a.startsWith("--save-srm="):
       saveSramEnabled = true
       saveSramPath = a[11 .. ^1]
+    elif a == "--load-state" and i < paramCount():
+      inc i
+      loadStateSlot = parseInt(paramStr(i))
+    elif a.startsWith("--load-state="):
+      loadStateSlot = parseInt(a[13..^1])
     elif a == "--help" or a == "-h":
-      echo "usage: nim c -r src/tools/llm_ai.nim -- [--frames N] [--llm-interval K] [--png-every M] [--headless] [--mock|--no-mock] [--save-srm | --save-srm=PATH] [rom]"
+      echo "usage: nim c -r src/tools/llm_ai.nim -- [--frames N] [--llm-interval K] [--png-every M] [--headless] [--mock|--no-mock] [--save-srm | --save-srm=PATH] [--load-state N | --load-state=N] [rom]"
       echo "  defaults: --frames 60 --llm-interval 20 ROM=bin/Earthbound (U) [!].smc"
       echo "  windowed by default (opens GL window titled 'EarthBound - LLM (qwen)' for watching)"
       echo "  --headless: no window (for CI / batch); --png-every only dumps when flag is passed"
@@ -270,6 +276,9 @@ proc main() =
       echo "  --save-srm: enable OPTIONAL isolated SRAM for LLM's own progress (never user's)"
       echo "  --save-srm=PATH: override default path bin/states/llm_ai.srm (MUST differ from ROM .srm)"
       echo "  Absent --save-srm (default): NO SRAM I/O, fully ephemeral (for auto LLM tests)"
+      echo "  --load-state N: after newSnesBus+resetCpu, call loadState to restore bin/states/slotN.state as start (IN-PLACE, audio-safe)"
+      echo "  --load-state=N: alternate form. Skips IntroSkillLua seed (loaded state IS the start, e.g. bedroom at 25% from play Ctrl+1)"
+      echo "  Without flag: unchanged (fresh boot + IntroSkillLua). Errors clearly if slot file missing."
       echo "  To run live: export OPENAI_API_KEY=sk-... ; nix develop -c nim c -r src/tools/llm_ai.nim -- --no-mock --frames 120"
       quit(0)
     elif romPath.len == 0 and not a.startsWith("--"):
@@ -292,7 +301,8 @@ proc main() =
       createDir("bin")
 
   let saveStr = if saveSramEnabled: saveSramPath else: "(ephemeral)"
-  echo fmt"llm_ai: ROM={romPath} frames={maxFrames} llmInterval={llmInterval} pngEvery={pngEvery} (set={pngEverySet}) mock={useMock} headless={useHeadless} saveSram={saveStr}"
+  let loadStr = if loadStateSlot >= 0: $loadStateSlot else: "none"
+  echo fmt"llm_ai: ROM={romPath} frames={maxFrames} llmInterval={llmInterval} pngEvery={pngEvery} (set={pngEverySet}) mock={useMock} headless={useHeadless} loadState={loadStr} saveSram={saveStr}"
   createDir("bin")
 
   let rom = policy.readRomFile(romPath)
@@ -300,7 +310,15 @@ proc main() =
   if saveSramEnabled:
     loadSram(snes, saveSramPath)
   var cpu = snes.resetCpu()
-  snes.initHdma()
+  if loadStateSlot >= 0:
+    let path = fmt"bin/states/slot{loadStateSlot}.state"
+    if not fileExists(path):
+      echo fmt"ERROR: --load-state {loadStateSlot} requested but state file missing: {path}"
+      quit(1)
+    loadState(snes, cpu, loadStateSlot)
+    echo "loaded start state from slot ", loadStateSlot
+  else:
+    snes.initHdma()
 
   let frameImage = newImage(ppu.ScreenWidth, ppu.ScreenHeight)
   let ctx = policy.PolicyContext(
@@ -319,11 +337,19 @@ proc main() =
 
   let provider = getProvider(useMock)
 
-  # Seed INITIAL policy with IntroSkillLua (deterministic title->naming->bedroom).
-  # Always start here for both mock and real so multi-step intro actually runs.
-  # LLM handoff only after tg>=25 (bedroom reached); see slow-clock guard below.
-  var currentPolicy = touch_grass.IntroSkillLua
-  echo "initial policy seeded with IntroSkillLua (len=", currentPolicy.len, ")"
+  var currentPolicy: string
+  if loadStateSlot >= 0:
+    # loaded state (e.g. bedroom save) IS the start; skip IntroSkillLua entirely.
+    # Seed a bootstrap policy from the mockProvider (fixed; replaced at first slow tick if needed).
+    # The harness frameCount starts at 0 but the emulated machine state is from the slot.
+    currentPolicy = mockProvider("", "")
+    echo "initial policy seeded from mockProvider (len=", currentPolicy.len, ", skipping IntroSkillLua for --load-state)"
+  else:
+    # Seed INITIAL policy with IntroSkillLua (deterministic title->naming->bedroom).
+    # Always start here for both mock and real so multi-step intro actually runs.
+    # LLM handoff only after tg>=25 (bedroom reached); see slow-clock guard below.
+    currentPolicy = touch_grass.IntroSkillLua
+    echo "initial policy seeded with IntroSkillLua (len=", currentPolicy.len, ")"
   if not loadPolicyChunk(L, currentPolicy, "initial"):
     echo "failed to load initial policy; abort"
     quit(1)
