@@ -113,10 +113,20 @@ This track and the player track meet in the middle: the player proves we can
 - **SFX vs music:** a music change is a full package re-upload; SFX are
   fire-and-forget port pokes to the resident driver (helpers `$C0AC01`, `$C0AC0C`,
   `$C0ABE0`, `$C0ABBD`); `$FF` to a port reboots to the IPL between tracks.
-- **Frontier:** the BRR sample directory lives *inside* an uploaded package (not a
-  standalone ROM table), and the exact 3-slot assignment (sequence vs samples) +
-  the SFX command encoding are driver-internal — best pinned by correlating live
-  APU RAM after an upload (the emulator-as-instrument approach).
+- **Package block format:** each uploaded package is a sequence of blocks
+  `[u16 len][u16 targetAPUaddr][len payload bytes]`, terminated by `len == 0000`
+  (which kicks execution at `$0500`). The `$C0AB06` streamer emits exactly these.
+  Example package: pack 5 (a common base driver+set) at file `0x2B520C`
+  (bank `$EB` addr `$520C`).
+- **BRR directory + instrument params (in the uploaded image):** the BRR sample
+  directory lands at APU `$6C00` (standard 4-byte entries: `u16 start`,
+  `u16 loop`), an instrument-params block (ADSR/GAIN-ish, ~6 bytes/inst) at APU
+  `$6E00`, and the driver + sequence + BRR samples at APU `$7000`+ (with
+  `$4800/$5000/$6000` overlays in multi-pack songs). The samples live in the
+  package payloads — no standalone ROM BRR table.
+- **Frontier:** the exact **sequence bytecode** (the driver's command alphabet —
+  `E0+` = instrument/control, notes `< 0x80`, loop/call markers) is driver-
+  internal; pin it by tracing the uploaded SPC driver, or PCM-diff after upload.
 
 ## Easy slappy example tools
 

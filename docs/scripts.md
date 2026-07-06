@@ -103,6 +103,21 @@ the opcode meanings are the next dig.
   blocks at `0x45B67`, `0x63040`, and the `~0x8BCxx` cluster). A top-level master
   dialogue-ID table wasn't isolated — that needs the dynamic hook.
 
+**Text-stream decode mechanics (verified byte-exact):**
+
+- **Glyph → tile index:** `glyph_id = (byte − 0x50) & 0x7F` — verified at file
+  `0x44750` (`38 e9 50 00 29 7f 00` = `SEC; SBC #$0050; AND #$007F`), the
+  width/layout walker. (Distinct from the *storage* encoding `byte = ASCII + 0x30`
+  above; both are self-consistent.)
+- **Text-block dispatch: file `0x1890E`** (SNES `$C1890E`) — the dialogue-stream
+  interpreter. `CMP #$0020; BCC` (verified at `0x18914`: `c9 20 00 90 03 4c 04 8b`)
+  splits control codes (`< 0x20`) from glyph runs; `0x00` is the terminator
+  (special-cased right after). Codes **`0x15/0x16/0x17`** switch the active stream
+  via the `0x8CDED` / `~0x8D1ED` / `~0x8D5ED` far-pointer tables — the
+  "call/include other text" mechanism. Observed control bytes in real blocks:
+  `0x00–0x02, 04, 06, 07, 09–0B, 11, 12, 15–19, 1C`; per-opcode operand widths
+  (the round-trip detail) still want the live hook.
+
 ## What goes in git (and what never does)
 
 The **extractor, the character/opcode tables, and the format docs are code —

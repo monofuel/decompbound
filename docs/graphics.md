@@ -66,6 +66,27 @@ still open):
   cracked by watching the OBJ CHR DMA during a known sprite (the emulator-as-
   instrument approach).
 
+### Compression — CRACKED (verified byte-exact)
+
+The graphics **compression scheme** — the crux of this track — is decoded. The
+decompressor is at file `0x041AC1` (SNES `$C41AC1`); verified:
+`b7 cc c9 ff d0 04 … 29 e0 c9 e0` = `LDA [$CC],Y; CMP #$FF` (terminate) `; AND
+#$E0; CMP #$E0` (long-vs-short form). It's a custom **LZ/RLE** with ~8 commands:
+
+- Command byte → command + length. **Short:** `cmd = byte >> 5`,
+  `len = (byte & 0x1F) + 1`. **Long** (when `byte & 0xE0 == 0xE0`):
+  `cmd = (byte >> 2) & 7`, `len = ((byte & 3) << 8 | next_byte) + 1`.
+- Commands: `0` literal run · `1` 8-bit RLE · `2` 16-bit RLE · `3` increasing
+  sequence (`base + i`) · `4/7` backref (16-bit **BE** offset, copy forward) ·
+  `5` rotated backref (bit-reversed bytes) · `6` reverse backref (copy backward).
+- `0xFF` terminates the stream.
+
+Example: the compressed graphic at file `0x214EE0` decodes to 1179 bytes
+(`0C 0D 0E 0F 00 00 …`), confirmed by an independent decoder matching the ROM
+routine. This codec unlocks **both** the graphics catalog *and* the maps track's
+tilesets. (Some paths use an uncompressed far-copy at `~0x008ED2`.) Round-trip
+DoD next: a byte-exact matching `pack` (encoder).
+
 ## Definition of done
 
 - [ ] Tile + palette codecs round-trip byte-exact against gold.

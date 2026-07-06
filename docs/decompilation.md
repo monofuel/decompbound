@@ -130,7 +130,21 @@ of SRAM. Round-trip DoD: decode a table → re-encode → byte-exact.
   4-byte description pointer. **Caveats:** the exact per-field offsets (PP vs
   power vs element) and the record *count* aren't pinned — 53×15 would overrun
   the EXP table at `0x158F51` (only ~51 fit), so the width/count needs a dynamic
-  trace. Learn-set is embedded in the same table. Stat-growth: still open.
+  trace. Learn-set is embedded in the same table.
+- **Battle-groups / enemy formations** — the formations data table at file
+  `0x10D74C` with its pointer/index table at `0x10C80D` (8-byte entries: a far
+  pointer + a count/assoc word, e.g. `b1 d6 d0 00 00 00 00 03`). Formations are
+  **variable-length**, `0xFF`-terminated (e.g. `00 01 03 00 01 de 00 ff` at the
+  data base — small bytes are enemy IDs/counts). Bytes verified byte-exact; the
+  exact record layout is tentative (variable-length; partly anchored on the public
+  ROM map).
+- **Character stat-growth** — a 28-byte block at file `0x15EC5B`, immediately
+  after the enemy-config table (ends `0x15EC5A`); bytes verified
+  (`37 00 23 00 05 01 7f …`). Likely 4 per-character records driving level-up stat
+  increases, distinct from the EXP table. **Tentative:** the per-record width (a
+  clean 7×4 doesn't hold) + field meanings aren't pinned, and the identity rests
+  on the public-map name — no known-value anchor yet; needs a dynamic level-up
+  trace to confirm.
 
 ## Relationship to the numbered goals
 
