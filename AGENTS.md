@@ -3,6 +3,28 @@
 - Earthbound (SNES) decompilation project in Nim.
 - This will be a complex and open ended progress, you will need to get creative and may have to make tools to help.
 
+## Delegate to grok — and be proactive about it
+
+Most substantive work on this project should be **delegated to grok** ("groknards"
+— grok-build coding instances launched with `agnt -w grok "<task>"`). Be *responsive*:
+when a bounded task lands (an RE dig, a new tool, a self-contained feature), dispatch
+a groknard right away rather than doing it inline or queuing it. Keep the pipeline
+full — when a wave lands, verify it and dispatch the next; don't wait to be asked.
+
+- **Groknards do:** ROM/format reverse-engineering (report offsets + format —
+  *analysis only*, never commit assets / ROM / dumps) and bounded build tasks
+  (new tools, self-contained features).
+- **Claude keeps:** emulator-correctness + risky/timing changes (via fork subagents),
+  and **verifying every groknard result byte-exact against the gold ROM before
+  trusting or committing** — this has repeatedly caught real bugs.
+- **How:** grok plan-mode is broken headless — use write-mode (`-w`) + "analysis only"
+  for RE. Put the full task + the verification bar in the prompt.
+- **Parallel-safety:** don't let concurrent groknards edit the same shared file (e.g.
+  the Makefile) — they clobber each other. Have them build/verify via `nim c -r`
+  directly; Claude adds shared edits (make targets) afterward.
+
+See `docs/delegation.md` for the fuller playbook.
+
 ## Copyright hygiene — keep the repo asset-free
 
 This is a decompilation project. Like `n64decomp/sm64` and the OoT decomp, the
