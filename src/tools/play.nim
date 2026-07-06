@@ -457,6 +457,12 @@ void main() {
           # speed multiplier for fast-forward). Cap catch-up so a stall can't
           # trigger a runaway burst.
           let dueNs = max(1'i64, TargetFrameNs div framesPerTick)
+          # Clamp the backlog: after a long stall (alt-tab away, window drag, a
+          # debugger pause) the accumulator would otherwise hold seconds of real
+          # time and drain as sustained "super speed". Cap it at a few frames so
+          # we catch up ONCE and resume normal speed, never a prolonged burst.
+          if frameAcc > dueNs * 4:
+            frameAcc = dueNs * 4
           var n = 0
           while frameAcc >= dueNs and n < 4:
             frameAcc -= dueNs
