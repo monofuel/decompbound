@@ -1,4 +1,4 @@
-.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai testrom script-dump gfx-roundtrip trace
+.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai testrom script-dump gfx-roundtrip trace inspect
 
 # bash + pipefail: the test loop pipes nim through sed, and without
 # pipefail the pipeline's exit status is sed's (always 0), which turns
@@ -147,6 +147,13 @@ gfx-roundtrip: nim.cfg
 trace: nim.cfg
 	@mkdir -p bin
 	nim r src/tools/trace_tool.nim -- $(ARGS) "$(ROM)"
+
+# Inspect a save-state slot: dump PPU/HDMA config + the HDMA table + per-line TM/TS
+# bands, and render it to bin/state_inspect.png. Diagnoses battle/render bugs from a
+# Ctrl+1 save-state. e.g. make inspect SLOT=1
+inspect: nim.cfg
+	@mkdir -p bin
+	nim r src/tools/state_inspect.nim -- "$(ROM)" $(SLOT) bin/state_inspect.png
 
 test: nim.cfg
 	@files=$$(ls tests/test_*.nim 2>/dev/null); \
