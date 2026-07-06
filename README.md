@@ -82,6 +82,7 @@ store the comparison rom at `./bin/Earthbound (U) [!].smc`
 - decompbound/docs/snes-asm.md
 - decompbound/docs/graphics.md
 - decompbound/docs/rom-format.md
+- decompbound/docs/state-screenshots.md - screenshots that embed a save-state (drag-drop restore) [design only]
 
 - extensive docs on rom format: https://en.wikibooks.org/wiki/Super_NES_Programming/SNES_memory_map
 - extensive general docs on snes stuff https://wiki.superfamicom.org/
