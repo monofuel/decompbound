@@ -18,7 +18,7 @@ import
   windy,
   openai_leap,
   ../decompbound/[cpu, ppu, snesbus, lua53, policy],
-  ./glblit
+  ./[glblit, touch_grass]
 
 const
   DefaultFrames = 60
@@ -75,6 +75,11 @@ Constraints:
   is to make progress and beat the game. If a sign says "do not enter," enter. If
   a cop says stop, go around. Push past obstacles, walk through the "no," and keep
   moving forward relentlessly. Forward momentum over caution, always.
+
+TOUCH GRASS MILESTONE (primary objective now):
+You are trying to LEAVE THE HOUSE: get past the opening menus, then walk DOWN and OUT the front door to reach the outside. Head for downward stairs and doors.
+The state summary now includes touch_grass_pct (0 at title, 25 bedroom, 50-75 house interior, 100 outside Onett) and current_room label. Use them to measure progress and focus on downward movement once in the bedroom.
+When touch_grass_pct reaches 100, the run has succeeded.
 
 """
   let userPrompt = fmt"""State summary:
@@ -152,6 +157,8 @@ proc buildStateSummary(ctx: policy.PolicyContext): string =
   let py = safeR16(PosYOff)
   let inBattle = if safeR8(BattleOff) != 0: "yes" else: "no"
   let textOrMenu = if safeR8(MenuTextOff) != 0: "yes" else: "no"
+  let tgPct = touch_grass.touchGrassPercent(ctx.snes)
+  let roomLabel = touch_grass.currentRoomLabel(ctx.snes)
 
   # keep original coarse screen summary
   let img = ctx.frameImage
@@ -184,6 +191,8 @@ ness_hp: {hpCur}/{hpMax}
 ness_pp: {ppCur}/{ppMax}
 pos: (x={px}, y={py})
 sector: {sector}
+touch_grass_pct: {tgPct}
+current_room: {roomLabel}
 in_battle: {inBattle}
 text_or_menu_open: {textOrMenu}
 screen:
@@ -360,10 +369,13 @@ proc main() =
 
   let provider = getProvider(useMock)
 
-  # Seed: ask provider for the initial policy using frame-0 state.
-  var currentPolicy = "function update() end"
+  # Seed: start with the deterministic intro skill (title->naming->bedroom).
+  # The LLM can then revise or continue from there toward touch grass.
+  var currentPolicy = touch_grass.IntroSkillLua
   let initSummary = buildStateSummary(ctx)
-  currentPolicy = provider(initSummary, currentPolicy)
+  # For mock we keep the intro; real provider may be called immediately after.
+  if not useMock:
+    currentPolicy = provider(initSummary, currentPolicy)
   echo "initial policy from provider (len=", currentPolicy.len, ")"
   if not loadPolicyChunk(L, currentPolicy, "initial"):
     echo "failed to load initial policy; abort"
@@ -374,6 +386,15 @@ proc main() =
     echo "  windowed mode: a separate GL window will show the LLM-driven play (no keyboard input; policy controls joy1)"
   else:
     echo "  headless mode (no window)"
+
+  var maxTouchGrass = 0
+  let logPath = "bin/llm_ai_log.txt"
+  createDir("bin")
+  proc logTg(msg: string) =
+    let f = open(logPath, fmAppend)
+    f.writeLine(msg)
+    f.close()
+    echo msg
 
   var blit: GlBlit
   if not useHeadless:
@@ -423,6 +444,13 @@ proc main() =
     # Slow clock: re-query provider with fresh summary, hot-reload if changed.
     # Never blocks the fast per-frame path; only runs every llmInterval.
     if llmInterval > 0 and (ctx.frameCount mod llmInterval == 0) and ctx.frameCount > 0:
+      let tg = touch_grass.touchGrassPercent(snes)
+      if tg > maxTouchGrass:
+        maxTouchGrass = tg
+      logTg(fmt"{now()} frame={ctx.frameCount} touch_grass_pct={tg} max={maxTouchGrass} room={touch_grass.currentRoomLabel(snes)}")
+      if tg >= 100:
+        logTg(fmt"TOUCH GRASS ACHIEVED at frame {ctx.frameCount}")
+        echo "TOUCH GRASS ACHIEVED!"
       status = "thinking"
       if not useHeadless:
         # Keep last frame visible while the (occasional) LLM call is in flight.
@@ -443,7 +471,10 @@ proc main() =
       echo "cpu stopped; ending run"
       break
 
-  echo fmt"done: ran {ctx.frameCount} frames. final joy1=0x{snes.joy1:04x}"
+  let finalTg = touch_grass.touchGrassPercent(snes)
+  if finalTg > maxTouchGrass: maxTouchGrass = finalTg
+  logTg(fmt"{now()} frame={ctx.frameCount} touch_grass_pct={finalTg} max={maxTouchGrass} (final)")
+  echo fmt"done: ran {ctx.frameCount} frames. final joy1=0x{snes.joy1:04x} max_touch_grass={maxTouchGrass}"
   if saveSramEnabled and snes.sramDirty:
     saveSram(snes, saveSramPath)
   L.close()
