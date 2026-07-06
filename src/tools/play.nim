@@ -345,39 +345,44 @@ void main() {
     # Polling can throw if a controller is unplugged/hotplugged mid-read — catch
     # it so yanking a gamepad never crashes the game (just drops its input).
     var pads: seq[Gamepad] = @[]
+    # Poll + read gamepads inside ONE guard. A controller yanked mid-read can
+    # throw a CatchableError OR a Defect (nil/index inside paddy's evdev read),
+    # and reads on a just-vanished pad can throw too — either must only DROP that
+    # frame's pad input, never crash the game. (A C-level segfault in paddy's
+    # evdev layer is uncatchable here and would need an upstream paddy fix.)
     try:
       pads = pollGamepads()
-    except CatchableError:
-      pads = @[]
-    for gp in pads:
-      if gp.button(GamepadUp): joy1 = joy1 or BtnUp
-      if gp.button(GamepadDown): joy1 = joy1 or BtnDown
-      if gp.button(GamepadLeft): joy1 = joy1 or BtnLeft
-      if gp.button(GamepadRight): joy1 = joy1 or BtnRight
-      # Map by PHYSICAL position, not label (paddy is positional/SDL-style):
-      # paddy A=bottom, B=right, X=top, Y=left; SNES has B=bottom, A=right,
-      # X=top, Y=left. So paddy A/B map to SNES B/A (the classic Nintendo A/B
-      # swap); X/Y already line up by position.
-      if gp.button(GamepadA): joy1 = joy1 or BtnB
-      if gp.button(GamepadB): joy1 = joy1 or BtnA
-      if gp.button(GamepadY): joy1 = joy1 or BtnY
-      if gp.button(GamepadX): joy1 = joy1 or BtnX
-      if gp.button(GamepadL1): joy1 = joy1 or BtnL
-      if gp.button(GamepadR1): joy1 = joy1 or BtnR
-      if gp.button(GamepadStart): joy1 = joy1 or BtnStart
-      if gp.button(GamepadSelect): joy1 = joy1 or BtnSel
+      for gp in pads:
+        if gp.button(GamepadUp): joy1 = joy1 or BtnUp
+        if gp.button(GamepadDown): joy1 = joy1 or BtnDown
+        if gp.button(GamepadLeft): joy1 = joy1 or BtnLeft
+        if gp.button(GamepadRight): joy1 = joy1 or BtnRight
+        # Map by PHYSICAL position, not label (paddy is positional/SDL-style):
+        # paddy A=bottom, B=right, X=top, Y=left; SNES has B=bottom, A=right,
+        # X=top, Y=left. So paddy A/B map to SNES B/A (the classic Nintendo A/B
+        # swap); X/Y already line up by position.
+        if gp.button(GamepadA): joy1 = joy1 or BtnB
+        if gp.button(GamepadB): joy1 = joy1 or BtnA
+        if gp.button(GamepadY): joy1 = joy1 or BtnY
+        if gp.button(GamepadX): joy1 = joy1 or BtnX
+        if gp.button(GamepadL1): joy1 = joy1 or BtnL
+        if gp.button(GamepadR1): joy1 = joy1 or BtnR
+        if gp.button(GamepadStart): joy1 = joy1 or BtnStart
+        if gp.button(GamepadSelect): joy1 = joy1 or BtnSel
 
-      # Support cheap SNES imitation pads that report d-pad as fake left-stick axes
-      # (values like 1.0 / 0.0 / -1.0) instead of (or in addition to) real d-pad buttons.
-      # A low threshold so diagonals engage easily — with 0.5 a not-quite-45-degree
-      # push only crossed one axis, so diagonals "snapped" to orthogonal.
-      let lx = gp.axis(GamepadLStickX)
-      let ly = gp.axis(GamepadLStickY)
-      const AxisThreshold = 0.35'f
-      if lx > AxisThreshold: joy1 = joy1 or BtnRight
-      if lx < -AxisThreshold: joy1 = joy1 or BtnLeft
-      if ly > AxisThreshold: joy1 = joy1 or BtnDown
-      if ly < -AxisThreshold: joy1 = joy1 or BtnUp
+        # Support cheap SNES imitation pads that report d-pad as fake left-stick axes
+        # (values like 1.0 / 0.0 / -1.0) instead of (or in addition to) real d-pad buttons.
+        # A low threshold so diagonals engage easily — with 0.5 a not-quite-45-degree
+        # push only crossed one axis, so diagonals "snapped" to orthogonal.
+        let lx = gp.axis(GamepadLStickX)
+        let ly = gp.axis(GamepadLStickY)
+        const AxisThreshold = 0.35'f
+        if lx > AxisThreshold: joy1 = joy1 or BtnRight
+        if lx < -AxisThreshold: joy1 = joy1 or BtnLeft
+        if ly > AxisThreshold: joy1 = joy1 or BtnDown
+        if ly < -AxisThreshold: joy1 = joy1 or BtnUp
+    except CatchableError, Defect:
+      pads = @[]
     # No input latch: faithful d-pad, no held-frame band-aid. A good controller
     # handles its own diagonals; we don't hack around bad hardware.
     snes.joy1 = joy1
