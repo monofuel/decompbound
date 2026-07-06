@@ -10,7 +10,8 @@ import
   ./[cpu, ppu, snesbus, lua53]
 
 const
-  InstrPerLine* = 40
+  InstrPerLine* = 150  # match play.nim's frame budget; at 40 the game is CPU-starved
+                       # and never boots past force-blank (black frames in llm_ai/play).
 
   # SNES joypad bitmasks (match play.nim layout for compatibility).
   BtnB* = 0x8000'u16
