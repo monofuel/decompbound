@@ -193,6 +193,98 @@ function walkTo(tx, ty)
 end
 """
 
+const WinBattleSkillLua* = """
+-- WinBattleSkillLua: reusable skill for LLM agent to auto-fight a basic EarthBound battle.
+-- At the battle command menu for current char: press A (to pick/confirm; Bash/Attack is the first/ top option in standard layout).
+-- Then A (or Left+A) to target the first enemy and confirm the action.
+-- Press A repeatedly to advance/dismiss any battle text ("hit for X", "smaaaash", enemy death, victory, EXP).
+-- Repeats for subsequent party members' turns until battle ends.
+-- Detects end via: world pos leaving the captured battle box (slot1 at ~0x05C0,0x0970) OR menu flag stable at 0 while out of box.
+-- BOUNDED: hard MAXF cap from entry. ROBUST: no-progress watchdog escalates with cursor nudges (dirs) + A; phase hints.
+-- Expose: define winBattle() global; call it from inside a policy's update() e.g. "function update() winBattle() end"
+-- Only sandbox primitives used: frame(), mem.read(addr), pad.press(name). See policy.nim.
+-- TODO(magic): 0x0024=MenuFlagOff (text/menu active), 0x0B8E/0x0B8F+0x0BCA/0x0BCB=world pos (verified in touch_grass + slot1), 0x4DBA=battle flag hint.
+-- TODO(magic): BATTLE_BOX_* from captured slot1 state + touchGrassPercent comments; these are the coords that keep battle at 50pct.
+local MAXF = 3600
+local NO_PROG_THRESH = 48
+local BATTLE_X1 = 0x0580
+local BATTLE_X2 = 0x0600
+local BATTLE_Y1 = 0x0950
+local BATTLE_Y2 = 0x09A0
+
+local _wb = {
+  startf = nil,
+  last_menu = -999,
+  last_f = 0,
+  no_prog = 0,
+  tries = 0
+}
+
+function winBattle()
+  local f = frame()
+  if not _wb.startf then
+    _wb.startf = f
+    _wb.last_f = f
+    _wb.last_menu = mem.read(0x0024)
+  end
+  if f - _wb.startf > MAXF then
+    return
+  end
+  local menu = mem.read(0x0024)
+  local px = mem.read(0x0B8E) + 256 * mem.read(0x0B8F)
+  local py = mem.read(0x0BCA) + 256 * mem.read(0x0BCB)
+  local bflag = mem.read(0x4DBA)
+  local in_box = (px >= BATTLE_X1 and px <= BATTLE_X2 and py >= BATTLE_Y1 and py <= BATTLE_Y2)
+
+  if menu ~= _wb.last_menu then
+    _wb.last_menu = menu
+    _wb.last_f = f
+    _wb.no_prog = 0
+  else
+    _wb.no_prog = _wb.no_prog + 1
+  end
+
+  -- End if we left the battle box for a sustained period (victory places player back on map)
+  if not in_box and _wb.no_prog > 24 then
+    return
+  end
+
+  -- Progress watchdog: if menu value or state not changing, vary inputs to select first option / first target / advance
+  local pressA = ((f % 3) == 0)
+  local vary = (_wb.no_prog > NO_PROG_THRESH) or ((f % 8) == 0)
+
+  if menu ~= 0 or bflag ~= 0 or in_box then
+    if pressA then
+      pad.press('A')
+    end
+    if vary then
+      -- Nudge to ensure first command (often already default) and first enemy target (frequently left or top of list)
+      local d = (_wb.tries % 5)
+      if d == 0 then
+        pad.press('A')
+      elseif d == 1 then
+        pad.press('Left')
+      elseif d == 2 then
+        pad.press('A')
+      elseif d == 3 then
+        pad.press('Down')
+      else
+        pad.press('Right')
+      end
+      _wb.tries = _wb.tries + 1
+    end
+    if (f % 5) == 1 then
+      pad.press('A')
+    end
+  else
+    -- No menu flag: still A-mash to skip damage numbers, "you won", or inter-turn pauses
+    if (f % 4) == 0 then
+      pad.press('A')
+    end
+  end
+end
+"""
+
 proc currentRoomLabel*(snes: SnesBus): string =
   ## Human label for the LLM summary (bedroom / outside / title etc).
   let pct = touchGrassPercent(snes)
