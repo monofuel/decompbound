@@ -150,7 +150,13 @@ of SRAM. Round-trip DoD: decode a table → re-encode → byte-exact.
   stat-growth. The **real** per-character growth lives near file `0x159589` (SNES
   `$D59589`): the level-up code around `~0x0033xx` does `LDA $D59589,X` + the 8×16
   hardware-multiply helper at `$C08FF7` (writes `$4202/3`, reads `$4216`) for the
-  vit/IQ → HP/PP target calcs. Exact field layout at `0x159589` still to pin.
+  vit/IQ → HP/PP target calcs. **Now mapped:** `0x159589` is a table of `0x5E`-byte
+  records; a level→block **selector table at `0x158F23`** (verified — leading zeros
+  then `01 a1 01 a2 01 a0 01 a3 …`, sitting right before the EXP table `0x158F51`)
+  maps a level to a block, and the level-up routine at `~0x0032EC` computes
+  `*0x5E + const` (consts `0x1C / 0x21 / 0x29 / 0x3C` select HP/PP-target vs
+  stat-gain fields) via `$C08FF7`, then `LDA $D59589,X`. The exact per-field /
+  per-char byte layout (mixed u16/u8 within the record) is the last detail to nail.
 
 ## Relationship to the numbered goals
 
