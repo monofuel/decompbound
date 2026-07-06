@@ -13,7 +13,7 @@
 ## The harness + API is our code; ROM and any dumps are user-supplied at runtime.
 
 import
-  std/[os, strutils, strformat],
+  std/[os, strutils, strformat, times, algorithm],
   pixie,
   windy,
   openai_leap,
@@ -204,6 +204,54 @@ proc loadPolicyChunk(L: lua53.PState, src: string, label: string): bool =
     return false
   return true
 
+proc loadSram(snes: SnesBus, path: string) =
+  ## Load a battery save into SRAM if the .srm file exists (else start fresh).
+  ## Used only for the LLM's isolated save when --save-srm is given.
+  if fileExists(path):
+    let data = readFile(path)
+    for i in 0 ..< min(data.len, snes.sram.len):
+      snes.sram[i] = data[i].uint8
+    echo "loaded save: ", path, " (", data.len, " bytes)"
+
+proc sramBytes(snes: SnesBus): string =
+  ## Serialize the 8KB SRAM to a byte string.
+  result = newString(snes.sram.len)
+  for i in 0 ..< snes.sram.len:
+    result[i] = snes.sram[i].char
+
+proc sramValid(snes: SnesBus): bool =
+  ## True if the SRAM carries EB's "HAL Laboratory, inc." save signature.
+  ## A real save, not empty/garbage, so we never back up junk.
+  const Sig = "HAL Laboratory, inc."
+  for i in 0 ..< Sig.len:
+    if snes.sram[i].char != Sig[i]: return false
+  true
+
+proc saveSram(snes: SnesBus, path: string) =
+  ## Write the 8KB battery SRAM to the .srm, plus a rotating, timestamped backup
+  ## (of valid saves only) in bin/sram_backups/, keeping the newest 2000.
+  ## Same safety pattern as play.nim so a bad write can't destroy progress.
+  let bytes = snes.sramBytes()
+  writeFile(path, bytes)
+  snes.sramDirty = false
+  echo "saved: ", path
+  if snes.sramValid():
+    const MaxBackups = 2000
+    let dir = "bin/sram_backups"
+    createDir(dir)
+    let base = path.splitFile.name
+    let backup = dir / (base & "_" & now().format("yyyyMMdd-HHmmss") & ".srm")
+    if not fileExists(backup):
+      writeFile(backup, bytes)
+      echo "  backup: ", backup
+    # Prune to the newest MaxBackups.
+    var files: seq[string]
+    for f in walkFiles(dir / (base & "_*.srm")):
+      files.add f
+    files.sort()
+    for i in 0 ..< max(0, files.len - MaxBackups):
+      removeFile(files[i])
+
 proc main() =
   ## Boot emulator, obtain initial policy string from provider (mock or LLM),
   ## load it into sandbox, run fast per-frame loop calling update(), periodically
@@ -215,6 +263,8 @@ proc main() =
   var useMock = true
   var useHeadless = false
   var pngEverySet = false
+  var saveSramPath = ""
+  var saveSramEnabled = false
   var i = 1
   while i <= paramCount():
     let a = paramStr(i)
@@ -241,13 +291,26 @@ proc main() =
       useMock = false
     elif a == "--mock":
       useMock = true
+    elif a == "--save-srm":
+      saveSramEnabled = true
+      if i < paramCount():
+        let next = paramStr(i + 1)
+        if not next.startsWith("--"):
+          saveSramPath = next
+          inc i
+    elif a.startsWith("--save-srm="):
+      saveSramEnabled = true
+      saveSramPath = a[11 .. ^1]
     elif a == "--help" or a == "-h":
-      echo "usage: nim c -r src/tools/llm_ai.nim -- [--frames N] [--llm-interval K] [--png-every M] [--headless] [--mock|--no-mock] [rom]"
+      echo "usage: nim c -r src/tools/llm_ai.nim -- [--frames N] [--llm-interval K] [--png-every M] [--headless] [--mock|--no-mock] [--save-srm | --save-srm=PATH] [rom]"
       echo "  defaults: --frames 60 --llm-interval 20 ROM=bin/Earthbound (U) [!].smc"
       echo "  windowed by default (opens GL window titled 'EarthBound - LLM (qwen)' for watching)"
       echo "  --headless: no window (for CI / batch); --png-every only dumps when flag is passed"
       echo "  --mock (default): use canned policy string, no key needed"
       echo "  --no-mock: call real LLM via openai_leap (needs OPENAI_API_KEY)"
+      echo "  --save-srm: enable OPTIONAL isolated SRAM for LLM's own progress (never user's)"
+      echo "  --save-srm=PATH: override default path bin/states/llm_ai.srm (MUST differ from ROM .srm)"
+      echo "  Absent --save-srm (default): NO SRAM I/O, fully ephemeral (for auto LLM tests)"
       echo "  To run live: export OPENAI_API_KEY=sk-... ; nix develop -c nim c -r src/tools/llm_ai.nim -- --no-mock --frames 120"
       quit(0)
     elif romPath.len == 0 and not a.startsWith("--"):
@@ -256,11 +319,27 @@ proc main() =
   if romPath.len == 0:
     romPath = "bin/Earthbound (U) [!].smc"
 
-  echo fmt"llm_ai: ROM={romPath} frames={maxFrames} llmInterval={llmInterval} pngEvery={pngEvery} (set={pngEverySet}) mock={useMock} headless={useHeadless}"
+  if saveSramEnabled:
+    if saveSramPath.len == 0:
+      saveSramPath = "bin/states/llm_ai.srm"
+    let romSrm = romPath.changeFileExt("srm")
+    if saveSramPath == romSrm:
+      echo fmt"ERROR: --save-srm path must never resolve to the ROM's .srm: {romSrm} (would touch the user's real save). Refusing."
+      quit(1)
+    let sdir = saveSramPath.splitFile.dir
+    if sdir.len > 0:
+      createDir(sdir)
+    else:
+      createDir("bin")
+
+  let saveStr = if saveSramEnabled: saveSramPath else: "(ephemeral)"
+  echo fmt"llm_ai: ROM={romPath} frames={maxFrames} llmInterval={llmInterval} pngEvery={pngEvery} (set={pngEverySet}) mock={useMock} headless={useHeadless} saveSram={saveStr}"
   createDir("bin")
 
   let rom = policy.readRomFile(romPath)
   let snes = newSnesBus(rom)
+  if saveSramEnabled:
+    loadSram(snes, saveSramPath)
   var cpu = snes.resetCpu()
   snes.initHdma()
 
@@ -329,6 +408,10 @@ proc main() =
       if blit.window.title != t:
         blit.window.title = t
 
+    # Periodic SRAM flush for isolated save (throttled like play.nim to coalesce writes).
+    if saveSramEnabled and snes.sramDirty and (ctx.frameCount mod 60 == 0):
+      saveSram(snes, saveSramPath)
+
     # PNG dumps only when --png-every explicitly provided by user; target subdir
     # (prevents bin/ root spam from default or previous runs).
     if pngEverySet and pngEvery > 0 and (ctx.frameCount mod pngEvery == 0):
@@ -361,6 +444,8 @@ proc main() =
       break
 
   echo fmt"done: ran {ctx.frameCount} frames. final joy1=0x{snes.joy1:04x}"
+  if saveSramEnabled and snes.sramDirty:
+    saveSram(snes, saveSramPath)
   L.close()
   quit(0)
 
