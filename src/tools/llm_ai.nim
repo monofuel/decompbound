@@ -114,20 +114,46 @@ proc getProvider(useMock: bool): PolicyProvider =
 
 proc buildStateSummary(ctx: policy.PolicyContext): string =
   ## Compact text description of game state for the LLM.
-  ## Built from direct WRAM reads (via bus, same backing as mem.read) + screen pixels.
-  ## frame + handful of WRAM bytes (generic offsets until EB semantics mapped) +
-  ## avg brightness + very coarse 4x4 luminance grid.
+  ## Labeled key play state (HP/PP from SRAM-mirrored block, pos, sector, battle/menu flags)
+  ## + frame + coarse screen grid. Anchored via decompilation.md + sram-format + disasm of
+  ## sector setter + savestate WRAM extracts. Tentative offsets labeled as such.
   let f = ctx.frameCount
-  var wramLines = ""
-  # TODO: replace these magic offsets with documented EB WRAM labels (player x/y,
-  # menu state, action flags, text box active, etc). Hard-coded to bootstrap.
-  # Offsets chosen around common low-WRAM areas that often hold live state.
-  const SampleOffs = [0x0020, 0x0021, 0x0024, 0x00A0, 0x00A2, 0x0100, 0x0200, 0x0300]
-  for off in SampleOffs:
-    let ea = 0x7E0000'u32 + off.uint32
-    let v = if ea.int < ctx.snes.bus.mem.len: ctx.snes.bus.mem[ea.int].int else: 0
-    wramLines.add fmt"  0x{off:04X}: 0x{v:02X}\n"
-  # coarse screen
+  let mem = ctx.snes.bus.mem
+  proc safeR8(off: int): int =
+    let ea = 0x7E0000 + off
+    if ea >= 0 and ea < mem.len: mem[ea].int else: 0
+  proc safeR16(off: int): int =
+    let lo = safeR8(off)
+    let hi = safeR8(off + 1)
+    lo or (hi shl 8)
+
+  # Anchored offsets (see report):
+  #   sector: $89CA (disasm @file 0x043573 + docs)
+  #   HP/PP: SRAM mirror @ ~0x97F5 (docs + 97F5 ADC/LDA refs in code) + sram-format offs
+  #   pos: tentative low-wram from state extracts + 98xx map code cross
+  #   battle/menu: tentative from disasm cross-refs (4DBA etc) + low flag areas
+  const
+    HpCurOff  = 0x97F5 + 0x023E   # 0x9A33
+    HpMaxOff  = 0x97F5 + 0x0240   # 0x9A35
+    PpCurOff  = 0x97F5 + 0x0244   # 0x9A39
+    PpMaxOff  = 0x97F5 + 0x0246   # 0x9A3B
+    SectorOff = 0x89CA
+    PosXOff   = 0x00B4            # tentative (small coords observed in live WRAM extracts)
+    PosYOff   = 0x00B6            # tentative
+    BattleOff = 0x4DBA            # tentative (disasm $4DBA test near sector/map init)
+    MenuTextOff = 0x0024          # tentative (low-WRAM UI/action flag area)
+
+  let hpCur = safeR16(HpCurOff)
+  let hpMax = safeR16(HpMaxOff)
+  let ppCur = safeR16(PpCurOff)
+  let ppMax = safeR16(PpMaxOff)
+  let sector = safeR16(SectorOff)
+  let px = safeR16(PosXOff)
+  let py = safeR16(PosYOff)
+  let inBattle = if safeR8(BattleOff) != 0: "yes" else: "no"
+  let textOrMenu = if safeR8(MenuTextOff) != 0: "yes" else: "no"
+
+  # keep original coarse screen summary
   let img = ctx.frameImage
   var sum = 0
   var cnt = 0
@@ -152,9 +178,15 @@ proc buildStateSummary(ctx: policy.PolicyContext): string =
       let ca = if cellCnt > 0: gsum[gy][gx] div cellCnt else: 0
       grid.add fmt"{ca:3} "
     grid.add "\n"
+
   result = fmt"""frame: {f}
-wram_samples (tentative offsets):
-{wramLines}screen:
+ness_hp: {hpCur}/{hpMax}
+ness_pp: {ppCur}/{ppMax}
+pos: (x={px}, y={py})
+sector: {sector}
+in_battle: {inBattle}
+text_or_menu_open: {textOrMenu}
+screen:
   avg_brightness: {avg}
 {grid}"""
 
