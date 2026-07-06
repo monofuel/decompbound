@@ -313,32 +313,42 @@ proc renderScanline*(snes: SnesBus, image: Image, py: int) =
 
   let bright = ((snes.ppuRegs[0x00].int and 0x0F) + 1)
   for px in 0..<ScreenWidth:
-    var m = main.buf[px]
-    # Force main screen black: 0=never, 1=outside window, 2=inside, 3=always.
-    let blackHere = case forceBlackMode
-      of 1: not colorWin[px]
-      of 2: colorWin[px]
-      of 3: true
-      else: false
-    if blackHere:
-      m = ColorRGBA(r: 0, g: 0, b: 0, a: 255)
-    objSuppressLine[py][px] = blackHere or (objWindowed and objWin[px])
-    # Color-math enable window: 0=always, 1=inside, 2=outside, 3=never.
-    let mathHere = mathLayers != 0 and (case mathEnableMode
-      of 1: colorWin[px]
-      of 2: not colorWin[px]
-      of 3: false
-      else: true)
-    if mathHere:
-      let s = mathBuf[px]
-      var r = if doSub: m.r.int - s.r.int else: m.r.int + s.r.int
-      var g = if doSub: m.g.int - s.g.int else: m.g.int + s.g.int
-      var b = if doSub: m.b.int - s.b.int else: m.b.int + s.b.int
-      if doHalf and (useSubScreen and subDrawn[px] or not useSubScreen):
-        r = r div 2
-        g = g div 2
-        b = b div 2
-      m = ColorRGBA(r: clamp8(r), g: clamp8(g), b: clamp8(b), a: 255)
+    var m: ColorRGBA
+    let showSubscreenDirect = (mainMask == 0'u8) and useSubScreen and (mathLayers != 0) and (snes.ppuRegs[0x2D] != 0'u8)
+    if showSubscreenDirect:
+      # TM=00 (main layers off via HDMA band) + subscreen (TS) layers + color math
+      # enabled with subscreen operand (CGWSEL bit 1) + mathLayers (CGADSUB): output
+      # the subscreen composite directly. This makes the bordered-battle HP/PP status
+      # window (a subscreen BG) visible instead of flat backdrop.
+      m = mathBuf[px]
+      objSuppressLine[py][px] = false
+    else:
+      m = main.buf[px]
+      # Force main screen black: 0=never, 1=outside window, 2=inside, 3=always.
+      let blackHere = case forceBlackMode
+        of 1: not colorWin[px]
+        of 2: colorWin[px]
+        of 3: true
+        else: false
+      if blackHere:
+        m = ColorRGBA(r: 0, g: 0, b: 0, a: 255)
+      objSuppressLine[py][px] = blackHere or (objWindowed and objWin[px])
+      # Color-math enable window: 0=always, 1=inside, 2=outside, 3=never.
+      let mathHere = mathLayers != 0 and (case mathEnableMode
+        of 1: colorWin[px]
+        of 2: not colorWin[px]
+        of 3: false
+        else: true)
+      if mathHere:
+        let s = mathBuf[px]
+        var r = if doSub: m.r.int - s.r.int else: m.r.int + s.r.int
+        var g = if doSub: m.g.int - s.g.int else: m.g.int + s.g.int
+        var b = if doSub: m.b.int - s.b.int else: m.b.int + s.b.int
+        if doHalf and (useSubScreen and subDrawn[px] or not useSubScreen):
+          r = r div 2
+          g = g div 2
+          b = b div 2
+        m = ColorRGBA(r: clamp8(r), g: clamp8(g), b: clamp8(b), a: 255)
     m.r = ((m.r.int * bright) div 16).uint8
     m.g = ((m.g.int * bright) div 16).uint8
     m.b = ((m.b.int * bright) div 16).uint8
