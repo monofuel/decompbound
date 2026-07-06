@@ -13,3 +13,4 @@ requires "silky"
 requires "paddy >= 0.1.0"
 requires "slappy"
 requires "mummy"
+requires "openai_leap"   # LLM client for the LLM-plays / llm-remix agent bridge
