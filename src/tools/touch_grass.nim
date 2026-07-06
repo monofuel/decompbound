@@ -1,5 +1,5 @@
 ## Touch Grass milestone helpers for LLM agent: deterministic intro skill (Lua)
-## and the touchGrassPercent metric based on REAL player world position.
+## + WalkToSkillLua (reactive walkTo) + touchGrassPercent metric (REAL player world pos).
 ## GROUND TRUTH: entity world X at WRAM $0B8E,X ; Y at $0BCA,X (X = slot*2).
 ## Player = first active entity, slot 0 (idx=0). 81 LDA/STA $0B8E,X sites in ROM confirm.
 ## Sector at $89CA. Captured via trace_tool + stepper equivalent to --load-srm --watch 0B8E-0BCC,89CA
@@ -129,6 +129,67 @@ function update()
       pad.press('A')
     end
   end
+end
+"""
+
+const WalkToSkillLua* = """
+-- Reactive walkTo(tx, ty) skill for the LLM agent (touch-grass walk-out and general nav).
+-- REACTIVE pathfinding only: no collision map / tile reader used (exact pass bit in tile word at 0x2640 unpinned per decompilation.md).
+-- Reads live player (slot 0) world pos every frame via mem.read: X at 0x0B8E/0x0B8F (LE), Y at 0x0BCA/0x0BCB.
+-- Computes dominant direction (larger delta axis), presses that d-pad dir via pad.press.
+-- DETECT STUCK: if pos unchanged for ~STUCK_N frames, switch to a perpendicular dir briefly to route around obstacle.
+-- STOP: when manhattan dist <= THRESH. Robust + BOUNDED by MAXF frame cap from first target (never infinite-loops).
+-- Usage (LLM includes this chunk then calls from its update() e.g. while not at door): walkTo(targetX, targetY)
+-- TODO(magic): 0x0B8E etc are the byte-verified WRAM bases (WorldXBase/WorldYBase in this file); see policy.nim for mem.read/pad/frame API.
+local THRESH = 12
+local STUCK_N = 30
+local MAXF = 12000
+local _walk = {tx=nil, ty=nil, lx=nil, ly=nil, stuck=0, startf=nil}
+function walkTo(tx, ty)
+  local f = frame()
+  if not _walk.startf or _walk.tx ~= tx or _walk.ty ~= ty then
+    _walk.tx = tx
+    _walk.ty = ty
+    _walk.startf = f
+    _walk.lx = nil
+    _walk.ly = nil
+    _walk.stuck = 0
+  end
+  if f - _walk.startf > MAXF then
+    return
+  end
+  local px = mem.read(0x0B8E) + 256 * mem.read(0x0B8F)
+  local py = mem.read(0x0BCA) + 256 * mem.read(0x0BCB)
+  local dx = tx - px
+  local dy = ty - py
+  local adx, ady = math.abs(dx), math.abs(dy)
+  if adx + ady <= THRESH then
+    _walk.tx = nil
+    _walk.ty = nil
+    _walk.startf = nil
+    return
+  end
+  if _walk.lx == px and _walk.ly == py then
+    _walk.stuck = _walk.stuck + 1
+  else
+    _walk.stuck = 0
+  end
+  _walk.lx = px
+  _walk.ly = py
+  local dir
+  local use_perp = (_walk.stuck > STUCK_N)
+  if adx >= ady then
+    dir = (dx > 0) and "Right" or "Left"
+    if use_perp then
+      dir = ((_walk.stuck // 20) % 2 == 0) and "Down" or "Up"
+    end
+  else
+    dir = (dy > 0) and "Down" or "Up"
+    if use_perp then
+      dir = ((_walk.stuck // 20) % 2 == 0) and "Right" or "Left"
+    end
+  end
+  pad.press(dir)
 end
 """
 
