@@ -1,7 +1,9 @@
 ## Lua 5.3 minimal FFI binding using the static liblua.a embed technique.
 ## This is a thin hand-rolled binding modeled on the ~53 line noulith pattern.
-## It is sufficient to create a state, load a buffer, and pcall it. No callbacks
-## or value marshaling yet; that is milestone 2.
+## Milestone 1: newstate/openlibs/loadbuffer/pcall.
+## Milestone 2a (this): register Nim callbacks as Lua globals (pushcclosure+setglobal),
+## value marshaling both directions (push*/to*), and debug hook (sethook + MASKCOUNT)
+## for interrupting runaway scripts via lua_error unwind from within hook.
 
 when defined(posix) or defined(unix) or defined(linux) or defined(macosx):
   {.passL: "-lm".}
@@ -21,10 +23,33 @@ const
   ERRERR* = 6
   MULTRET* = -1
 
+  # Basic types (lua_type results). Used for marshaling checks.
+  TNIL* = 0
+  TBOOLEAN* = 1
+  TLIGHTUSERDATA* = 2
+  TNUMBER* = 3
+  TSTRING* = 4
+  TTABLE* = 5
+  TFUNCTION* = 6
+  TUSERDATA* = 7
+  TTHREAD* = 8
+
+  # Debug hook mask for instruction count. In Lua 5.3:
+  # LUA_HOOKCOUNT = 3, LUA_MASKCOUNT = (1 << 3) = 8.
+  # (Task note mentioned =2; that may be for HOOKLINE in some versions/docs.
+  # Actual value from vendor/lua/lua.h and ldebug.c is 8.)
+  MASKCOUNT* = 1 shl 3
+
 type
-  # Type of numbers in Lua (for future marshaling).
+  # Type of numbers in Lua (for marshaling). Lua 5.3 defaults to 64-bit lua_Integer
+  # (long long) on 64-bit platforms unless LUA_32BITS or LUA_C89_NUMBERS defined.
+  # See vendor/lua/luaconf.h. Using clonglong here to match the static lib build.
   Number* = float
-  Integer* = cint
+  Integer* = clonglong
+
+  # Hook type for lua_sethook. We use pointer for lua_Debug to avoid needing full
+  # layout (count hooks typically ignore the ar details).
+  Hook* = proc (L: PState, ar: pointer) {.cdecl.}
 
 {.pragma: ilua, importc: "lua_$1".} # lua.h
 {.pragma: iluaL, importc: "luaL_$1".} # lauxlib.h
@@ -52,4 +77,84 @@ proc pcall*(L: PState; nargs, nresults, errFunc: cint): cint {.inline.} =
   ## Protected call. Returns LUA_OK on success.
   L.pcallk(nargs, nresults, errFunc, 0, nil)
 
+  # --- Milestone 2a FFI additions: callbacks, marshal, debug hook ---
+
+proc pushcclosure*(L: PState, fn: CFunction, n: cint) {.ilua.}
+  ## Push C function as closure with n upvalues.
+
+proc setglobal*(L: PState, name: cstring) {.ilua.}
+  ## Pop value and set as global 'name'.
+
+proc pushinteger*(L: PState, n: Integer) {.ilua.}
+  ## Push integer onto Lua stack.
+
+proc pushstring*(L: PState, s: cstring) {.ilua.}
+  ## Push zero-terminated string.
+
+proc pushboolean*(L: PState, b: cint) {.ilua.}
+  ## Push boolean (0 false, non-zero true).
+
+proc pushnil*(L: PState) {.ilua.}
+  ## Push nil.
+
+proc gettop*(L: PState): cint {.ilua.}
+  ## Return current stack top index (num elements).
+
+proc tointegerx*(L: PState, idx: cint, isnum: ptr cint): Integer {.ilua.}
+  ## Read integer from stack idx (1-based). isnum optional out flag.
+
+proc tolstring*(L: PState, idx: cint, len: ptr csize_t): cstring {.ilua.}
+  ## Read string (or convert) at idx. len optional.
+
+proc toboolean*(L: PState, idx: cint): cint {.ilua.}
+  ## Read boolean at idx (Lua rules: nil/false = 0 else 1).
+
+proc `type`*(L: PState, idx: cint): cint {.ilua.}
+  ## Return type tag at idx (one of TNIL etc). Use backticks as 'type' is keyword.
+
+proc settop*(L: PState, idx: cint) {.ilua.}
+  ## Set stack top (use negative to pop relative).
+
+proc error*(L: PState): cint {.ilua.}
+  ## Raise Lua error (never returns; longjmps internally). Call after pushing msg.
+
+proc sethook*(L: PState, fn: Hook, mask: cint, count: cint) {.ilua.}
+  ## Install debug hook. For count interrupt: mask=MASKCOUNT, count=N.
+
+proc close*(L: PState) {.ilua.}
+  ## Close the Lua state and free all associated memory.
+
 {.pop.}
+
+proc pushcfunction*(L: PState, f: CFunction) {.inline.} =
+  ## Push a C function as Lua function (0 upvalues). Wrapper for pushcclosure.
+  L.pushcclosure(f, 0)
+
+proc register*(L: PState, name: cstring, f: CFunction) {.inline.} =
+  ## Register Nim proc (cdecl CFunction) as a Lua global. Uses pushcfunction + setglobal.
+  ## This is the core for exposing hostAdd etc to scripts.
+  L.pushcfunction(f)
+  L.setglobal(name)
+
+proc pop*(L: PState, n: cint = 1) {.inline.} =
+  ## Pop n values from stack. Nim-friendly.
+  L.settop(-n - 1)
+
+proc toInteger*(L: PState, idx: cint): Integer {.inline.} =
+  ## Read integer at idx (ignore isnum flag). Nim-friendly.
+  L.tointegerx(idx, nil)
+
+proc toString*(L: PState, idx: cint): string {.inline.} =
+  ## Read string at idx as Nim string (or "" if nil). Nim-friendly helper.
+  var len: csize_t = 0
+  let s = L.tolstring(idx, addr len)
+  if s == nil: "" else: $s
+
+proc toBool*(L: PState, idx: cint): bool {.inline.} =
+  ## Read as Nim bool. Nim-friendly. (Named toBool to avoid Nim identifier style
+  ## collision with the raw toboolean binding.)
+  L.toboolean(idx) != 0
+
+proc getType*(L: PState, idx: cint): cint {.inline.} =
+  ## Alias to avoid keyword. Nim-friendly.
+  L.`type`(idx)
