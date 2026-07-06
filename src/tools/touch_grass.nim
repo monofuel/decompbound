@@ -43,14 +43,17 @@ proc readU16*(snes: SnesBus, off: int): int =
   lo or (hi shl 8)
 
 proc touchGrassPercent*(snes: SnesBus): int =
-  ## 0 at title/pre-game, 25 bedroom, 50/75 intermediates, 100 outside (touch grass).
+  ## 0 at title/pre-game/naming (cold or small pos), 25 bedroom, 75 house inter, 50 other indoors/battle, 100 ONLY real Onett overworld.
   ## Keys STRICTLY on verified player world pos $0B8E,X / $0BCA,X (slot 0, idx=slot*2)
-  ## + sector $89CA. Replaces fuzzy old heuristic (old 00B4 etc misclassified slot1 battle as bedroom).
-  ## Captured coords (via trace_tool --watch equiv + stepper runs):
-  ##   title: (0x0000,0x0000) sec 0x0000
-  ##   bedroom: (0x1F40,0x05C0) sec 0x0000/0xFFFF
-  ##   inter: (0x1E68,0x05C0) sec 0xFFFF (slot2 proxy for house room)
-  ##   outside: nonzero pos outside the bedroom/inter boxes
+  ## + sector $89CA.
+  ## Captured coords (via stepper + loadState + llm_ai repro runs + pos logs):
+  ##   title/cold: (0x0000,0x0000) sec 0x0000 -> 0
+  ##   naming/pre (small pos, e.g. 0x0005,0x0028 or 0xFFFB): -> 0 (prevents title->100 jump)
+  ##   bedroom (post naming): (0x1F40,0x05C0) sec 0/FFFF -> 25
+  ##   inter/house (slot2): (0x1E68,0x05C0) sec FFFF -> 75
+  ##   battle (slot1): (0x05C0,0x0970) sec FFFF -> 50
+  ##   credit screen false (1D48,0B30): -> 50 (now guarded)
+  ##   outside: only when pos escapes broad indoor band AND not pre/small/battle (real Onett validated visually as non-naming/credit)
   ## Slot stride=2; player=slot 0.
   ## All magic accompanied by TODO/comments per AGENTS.
   let sector = readU16(snes, SectorOff)
@@ -58,13 +61,14 @@ proc touchGrassPercent*(snes: SnesBus): int =
   let px = readU16(snes, WorldXBase + idx)
   let py = readU16(snes, WorldYBase + idx)
 
-  # Title / cold boot: zero pos + sector 0 (or FFFF early).
-  # TODO: magic 0 for pos is initial sentinel before entity placement on naming complete.
-  if (px == 0 and py == 0) and (sector == 0 or sector == 0xFFFF):
+  # Title / cold boot / pre-placement (naming): zero or small pos.
+  # Prevents jump title->100 on early nonzero garbage/small during naming (visual: naming menu).
+  # TODO: magic small-pos threshold guards pre-bedroom states; 0x0100 chosen from captured naming ~0005 vs bedroom 1F40.
+  if (px == 0 and py == 0) or (px < 0x0100 and py < 0x0100):
     return 0
 
   # Bedroom (Ness room, game start post-naming). Exact + tight region from capture.
-  # (0x1F40,0x05C0) observed at f~832 after naming sequence in stepper run.
+  # (0x1F40,0x05C0) observed at f~832 in pos logs.
   # TODO: the exact (X,Y) is the placed player coord in bedroom map; range tolerates minor variance.
   if (px >= 0x1F00 and px < 0x2000 and py <= 0x0600) or
      (abs(px - 0x1F40) <= 0x80 and abs(py - 0x05C0) <= 0x80):
@@ -77,16 +81,17 @@ proc touchGrassPercent*(snes: SnesBus): int =
     return 75
 
   # Outside Onett (first step out, touch grass = 100).
-  # Region: has pos, not bedroom, not inter, not the slot1 battle box.
-  # Battle slot1 (05C0,0970) must explicitly not hit here or bedroom (px low).
-  # TODO: replace with exact captured outside (Onett) (X,Y) + sector 0x002D when traced.
+  # TIGHTENED: require genuine escape from broad indoor/house region (1D00-20FF, Y<=0C00 covers bedroom/inter/credits).
+  # Also exclude small pre, battle box. Must be nonzero world pos outside.
+  # Visual ground truth: previous "100" states were naming menu or credits screen, not Onett trees/streets.
+  # Real outside will have pos outside this band (per Onett map placement).
+  # TODO: replace with exact captured outside (Onett) (X,Y) + sector when traced from successful exit.
   let isBattleBox = (px >= 0x0580 and px <= 0x0600 and py >= 0x0950 and py <= 0x09A0)
-  if (px != 0 or py != 0) and not isBattleBox:
-    # outside if escaped the house boxes (use e.g. low X or high X outside bedroom band)
-    if not (px >= 0x1E00 and py <= 0x0600):
-      return 100
+  let isBroadIndoor = (px >= 0x1D00 and px < 0x2100 and py <= 0x0C00)
+  if (px != 0 or py != 0) and not isBattleBox and not isBroadIndoor:
+    return 100
 
-  # default intermediate progress or unknown
+  # default intermediate progress or unknown (battle, credits, other indoors)
   return 50
 
 const IntroSkillLua* = """
