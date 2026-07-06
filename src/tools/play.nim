@@ -530,9 +530,7 @@ void main() {
           echo &"saved slot {slot} -> {p}"
         else:
           if fileExists(p):
-            let (loadedSnes, loadedCpu) = loadState(rom, slot)
-            snes = loadedSnes
-            cpu = loadedCpu
+            loadState(snes, cpu, slot)
             echo &"loaded slot {slot} <- {p}"
           else:
             echo &"no state for slot {slot}"

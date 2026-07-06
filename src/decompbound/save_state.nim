@@ -170,9 +170,10 @@ proc saveState*(snes: SnesBus, cpu: Cpu, slot: int) =
   writeI32le(stream, dsp.writes.int32)
   stream.writeData(unsafeAddr(dsp.regs[0]), dsp.regs.len)
 
-proc loadState*(rom: seq[uint8], slot: int): tuple[snes: SnesBus, cpu: Cpu] =
-  ## Rebuild a SnesBus (to restore hooks + ROM image) then overlay the saved
-  ## public state fields. Returns the restored bus and cpu.
+proc loadState*(snes: SnesBus, cpu: var Cpu, slot: int) =
+  ## Restore saved state IN-PLACE into the passed SnesBus and Cpu (mutates
+  ## existing objects so the slappy audio stream attached to snes.apu at
+  ## startup continues to work; no new SnesBus allocation).
   let path = "bin/states" / &"slot{slot}.state"
   let stream = newFileStream(path, fmRead)
   if stream.isNil:
@@ -186,23 +187,20 @@ proc loadState*(rom: seq[uint8], slot: int): tuple[snes: SnesBus, cpu: Cpu] =
   if ver != StateVersion:
     raise newException(ValueError, &"unsupported state version {ver}")
 
-  var c: Cpu
-  c.a = readU16le(stream)
-  c.x = readU16le(stream)
-  c.y = readU16le(stream)
-  c.s = readU16le(stream)
-  c.d = readU16le(stream)
-  c.pc = readU16le(stream)
-  c.dbr = readU8(stream)
-  c.pbr = readU8(stream)
-  c.p = readU8(stream)
-  c.emulation = readU8(stream) != 0
-  c.stopped = readU8(stream) != 0
-  c.waiting = readU8(stream) != 0
-  c.mvnBudget = readI32le(stream).int
-  c.nmiPending = readU8(stream) != 0
-
-  let snes = newSnesBus(rom)
+  cpu.a = readU16le(stream)
+  cpu.x = readU16le(stream)
+  cpu.y = readU16le(stream)
+  cpu.s = readU16le(stream)
+  cpu.d = readU16le(stream)
+  cpu.pc = readU16le(stream)
+  cpu.dbr = readU8(stream)
+  cpu.pbr = readU8(stream)
+  cpu.p = readU8(stream)
+  cpu.emulation = readU8(stream) != 0
+  cpu.stopped = readU8(stream) != 0
+  cpu.waiting = readU8(stream) != 0
+  cpu.mvnBudget = readI32le(stream).int
+  cpu.nmiPending = readU8(stream) != 0
 
   var wramBuf: array[WramSize, uint8]
   discard stream.readData(addr wramBuf[0], WramSize)
@@ -274,8 +272,6 @@ proc loadState*(rom: seq[uint8], slot: int): tuple[snes: SnesBus, cpu: Cpu] =
   var dspRegsBuf: array[128, uint8]
   discard stream.readData(addr dspRegsBuf[0], 128)
   copyMem(addr snes.apu.dsp.regs[0], addr dspRegsBuf[0], 128)
-
-  result = (snes, c)
 
 proc statePathForSlot*(slot: int): string =
   ## Filesystem path for the given save slot.
