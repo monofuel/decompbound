@@ -106,6 +106,16 @@ tile+attr words, standard SNES BG format), and **tileset graphics** at file
   run by the `[$80],Y` object interpreter (the same `$C09558` engine, see
   `scripts.md`), executor at file `0x009D9E` (`JML [$0A5A]`), chained via `$125A`.
   The per-map door *data source* (the real "table") is upstream in area-load: next dig.
+- **Player position + collision (for pathfinding)** — the player/entity **world X/Y**
+  is at WRAM `$0B8E,X` / `$0BCA,X` (indexed by entity slot; the player is the first
+  active entity, usually slot 0) — byte-verified (81 `(LDA|STA) $0B8E,X` sites; `STA
+  $0B8E,X` near file `0x9390`; screen-relative = minus scroll `$0031/$0033`). The
+  **tile+attr reader** is at file `0x2640` (SNES `$C02640`): `LDA $D01880,X` returns
+  the 2-byte tilemap word (data `0x101800`, ptr table `0x100000`) for a target tile.
+  Walkability is a **branch-on-bit after that word load** — a passability bit in the
+  2-byte tilemap word; the exact bit still needs a confirmed wall-contact trace to
+  pin. Together these give a future `walkTo` its A* pieces: read `$0B8E/$0BCA`, index
+  the tilemap via `0x2640`'s calc, test the step bit.
 
 ### 📊 Game data (track, not yet its own doc)
 
