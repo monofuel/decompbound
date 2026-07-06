@@ -1,11 +1,10 @@
 ## S-DSP: the SNES audio mixer (Goal 2a, docs/audio.md).
-## First-pass accuracy: BRR sample decoding, ADSR/GAIN envelopes, pitch
-## stepping with 4-tap Gaussian interpolation, 8-voice stereo mix at 32kHz,
-## plus the echo unit (buffer + 8-tap FIR + feedback, EON/EFB/EVOL/ESA/EDL)
-## and the noise generator (LFSR + NON). Echo restores EarthBound's reverb +
-## loudness (it leans on echo hard); noise drives percussive SFX. Gaussian
-## table and interp formula from fullsnes; GAIN modes and BRR end handling
-## corrected for enveloped/percussive SFX.
+## BRR decode (filters 0-3, range, loop/end), 4-tap Gaussian interp, ADSR/GAIN
+## envelopes (incl. edge rates), 14-bit VxPITCH + pitch counter, noise (NON + LFSR),
+## echo (EON/FIR/EFB), and pitch modulation (PMON $2D). PMON: voices 1-7 can have
+## pitch stepped modulated by prior voice's post-env output sample (factor =
+## (prevOut>>4)+0x400; step=(step*factor)>>10 per fullsnes/anomie). 8-voice 32kHz
+## stereo. Clamp everywhere (no wrap) to preserve working audio paths.
 
 type
   EnvPhase = enum
@@ -285,8 +284,9 @@ proc mixSample*(dsp: Dsp): tuple[left: int16, right: int16] =
   var dryR = 0'i32
   var echoInL = 0'i32
   var echoInR = 0'i32
-  let non = dsp.regs[0x3D]   # Per-voice noise enable.
-  let eon = dsp.regs[0x4D]   # Per-voice echo enable.
+  let pmon = dsp.regs[0x2D]   # Per-voice pitch modulation enable (voices 1-7).
+  let non = dsp.regs[0x3D]    # Per-voice noise enable.
+  let eon = dsp.regs[0x4D]    # Per-voice echo enable.
 
   # Advance the noise LFSR at the rate selected by FLG bits 0-4, then form the
   # signed noise sample (used by any voice whose NON bit is set).
@@ -299,8 +299,15 @@ proc mixSample*(dsp: Dsp): tuple[left: int16, right: int16] =
       dsp.noiseLfsr = (dsp.noiseLfsr shr 1) or (feedback shl 14)
   let noiseSample = cast[int16](dsp.noiseLfsr shl 1).int32
 
+  # prevOut holds the post-envelope (pre-VOL) sample from the prior voice in this
+  # tick. Used only for PMON; OUTX of prev modulates current pitch step.
+  # Per fullsnes/anomie: only applies to !NON voices 1-7; factor=(out>>4)+0x400
+  # gives 0.0..~2.0 range; (step * factor)>>10 .
+  var prevOut = 0'i32
+
   for i in 0..7:
     if not dsp.voices[i].active:
+      prevOut = 0'i32
       continue
     let v = addr dsp.voices[i]
     var sample: int32
@@ -308,12 +315,21 @@ proc mixSample*(dsp: Dsp): tuple[left: int16, right: int16] =
       # Noise voice: ignore BRR + pitch, just envelope the global noise source.
       dsp.stepEnvelope(i)
       if not v.active:
+        prevOut = 0'i32
         continue
       sample = noiseSample
     else:
-      let pitch = (dsp.regs[i * 0x10 + 2].uint32 or
+      var step = (dsp.regs[i * 0x10 + 2].uint32 or
         ((dsp.regs[i * 0x10 + 3].uint32 and 0x3F) shl 8))
-      v.pitchCounter += pitch
+      # Pitch modulation (PMON): if enabled for this voice and not a noise voice,
+      # scale the pitch step by prior voice's post-env output. Voice 0 never
+      # modulated (PMON bit 0 unused). prevOut from voice i-1 this tick.
+      if i > 0 and ((pmon shr i) and 1) != 0 and ((non shr i) and 1) == 0:
+        let factor = (prevOut shr 4) + 0x400'i32
+        let f = if factor < 0: 0'i32 else: factor
+        # Use u64 for mul to be safe; result fits u32. Matches ~1.0x..2.0x scaling.
+        step = ((step.uint64 * f.uint64) shr 10).uint32
+      v.pitchCounter += step
       while v.pitchCounter >= 0x1000:
         v.pitchCounter -= 0x1000
         # Shift the interpolation window and decode the next BRR sample.
@@ -324,6 +340,7 @@ proc mixSample*(dsp: Dsp): tuple[left: int16, right: int16] =
         if not v.active:
           break
       if not v.active:
+        prevOut = 0'i32
         continue
       dsp.stepEnvelope(i)
       # 4-tap Gaussian interpolation using pitch frac bits. i from counter bits
@@ -331,13 +348,14 @@ proc mixSample*(dsp: Dsp): tuple[left: int16, right: int16] =
       # then sum (equiv to fullsnes sar10+final sar1). &~1 and clamp for hw match.
       # This is the key fix for rich/complex SFX (linear was aliasing harmonics).
       let frac = (v.pitchCounter and 0xFFF).uint32
-      let i = ((frac shr 4) and 0xFF).int
-      var interp = (Gaussian[0xFF - i].int32 * v.samples[0]) shr 11
-      interp += (Gaussian[0x1FF - i].int32 * v.samples[1]) shr 11
-      interp += (Gaussian[0x100 + i].int32 * v.samples[2]) shr 11
-      interp += (Gaussian[0x000 + i].int32 * v.samples[3]) shr 11
+      let ii = ((frac shr 4) and 0xFF).int   # 'i' is loop var; avoid shadow
+      var interp = (Gaussian[0xFF - ii].int32 * v.samples[0]) shr 11
+      interp += (Gaussian[0x1FF - ii].int32 * v.samples[1]) shr 11
+      interp += (Gaussian[0x100 + ii].int32 * v.samples[2]) shr 11
+      interp += (Gaussian[0x000 + ii].int32 * v.samples[3]) shr 11
       sample = clampS16(interp) and (not 1'i32)
     let enveloped = (sample * v.envLevel) shr 11
+    prevOut = enveloped   # OUTX (post-env, pre-vol) for next voice's PMON if any.
     let volL = cast[int8](dsp.regs[i * 0x10 + 0]).int32
     let volR = cast[int8](dsp.regs[i * 0x10 + 1]).int32
     # 15-to-16 bit conversion after per-voice VOL (add low 0 bit): recovers
