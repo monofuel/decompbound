@@ -1,10 +1,11 @@
 ## S-DSP: the SNES audio mixer (Goal 2a, docs/audio.md).
 ## First-pass accuracy: BRR sample decoding, ADSR/GAIN envelopes, pitch
-## stepping with linear interpolation, 8-voice stereo mix at 32kHz, plus the
-## echo unit (buffer + 8-tap FIR + feedback, EON/EFB/EVOL/ESA/EDL) and the
-## noise generator (LFSR + NON). Echo restores EarthBound's reverb + loudness
-## (it leans on echo hard); noise drives percussive SFX. Gaussian interpolation
-## is still approximated as linear.
+## stepping with 4-tap Gaussian interpolation, 8-voice stereo mix at 32kHz,
+## plus the echo unit (buffer + 8-tap FIR + feedback, EON/EFB/EVOL/ESA/EDL)
+## and the noise generator (LFSR + NON). Echo restores EarthBound's reverb +
+## loudness (it leans on echo hard); noise drives percussive SFX. Gaussian
+## table and interp formula from fullsnes; GAIN modes and BRR end handling
+## corrected for enveloped/percussive SFX.
 
 type
   EnvPhase = enum
@@ -42,10 +43,48 @@ type
 
 const
   # Envelope rate table: samples per step for rates 0-31 (approximate
-  # hardware periods).
+  # hardware periods). Matches fullsnes.
   RatePeriods = [
     0, 2048, 1536, 1280, 1024, 768, 640, 512, 384, 320, 256, 192, 160,
     128, 96, 80, 64, 48, 40, 32, 24, 20, 16, 12, 10, 8, 6, 5, 4, 3, 2, 1]
+
+  # 4-tap Gaussian interpolation table (512 entries). Source: fullsnes spec
+  # (cross-checked against blargg snes_spc and Mesen2). Used for BRR
+  # resampling with pitch counter frac; fixes rich/enveloped samples vs linear.
+  # (Not magic; derived from SNES hardware filter coefficients.)
+  Gaussian = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2,
+    2, 2, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 5, 5, 5, 5,
+    6, 6, 6, 6, 7, 7, 7, 8, 8, 8, 9, 9, 9, 10, 10, 10,
+    11, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 15, 16, 16, 17, 17,
+    18, 19, 19, 20, 20, 21, 21, 22, 23, 23, 24, 24, 25, 26, 27, 27,
+    28, 29, 29, 30, 31, 32, 32, 33, 34, 35, 36, 36, 37, 38, 39, 40,
+    41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56,
+    58, 59, 60, 61, 62, 64, 65, 66, 67, 69, 70, 71, 73, 74, 76, 77,
+    78, 80, 81, 83, 84, 86, 87, 89, 90, 92, 94, 95, 97, 99, 100, 102,
+    104, 106, 107, 109, 111, 113, 115, 117, 118, 120, 122, 124, 126, 128, 130, 132,
+    134, 137, 139, 141, 143, 145, 147, 150, 152, 154, 156, 159, 161, 163, 166, 168,
+    171, 173, 175, 178, 180, 183, 186, 188, 191, 193, 196, 199, 201, 204, 207, 210,
+    212, 215, 218, 221, 224, 227, 230, 233, 236, 239, 242, 245, 248, 251, 254, 257,
+    260, 263, 267, 270, 273, 276, 280, 283, 286, 290, 293, 297, 300, 304, 307, 311,
+    314, 318, 321, 325, 328, 332, 336, 339, 343, 347, 351, 354, 358, 362, 366, 370,
+    374, 378, 381, 385, 389, 393, 397, 401, 405, 410, 414, 418, 422, 426, 430, 434,
+    439, 443, 447, 451, 456, 460, 464, 469, 473, 477, 482, 486, 491, 495, 499, 504,
+    508, 513, 517, 522, 527, 531, 536, 540, 545, 550, 554, 559, 563, 568, 573, 577,
+    582, 587, 592, 596, 601, 606, 611, 615, 620, 625, 630, 635, 640, 644, 649, 654,
+    659, 664, 669, 674, 678, 683, 688, 693, 698, 703, 708, 713, 718, 723, 728, 732,
+    737, 742, 747, 752, 757, 762, 767, 772, 777, 782, 787, 792, 797, 802, 806, 811,
+    816, 821, 826, 831, 836, 841, 846, 851, 855, 860, 865, 870, 875, 880, 884, 889,
+    894, 899, 904, 908, 913, 918, 923, 927, 932, 937, 941, 946, 951, 955, 960, 965,
+    969, 974, 978, 983, 988, 992, 997, 1001, 1005, 1010, 1014, 1019, 1023, 1027, 1032, 1036,
+    1040, 1045, 1049, 1053, 1057, 1061, 1066, 1070, 1074, 1078, 1082, 1086, 1090, 1094, 1098, 1102,
+    1106, 1109, 1113, 1117, 1121, 1125, 1128, 1132, 1136, 1139, 1143, 1146, 1150, 1153, 1157, 1160,
+    1164, 1167, 1170, 1174, 1177, 1180, 1183, 1186, 1190, 1193, 1196, 1199, 1202, 1205, 1207, 1210,
+    1213, 1216, 1219, 1221, 1224, 1227, 1229, 1232, 1234, 1237, 1239, 1241, 1244, 1246, 1248, 1251,
+    1253, 1255, 1257, 1259, 1261, 1263, 1265, 1267, 1269, 1270, 1272, 1274, 1275, 1277, 1279, 1280,
+    1282, 1283, 1284, 1286, 1287, 1288, 1290, 1291, 1292, 1293, 1294, 1295, 1296, 1297, 1297, 1298,
+    1299, 1300, 1300, 1301, 1302, 1302, 1303, 1303, 1303, 1304, 1304, 1304, 1304, 1304, 1305, 1305]
 
 proc newDsp*(ram: ref array[0x10000, uint8]): Dsp =
   ## DSP sharing the SPC700's RAM. Power-on register state is
@@ -114,7 +153,7 @@ proc decodeBrrNibble(v: var Voice, ram: ref array[0x10000, uint8]): int32 =
   let shift = (v.brrHeader shr 4).int
   var sample = if shift <= 12: (nibble shl shift) shr 1
                else: (if nibble < 0: -2048'i32 else: 2047'i32)
-  # BRR prediction filters.
+  # BRR prediction filters (exact per fullsnes).
   case (v.brrHeader shr 2) and 3:
   of 1: sample += v.prev1 + (-v.prev1 shr 4)
   of 2: sample += (v.prev1 shl 1) + ((-((v.prev1 shl 1) + v.prev1)) shr 5) -
@@ -123,17 +162,22 @@ proc decodeBrrNibble(v: var Voice, ram: ref array[0x10000, uint8]): int32 =
                   ((-(v.prev1 + (v.prev1 shl 2) + (v.prev1 shl 3))) shr 6) -
                   v.prev2 + (((v.prev2 shl 1) + v.prev2) shr 4)
   else: discard
-  sample = max(-32768'i32, min(32767'i32, sample))
+  # Post-filter result is 15-bit signed range for Gaussian input.
+  sample = max(-0x4000'i32, min(0x3FFF'i32, sample))
   v.prev2 = v.prev1
   v.prev1 = sample
   v.brrIndex += 1
   if v.brrIndex >= 16:
-    # Block done: advance or loop/end per header flags.
-    if (v.brrHeader and 0x01) != 0:  # END flag.
-      if (v.brrHeader and 0x02) != 0:  # LOOP flag.
-        v.brrAddr = v.loopAddr
-      else:
-        v.active = false
+    # Block done: advance or loop/end per header flags (END=bit0, LOOP=bit1).
+    # Per fullsnes: code1 (end+!loop)=End+Mute: jump loop, release, env=0.
+    # code3 (end+loop): jump loop, continue. Set at block start on hw, here after.
+    let endFlag = (v.brrHeader and 0x01) != 0
+    let loopFlag = (v.brrHeader and 0x02) != 0
+    if endFlag:
+      v.brrAddr = v.loopAddr
+      if not loopFlag:
+        v.envLevel = 0
+        v.envPhase = epRelease
     else:
       v.brrAddr += 9
     v.brrHeader = ram[v.brrAddr]
@@ -157,14 +201,36 @@ proc stepEnvelope(dsp: Dsp, index: int) =
       return true
     false
 
-  case v.envPhase:
-  of epRelease:
-    v.envLevel -= 8
-    if v.envLevel <= 0:
-      v.envLevel = 0
-      v.active = false
-  of epAttack:
-    if (adsr1 and 0x80) != 0:
+  if (adsr1 and 0x80) == 0:
+    # GAIN mode (ADSR1 bit7=0 overrides; direct or one of 4 custom curves).
+    # Direct gain sets fixed level every sample. Custom uses rate+mode.
+    # Matches fullsnes GAIN modes exactly (fixes enveloped SFX).
+    if (gain and 0x80) == 0:
+      v.envLevel = (gain and 0x7F).int32 shl 4
+    else:
+      let r = (gain and 0x1F).int
+      if rateReady(v, r):
+        let m = (gain shr 5) and 3
+        case m:
+        of 0: v.envLevel -= 32'i32  # linear decrease
+        of 1: v.envLevel -= ((v.envLevel - 1) shr 8) + 1  # exp decrease
+        of 2: v.envLevel += 32'i32  # linear increase
+        of 3:  # bent increase
+          if v.envLevel < 0x600'i32:
+            v.envLevel += 32'i32
+          else:
+            v.envLevel += 8'i32
+        else: discard
+    if v.envLevel < 0: v.envLevel = 0
+    if v.envLevel > 0x7FF: v.envLevel = 0x7FF
+  else:
+    case v.envPhase:
+    of epRelease:
+      v.envLevel -= 8
+      if v.envLevel <= 0:
+        v.envLevel = 0
+        v.active = false
+    of epAttack:
       let rate = ((adsr1 and 0x0F).int shl 1) + 1
       if rate >= 31:
         v.envLevel += 0x400
@@ -173,30 +239,19 @@ proc stepEnvelope(dsp: Dsp, index: int) =
       if v.envLevel >= 0x7E0:
         v.envLevel = 0x7FF
         v.envPhase = epDecay
-    else:
-      # GAIN mode: direct or increase modes approximated as direct.
-      if (gain and 0x80) == 0:
-        v.envLevel = (gain and 0x7F).int32 shl 4
+    of epDecay:
+      let rate = (((adsr1 shr 4) and 0x07).int shl 1) + 0x10
+      if rateReady(v, rate):
+        v.envLevel -= ((v.envLevel - 1) shr 8) + 1
+      let sustainLevel = (((adsr2 shr 5).int32) + 1) shl 8
+      if v.envLevel <= sustainLevel:
         v.envPhase = epSustain
-      else:
-        v.envLevel = 0x7FF
-        v.envPhase = epSustain
-  of epDecay:
-    let rate = (((adsr1 shr 4) and 0x07).int shl 1) + 0x10
-    if rateReady(v, rate):
-      v.envLevel -= ((v.envLevel - 1) shr 8) + 1
-    let sustainLevel = (((adsr2 shr 5).int32) + 1) shl 8
-    if v.envLevel <= sustainLevel:
-      v.envPhase = epSustain
-  of epSustain:
-    if (adsr1 and 0x80) != 0:
+    of epSustain:
       let rate = (adsr2 and 0x1F).int
       if rate != 0 and rateReady(v, rate):
         v.envLevel -= ((v.envLevel - 1) shr 8) + 1
         if v.envLevel < 0:
           v.envLevel = 0
-    else:
-      discard
 
 proc forceKeyOnForTest*(dsp: Dsp, voice: int, sampleAddrHint: uint16 = 0) =
   ## Temporary helper so the music render path can emit audible game BRR
@@ -271,9 +326,17 @@ proc mixSample*(dsp: Dsp): tuple[left: int16, right: int16] =
       if not v.active:
         continue
       dsp.stepEnvelope(i)
-      # Linear interpolation between the last two decoded samples.
-      let frac = (v.pitchCounter and 0xFFF).int32
-      sample = (v.samples[2] * (0x1000 - frac) + v.samples[3] * frac) shr 12
+      # 4-tap Gaussian interpolation using pitch frac bits. i from counter bits
+      # 11-4 (via low12 >>4). Formula and table per fullsnes; each tap >>11
+      # then sum (equiv to fullsnes sar10+final sar1). &~1 and clamp for hw match.
+      # This is the key fix for rich/complex SFX (linear was aliasing harmonics).
+      let frac = (v.pitchCounter and 0xFFF).uint32
+      let i = ((frac shr 4) and 0xFF).int
+      var interp = (Gaussian[0xFF - i].int32 * v.samples[0]) shr 11
+      interp += (Gaussian[0x1FF - i].int32 * v.samples[1]) shr 11
+      interp += (Gaussian[0x100 + i].int32 * v.samples[2]) shr 11
+      interp += (Gaussian[0x000 + i].int32 * v.samples[3]) shr 11
+      sample = clampS16(interp) and (not 1'i32)
     let enveloped = (sample * v.envLevel) shr 11
     let volL = cast[int8](dsp.regs[i * 0x10 + 0]).int32
     let volR = cast[int8](dsp.regs[i * 0x10 + 1]).int32
