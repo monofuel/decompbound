@@ -96,7 +96,12 @@ tile+attr words, standard SNES BG format), and **tileset graphics** at file
   `0x03E250` (SNES `$C3E250`), resolved through a `~0x35`-entry RAM cache (`$88E4`)
   keyed by sector ID (`$89CA`, set via `JSL $C3E74F`). A single flat
   `{tileset, music, flags}` record isn't isolated (music/palette/teleport are split
-  across tables) and the position→sector calc is still open.
+  across tables). The **sector setter** is at file `0x043573` (takes a *pre-computed*
+  sector ID in `A`, writes `$89CA`, then ID-derived buffer math via `$C08756`);
+  callers pass the ID explicitly (some hardcoded, e.g. `LDA #$0000; JSL $C43573`), so
+  there is **no simple `(X,Y)→ID` formula** — the sector is set on area-load /
+  boundary-cross, not derived from continuous position. The walk-time boundary-cross
+  recompute (likely a per-tile sector attribute or a grid lookup) isn't isolated yet.
 - **Doors/warps** — *not* a flat table: exits are per-entity **script streams**
   run by the `[$80],Y` object interpreter (the same `$C09558` engine, see
   `scripts.md`), executor at file `0x009D9E` (`JML [$0A5A]`), chained via `$125A`.
