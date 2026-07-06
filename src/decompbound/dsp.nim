@@ -340,8 +340,16 @@ proc mixSample*(dsp: Dsp): tuple[left: int16, right: int16] =
     let enveloped = (sample * v.envLevel) shr 11
     let volL = cast[int8](dsp.regs[i * 0x10 + 0]).int32
     let volR = cast[int8](dsp.regs[i * 0x10 + 1]).int32
-    let contribL = (enveloped * volL) shr 7
-    let contribR = (enveloped * volR) shr 7
+    # 15-to-16 bit conversion after per-voice VOL (add low 0 bit): recovers
+    # the bit lost by the BRR decode shr1 and scales so (brr*env>>11 * vol>>7)
+    # produces full-range 16-bit values. With voices+MVOL at max this now
+    # reaches ~full s16 (was ~half). Matches anomie/fullsnes "convert from
+    # 15- to 16-bits by adding a 0 bit on the low end" after VOL stage.
+    # Echo path uses same post-VOL values so return scales too.
+    let preL = (enveloped * volL) shr 7
+    let preR = (enveloped * volR) shr 7
+    let contribL = preL shl 1
+    let contribR = preR shl 1
     dryL += contribL
     dryR += contribR
     if ((eon shr i) and 1) != 0:
