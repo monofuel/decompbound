@@ -165,12 +165,12 @@ Controls:
   N           Advance one frame (when paused)
   -           Decrease speed
   =           Increase speed
-  F9          Screenshot (raw 256x224 frame to ~/Pictures/Screenshots/earthbound_yyyyMMdd-HHmmss.png)
+  F9          Capture a FULL diagnostic bundle: frame + PPU regs + scanline trace + CGRAM
+              (bin/autoshots/, preserved as f9_NNN_*). The emulator ALSO auto-captures a
+              bundle whenever an HDMA screen-split starts (a battle/iris) — no keypress needed.
   F10         Dump per-scanline TM/TS band profile only (bin/autoshots/scanline_trace.txt)
   F11         Toggle auto-screenshots (bin/autoshots/ every 5s; OFF by default)
-  F12         Capture a FULL diagnostic bundle: frame + PPU regs + scanline trace + CGRAM
-              (bin/autoshots/). The emulator ALSO auto-captures a bundle whenever an
-              HDMA screen-split starts (a battle/iris) — no keypress needed.
+  F12         Screenshot (raw 256x224 frame to ~/Pictures/Screenshots/earthbound_yyyyMMdd-HHmmss.png)
   1-4         Load state from slot 1-4 (bin/states/slotN.state)
   Ctrl+1-4    Save state to slot 1-4
   (close the window or Ctrl+C to quit — no Esc-to-quit, too easy to fat-finger)
@@ -251,13 +251,13 @@ Controls:
   var traceTS: array[262, uint8]
   var traceCG: array[262, uint8]   # CGADSUB (color math) per scanline
   var traceCW: array[262, uint8]   # CGWSEL per scanline
-  # F12 / auto-anomaly full bundle: frame + PPU regs + CGRAM alongside the trace.
+  # F9 / auto-anomaly full bundle: frame + PPU regs + CGRAM alongside the trace.
   var captureBundle = false
-  # True when the bundle was triggered by F12 (a deliberate manual capture) rather
-  # than an auto-anomaly. Manual captures get numbered f12_NNN_* copies so a later
+  # True when the bundle was triggered by F9 (a deliberate manual capture) rather
+  # than an auto-anomaly. Manual captures get numbered f9_NNN_* copies so a later
   # HDMA auto-capture can't clobber the frame you actually wanted (e.g. HP/PP menu).
   var captureManual = false
-  var f12Count = 0
+  var f9Count = 0
   # Prev-frame HDMAEN, to auto-capture on a 0 -> non-zero HDMA edge (a screen
   # split starting: battle swirl/bands, scene iris) with no human keypress.
   var prevHdmaen: uint8 = 0
@@ -522,8 +522,16 @@ void main() {
       inc framesPerTick
       writeLog(&"speed: x{framesPerTick}")
     if window.buttonPressed[KeyF9]:
-      saveScreenshot(frameImage, screenshotsDir)
-      writeLog("screenshot (F9)")
+      # One-press full diagnostic bundle: arm the scanline trace and capture the
+      # frame + PPU regs + CGRAM together (written when the trace fires). Plus an
+      # immediate terminal readout. (F9, not F12 — Steam hijacks F12 for its own
+      # screenshot, so F12 is our screenshot and F9 is the debug bundle.)
+      captureBundle = true
+      captureManual = true
+      traceScanlines = true
+      traceArmed = 0
+      echo "F9: capturing diagnostic bundle -> bin/autoshots/ (frame + regs + scanline trace + CGRAM)"
+      writeLog("F9: diagnostic bundle capture armed")
     if window.buttonPressed[KeyF10]:
       traceScanlines = true
       traceArmed = 0
@@ -534,15 +542,10 @@ void main() {
       echo "auto-screenshots: ", (if autoShot: "ON (bin/autoshots/ every 5s)" else: "OFF")
       writeLog(&"F11: auto-screenshots {(if autoShot: \"ON\" else: \"OFF\")}")
     if window.buttonPressed[KeyF12]:
-      # One-press full diagnostic bundle: arm the scanline trace and capture the
-      # frame + PPU regs + CGRAM together (written when the trace fires). Plus an
-      # immediate terminal readout for quick eyeballing.
-      captureBundle = true
-      captureManual = true
-      traceScanlines = true
-      traceArmed = 0
-      echo "F12: capturing diagnostic bundle -> bin/autoshots/ (frame + regs + scanline trace + CGRAM)"
-      writeLog("F12: diagnostic bundle capture armed")
+      # F12 = screenshot, matching Steam's screenshot-key convention (Steam
+      # intercepts F12, so aligning ours avoids the surprise).
+      saveScreenshot(frameImage, screenshotsDir)
+      writeLog("screenshot (F12)")
       echo &"  BGMODE={snes.ppuRegs[0x05] and 7} bg3prio={(snes.ppuRegs[0x05] and 8) != 0} " &
         &"TM(main)={snes.ppuRegs[0x2C]:02X} TS(sub)={snes.ppuRegs[0x2D]:02X} INIDISP={snes.ppuRegs[0x00]:02X}"
       echo &"  CGADSUB={snes.ppuRegs[0x31]:02X} CGWSEL={snes.ppuRegs[0x30]:02X} HDMAEN={snes.hdmaen:02X}"
@@ -734,20 +737,20 @@ void main() {
             captureBundle = false
             echo "wrote diagnostic bundle -> bin/autoshots/ " &
               "(scanline_trace.txt + bundle_frame.png + bundle_regs.txt)"
-            writeLog("F12/auto: wrote diagnostic bundle (scanline_trace + frame + regs)")
+            writeLog("F9/auto: wrote diagnostic bundle (scanline_trace + frame + regs)")
             if captureManual:
-              # F12 (manual) captures get numbered copies the HDMA auto-capture
-              # can't overwrite — so a deliberate F12 (e.g. on the battle HP/PP
+              # F9 (manual) captures get numbered copies the HDMA auto-capture
+              # can't overwrite — so a deliberate F9 (e.g. on the battle HP/PP
               # menu) survives even if a later HDMA edge fires an auto-capture.
               copyFile("bin/autoshots/bundle_frame.png",
-                &"bin/autoshots/f12_{f12Count:03}_frame.png")
+                &"bin/autoshots/f9_{f9Count:03}_frame.png")
               copyFile("bin/autoshots/bundle_regs.txt",
-                &"bin/autoshots/f12_{f12Count:03}_regs.txt")
+                &"bin/autoshots/f9_{f9Count:03}_regs.txt")
               copyFile("bin/autoshots/scanline_trace.txt",
-                &"bin/autoshots/f12_{f12Count:03}_trace.txt")
-              echo &"  F12 bundle preserved -> bin/autoshots/f12_{f12Count:03}_*"
-              writeLog(&"F12: bundle preserved as f12_{f12Count:03}_*")
-              inc f12Count
+                &"bin/autoshots/f9_{f9Count:03}_trace.txt")
+              echo &"  F9 bundle preserved -> bin/autoshots/f9_{f9Count:03}_*"
+              writeLog(&"F9: bundle preserved as f9_{f9Count:03}_*")
+              inc f9Count
               captureManual = false
           else:
             echo "wrote bin/autoshots/scanline_trace.txt"
