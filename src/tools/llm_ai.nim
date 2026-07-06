@@ -6,14 +6,19 @@
 ## (via shared policy module) so LLM-authored strings are proven equivalent.
 ## LLM call is swappable: default --mock uses a fixed canned policy for headless verify
 ## (no API key needed); real path uses openai_leap when --no-mock and key present.
-## Usage: nix develop -c nim c -r src/tools/llm_ai.nim -- [--frames N] [--llm-interval K] [--png-every M] [--mock|--no-mock] [rom]
+## Usage: nix develop -c nim c -r src/tools/llm_ai.nim -- [--frames N] [--llm-interval K] [--png-every M] [--headless] [--mock|--no-mock] [rom]
+## Default is windowed (GL + windy) so you can watch the LLM play alongside `make play`.
+## --headless preserves the old no-window behavior for CI. PNG dumps (when enabled)
+## now go to bin/llm_frames/ only when --png-every is passed.
 ## The harness + API is our code; ROM and any dumps are user-supplied at runtime.
 
 import
   std/[os, strutils, strformat],
   pixie,
+  windy,
   openai_leap,
-  ../decompbound/[cpu, ppu, snesbus, lua53, policy]
+  ../decompbound/[cpu, ppu, snesbus, lua53, policy],
+  ./glblit
 
 const
   DefaultFrames = 60
@@ -176,6 +181,8 @@ proc main() =
   var pngEvery = DefaultPngEvery
   var romPath = ""
   var useMock = true
+  var useHeadless = false
+  var pngEverySet = false
   var i = 1
   while i <= paramCount():
     let a = paramStr(i)
@@ -192,15 +199,21 @@ proc main() =
     elif a == "--png-every" and i < paramCount():
       inc i
       pngEvery = parseInt(paramStr(i))
+      pngEverySet = true
     elif a.startsWith("--png-every="):
       pngEvery = parseInt(a[12..^1])
+      pngEverySet = true
+    elif a == "--headless":
+      useHeadless = true
     elif a == "--no-mock":
       useMock = false
     elif a == "--mock":
       useMock = true
     elif a == "--help" or a == "-h":
-      echo "usage: nim c -r src/tools/llm_ai.nim -- [--frames N] [--llm-interval K] [--png-every M] [--mock|--no-mock] [rom]"
+      echo "usage: nim c -r src/tools/llm_ai.nim -- [--frames N] [--llm-interval K] [--png-every M] [--headless] [--mock|--no-mock] [rom]"
       echo "  defaults: --frames 60 --llm-interval 20 ROM=bin/Earthbound (U) [!].smc"
+      echo "  windowed by default (opens GL window titled 'EarthBound - LLM (qwen)' for watching)"
+      echo "  --headless: no window (for CI / batch); --png-every only dumps when flag is passed"
       echo "  --mock (default): use canned policy string, no key needed"
       echo "  --no-mock: call real LLM via openai_leap (needs OPENAI_API_KEY)"
       echo "  To run live: export OPENAI_API_KEY=sk-... ; nix develop -c nim c -r src/tools/llm_ai.nim -- --no-mock --frames 120"
@@ -211,7 +224,7 @@ proc main() =
   if romPath.len == 0:
     romPath = "bin/Earthbound (U) [!].smc"
 
-  echo fmt"llm_ai: ROM={romPath} frames={maxFrames} llmInterval={llmInterval} pngEvery={pngEvery} mock={useMock}"
+  echo fmt"llm_ai: ROM={romPath} frames={maxFrames} llmInterval={llmInterval} pngEvery={pngEvery} (set={pngEverySet}) mock={useMock} headless={useHeadless}"
   createDir("bin")
 
   let rom = policy.readRomFile(romPath)
@@ -246,11 +259,30 @@ proc main() =
     quit(1)
 
   echo "starting two-clock loop (fast: per-frame update; slow: LLM every ", llmInterval, " frames)"
+  if not useHeadless:
+    echo "  windowed mode: a separate GL window will show the LLM-driven play (no keyboard input; policy controls joy1)"
+  else:
+    echo "  headless mode (no window)"
 
-  for _ in 0 ..< maxFrames:
+  var blit: GlBlit
+  if not useHeadless:
+    blit = initGlBlit("EarthBound - LLM (qwen)", ppu.ScreenWidth, ppu.ScreenHeight, 3)
+
+  var status = "running"
+
+  # Main loop: policy + step + (optional) GL present. Realtime-ish pacing left to
+  # the caller (LLM slow-clock already avoids per-frame blocking). Window path
+  # does poll + upload + letterbox draw + swap each frame.
+  while ctx.frameCount < maxFrames:
+    if (not useHeadless) and blit.window.closeRequested:
+      break
+    if not useHeadless:
+      pollEvents()
+
     let err = policy.runPolicyFrame(L, ctx)
     if err.len > 0:
       echo fmt"policy runtime error frame {ctx.frameCount}: {err}"
+      status = "err"
 
     snes.joy1 = ctx.joy1
     if (ctx.joy1 and policy.BtnRight) != 0:
@@ -259,20 +291,38 @@ proc main() =
     policy.stepOneFrame(snes, cpu, frameImage)
     ctx.frameCount += 1
 
-    if pngEvery > 0 and (ctx.frameCount mod pngEvery == 0):
-      let p = fmt"bin/llm_ai_frame_{ctx.frameCount:04d}.png"
+    if not useHeadless:
+      blit.blit(frameImage)
+      let t = fmt"EarthBound - LLM (qwen) - frame {ctx.frameCount} [{status}]"
+      if blit.window.title != t:
+        blit.window.title = t
+
+    # PNG dumps only when --png-every explicitly provided by user; target subdir
+    # (prevents bin/ root spam from default or previous runs).
+    if pngEverySet and pngEvery > 0 and (ctx.frameCount mod pngEvery == 0):
+      createDir("bin/llm_frames")
+      let p = fmt"bin/llm_frames/llm_ai_frame_{ctx.frameCount:04d}.png"
       frameImage.writeFile(p)
       echo fmt"  wrote {p}"
 
     # Slow clock: re-query provider with fresh summary, hot-reload if changed.
+    # Never blocks the fast per-frame path; only runs every llmInterval.
     if llmInterval > 0 and (ctx.frameCount mod llmInterval == 0) and ctx.frameCount > 0:
+      status = "thinking"
+      if not useHeadless:
+        # Keep last frame visible while the (occasional) LLM call is in flight.
+        blit.blit(frameImage)
+        blit.window.title = fmt"EarthBound - LLM (qwen) - frame {ctx.frameCount} [thinking...]"
       let summary = buildStateSummary(ctx)
       let newPolicy = provider(summary, currentPolicy)
       if newPolicy.len > 10 and newPolicy != currentPolicy:
         currentPolicy = newPolicy
         if loadPolicyChunk(L, currentPolicy, fmt"frame_{ctx.frameCount}"):
           echo fmt"  policy reloaded at frame {ctx.frameCount}"
+          status = "reloaded"
         # else keep running with previous (already defined)
+      else:
+        status = "running"
 
     if cpu.stopped:
       echo "cpu stopped; ending run"
