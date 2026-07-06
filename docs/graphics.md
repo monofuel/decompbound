@@ -87,6 +87,22 @@ routine. This codec unlocks **both** the graphics catalog *and* the maps track's
 tilesets. (Some paths use an uncompressed far-copy at `~0x008ED2`.) Round-trip
 DoD next: a byte-exact matching `pack` (encoder).
 
+### Asset catalog (verified byte-exact)
+
+Concrete located graphics (all `gfx_lz`-compressed; decode confirmed):
+- **Battle enemy sprites** — via the enemy record's two 3-byte far gfx pointers
+  (`+0x0C` / `+0x0F`). Pogo Punk (record `0x15C6DE`): `$EF78B8` → file `0x2F78B8`
+  (863 → 3673 bytes, 114 tiles @4bpp) and `$6D9600` → file `0x2D9600` (295 → 2306,
+  72 tiles). So `sprites_explore` can render any enemy straight from its record
+  pointer.
+- **Tilesets** — `0x3E408` (verified) + small compressed candidates nearby (e.g.
+  `0x03ED00`); larger overworld sets share the maps load path (some uncompressed
+  via the `~0x008ED2` far-copy).
+- **Still open:** the player (Ness) + NPC **overworld** OBJ CHR + the
+  sprite-definition table + the OAM builder — the entity-gfx path is script-driven
+  (`$C09470` + `gfx_lz` calls), no static table isolated; best cracked by watching
+  the OBJ-VRAM DMA during an overworld load.
+
 ## Definition of done
 
 - [ ] Tile + palette codecs round-trip byte-exact against gold.
