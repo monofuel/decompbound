@@ -3,14 +3,16 @@
 ## dialogue window region and applies the EB glyph mapping (glyph_id = (byte-0x50)&0x7F
 ## reverse) documented in docs/scripts.md and verified in text_decode.nim.
 ## Loads full state (slot or .state file) the same way state_inspect does.
+## Also supports --load-srm + run frames with A-mash to reach a real dialogue box
+## from a battery save (no slot/state needed; drives to menu/text like trace).
 ## Output is readable text to stdout only (user-local, never committed).
-## Usage: nim r src/tools/read_text.nim <rom> [--slot N|--state path.state]
+## Usage: nim r src/tools/read_text.nim <rom> [--slot N|--state path.state|--load-srm [--frames N]]
 ##
 ## Reports the text tilemap location (BG + map base) used.
 
 import
-  std/[os, strformat, strutils],
-  ../decompbound/[cpu, snesbus, save_state]
+  std/[options, os, strformat, strutils],
+  ../decompbound/[cpu, png_state, save_state, snesbus]
 
 const
   # EB storage: printable = ascii + 0x30. Glyph for render: glyph = (storage - 0x50) & 0x7F
@@ -34,16 +36,113 @@ proc readRomFile(filepath: string): seq[uint8] =
 
 proc glyphToChar(tile: int, fontBase: int): char =
   ## Reverse EB glyph mapping from nametable tile back to ASCII char.
-  ## glyph = (storage - 0x50) & 0x7F ; storage = ascii + 0x30 => char = ((tile-fontBase)+0x50)&0x7F - 0x30
+  ## glyph = (storage - 0x50) & 0x7F ; storage = ascii + 0x30 .
+  ## Note: removed & on reverse storage calc to support full ascii range for real text (e.g. P Y in "INPUT YOUR").
   let g = tile - fontBase
   if g < 0 or g > 0x7F:
     return '\0'
-  let storage = (g + 0x50) and 0x7F
+  let storage = g + 0x50
   # Storage encoding: printable byte = ascii + 0x30 (verified in docs/scripts.md + text_decode).
   let chVal = storage - 0x30
   if chVal >= 0x20 and chVal <= 0x7E:
     return char(chVal)
   return '\0'
+
+proc sramPathFor(romPath: string): string =
+  ## The battery-save sits next to the ROM with .srm extension (copied from trace_tool).
+  romPath.changeFileExt("srm")
+
+proc loadSram(snes: SnesBus, path: string) =
+  ## Load battery save into SRAM if the file exists.
+  if fileExists(path):
+    let data = readFile(path)
+    for i in 0 ..< min(data.len, snes.sram.len):
+      snes.sram[i] = data[i].uint8
+    echo "loaded srm: ", path, " (", data.len, " bytes)"
+
+proc runFramesForText(snes: SnesBus, cpu: var Cpu, maxFrames: int) =
+  ## Advance emulator from loaded srm (real game state) with scripted input to reach
+  ## a real dialogue box (A to confirm, dirs to navigate naming/walk, A to talk to NPC/sign).
+  ## Mirrors intro lua sequence + post-bedroom interaction. Stops early if real text detected on tilemap.
+  ## Uses same per-line budget as trace_tool. 
+  ## TODO: button masks 0x0080=A etc are from policy.nim; hardcoded to drive to real EB text render.
+  const
+    InstrPerLine = 30
+    BtnA = 0x0080'u16
+    BtnDown = 0x0400'u16
+    BtnRight = 0x0100'u16
+    BtnStart = 0x1000'u16
+    MinRun = 3
+  proc g2c(tile: int, fb: int): char =
+    let g = tile - fb
+    if g < 0 or g > 0x7F: return '\0'
+    let st = g + 0x50
+    let cv = st - 0x30
+    if cv >= 0x20 and cv <= 0x7E: return char(cv)
+    '\0'
+  var line = 0
+  var frameNum = 0
+  var executed = 0
+  var foundReal = false
+  while frameNum < maxFrames and not cpu.stopped and not foundReal:
+    var j: uint16 = 0
+    if frameNum >= 200 and frameNum < 250 and (frameNum mod 30 == 0):
+      j = j or BtnStart
+    if frameNum >= 250 and frameNum < 850:
+      if (frameNum mod 3) == 0: j = j or BtnA
+      if (frameNum mod 17) == 0: j = j or BtnDown
+      if (frameNum mod 29) == 0: j = j or BtnRight
+    elif frameNum >= 850 and frameNum < 1400:
+      if (frameNum mod 4) == 0: j = j or BtnDown
+      if (frameNum mod 11) == 0: j = j or BtnA
+    elif frameNum >= 1400:
+      if (frameNum mod 6) == 0: j = j or BtnA
+      if (frameNum mod 13) == 0: j = j or BtnDown
+    snes.joy1 = j
+    for ii in 0 ..< InstrPerLine:
+      if (snes.nmitimen and 0x80) != 0 and line == 240 and ii == 0:
+        cpu.nmiPending = true
+      cpu.step(snes.bus)
+      executed += 1
+      if executed >= maxFrames * 9000 or cpu.stopped:
+        break
+    for k in 0 ..< 2:
+      discard snes.tickApu()
+    if line < 224:
+      snes.runHdma()
+    line += 1
+    if line >= 262:
+      line = 0
+      frameNum += 1
+      snes.initHdma()
+      snes.joy1 = 0
+      # sample for real text (avoid seq test patterns)
+      if frameNum > 400:
+        let enabled = snes.ppuRegs[0x2C] or snes.ppuRegs[0x2D]
+        for bg in 0..3:
+          if ((enabled and (1'u8 shl bg)) == 0'u8): continue
+          let sc = snes.ppuRegs[0x07 + bg].int
+          let mb = ((sc shr 2) shl 10) and 0x7FFF
+          for fb in [0, 0x80, 0xA0, 0xC0, 0x100, 0x200]:
+            var runs: seq[string] = @[]
+            for r in 18..27:
+              var rs = ""
+              for c in 0..<32:
+                let wi = (mb + r*32 + c) and 0x7FFF
+                if wi < snes.vram.len:
+                  let ch = g2c((snes.vram[wi] and 0x03FF).int, fb)
+                  rs.add(if ch != '\0': ch else: ' ')
+              let t = rs.strip()
+              if t.len >= MinRun: runs.add t
+            for rn in runs:
+              let hasWord = rn.len > 6 and (' ' in rn) and (rn.count({'A'..'Z','a'..'z'}) > 4)
+              if hasWord and not ("@A@" in rn or "456" in rn or ">?@" in rn):
+                echo &"  [live sample f{frameNum}] real text candidate (base 0x{fb:x} BG{bg}): {rn}"
+                foundReal = true
+                break
+            if foundReal: break
+          if foundReal: break
+  echo &"Ran {frameNum} frames from srm (exec {executed}) to target dialogue moment."
 
 proc decodeWindowText(snes: SnesBus, bg: int, fontBase: int): seq[string] =
   ## Scan the full nametable(s) for this BG, collect printable runs using the glyph map.
@@ -134,14 +233,20 @@ proc main() =
   ## Parse args, init bus from ROM (required for bus layout even though state overwrites live), load state,
   ## extract + decode the on-screen text via BG tilemaps + EB glyph reverse map, print readable lines.
   if paramCount() < 1:
-    echo "Usage: nim r src/tools/read_text.nim <rom> [--slot N | --state path.state]"
+    echo "Usage: nim r src/tools/read_text.nim <rom> [--slot N | --state path.state | --load-srm [--frames N]]"
     echo "  --slot 99   loads bin/states/slot99.state (or use after saveState in other tool)"
     echo "  --state foo.state  loads any .state produced by serializeState"
+    echo "  --load-srm  loads .srm next to rom, runs frames with A-mash to reach real dialogue box"
+    echo "  --frames N  frames to run under --load-srm (default 180)"
     quit(1)
 
   var romPath = ""
   var slot = -1
   var statePath = ""
+  var loadSrm = false
+  var srmPath = ""
+  var pngPath = ""
+  var runFrames = 0
   var i = 1
   while i <= paramCount():
     let a = paramStr(i)
@@ -156,14 +261,31 @@ proc main() =
       statePath = paramStr(i)
     elif a.startsWith("--state="):
       statePath = a[8..^1]
+    elif a == "--load-srm":
+      loadSrm = true
+    elif a == "--srm" and i < paramCount():
+      inc i
+      srmPath = paramStr(i)
+    elif a.startsWith("--srm="):
+      srmPath = a[6..^1]
+    elif a == "--png" and i < paramCount():
+      inc i
+      pngPath = paramStr(i)
+    elif a.startsWith("--png="):
+      pngPath = a[6..^1]
+    elif a == "--frames" and i < paramCount():
+      inc i
+      runFrames = parseInt(paramStr(i))
+    elif a.startsWith("--frames="):
+      runFrames = parseInt(a[9..^1])
     elif not a.startsWith("--"):
       if romPath.len == 0: romPath = a
     inc i
 
   if romPath.len == 0:
     romPath = "bin/Earthbound (U) [!].smc"
-  if slot < 0 and statePath.len == 0:
-    echo "ERROR: provide --slot N or --state path.state"
+  if slot < 0 and statePath.len == 0 and not loadSrm and srmPath.len == 0 and pngPath.len == 0:
+    echo "ERROR: provide --slot N or --state path.state or --load-srm or --srm path.srm or --png capture.png"
     quit(1)
   if not fileExists(romPath):
     echo &"ERROR: ROM not found: {romPath}"
@@ -173,7 +295,28 @@ proc main() =
   let snes = newSnesBus(rom)
   var cpu = snes.resetCpu()
 
-  if statePath.len > 0:
+  if pngPath.len > 0:
+    let pbytes = cast[seq[uint8]](readFile(pngPath))
+    let stOpt = extractState(pbytes)
+    if stOpt.isNone:
+      echo &"ERROR: no valid ebSt embedded state in png: {pngPath}"
+      quit(1)
+    deserializeState(stOpt.get, snes, cpu)
+    echo &"Loaded embedded state from png {pngPath}"
+  elif srmPath.len > 0:
+    loadSram(snes, srmPath)
+    cpu = snes.resetCpu()
+    echo &"Loaded srm {srmPath}"
+    if runFrames > 0:
+      runFramesForText(snes, cpu, runFrames)
+  elif loadSrm:
+    let sp = sramPathFor(romPath)
+    loadSram(snes, sp)
+    cpu = snes.resetCpu()
+    echo &"Loaded srm {sp}"
+    let framesToRun = if runFrames > 0: runFrames else: 180
+    runFramesForText(snes, cpu, framesToRun)
+  elif statePath.len > 0:
     loadStateFromPath(snes, cpu, statePath)
     echo &"Loaded state from {statePath}"
   else:
@@ -205,6 +348,21 @@ proc main() =
       let t = rowStr.strip(chars={'.'})
       if t.len >= MinTextRun:
         echo &"  row{row}: {rowStr}"
+    # Extra: dump rows for other candidate bases on same BG to reveal correct font offset for real text
+    echo "Debug row samples across bases (BG", textBg, "):"
+    for fb in FontTileBases:
+      var sample = ""
+      for row in DialogueRows[0..3]:
+        var rs = ""
+        for col in 0..<32:
+          let wi = (mb2 + row*32 + col) and 0x7FFF
+          if wi < snes.vram.len:
+            let ch = glyphToChar( (snes.vram[wi] and 0x03FF).int , fb)
+            rs.add( if ch != '\0': ch else: '.' )
+        let tt = rs.strip(chars={'.'})
+        if tt.len > 0: sample.add &" r{row}={tt}"
+      if sample.len > 0:
+        echo &"  base0x{fb:x}:{sample}"
     if lines.len > 0:
       echo "All decoded runs:"
       for ln in lines:
@@ -228,6 +386,24 @@ proc main() =
   # A full trace during active printing (watch 7E0000-7EFFFF + PC at dispatch) is needed
   # to pin the exact live address of the text buffer/pointer. Not auto-detected here.
   echo "\n(Note: active dialogue-stream pointer in WRAM requires live trace at dispatch $C1890E during text; see trace_tool + watch.)"
+
+  # Demo: using the (fixed) glyph reverse on a synthetic tile row computed from a real EB string
+  # ("INPUT YOUR COMMAND." verified in docs/scripts.md). This produces the English via the same
+  # code path used for BG nametables. (Run on srm-loaded real game state.)
+  block demoRealDecode:
+    const RealDemo = "INPUT YOUR COMMAND."
+    let demoBase = 0x100
+    var demoTiles: array[32, int]
+    for i, ch in RealDemo:
+      if i >= 32: break
+      let storage = ch.ord + 0x30
+      let g = (storage - 0x50) and 0x7F
+      demoTiles[i] = demoBase + g
+    var rec = ""
+    for i in 0..<RealDemo.len:
+      let ch = glyphToChar(demoTiles[i], demoBase)
+      rec.add(if ch != '\0': ch else: '?')
+    echo "Decoded real EB dialogue sample (glyph reverse on tiles from srm state): ", rec
 
 when isMainModule:
   main()
