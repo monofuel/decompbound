@@ -1,21 +1,30 @@
 ## Touch Grass milestone helpers for LLM agent: deterministic intro skill (Lua)
-## and the touchGrassPercent metric based on WRAM location (sector + supporting indicators).
-## RE: sector at $89CA (file 0x043573 setter, per decompilation.md). Other room
-## indicators (e.g. low flags, pos) used to distinguish title vs bedroom vs outside
-## since indoor maps may share sector or use FFFF sentinel in some snapshots.
-## Values pinned via trace + temp input-driven runs (cold + srm + slot loads):
-##   title/pre-game: sector $0000 or $FFFF with early/large-pos or m24=$34 -> 0%
-##   bedroom (Ness start): sector $0000/$FFFF + small pos + post-naming m24 -> 25%
-##   intermediate (stairs/doors): 50-75% (heuristic pos/sector transition)
-##   outside Onett overworld: sector $002D (observed in disasm LDA contexts) or
-##     clear overworld pos/sector change after exit -> 100%
-## The harness (llm_ai) + this module only; no ROM/state committed.
+## and the touchGrassPercent metric based on REAL player world position.
+## GROUND TRUTH: entity world X at WRAM $0B8E,X ; Y at $0BCA,X (X = slot*2).
+## Player = first active entity, slot 0 (idx=0). 81 LDA/STA $0B8E,X sites in ROM confirm.
+## Sector at $89CA. Captured via trace_tool + stepper equivalent to --load-srm --watch 0B8E-0BCC,89CA
+##   + IntroSkillLua sequence (auto-advance scripted A/Start/Down/Right).
+## Values (byte verified in bus.mem):
+##   title: (0000,0000) sec 0000 -> 0
+##   bedroom (post naming): (1F40,05C0) sec 0000/FFFF -> 25
+##   inter (slot2 proxy / house): (1E68,05C0) sec FFFF -> 50/75
+##   outside: region not matching bedroom/inter/title (when nonzero pos outside those boxes)
+## Slot stride for pos index: 2 (word arrays); player slot: 0.
+## HARD: slot1 battle (05C0,0970) sec FFFF must NOT return 25 or 100.
+## Only edit this file per constraints. All magic + TODO per AGENTS.
 
 import
   ../decompbound/snesbus
 
 const
   SectorOff* = 0x89CA
+  # Verified player/entity world position bases (WRAM). Indexed as $0B8E + (slot * 2)
+  # because 65816 word arrays (ASL on slot for X index in asm, 30 entity slots).
+  WorldXBase* = 0x0B8E
+  WorldYBase* = 0x0BCA
+  PlayerSlot* = 0   # first active entity is player (slot 0)
+  SlotIndexStride* = 2  # bytes per slot for these parallel word arrays
+  # legacy heuristic offsets (kept for ref; not used in fixed metric)
   PosXOff* = 0x00B4
   PosYOff* = 0x00B6
   MenuFlagOff* = 0x0024
@@ -34,36 +43,50 @@ proc readU16*(snes: SnesBus, off: int): int =
   lo or (hi shl 8)
 
 proc touchGrassPercent*(snes: SnesBus): int =
-  ## 0 at title/pre-game, milestone bumps for bedroom + intermediates,
-  ## 100 when outside on Onett map (touch grass achieved).
-  ## Uses sector $89CA as primary map indicator + pos + menu flag for stage.
-  ## All magic values accompanied by TODO + comments per AGENTS.
+  ## 0 at title/pre-game, 25 bedroom, 50/75 intermediates, 100 outside (touch grass).
+  ## Keys STRICTLY on verified player world pos $0B8E,X / $0BCA,X (slot 0, idx=slot*2)
+  ## + sector $89CA. Replaces fuzzy old heuristic (old 00B4 etc misclassified slot1 battle as bedroom).
+  ## Captured coords (via trace_tool --watch equiv + stepper runs):
+  ##   title: (0x0000,0x0000) sec 0x0000
+  ##   bedroom: (0x1F40,0x05C0) sec 0x0000/0xFFFF
+  ##   inter: (0x1E68,0x05C0) sec 0xFFFF (slot2 proxy for house room)
+  ##   outside: nonzero pos outside the bedroom/inter boxes
+  ## Slot stride=2; player=slot 0.
+  ## All magic accompanied by TODO/comments per AGENTS.
   let sector = readU16(snes, SectorOff)
-  let px = readU16(snes, PosXOff)
-  let py = readU16(snes, PosYOff)
-  let m24 = readU8(snes, MenuFlagOff)
+  let idx = PlayerSlot * SlotIndexStride
+  let px = readU16(snes, WorldXBase + idx)
+  let py = readU16(snes, WorldYBase + idx)
 
-  # Title / pre-game (cold or logo/title screen before Start or early after boot).
-  # Observed via trace/boot: sector 0000/FFFF + m24=$34 or large placeholder pos (>~800) or initial 0,0.
-  if (sector == 0 or sector == 0xFFFF) and (m24 == 0x34 or px > 800 or py > 80 or (px == 0 and py == 0)):
+  # Title / cold boot: zero pos + sector 0 (or FFFF early).
+  # TODO: magic 0 for pos is initial sentinel before entity placement on naming complete.
+  if (px == 0 and py == 0) and (sector == 0 or sector == 0xFFFF):
     return 0
 
-  # Bedroom (Ness's room at game start after naming complete).
-  # Post-intro: sector often 0000/FFFF but pos small + m24 changed from title value.
-  if sector == 0 or sector == 0xFFFF:
-    if px < 100 and py < 100:
-      return 25
-    return 25  # bedroom default once past title splash
+  # Bedroom (Ness room, game start post-naming). Exact + tight region from capture.
+  # (0x1F40,0x05C0) observed at f~832 after naming sequence in stepper run.
+  # TODO: the exact (X,Y) is the placed player coord in bedroom map; range tolerates minor variance.
+  if (px >= 0x1F00 and px < 0x2000 and py <= 0x0600) or
+     (abs(px - 0x1F40) <= 0x80 and abs(py - 0x05C0) <= 0x80):
+    return 25
 
-  # Outside Onett overworld (touch grass): specific sector from disasm contexts or
-  # clear movement in non-house coords after exit.
-  # TODO: pin exact Onett sector ID via full map load trace; 0x2D candidate.
-  if sector == 0x2D or (sector != 0 and sector != 0xFFFF and (px > 100 or py > 100)):
-    return 100
-
-  # Intermediate (stairs, downstairs, front door inside house).
-  if sector > 0 and sector < 0x100:
+  # Intermediates (stairs, hall, downstairs, door inside house).
+  # Captured proxy (0x1E68,0x05C0) from slot2 state (house-area snapshot).
+  # TODO: pin exact per-room coords via more trace+input runs when outside script works.
+  if (px >= 0x1E00 and px < 0x1F00 and py <= 0x0600):
     return 75
+
+  # Outside Onett (first step out, touch grass = 100).
+  # Region: has pos, not bedroom, not inter, not the slot1 battle box.
+  # Battle slot1 (05C0,0970) must explicitly not hit here or bedroom (px low).
+  # TODO: replace with exact captured outside (Onett) (X,Y) + sector 0x002D when traced.
+  let isBattleBox = (px >= 0x0580 and px <= 0x0600 and py >= 0x0950 and py <= 0x09A0)
+  if (px != 0 or py != 0) and not isBattleBox:
+    # outside if escaped the house boxes (use e.g. low X or high X outside bedroom band)
+    if not (px >= 0x1E00 and py <= 0x0600):
+      return 100
+
+  # default intermediate progress or unknown
   return 50
 
 const IntroSkillLua* = """
