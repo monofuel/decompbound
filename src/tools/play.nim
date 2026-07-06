@@ -105,6 +105,14 @@ proc checkLink(program: GLuint) =
     echo "Program link error: ", log
     quit(1)
 
+proc saveScreenshot(frameImage: Image, dir: string) =
+  ## Save the raw game frame (256x224) as a timestamped PNG under the given dir.
+  ## Creates a name of the form earthbound_yyyyMMdd-HHmmss.png. Echoes full path.
+  let ts = now().format("yyyyMMdd-HHmmss")
+  let path = dir / &"earthbound_{ts}.png"
+  frameImage.writeFile(path)
+  echo "screenshot: ", path
+
 proc main() =
   ## Open a windowed player, run the emulator at ~60 fps, accept input,
   ## render frames, and support debug controls. Keyboard + all connected
@@ -141,6 +149,7 @@ proc main() =
     BtnX = 0x0040'u16
     BtnL = 0x0020'u16
     BtnR = 0x0010'u16
+    MouseIdleHideFrames = 180
     Controls = """
 Controls:
   Arrows      D-pad (Up/Down/Left/Right)
@@ -156,6 +165,7 @@ Controls:
   N           Advance one frame (when paused)
   -           Decrease speed
   =           Increase speed
+  F9          Screenshot (raw 256x224 frame to ~/Pictures/Screenshots/earthbound_yyyyMMdd-HHmmss.png)
   F10         Dump per-scanline TM/TS band profile only (bin/autoshots/scanline_trace.txt)
   F11         Toggle auto-screenshots (bin/autoshots/ every 5s; OFF by default)
   F12         Capture a FULL diagnostic bundle: frame + PPU regs + scanline trace + CGRAM
@@ -168,6 +178,7 @@ Controls:
     D-pad (real buttons OR left-stick axes for cheap fake-dpad pads) + face buttons, Select, Start feed joy1 (OR with keyboard).
 
   --verbose / -v   Print input changes (joy1 + only active gamepads) for debugging
+  Mouse cursor hides after 3s (180 frames) idle; reappears on movement.
 """
   echo Controls
 
@@ -200,6 +211,8 @@ Controls:
   var lastShotTime = getMonoTime()
   var shotCount = 0
   createDir("bin/autoshots")
+  let screenshotsDir = getHomeDir() / "Pictures" / "Screenshots"
+  createDir(screenshotsDir)
   # F10: one-shot per-scanline TM/TS profile -> bin/autoshots/scanline_trace.txt,
   # for diagnosing HDMA screen-splits (e.g. the battle's bottom status band).
   var traceScanlines = false
@@ -323,9 +336,33 @@ void main() {
   slappyInit()
   let ss = newStreamingSource(frequency = 32000, channels = 2, bits = 16)
 
+  # Prepare a fully-transparent 1x1 pixie image once for cursor hiding.
+  # Windy 0.4.4 exposes Cursor/CustomCursor but no hidden CursorKind.
+  # CustomCursor with alpha=0 works on linux x11 via Xcursor; sets invisible.
+  let hiddenCursor = block:
+    let img = newImage(1, 1)
+    img.data[0] = rgbx(0'u8, 0, 0, 0)
+    Cursor(kind: CustomCursor, image: img, hotspot: ivec2(0, 0))
+  var prevMousePos = window.mousePos
+  var mouseIdleFrames = 0
+
   while not window.closeRequested:
     pollEvents()
     ss.pump()  # reclaim finished buffers every iteration (paused or not)
+
+    # Track window.mousePos frame-to-frame for auto-hide: hide after
+    # MouseIdleHideFrames (~3s) of no movement by setting a transparent
+    # CustomCursor; restore ArrowCursor immediately on any movement.
+    let currMousePos = window.mousePos
+    if currMousePos != prevMousePos:
+      mouseIdleFrames = 0
+      prevMousePos = currMousePos
+      if window.cursor.kind != ArrowCursor:
+        window.cursor = Cursor(kind: ArrowCursor)
+    else:
+      inc mouseIdleFrames
+      if mouseIdleFrames >= MouseIdleHideFrames and window.cursor.kind != CustomCursor:
+        window.cursor = hiddenCursor
 
     # Map current key state to joy1 every frame.
     # Paddy gamepad (player 1) as alternative/additive input for SNES controller.
@@ -425,6 +462,8 @@ void main() {
       dec framesPerTick
     if window.buttonPressed[KeyEqual]:
       inc framesPerTick
+    if window.buttonPressed[KeyF9]:
+      saveScreenshot(frameImage, screenshotsDir)
     if window.buttonPressed[KeyF10]:
       traceScanlines = true
       traceArmed = 0
