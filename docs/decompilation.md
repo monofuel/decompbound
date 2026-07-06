@@ -144,13 +144,13 @@ of SRAM. Round-trip DoD: decode a table → re-encode → byte-exact.
   from the item table, not per-shop. Verified byte-exact (shop 0
   `00 00 00 00 00 00 d1`, shop 1 `00 fd 00 ba 00 84 a7`); ends right before the
   PSI-teleport table (`0x157A80`).
-- **Character stat-growth** — a 28-byte block at file `0x15EC5B`, immediately
-  after the enemy-config table (ends `0x15EC5A`); bytes verified
-  (`37 00 23 00 05 01 7f …`). Likely 4 per-character records driving level-up stat
-  increases, distinct from the EXP table. **Tentative:** the per-record width (a
-  clean 7×4 doesn't hold) + field meanings aren't pinned, and the identity rests
-  on the public-map name — no known-value anchor yet; needs a dynamic level-up
-  trace to confirm.
+- **Character stat-growth — the `0x15EC5B` guess is REFUTED.** No code reads that
+  28-byte block (its address bytes appear nowhere in the ROM; the 4×7 grouping
+  gives nonsensical growth values), so it's most likely enemy-table tail, not
+  stat-growth. The **real** per-character growth lives near file `0x159589` (SNES
+  `$D59589`): the level-up code around `~0x0033xx` does `LDA $D59589,X` + the 8×16
+  hardware-multiply helper at `$C08FF7` (writes `$4202/3`, reads `$4216`) for the
+  vit/IQ → HP/PP target calcs. Exact field layout at `0x159589` still to pin.
 
 ## Relationship to the numbered goals
 
