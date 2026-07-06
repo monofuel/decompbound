@@ -11,7 +11,7 @@ import
   windy,
   paddy,
   slappy,
-  ../decompbound/[apu, cpu, ppu, snesbus]
+  ../decompbound/[apu, cpu, ppu, save_state, snesbus]
 
 proc readRomFile(filepath: string): seq[uint8] =
   ## Read ROM file and return bytes, stripping a 512-byte copier header.
@@ -171,6 +171,8 @@ Controls:
   F12         Capture a FULL diagnostic bundle: frame + PPU regs + scanline trace + CGRAM
               (bin/autoshots/). The emulator ALSO auto-captures a bundle whenever an
               HDMA screen-split starts (a battle/iris) — no keypress needed.
+  1-4         Load state from slot 1-4 (bin/states/slotN.state)
+  Ctrl+1-4    Save state to slot 1-4
   (close the window or Ctrl+C to quit — no Esc-to-quit, too easy to fat-finger)
 
   Gamepad (via paddy):
@@ -183,7 +185,7 @@ Controls:
   echo Controls
 
   let rom = readRomFile(romPath)
-  let snes = newSnesBus(rom)
+  var snes = newSnesBus(rom)
   let sramPath = sramPathFor(romPath)
   snes.loadSram(sramPath)   # battery save: load if a .srm exists
   var cpu = snes.resetCpu()
@@ -211,6 +213,7 @@ Controls:
   var lastShotTime = getMonoTime()
   var shotCount = 0
   createDir("bin/autoshots")
+  createDir("bin/states")
   let screenshotsDir = getHomeDir() / "Pictures" / "Screenshots"
   createDir(screenshotsDir)
   # F10: one-shot per-scanline TM/TS profile -> bin/autoshots/scanline_trace.txt,
@@ -232,6 +235,7 @@ Controls:
   # split starting: battle swirl/bands, scene iris) with no human keypress.
   var prevHdmaen: uint8 = 0
   var lastJoy1: uint16 = 0
+  var currentInputDisplay = "none"
 
   # Audio is driven by the live APU in the bus (snes.tickApu) — no per-frame
   # snapshot/replay state is needed here anymore.
@@ -364,22 +368,24 @@ void main() {
       if mouseIdleFrames >= MouseIdleHideFrames and window.cursor.kind != CustomCursor:
         window.cursor = hiddenCursor
 
-    # Map current key state to joy1 every frame.
+    # Map current key state to joy1 every frame. Keyboard and gamepad sources
+    # are tracked separately so input logging can note the origin.
     # Paddy gamepad (player 1) as alternative/additive input for SNES controller.
-    var joy1: uint16 = 0
-    if window.buttonDown[KeyUp]: joy1 = joy1 or BtnUp
-    if window.buttonDown[KeyDown]: joy1 = joy1 or BtnDown
-    if window.buttonDown[KeyLeft]: joy1 = joy1 or BtnLeft
-    if window.buttonDown[KeyRight]: joy1 = joy1 or BtnRight
-    if window.buttonDown[KeyZ]: joy1 = joy1 or BtnB
-    if window.buttonDown[KeyX]: joy1 = joy1 or BtnA
-    if window.buttonDown[KeyA]: joy1 = joy1 or BtnY
-    if window.buttonDown[KeyS]: joy1 = joy1 or BtnX
-    if window.buttonDown[KeyQ]: joy1 = joy1 or BtnL
-    if window.buttonDown[KeyE]: joy1 = joy1 or BtnR
-    if window.buttonDown[KeyEnter]: joy1 = joy1 or BtnStart
-    if window.buttonDown[KeyRightShift]: joy1 = joy1 or BtnSel
+    var kbdJoy: uint16 = 0
+    if window.buttonDown[KeyUp]: kbdJoy = kbdJoy or BtnUp
+    if window.buttonDown[KeyDown]: kbdJoy = kbdJoy or BtnDown
+    if window.buttonDown[KeyLeft]: kbdJoy = kbdJoy or BtnLeft
+    if window.buttonDown[KeyRight]: kbdJoy = kbdJoy or BtnRight
+    if window.buttonDown[KeyZ]: kbdJoy = kbdJoy or BtnB
+    if window.buttonDown[KeyX]: kbdJoy = kbdJoy or BtnA
+    if window.buttonDown[KeyA]: kbdJoy = kbdJoy or BtnY
+    if window.buttonDown[KeyS]: kbdJoy = kbdJoy or BtnX
+    if window.buttonDown[KeyQ]: kbdJoy = kbdJoy or BtnL
+    if window.buttonDown[KeyE]: kbdJoy = kbdJoy or BtnR
+    if window.buttonDown[KeyEnter]: kbdJoy = kbdJoy or BtnStart
+    if window.buttonDown[KeyRightShift]: kbdJoy = kbdJoy or BtnSel
 
+    var padJoy: uint16 = 0
     # Paddy: aggregate ALL gamepads as player 1.
     # This is an Earthbound-specific emulator (only player 1 matters), so every
     # connected gamepad (including multiple SNES clones + random USB controllers)
@@ -395,22 +401,22 @@ void main() {
     try:
       pads = pollGamepads()
       for gp in pads:
-        if gp.button(GamepadUp): joy1 = joy1 or BtnUp
-        if gp.button(GamepadDown): joy1 = joy1 or BtnDown
-        if gp.button(GamepadLeft): joy1 = joy1 or BtnLeft
-        if gp.button(GamepadRight): joy1 = joy1 or BtnRight
+        if gp.button(GamepadUp): padJoy = padJoy or BtnUp
+        if gp.button(GamepadDown): padJoy = padJoy or BtnDown
+        if gp.button(GamepadLeft): padJoy = padJoy or BtnLeft
+        if gp.button(GamepadRight): padJoy = padJoy or BtnRight
         # Map by PHYSICAL position, not label (paddy is positional/SDL-style):
         # paddy A=bottom, B=right, X=top, Y=left; SNES has B=bottom, A=right,
         # X=top, Y=left. So paddy A/B map to SNES B/A (the classic Nintendo A/B
         # swap); X/Y already line up by position.
-        if gp.button(GamepadA): joy1 = joy1 or BtnB
-        if gp.button(GamepadB): joy1 = joy1 or BtnA
-        if gp.button(GamepadY): joy1 = joy1 or BtnY
-        if gp.button(GamepadX): joy1 = joy1 or BtnX
-        if gp.button(GamepadL1): joy1 = joy1 or BtnL
-        if gp.button(GamepadR1): joy1 = joy1 or BtnR
-        if gp.button(GamepadStart): joy1 = joy1 or BtnStart
-        if gp.button(GamepadSelect): joy1 = joy1 or BtnSel
+        if gp.button(GamepadA): padJoy = padJoy or BtnB
+        if gp.button(GamepadB): padJoy = padJoy or BtnA
+        if gp.button(GamepadY): padJoy = padJoy or BtnY
+        if gp.button(GamepadX): padJoy = padJoy or BtnX
+        if gp.button(GamepadL1): padJoy = padJoy or BtnL
+        if gp.button(GamepadR1): padJoy = padJoy or BtnR
+        if gp.button(GamepadStart): padJoy = padJoy or BtnStart
+        if gp.button(GamepadSelect): padJoy = padJoy or BtnSel
 
         # Support cheap SNES imitation pads that report d-pad as fake left-stick axes
         # (values like 1.0 / 0.0 / -1.0) instead of (or in addition to) real d-pad buttons.
@@ -419,20 +425,41 @@ void main() {
         let lx = gp.axis(GamepadLStickX)
         let ly = gp.axis(GamepadLStickY)
         const AxisThreshold = 0.35'f
-        if lx > AxisThreshold: joy1 = joy1 or BtnRight
-        if lx < -AxisThreshold: joy1 = joy1 or BtnLeft
-        if ly > AxisThreshold: joy1 = joy1 or BtnDown
-        if ly < -AxisThreshold: joy1 = joy1 or BtnUp
+        if lx > AxisThreshold: padJoy = padJoy or BtnRight
+        if lx < -AxisThreshold: padJoy = padJoy or BtnLeft
+        if ly > AxisThreshold: padJoy = padJoy or BtnDown
+        if ly < -AxisThreshold: padJoy = padJoy or BtnUp
     except CatchableError, Defect:
       pads = @[]
+    let joy1 = kbdJoy or padJoy
     # No input latch: faithful d-pad, no held-frame band-aid. A good controller
     # handles its own diagonals; we don't hack around bad hardware.
     snes.joy1 = joy1
 
+    # Live input logging: decode bitmask to names, append to title, and print on
+    # change (with kbd/pad source note). Always active (verbose adds raw dumps).
+    const BtnNamePairs = [
+      (BtnUp, "Up"), (BtnDown, "Down"), (BtnLeft, "Left"), (BtnRight, "Right"),
+      (BtnA, "A"), (BtnB, "B"), (BtnX, "X"), (BtnY, "Y"),
+      (BtnL, "L"), (BtnR, "R"), (BtnStart, "Start"), (BtnSel, "Sel")
+    ]
+    var inputParts: seq[string] = @[]
+    for (bit, name) in BtnNamePairs:
+      if (joy1 and bit) != 0:
+        inputParts.add(name)
+    let inputDisplay = if inputParts.len > 0: inputParts.join("+") else: "none"
+    var sources: seq[string] = @[]
+    if kbdJoy != 0: sources.add("kbd")
+    if padJoy != 0: sources.add("pad")
+    let sourceNote = if sources.len > 0: sources.join("+") else: ""
+    if joy1 != lastJoy1:
+      let src = if sourceNote.len > 0: " (" & sourceNote & ")" else: ""
+      echo &"input: {inputDisplay}{src}  joy1=0x{joy1:04x}"
+      currentInputDisplay = inputDisplay
+      lastJoy1 = joy1
+
     if verbose:
-      if joy1 != lastJoy1:
-        echo &"joy1=0x{joy1:04x} (changed)"
-        lastJoy1 = joy1
+      # Raw details stay under verbose; decoded input: lines are always emitted on change.
 
       # Only print gamepads that are currently sending input.
       # This keeps output quiet when you have multiple controllers (some idle).
@@ -486,6 +513,29 @@ void main() {
       echo &"  windows: W12SEL={snes.ppuRegs[0x23]:02X} W34SEL={snes.ppuRegs[0x24]:02X} " &
         &"WOBJSEL={snes.ppuRegs[0x25]:02X} WH0-3={snes.ppuRegs[0x26]:02X}/{snes.ppuRegs[0x27]:02X}/" &
         &"{snes.ppuRegs[0x28]:02X}/{snes.ppuRegs[0x29]:02X} TMW={snes.ppuRegs[0x2E]:02X} TSW={snes.ppuRegs[0x2F]:02X}"
+    # State save/load (Ctrl+1..4 = save slot N, 1..4 = load slot N; documented in
+    # Controls above). Uses public fields only.
+    for slot in 1..4:
+      let keyNum = case slot
+        of 1: Key1
+        of 2: Key2
+        of 3: Key3
+        of 4: Key4
+        else: Key1
+      if window.buttonPressed[keyNum]:
+        let isCtrl = window.buttonDown[KeyLeftControl] or window.buttonDown[KeyRightControl]
+        let p = statePathForSlot(slot)
+        if isCtrl:
+          saveState(snes, cpu, slot)
+          echo &"saved slot {slot} -> {p}"
+        else:
+          if fileExists(p):
+            let (loadedSnes, loadedCpu) = loadState(rom, slot)
+            snes = loadedSnes
+            cpu = loadedCpu
+            echo &"loaded slot {slot} <- {p}"
+          else:
+            echo &"no state for slot {slot}"
     # (No Esc-to-quit: it was too easy to hit mid-game and lose your run. Close
     # the window or Ctrl+C the terminal to exit.)
 
@@ -726,7 +776,8 @@ void main() {
       fpsAccum = 0
       fpsClock = getMonoTime()
     let pausedStr = if paused: " (paused)" else: ""
-    let newTitle = &"decompbound player - {fpsShown:.0f} fps - frame {frameCount}{pausedStr} x{framesPerTick}"
+    let inputTitlePart = if currentInputDisplay != "none": " [" & currentInputDisplay & "]" else: ""
+    let newTitle = &"decompbound player - {fpsShown:.0f} fps - frame {frameCount}{pausedStr} x{framesPerTick}{inputTitlePart}"
     if window.title != newTitle:
       window.title = newTitle
 
