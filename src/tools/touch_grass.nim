@@ -194,19 +194,18 @@ end
 """
 
 const WinBattleSkillLua* = """
--- WinBattleSkillLua: reusable skill for LLM agent to auto-fight a basic EarthBound battle.
--- At the battle command menu for current char: press A (to pick/confirm; Bash/Attack is the first/ top option in standard layout).
--- Then A (or Left+A) to target the first enemy and confirm the action.
--- Press A repeatedly to advance/dismiss any battle text ("hit for X", "smaaaash", enemy death, victory, EXP).
--- Repeats for subsequent party members' turns until battle ends.
--- Detects end via: world pos leaving the captured battle box (slot1 at ~0x05C0,0x0970) OR menu flag stable at 0 while out of box.
--- BOUNDED: hard MAXF cap from entry. ROBUST: no-progress watchdog escalates with cursor nudges (dirs) + A; phase hints.
--- Expose: define winBattle() global; call it from inside a policy's update() e.g. "function update() winBattle() end"
--- Only sandbox primitives used: frame(), mem.read(addr), pad.press(name). See policy.nim.
--- TODO(magic): 0x0024=MenuFlagOff (text/menu active), 0x0B8E/0x0B8F+0x0BCA/0x0BCB=world pos (verified in touch_grass + slot1), 0x4DBA=battle flag hint.
--- TODO(magic): BATTLE_BOX_* from captured slot1 state + touchGrassPercent comments; these are the coords that keep battle at 50pct.
+-- WinBattleSkillLua: read-driven win via screen.text() (milestone 2c payoff).
+-- Reads screen.text() each frame; decides based on visible menu/dialogue/battle text
+-- instead of blind A-mash + mem heuristics alone.
+-- Command menu ( "Bash"/"Goods"/"PSI"/"Defend" or "INPUT YOUR COMMAND" ): A for default Bash (top option).
+-- Target selection (enemy visible): A to pick first.
+-- Battle text/anim (damage nums, SMAAAASH lines etc): A to advance.
+-- Victory: text contains "won"/"EXP"/"LEVEL UP" (or left battle box) -> stop.
+-- Always logs screen.text() at decision points. Bounded by MAXF; robust exit via pos.
+-- Expose: winBattle(); call from update() e.g. function update() winBattle() end
+-- Sandbox: frame(), mem.read, pad.press, screen.text(). See policy.nim.
+-- TODO(magic): BATTLE_BOX_* + pos bases from slot1 captures + touchGrassPercent; use for robust exit only.
 local MAXF = 3600
-local NO_PROG_THRESH = 48
 local BATTLE_X1 = 0x0580
 local BATTLE_X2 = 0x0600
 local BATTLE_Y1 = 0x0950
@@ -214,10 +213,9 @@ local BATTLE_Y2 = 0x09A0
 
 local _wb = {
   startf = nil,
-  last_menu = -999,
-  last_f = 0,
+  last_txt = "",
   no_prog = 0,
-  tries = 0
+  last_f = 0
 }
 
 function winBattle()
@@ -225,62 +223,70 @@ function winBattle()
   if not _wb.startf then
     _wb.startf = f
     _wb.last_f = f
-    _wb.last_menu = mem.read(0x0024)
   end
   if f - _wb.startf > MAXF then
+    print("winBattle: MAXF cap reached; stopping")
     return
   end
-  local menu = mem.read(0x0024)
-  local px = mem.read(0x0B8E) + 256 * mem.read(0x0B8F)
-  local py = mem.read(0x0BCA) + 256 * mem.read(0x0BCB)
-  local bflag = mem.read(0x4DBA)
-  local in_box = (px >= BATTLE_X1 and px <= BATTLE_X2 and py >= BATTLE_Y1 and py <= BATTLE_Y2)
 
-  if menu ~= _wb.last_menu then
-    _wb.last_menu = menu
-    _wb.last_f = f
+  local txt = screen.text() or ""
+  local low = txt:lower()
+
+  -- log on text change for debug (what the read API actually sees)
+  if txt ~= _wb.last_txt then
+    print("winBattle[f=" .. f .. "]: screen.text=[" .. (txt:gsub("\n", "\\n")) .. "]")
+    _wb.last_txt = txt
     _wb.no_prog = 0
+    _wb.last_f = f
   else
     _wb.no_prog = _wb.no_prog + 1
   end
 
-  -- End if we left the battle box for a sustained period (victory places player back on map)
-  if not in_box and _wb.no_prog > 24 then
+  -- victory / end detection via text (the point of reading)
+  if low:find("won") or low:find("exp") or low:find("level up") or low:find("you won") then
+    print("winBattle: VICTORY/EXP detected in screen.text -> stop")
     return
   end
 
-  -- Progress watchdog: if menu value or state not changing, vary inputs to select first option / first target / advance
-  local pressA = ((f % 3) == 0)
-  local vary = (_wb.no_prog > NO_PROG_THRESH) or ((f % 8) == 0)
+  -- robust exit: left battle box (pos from slot1 capture) sustained
+  local px = mem.read(0x0B8E) + 256 * mem.read(0x0B8F)
+  local py = mem.read(0x0BCA) + 256 * mem.read(0x0BCB)
+  local in_box = (px >= BATTLE_X1 and px <= BATTLE_X2 and py >= BATTLE_Y1 and py <= BATTLE_Y2)
+  if not in_box and _wb.no_prog > 30 then
+    print("winBattle: exited battle box (pos outside) -> stop")
+    return
+  end
 
-  if menu ~= 0 or bflag ~= 0 or in_box then
-    if pressA then
-      pad.press('A')
+  -- COMMAND MENU: read the options; default/first is Bash -> just A to select/confirm
+  if txt:find("Bash") or txt:find("Goods") or txt:find("PSI") or txt:find("Defend") or txt:find("INPUT YOUR COMMAND") then
+    print("winBattle: COMMAND MENU (read via screen.text) -> A for Bash")
+    if (f % 3) == 0 then
+      pad.press("A")
     end
-    if vary then
-      -- Nudge to ensure first command (often already default) and first enemy target (frequently left or top of list)
-      local d = (_wb.tries % 5)
-      if d == 0 then
-        pad.press('A')
-      elseif d == 1 then
-        pad.press('Left')
-      elseif d == 2 then
-        pad.press('A')
-      elseif d == 3 then
-        pad.press('Down')
-      else
-        pad.press('Right')
-      end
-      _wb.tries = _wb.tries + 1
-    end
-    if (f % 5) == 1 then
-      pad.press('A')
-    end
-  else
-    -- No menu flag: still A-mash to skip damage numbers, "you won", or inter-turn pauses
+    return
+  end
+
+  -- TARGET SELECTION (enemy list shown): A to target first/confirm
+  -- (enemy names or target prompt may appear; fallback on visible non-command text)
+  if txt:find("to the") or txt:find("which") or (not txt:find("Bash") and txt:len() > 3 and in_box) then
+    print("winBattle: TARGET/ENEMY (read) -> A")
     if (f % 4) == 0 then
-      pad.press('A')
+      pad.press("A")
     end
+    return
+  end
+
+  -- BATTLE TEXT / ANIMATION / damage / SMAAAASH / numbers / results: A to advance
+  if low:find("smash") or low:find("damage") or txt:find("%d%d") or low:find("hp") or txt:len() > 2 then
+    if (f % 4) == 0 then
+      pad.press("A")
+    end
+    return
+  end
+
+  -- default safe advance (text may be empty or undecoded in current decode; bounded presses)
+  if (f % 5) == 0 then
+    pad.press("A")
   end
 end
 """
