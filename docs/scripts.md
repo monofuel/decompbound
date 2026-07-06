@@ -95,7 +95,13 @@ the opcode meanings are the next dig.
   `JSR ($9558,X)` from `$C0952B`. This is the main event/entity bytecode
   interpreter — the `[$80],Y` stream system that drives NPCs, cutscenes, *and*
   doors — distinct from the `$C179AA` *text* control-code dispatch. (Resolved as
-  a Goal-1 frontier jump door.)
+  a Goal-1 frontier jump door.) **Per-opcode handlers mapped (semantics tentative,
+  need the live hook):** each of the 56 opcodes' handler offset (`$95xx`–`$9Bxx`)
+  and rough operand width (0–5 bytes) are disassembled — e.g. op `0x14` → `$9A87`,
+  ~5 bytes (coords?); op `0x02` advances +4. Semantics cluster into flag test/set,
+  give-item, start-battle (JSL), teleport (map + 2–4-byte coords), party
+  add/remove, and conditional/loop — exact meanings + the flag layout still want
+  the live interpreter trace.
 - **Dialogue text-block pointer table: file `0x8CDED`** (SNES `$C8CDED`) — 4-byte
   entries (`id * 4`), each a 24-bit far pointer to an encoded script block (first
   entries point to `$C8BC2D`+). Parallel tables at `~0x8D1ED` / `~0x8D5ED`; lookup

@@ -135,9 +135,15 @@ of SRAM. Round-trip DoD: decode a table → re-encode → byte-exact.
   `0x10D74C` with its pointer/index table at `0x10C80D` (8-byte entries: a far
   pointer + a count/assoc word, e.g. `b1 d6 d0 00 00 00 00 03`). Formations are
   **variable-length**, `0xFF`-terminated (e.g. `00 01 03 00 01 de 00 ff` at the
-  data base — small bytes are enemy IDs/counts). Bytes verified byte-exact; the
-  exact record layout is tentative (variable-length; partly anchored on the public
-  ROM map).
+  data base — small bytes are enemy IDs/counts). **Confirmed:** the pointer entries
+  are 8 bytes (a 24-bit far pointer into the formation block + a 4-byte count/assoc
+  word); formations are variable-length, `0xFF`-terminated lists of enemy
+  descriptors.
+- **Shops** — the store-inventory table at file `0x1578B2`, 66 entries × 7 bytes,
+  each entry 7 `u8` item-IDs (`0` = empty slot) into the item table; prices come
+  from the item table, not per-shop. Verified byte-exact (shop 0
+  `00 00 00 00 00 00 d1`, shop 1 `00 fd 00 ba 00 84 a7`); ends right before the
+  PSI-teleport table (`0x157A80`).
 - **Character stat-growth** — a 28-byte block at file `0x15EC5B`, immediately
   after the enemy-config table (ends `0x15EC5A`); bytes verified
   (`37 00 23 00 05 01 7f …`). Likely 4 per-character records driving level-up stat
