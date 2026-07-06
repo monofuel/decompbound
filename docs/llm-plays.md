@@ -1,6 +1,9 @@
 # LLM Plays EarthBound — a scripted agent harness
 
-**Status:** NOT STARTED. Design doc. Off the critical path; sanctioned fun.
+**Status:** base two-clock harness BUILT (`src/tools/llm_ai.nim` — LLM writes Lua,
+qwen via azem, windowed + labeled state). The learning-agent **evolution** below
+(skills + notes + pause-to-think) is designed, not built. Off the critical path;
+sanctioned fun.
 
 Give an LLM a way to *play* the game: it authors **Lua** that can read game
 memory (read-only), see the screen, and press buttons — but never write game
@@ -159,6 +162,100 @@ readout the LLM sees is human-legible, not raw hex.
       readout), (re)writes the Lua policy, and the agent makes visible progress
       — e.g. walks Ness out of his room, or wins a Starman Jr. battle.
 - [ ] Runs headless for unattended sessions.
+
+## Evolution: an agent that learns (skills + notes + pause-to-think)
+
+The design above is "the LLM rewrites *one* policy each tick" — and that base
+harness is built (`src/tools/llm_ai.nim`). The next step is bigger: an agent that
+**accumulates skills and knowledge across sessions** and grinds toward the ending
+on its own. Leave it running; it plays, builds tools, takes notes, saves progress,
+and picks up smarter each restart. Inspiration: the agent-with-tools shape
+(coworlds / mettascope) — *technique only*, no shared code (this harness stays
+self-contained, per the house rule).
+
+### Two layers
+
+**Layer 1 — Skills (Lua, deterministic, full-speed).** A persistent, growing
+library of tested routines the agent builds: `walkTo(x, y)`, `talkTo(npc)`,
+`navigateMenu(path)`, `winBattle()`, `useItem(name)`, `fleeEnemy()`. Each runs at
+emulator speed over many frames and owns the *real-time* execution — including the
+time-sensitive bits (rolling battle HP, enemy chase, timed inputs), because Lua
+reacts per-frame with no LLM in the loop.
+
+**Layer 2 — Strategy (the LLM, occasional).** Observe → plan → act, where "act" is
+a **Lua chunk**. One uniform interface: a chunk may call a skill, *define a new
+skill*, press a button one-off, or write a note. A one-off (`pad.press("A")`) is
+just an inline chunk; a skill is a named function it registers and reuses. This is
+the load-bearing idea — the tool library isn't fixed, the agent grows it.
+
+### The persistent brain (survives restarts)
+
+- **Skill library** — `skills.lua` (or a dir), loaded at boot: the agent's muscle
+  memory.
+- **Notes** — accumulated game knowledge, e.g. *"exit Talla Rama's maze → talk to
+  the monkey → get the trout-flavored yogurt machine."* One fact per note with a
+  topic key (retrievable; all-in-context until it grows, then embed + search).
+- **SRAM** — the actual battery save (already built: `--save-srm`, isolated to
+  `bin/states/llm_ai.srm`, never the user's real `.srm`).
+- **Milestone save-states** — snapshot before something risky, roll back on
+  failure. Exactly what the state-screenshot core (`docs/state-screenshots.md`)
+  provides.
+
+### The clock: pause-to-think
+
+The unit of decision is a **skill, not a frame.** The agent picks a skill; the
+skill runs at full emulator speed until it finishes or hits a decision point;
+*then* control returns to the agent. So the honest, efficient model is
+**pause-to-think**: run the game flat-out while a skill executes, and **pause the
+emulation while the LLM plans the next action.**
+
+For a *bot* (unlike a human spectator) pausing is legitimate — EarthBound's
+real-time pressure only exists *during* an action (a chase, a battle), which a
+skill owns end-to-end; between actions you're standing on the overworld deciding
+where to go, and freezing there costs nothing. This sidesteps "the game runs for
+10 s while the LLM thinks" entirely. Two run modes fall out:
+
+- **Autonomous** — full-speed, headless, pause-to-think, persist everything, grind
+  for hours.
+- **Watch** — windowed + 60 fps, the LLM call async in the background so the
+  emulation never freezes (for spectating).
+
+### How it composes with the rest of the project
+
+- **Reading the game** — the labeled state summary already exists (HP/PP, position,
+  sector, in-battle, menu-open). The **text-decode track** (`docs/scripts.md`) can
+  let the agent *read dialogue* — huge for an RPG: follow the story instead of
+  guessing.
+- **`walkTo` pathfinding** — needs walkability data we don't have yet. Ship a
+  **reactive v1** (head toward target, detect "stuck," try around) — enough for open
+  areas, no RE needed — and add real A* later once we RE the collision map (the
+  trace tool can find it: watch what the game reads when Ness bumps a wall).
+- **Anti-looping / honesty** — a **progress metric** from SRAM (party size, items,
+  level, story flags, sectors seen). The agent sees whether an action advanced it;
+  after K skills with no progress → "I'm stuck" → try something new / note it / roll
+  back a save-state. Keeps an unattended run from spinning forever.
+
+### Open decisions (defaults proposed; confirm before building)
+
+1. **Clock** — pause-to-think for the bot (proposed); async/60 fps reserved for the
+   watch mode.
+2. **Action interface** — every agent action is a Lua chunk (proposed), vs
+   structured tool-calls with Lua only inside skill bodies.
+3. **Notes** — one-fact-per-file with topic keys (proposed, scales), vs a single
+   growing `notes.md` (simpler).
+4. **v1 target** — bedroom → first battle won (proposed): small enough to prove the
+   full loop (skill-building + notes + progress), real enough to be exciting.
+
+### Definition of done (evolved harness)
+
+- [ ] The agent expresses actions as Lua chunks; can call, define, and reuse skills.
+- [ ] Skill library + notes + SRAM persist across sessions and reload at boot.
+- [ ] Pause-to-think autonomous mode runs headless for hours, unattended.
+- [ ] A progress metric detects "stuck" and the agent recovers (new plan / rollback).
+- [ ] v1: from a cold start with an empty brain, the agent reaches + wins its first
+      battle, and the skills/notes it wrote survive a restart.
+- [ ] North star: unattended, it makes real, measurable story progress across many
+      sessions.
 
 ## Sibling: the LLM that *rewrites* the game
 
