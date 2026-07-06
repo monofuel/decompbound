@@ -19,7 +19,7 @@ type
     failed*: int
     firstFailure*: string
 
-proc loadCpu(node: JsonNode): Cpu =
+proc loadCpu*(node: JsonNode): Cpu =
   ## Build CPU state from a vector's initial/final block.
   result.pc = node["pc"].getInt().uint16
   result.s = node["s"].getInt().uint16
@@ -32,7 +32,7 @@ proc loadCpu(node: JsonNode): Cpu =
   result.pbr = node["pbr"].getInt().uint8
   result.emulation = node["e"].getInt() == 1
 
-proc describeDiff(cpu: Cpu, expected: Cpu, bus: Bus, finalRam: JsonNode): string =
+proc describeDiff*(cpu: Cpu, expected: Cpu, bus: Bus, finalRam: JsonNode): string =
   ## Human-readable first-difference description, empty when states match.
   if cpu.pc != expected.pc: return &"pc: got {cpu.pc:04X} want {expected.pc:04X}"
   if cpu.s != expected.s: return &"s: got {cpu.s:04X} want {expected.s:04X}"
@@ -53,6 +53,32 @@ proc describeDiff(cpu: Cpu, expected: Cpu, bus: Bus, finalRam: JsonNode): string
       return &"ram[{address:06X}]: got {got:02X} want {want:02X}"
   result = ""
 
+proc runOne*(bus: Bus, test: JsonNode): tuple[passed: bool, diff: string] =
+  ## Run exactly one SingleStepTests vector (initial state + one step + final assert).
+  ## Returns (true, "") on match or (false, first diff). Cleans touched/dirty RAM.
+  ## This is the core of the per-opcode harness; cycles list is present in vectors
+  ## but left unchecked (state+RAM only) because our CPU does not track bus phases.
+  var touched: seq[int]
+  for pair in test["initial"]["ram"]:
+    let address = pair[0].getInt()
+    bus.mem[address] = pair[1].getInt().uint8
+    touched.add address
+
+  var cpu = loadCpu(test["initial"])
+  # SingleStepTests snapshots block moves after a 100-cycle budget.
+  cpu.mvnBudget = 100
+  var expected = loadCpu(test["final"])
+  expected.mvnBudget = 100
+  cpu.step(bus)
+
+  let diff = describeDiff(cpu, expected, bus, test["final"]["ram"])
+  for address in touched:
+    bus.mem[address] = 0
+  for address in bus.dirty:
+    bus.mem[address] = 0
+  bus.dirty.setLen(0)
+  result = (diff.len == 0, diff)
+
 proc runFile*(bus: Bus, path: string, limit: int): FileResult =
   ## Run one vector file; reuses the shared bus, resetting dirtied bytes.
   result.name = path.extractFilename()
@@ -63,32 +89,13 @@ proc runFile*(bus: Bus, path: string, limit: int): FileResult =
       break
     count += 1
 
-    var touched: seq[int]
-    for pair in test["initial"]["ram"]:
-      let address = pair[0].getInt()
-      bus.mem[address] = pair[1].getInt().uint8
-      touched.add address
-
-    var cpu = loadCpu(test["initial"])
-    # SingleStepTests snapshots block moves after a 100-cycle budget.
-    cpu.mvnBudget = 100
-    var expected = loadCpu(test["final"])
-    expected.mvnBudget = 100
-    cpu.step(bus)
-
-    let diff = describeDiff(cpu, expected, bus, test["final"]["ram"])
-    if diff.len == 0:
+    let (ok, diff) = runOne(bus, test)
+    if ok:
       result.passed += 1
     else:
       result.failed += 1
       if result.firstFailure.len == 0:
         result.firstFailure = test["name"].getStr() & ": " & diff
-
-    for address in touched:
-      bus.mem[address] = 0
-    for address in bus.dirty:
-      bus.mem[address] = 0
-    bus.dirty.setLen(0)
 
 proc main() =
   var limit = 200
