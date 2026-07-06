@@ -112,10 +112,13 @@ tile+attr words, standard SNES BG format), and **tileset graphics** at file
   $0B8E,X` near file `0x9390`; screen-relative = minus scroll `$0031/$0033`). The
   **tile+attr reader** is at file `0x2640` (SNES `$C02640`): `LDA $D01880,X` returns
   the 2-byte tilemap word (data `0x101800`, ptr table `0x100000`) for a target tile.
-  Walkability is a **branch-on-bit after that word load** — a passability bit in the
-  2-byte tilemap word; the exact bit still needs a confirmed wall-contact trace to
-  pin. Together these give a future `walkTo` its A* pieces: read `$0B8E/$0BCA`, index
-  the tilemap via `0x2640`'s calc, test the step bit.
+  Walkability uses a **separate collision table at ~`$E000`** (bank E0, file
+  ~`0x200000`): a byte per coarse tile indexed `((cy>>3 & 0x3F)<<6) | (cx>>3 & 0x3F)`,
+  read by the movement/pos-write gate at file `0x0029F9` (`JSL $C05F33; AND #$00D0;
+  BNE skip` — a nonzero flag blocks the `STA $0B8E,X` update). The `0x2640` reader
+  also feeds a tile-attr scan at `0x002A6B`. Anchors byte-verified (`9d8e0b` gate,
+  `bf8018d0` reader); the exact blocked-value/mask still wants a clean open-vs-wall
+  trace to fully confirm. These give a future `walkTo` real A* over walkable tiles.
 
 ### 📊 Game data (track, not yet its own doc)
 
