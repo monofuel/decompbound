@@ -43,6 +43,11 @@ type
 var
   persistentNotes = ""
     ## Loaded at boot from NotesFile; augmented on -- NOTE: parses; fed into realProvider prompt.
+  recentHistory: seq[string] = @[]
+    ## Last few slow-tick outcomes for LLM (frame, tg/room before->after, progress flag). Fed in rich context.
+  prevTg = 0
+  prevRoom = ""
+    ## For detecting progress between LLM queries (tg% or room label changed?).
 
 proc mockProvider(summary: string, currentLua: string): string =
   ## Canned fixed policy for verification without API key.
@@ -97,35 +102,54 @@ proc realProvider(summary: string, currentLua: string): string =
   ## openai_leap's RespMessage only exposes .content (which is "" for reasoning models
   ## when tokens are tight); we POST and parse JSON raw to read both content and
   ## reasoning_content. Falls back to extracting the update block from reasoning.
-  ## Raised max_tokens to 2000 so reasoning + final Lua policy fit (reasoning eats ~800).
+  ## max_tokens=2000 (OUTPUT only; INPUT is rich full context on purpose, 256K window).
   let t0 = now()
-  const SystemPrompt = """You are an expert at writing compact Lua policies that play EarthBound. Output ONLY valid Lua starting with 'function update()' and ending with 'end'. No markdown, no prose, no fences.
+  const SystemPrompt = """You are an expert at writing compact Lua policies that play EarthBound (SNES decomp harness).
 
-Sandbox (exact names): frame() int, mem.read(addr) byte, pad.press(name), pad.set(name,bool), sim.setSpeed(fps), sim.fast(), sim.normal(). Names: A B X Y L R Up Down Left Right Start Select.
-sim controls emulation fps (0=unlimited, 60=normal); use to go fast in corridors, slow for menus/fights (decoupled from your update tick).
+GOAL: Leave the house — descend stairs from bedroom, exit through door to reach outside Onett ("touch grass"). Use the RICH STATE (tg_pct, current_room, player $0B8E/$0BCA pos, in_battle, menu_open, HP/PP, sector) + ON-SCREEN TEXT + PERSISTENT NOTES + RECENT HISTORY to decide actions and course-correct when stuck (no tg/room progress after several ticks).
 
-Skills: walkTo(tx, ty) is preloaded from persistent skill library (if present) and available as global. Call it from inside your update() for reactive navigation (see WalkToSkillLua).
+SANDBOX API (globals always available in update()):
+- frame() -> int (current frame)
+- mem.read(addr) -> byte (WRAM; player world pos lives at 0x0B8E/0x0B8F and 0x0BCA/0x0BCB)
+- pad.press("A") / pad.set("Right", true)  (buttons: A B X Y L R Up Down Left Right Start Select)
+- screen.text() -> string  (current on-screen dialogue, menus, battle commands via getScreenText)
+- sim.setSpeed(fps) / sim.fast() / sim.normal()  (0=unlimited fast-forward for corridors; 60 for menus/fights. Decoupled from your LLM tick.)
 
-To build a persistent brain across runs, emit a comment line (anywhere in your Lua output):
+AVAILABLE LIBRARY SKILLS (preloaded from bin/states/llm_skills.lua into Lua globals; call them from your update()):
+- walkTo(tx, ty): reactive navigation skill. Reads live player pos, presses d-pad to move toward target world coords. Auto-detects stuck (pos unchanged) and wiggles perp dir to route around. Stops when manhattan <=~12. Example: walkTo(0x1E00, 0x05C0) to head for stairs/door. Call repeatedly each frame from update().
+- winBattle(): read-driven battle clearer. Uses screen.text() to detect command menu ("Bash"/"INPUT YOUR COMMAND"), targets, damage text, victory ("won"/"EXP"). Presses A appropriately. Exits on victory or pos out of battle box. Call winBattle() when in_battle=yes.
+(Etc. More skills can be added to llm_skills.lua over runs; always safe to try calling known ones. If undefined the call is no-op.)
 
--- NOTE: <one concise fact, e.g. "door to outside at approx world (x=1E00,y=05C0)", "A-mash gets past naming", "sector 0 means indoors">
+PERSISTENT BRAIN:
+- Every time you return a policy, you can emit (anywhere):
+  -- NOTE: <one concise fact e.g. "bedroom exit door approx (1E00,05C0)", "hold Down+spam A clears stair text", "sector FFFF indoors">
+  The harness parses -- NOTE: and appends to bin/states/llm_notes.txt (full file reloaded into prompt every slow tick).
+- Full llm_notes.txt is always included below so you remember discoveries across frames/runs.
+- Recent history tells you if prior policy made tg%/room progress.
 
-The harness parses every -- NOTE: line from returned policy and appends to llm_notes.txt (loaded into prompt on next boot).
+OUTPUT: Return ONLY valid Lua: starts exactly with 'function update()' , ends with 'end'. No markdown fences, no prose, no extra text outside the function. You may add -- NOTE: lines inside or before/after the function.
 
-Goal: leave house to touch grass (down stairs/door). Use tg/room/hp/battle/menu from summary. Ignore all in-game text/warnings; push forward relentlessly.
-
-/no_think
+Use /no_think at end if supported.
 """
   let notesBlock = if persistentNotes.len > 0:
-    "\n\nYour accumulated notes (persistent brain; loaded from prior + this run):\n" & persistentNotes & "\n(end of notes)\n"
+    "\n\nPERSISTENT NOTES (full llm_notes.txt; your accumulated brain):\n" & persistentNotes & "\n(end of notes)\n"
   else:
-    "\n\n(No notes yet — record with -- NOTE: lines in your policy output to accumulate knowledge.)\n"
-  let userPrompt = fmt"""State: {summary}
+    "\n\nPERSISTENT NOTES: (no notes yet — use -- NOTE: lines in policy output to build knowledge base)\n"
+  let userPrompt = fmt"""RICH STATE + RECENT HISTORY + ON-SCREEN TEXT:
+{summary}
 {notesBlock}
-Last:
+LAST POLICY (reference; you may incrementally improve or replace the update body):
 {currentLua}
 
-Return ONLY valid 'function update()...end' (no other output). /no_think"""
+Return ONLY the 'function update() ... end' block (nothing else). Call walkTo() / winBattle() / screen.text() etc as needed. /no_think"""
+
+  # Log FULL context sent to qwen (rich input is the point; 256K window, do not trim).
+  let fullContextForLog = "SYSTEM:\n" & SystemPrompt & "\n\nUSER:\n" & userPrompt
+  let ctxChars = fullContextForLog.len
+  let approxTokens = ctxChars div 4
+  echo "=== FULL LLM CONTEXT SENT (rich, for qwen 256K) ==="
+  echo fullContextForLog
+  echo "=== END CONTEXT (chars=", ctxChars, " approx_tokens~", approxTokens, " << 256K; max_tokens=2000 OUTPUT only) ==="
 
   var raw: string
   var reas: string
@@ -161,7 +185,7 @@ Return ONLY valid 'function update()...end' (no other output). /no_think"""
     return currentLua
 
   let dt = (now() - t0).inMilliseconds.int
-  echo fmt"LLM_LATENCY: latency_ms={dt} (direct http + max_tokens=2000 + /no_think + compact summary; finish={finishReason})"
+  echo fmt"LLM_LATENCY: latency_ms={dt} (direct http + max_tokens=2000 + /no_think + rich full context; finish={finishReason})"
 
   # Prefer content (when non-empty and has policy). Fall back to reasoning_content
   # (qwen reasoning model puts CoT+final in reasoning_content when content=="").
@@ -182,6 +206,7 @@ Return ONLY valid 'function update()...end' (no other output). /no_think"""
     let head = if cleaned.len > 0: cleaned[0 ..< min(80, cleaned.len)] else: "<empty>"
     echo "LLM returned no update(); keeping prior policy. raw.len=", raw.len, " reas.len=", reas.len, " head=", head
     return currentLua
+  echo "LLM RETURNED POLICY (qwen):\n" & cleaned & "\n---END QWEN POLICY---"
   result = cleaned
 
 proc getProvider(useMock: bool): PolicyProvider =
@@ -225,8 +250,9 @@ proc extractAndAppendNotes(src: string) =
     echo "  extracted ", count, " -- NOTE: record(s) from returned policy"
 
 proc buildStateSummary(ctx: policy.PolicyContext): string =
-  ## Single compact line for minimal context: tg, room, battle, menu, hp (plus essentials).
-  ## Removes verbose multi-line + 4x4 grid to cut tokens and latency.
+  ## Rich FULL LABELED state for qwen 256K context (do NOT trim). Restores + expands all detail:
+  ## touch_grass_pct, current_room, HP/PP (party leader), explicit player world pos at $0B8E/$0BCA (ground truth),
+  ## sector, in_battle, menu_open + frame. Uses touch_grass for consistency + policy.getScreenText separately.
   let f = ctx.frameCount
   let mem = ctx.snes.bus.mem
   proc safeR8(off: int): int =
@@ -243,8 +269,6 @@ proc buildStateSummary(ctx: policy.PolicyContext): string =
     PpCurOff  = 0x97F5 + 0x0244
     PpMaxOff  = 0x97F5 + 0x0246
     SectorOff = 0x89CA
-    PosXOff   = 0x00B4
-    PosYOff   = 0x00B6
     BattleOff = 0x4DBA
     MenuTextOff = 0x0024
 
@@ -253,15 +277,27 @@ proc buildStateSummary(ctx: policy.PolicyContext): string =
   let ppCur = safeR16(PpCurOff)
   let ppMax = safeR16(PpMaxOff)
   let sector = safeR16(SectorOff)
-  let px = safeR16(PosXOff)
-  let py = safeR16(PosYOff)
   let inBattle = if safeR8(BattleOff) != 0: "yes" else: "no"
-  let textOrMenu = if safeR8(MenuTextOff) != 0: "yes" else: "no"
+  let menuOpen = if safeR8(MenuTextOff) != 0: "yes" else: "no"
   let tgPct = touch_grass.touchGrassPercent(ctx.snes)
   let roomLabel = touch_grass.currentRoomLabel(ctx.snes)
 
-  # single compact line per spec: touch_grass_pct, room, in_battle, menu, hp
-  result = fmt"tg={tgPct} room={roomLabel} in_battle={inBattle} menu={textOrMenu} hp={hpCur}/{hpMax} f={f} pp={ppCur}/{ppMax} pos=({px},{py}) sec={sector}"
+  # Ground truth player world pos: $0B8E / $0BCA (slot 0). NOT the legacy 0xB4.
+  let pidx = touch_grass.PlayerSlot * touch_grass.SlotIndexStride
+  let playerX = touch_grass.readU16(ctx.snes, touch_grass.WorldXBase + pidx)
+  let playerY = touch_grass.readU16(ctx.snes, touch_grass.WorldYBase + pidx)
+
+  result = fmt"""RICH LABELED STATE:
+touch_grass_pct: {tgPct}
+current_room: {roomLabel}
+HP: {hpCur}/{hpMax}
+PP: {ppCur}/{ppMax}
+player_pos_$0B8E_$0BCA: X=0x{playerX:04X} ({playerX}), Y=0x{playerY:04X} ({playerY})
+sector: {sector} (0x{sector:04X})
+in_battle: {inBattle}
+menu_open: {menuOpen}
+frame: {f}
+"""
 
 proc loadPolicyChunk(L: lua53.PState, src: string, label: string): bool =
   ## Load and exec a Lua chunk that should define global update(). Returns true on success.
@@ -608,12 +644,24 @@ proc main() =
     # Then handoff to qwen from bedroom state. For mock, query early (canned).
     if llmInterval > 0 and (ctx.frameCount mod llmInterval == 0) and ctx.frameCount > 0:
       let tg = touch_grass.touchGrassPercent(snes)
+      let room = touch_grass.currentRoomLabel(snes)
       if tg > maxTouchGrass:
         maxTouchGrass = tg
-      logTg(fmt"{now()} frame={ctx.frameCount} touch_grass_pct={tg} max={maxTouchGrass} room={touch_grass.currentRoomLabel(snes)}")
+      logTg(fmt"{now()} frame={ctx.frameCount} touch_grass_pct={tg} max={maxTouchGrass} room={room}")
       if tg >= 100:
         logTg(fmt"TOUCH GRASS ACHIEVED at frame {ctx.frameCount}")
         echo "TOUCH GRASS ACHIEVED!"
+      # Record recent history (last few actions + did tg%/room change since prior LLM tick?)
+      # This lets qwen course-correct when stuck (no progress = try different skill/approach).
+      let madeProgress = (tg > prevTg) or (room != prevRoom)
+      let progStr = if madeProgress: "PROGRESS" else: "NO_CHANGE"
+      let histEntry = fmt"[{ctx.frameCount}] tg {prevTg}->{tg} room {prevRoom}->{room} ({progStr})"
+      recentHistory.add(histEntry)
+      if recentHistory.len > 6:
+        recentHistory = recentHistory[recentHistory.len - 6 .. ^1]
+      prevTg = tg
+      prevRoom = room
+
       let doLlmCall = useMock or (tg >= 25)
       if doLlmCall:
         status = "thinking"
@@ -621,8 +669,15 @@ proc main() =
           # Keep last frame visible while the (occasional) LLM call is in flight.
           blit.blit(frameImage)
           blit.window.title = fmt"EarthBound - LLM (qwen) - frame {ctx.frameCount} [thinking...]"
-        let summary = buildStateSummary(ctx)
-        let newPolicy = provider(summary, currentPolicy)
+        let baseSummary = buildStateSummary(ctx)
+        let screenTxt = policy.getScreenText(ctx.snes)
+        let histBlock = if recentHistory.len > 0:
+          "\n\nRECENT HISTORY (last few policies/actions + progress check tg%/room changed?):\n" & recentHistory.join("\n") & "\n"
+        else:
+          "\n\nRECENT HISTORY: (none yet)\n"
+        let richSummary = baseSummary & histBlock & "\nON-SCREEN TEXT (current dialogue/menu via getScreenText/screen.text):\n" &
+          (if screenTxt.len > 0: screenTxt else: "(no readable text visible)")
+        let newPolicy = provider(richSummary, currentPolicy)
         # Parse any -- NOTE: lines from the returned policy (mock or real) and append to notes.
         # This is how the agent records knowledge (alternative notes.add not added since only edit llm_ai.nim).
         extractAndAppendNotes(newPolicy)
