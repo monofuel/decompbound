@@ -13,10 +13,9 @@
 ## The harness + API is our code; ROM and any dumps are user-supplied at runtime.
 
 import
-  std/[os, strutils, strformat, times, algorithm, options, monotimes],
+  std/[os, strutils, strformat, times, algorithm, options, monotimes, httpclient, json],
   pixie,
   windy,
-  openai_leap,
   ../decompbound/[cpu, ppu, snesbus, lua53, policy, save_state],
   ./[glblit, touch_grass]
 
@@ -72,12 +71,34 @@ end
 end
 """
 
+proc extractLuaBlock(text: string): string =
+  ## Best-effort extractor for a 'function update() ... end' policy even when the
+  ## model (reasoning qwen) buries it inside reasoning_content or adds prose.
+  ## Uses the LAST 'function update' (in case of echoes) to the LAST 'end' after it.
+  if text.len == 0: return ""
+  let key = "function update"
+  var lastStart = -1
+  var pos = 0
+  while true:
+    let idx = text.find(key, pos)
+    if idx < 0: break
+    lastStart = idx
+    pos = idx + key.len
+  if lastStart < 0: return ""
+  # Take up to the last "end" after this start (handles inner ends + concluding code at tail of CoT).
+  let endIdx = text.rfind("end", start = lastStart)
+  if endIdx >= lastStart:
+    result = text[lastStart ..< endIdx + 3].strip()
+  else:
+    result = text[lastStart ..< min(text.len, lastStart + 400)].strip()
+
 proc realProvider(summary: string, currentLua: string): string =
-  ## Real LLM call via openai_leap -> LM Studio on azem (AzemBaseUrl). Returns a
-  ## policy string, or falls back to the current one on any error.
-  ## Uses req form for max_tokens + /no_think to kill reasoning latency on qwen3.x.
+  ## Real LLM call via direct HTTP (to access reasoning_content from qwen3 reasoning model).
+  ## openai_leap's RespMessage only exposes .content (which is "" for reasoning models
+  ## when tokens are tight); we POST and parse JSON raw to read both content and
+  ## reasoning_content. Falls back to extracting the update block from reasoning.
+  ## Raised max_tokens to 2000 so reasoning + final Lua policy fit (reasoning eats ~800).
   let t0 = now()
-  let openai = newOpenAiApi(baseUrl = AzemBaseUrl, apiKey = AzemApiKey)
   const SystemPrompt = """You are an expert at writing compact Lua policies that play EarthBound. Output ONLY valid Lua starting with 'function update()' and ending with 'end'. No markdown, no prose, no fences.
 
 Sandbox (exact names): frame() int, mem.read(addr) byte, pad.press(name), pad.set(name,bool), sim.setSpeed(fps), sim.fast(), sim.normal(). Names: A B X Y L R Up Down Left Right Start Select.
@@ -107,28 +128,50 @@ Last:
 Return ONLY valid 'function update()...end' (no other output). /no_think"""
 
   var raw: string
+  var reas: string
+  var finishReason = ""
   try:
-    let req = CreateChatCompletionReq()
-    req.model = PolicyModel
-    req.max_tokens = some(300)
-    req.temperature = some(0.2f32)  # low temp for consistent compact Lua
-    req.messages = @[
-      Message(role: "system", content: option(@[MessageContentPart(`type`: "text", text: option(SystemPrompt))])),
-      Message(role: "user", content: option(@[MessageContentPart(`type`: "text", text: option(userPrompt))]))
-    ]
-    let resp = openai.createChatCompletion(req)
-    raw = if resp.choices.len > 0 and resp.choices[0].message.isSome:
-      resp.choices[0].message.get.content
-    else:
-      ""
+    let url = AzemBaseUrl & "/chat/completions"
+    let client = newHttpClient()
+    client.headers = newHttpHeaders({
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " & AzemApiKey
+    })
+    let body = %* {
+      "model": PolicyModel,
+      "max_tokens": 2000,
+      "temperature": 0.2,
+      "messages": [
+        {"role": "system", "content": SystemPrompt},
+        {"role": "user", "content": userPrompt}
+      ]
+    }
+    let respBody = client.postContent(url, $body)
+    client.close()
+    let j = parseJson(respBody)
+    if j.hasKey("choices") and j["choices"].len > 0:
+      let ch = j["choices"][0]
+      if ch.hasKey("message"):
+        let msg = ch["message"]
+        raw = msg.getOrDefault("content").getStr("")
+        reas = msg.getOrDefault("reasoning_content").getStr("")
+      finishReason = ch.getOrDefault("finish_reason").getStr("")
   except CatchableError as e:
     echo "LLM ERROR: ", e.msg
-    openai.close()
     return currentLua
-  openai.close()
+
   let dt = (now() - t0).inMilliseconds.int
-  echo fmt"LLM_LATENCY: latency_ms={dt} (trimmed + /no_think + max_tokens=300 + compact summary)"
-  var cleaned = raw.strip()
+  echo fmt"LLM_LATENCY: latency_ms={dt} (direct http + max_tokens=2000 + /no_think + compact summary; finish={finishReason})"
+
+  # Prefer content (when non-empty and has policy). Fall back to reasoning_content
+  # (qwen reasoning model puts CoT+final in reasoning_content when content=="").
+  var candidate = raw
+  if (candidate.len == 0 or not candidate.contains("function update")) and reas.len > 0:
+    candidate = extractLuaBlock(reas)
+    if candidate.len > 0:
+      echo "LLM: fell back to reasoning_content block (len=", reas.len, ")"
+
+  var cleaned = candidate.strip()
   if cleaned.startsWith("```"):
     var kept: seq[string] = @[]
     for line in cleaned.splitLines():
@@ -136,7 +179,8 @@ Return ONLY valid 'function update()...end' (no other output). /no_think"""
       kept.add(line)
     cleaned = kept.join("\n").strip()
   if not cleaned.contains("function update"):
-    echo "LLM returned no update(); keeping prior policy. raw.len=", raw.len, " head=", cleaned[0 ..< min(80, cleaned.len)]
+    let head = if cleaned.len > 0: cleaned[0 ..< min(80, cleaned.len)] else: "<empty>"
+    echo "LLM returned no update(); keeping prior policy. raw.len=", raw.len, " reas.len=", reas.len, " head=", head
     return currentLua
   result = cleaned
 
