@@ -57,7 +57,7 @@ type
     ## PPU port state.
     ppuRegs*: array[0x100, uint8]  ## Raw shadow of $21xx writes.
     bgScroll*: array[8, uint16]  ## Latched BG1-4 H/V offsets ($210D-$2114).
-    bgScrollLatch: uint8         ## Shared write-twice Prev latch byte (one across ALL BGxHOFS/BGxVOFS ports per fullsnes/anomie spec).
+    bgScrollLatch: uint8         ## Shared write-twice prev-byte latch.
     vmain: uint8
     vmadd: uint16
     cgadd: uint16
@@ -167,19 +167,11 @@ proc ppuPortWrite(snes: SnesBus, offset: uint32, value: uint8): bool =
     snes.oamAddr = (snes.oamAddr + 1) and 0x3FF
     true
   of 0x210D, 0x210E, 0x210F, 0x2110, 0x2111, 0x2112, 0x2113, 0x2114:
-    # BG scroll registers use a single shared 2-write latch (Prev) across all
-    # ports ($210D-$2114). Per-write combine uses old scroll value for HOFS
-    # low bits. HDMA writes reach here via writeBbus/ppuPortWrite.
-    # TODO: 0xF8/0x3FF/7 are from the SNES PPU BG scroll latch quirk (fullsnes/anomie); document fully if expanding scroll handling.
+    # BG scroll registers are write-twice through a shared latch:
+    # low byte first, then high; full value assembles on the second write.
     let index = (offset - 0x210D).int
-    let old = snes.bgScroll[index]
-    let prev = snes.bgScrollLatch.uint16
-    if (index and 1) == 0:
-      # HOFS: preserve prior high-byte low-3 bits via old.
-      snes.bgScroll[index] = ((value.uint16 shl 8) or (prev and 0xF8) or ((old shr 8) and 7)) and 0x3FF
-    else:
-      # VOFS: simple high|low.
-      snes.bgScroll[index] = ((value.uint16 shl 8) or prev) and 0x3FF
+    snes.bgScroll[index] =
+      ((value.uint16 shl 8) or snes.bgScrollLatch.uint16) and 0x3FF
     snes.bgScrollLatch = value
     true
   of 0x2115:
