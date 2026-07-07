@@ -95,39 +95,103 @@ proc touchGrassPercent*(snes: SnesBus): int =
   return 50
 
 const IntroSkillLua* = """
--- Deterministic intro skill: title -> new game -> naming (accept defaults via A-mash + dirs) -> Ness bedroom.
--- Lets agent start from gameplay; not the interesting part. Fixed sequence, frame based.
+-- Read-driven IntroSkillLua: title splash (empty/garbage text) -> short Start edges + A (to reach menu + pick New/Start New Game) -> naming (relaxed detect on any content or time: accept defaults with A + "Dont care"/OK dirs) x6 -> bedroom stop.
+-- Branches + logs every screen.text() change and decisions. Does not depend solely on "New" match (decode often garbage even on visible menus per tests).
+-- Stop using bedroom pos (emulates currentRoomLabel/touchGrass != title + bedroom).
+-- Bounded, short edges only. See policy.nim screen.text/pad/frame/mem. Per AGENTS: magic bytes/offsets have TODO+comments.
+local MAXF = 4500
+local _intro = {
+  last_txt = "",
+  stage = "boot",
+  last_change_f = 0,
+  naming_steps = 0,
+  action_count = 0
+}
+
 function update()
   local f = frame()
-  if f < 180 then
+  if f > MAXF then return end
+
+  local txt = screen.text() or ""
+  local low = txt:lower()
+
+  if txt ~= _intro.last_txt then
+    print("Intro[f=" .. f .. " stage=" .. _intro.stage .. "]: screen.text=[" .. txt:gsub("\n", "\\n") .. "]")
+    _intro.last_txt = txt
+    _intro.last_change_f = f
+  end
+
+  local px = mem.read(0x0B8E) + 256 * mem.read(0x0B8F)
+  local py = mem.read(0x0BCA) + 256 * mem.read(0x0BCB)
+  local sector = mem.read(0x89CA) + 256 * mem.read(0x89CB)
+
+  -- STOP at bedroom (tg=25) or progressed in-game (read pos, per currentRoomLabel logic)
+  -- TODO(magic): bedroom box + title guard copied from touchGrassPercent in this file; verified from captures.
+  local in_bedroom = (px >= 0x1F00 and px < 0x2000 and py <= 0x0600) or
+                     (math.abs(px - 0x1F40) <= 0x80 and math.abs(py - 0x05C0) <= 0x80)
+  local is_titleish = (px == 0 and py == 0) or (px < 0x0100 and py < 0x0100)
+  if in_bedroom then
+    print("Intro: BEDROOM reached pos=" .. px .. "," .. py .. " sec=" .. sector .. " @f=" .. f .. " -> STOP")
     return
   end
-  if f == 220 or f == 221 then
-    pad.press('Start')
+  if not is_titleish and f > 300 and _intro.naming_steps >= 2 then
+    print("Intro: left title (pos non-zero) @f=" .. f .. " -> STOP")
     return
   end
-  if f >= 260 and f < 820 then
-    -- A-mash + occasional dir for letter select / confirm on naming (Ness default + OK).
-    -- Standard fixed sequence that reaches bedroom on this harness.
-    if f % 3 == 0 then
-      pad.press('A')
+
+  -- 1. screen.text() empty/garbage (title splash or attract demo): press Start as short edges (gaps between) to reach the menu.
+  if txt == "" or low:len() < 5 or (not low:find("new") and not low:find("dont") and not low:find("start") and not low:find("game")) then
+    _intro.stage = "title"
+    if (f == 220 or f == 221 or f == 222) then
+      pad.press("Start")
+      print("Intro: empty/garbage -> Start edge @f=" .. f)
+      return
     end
-    if f % 17 == 0 then
-      pad.press('Down')
+    if f >= 260 and f < 1500 then
+      if (f % 3 == 0) then pad.press("A") end
+      if (f % 8 == 0) then pad.press("Down") end
+      if (f % 17 == 0) then pad.press("Down") end
+      if (f % 29 == 0) then pad.press("Right") end
+      return
     end
-    if f % 29 == 0 then
-      pad.press('Right')
+    if f >= 1500 then
+      if (f % 4 == 0) then pad.press("Down") end
+      if (f % 11 == 0) then pad.press("A") end
     end
     return
   end
-  if f >= 900 then
-    -- In bedroom (or house entry): walk down + A to clear any text, head for stairs/door.
-    if f % 4 == 0 then
-      pad.press('Down')
+
+  -- 2. text contains "New" (New Game menu): navigate to + confirm New Game.
+  if low:find("new") then
+    _intro.stage = "newmenu"
+    print("Intro: NEW GAME menu (contains New) @f=" .. f .. " -> nav + confirm")
+    if (f % 5 == 0) then pad.press("Up") end
+    if (f % 3 == 0) then pad.press("A") end
+    if (f % 19 == 0) then pad.press("Down") end
+    return
+  end
+
+  -- 3. a naming screen (name prompt / "Dont care" / keyboard visible in the text): accept the DEFAULT name (select the preset/OK/"Dont care" option, or the confirm sequence) — repeat through all 6.
+  if low:find("dont care") or low:find("dont") or low:find("name") or low:find("ok") or low:len() > 6 then
+    _intro.stage = "naming"
+    print("Intro: NAMING (prompt/Dont care/keyboard) step~" .. _intro.naming_steps .. " @f=" .. f .. " -> accept default")
+    if low:find("dont") then
+      if (f % 8 == 0) then pad.press("Down") end
     end
-    if f % 11 == 0 then
-      pad.press('A')
+    if (f % 3 == 0) then pad.press("A") end
+    if (f % 11 == 0) then pad.press("Right") end
+    if (f % 23 == 0) then pad.press("Down") end
+    if f - _intro.last_change_f > 25 then
+      _intro.naming_steps = _intro.naming_steps + 1
+      _intro.last_change_f = f
+      print("Intro: naming step advanced -> " .. _intro.naming_steps)
     end
+    return
+  end
+
+  -- 4. when currentRoomLabel(snes) != "title" / touch_grass shows the bedroom (in-game): STOP. (already checked above via pos)
+  if low:len() > 2 then
+    if (f % 5 == 0) then pad.press("A") end
   end
 end
 """
