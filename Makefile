@@ -19,7 +19,7 @@ help:
 	@echo "  make intro        - screenshot the 'War Against Giygas' title card"
 	@echo "  make title        - screenshot deep into the attract sequence"
 	@echo "  make frames       - render reference frames to bin/frame_<N>.png"
-	@echo "  make song         - (WIP) render captured music to bin/song.wav"
+	@echo "  make jukebox SONG=N - render EarthBound song N to bin/jukebox_songNNN.wav (7/8 songs play)"
 	@echo "  make vectors      - full 65816 CPU vector sweep (needs bin/65816-vectors)"
 	@echo "  make spc-vectors  - full SPC700 vector sweep (needs bin/spc700-vectors)"
 	@echo "  make regions      - regenerate all code regions from the gold ROM"
@@ -92,9 +92,13 @@ PORT ?= 8080
 serve: nim.cfg
 	nim r -d:release src/tools/serve.nim $(PORT)
 
-song: nim.cfg
-	@echo "use: nim r src/tools/music_explore.nim   (menu explorer)"
-	@echo "or:  nim r src/tools/render_song.nim rom out.wav secs bootinstr  (clean capture)"
+# Jukebox: render an EarthBound song to a WAV via the standalone SPC player.
+# Pick a track with SONG=N (default 1); output -> bin/jukebox_songNNN.wav.
+# Extra flags via ARGS, e.g.: make jukebox SONG=15 ARGS="--seconds 10"
+SONG ?= 1
+jukebox song: nim.cfg
+	@mkdir -p bin
+	nim r -d:release src/tools/sound_explore.nim --song $(SONG) $(ARGS) "$(ROM)"
 
 # --- Verification -----------------------------------------------------
 
