@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overworld Rendering · How Ness walks behind trees · decompbound</title>
+<style>
+  :root{
+    --bg:#faf9f7; --panel:#ffffff; --ink:#1c1a17; --muted:#6b6560; --line:#e6e1da;
+    --accent:#c0392b; --accent2:#2c6e8f; --gold:#c8a24a; --green:#3a7d44; --purple:#7d5ba6;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#16140f; --panel:#211d17; --ink:#ece6dc; --muted:#9c948a; --line:#332d24;
+      --accent:#e05a4c; --accent2:#4d9ec4; --gold:#d8b45e; --green:#5aa86a; --purple:#a985d0; }
+  }
+  :root[data-theme="light"]{ --bg:#faf9f7; --panel:#fff; --ink:#1c1a17; --muted:#6b6560; --line:#e6e1da;
+    --accent:#c0392b; --accent2:#2c6e8f; --gold:#c8a24a; --green:#3a7d44; --purple:#7d5ba6; }
+  :root[data-theme="dark"]{ --bg:#16140f; --panel:#211d17; --ink:#ece6dc; --muted:#9c948a; --line:#332d24;
+    --accent:#e05a4c; --accent2:#4d9ec4; --gold:#d8b45e; --green:#5aa86a; --purple:#a985d0; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.6;font-size:16px}
+  .wrap{max-width:900px;margin:0 auto;padding:0 22px 96px}
+  header.hero{padding:56px 0 24px;border-bottom:1px solid var(--line);margin-bottom:8px}
+  .kicker{font-family:var(--mono);font-size:12.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+  h1{font-size:clamp(28px,5vw,42px);line-height:1.1;margin:.28em 0 .2em;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:18px;max-width:62ch}
+  h2{font-size:24px;margin:52px 0 6px;letter-spacing:-.01em}
+  h3{font-size:18px;margin:26px 0 4px}
+  p{margin:.55em 0} ul{margin:.4em 0}
+  a{color:var(--accent2);text-decoration:none;border-bottom:1px solid transparent}
+  a:hover{border-bottom-color:currentColor}
+  code{font-family:var(--mono);font-size:.9em;background:color-mix(in srgb,var(--accent2) 12%,transparent);
+    padding:.08em .4em;border-radius:4px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 22px;margin:18px 0}
+  .tldr{border-left:4px solid var(--accent)}
+  /* layer diagram */
+  .layers{display:flex;flex-direction:column;gap:10px;margin:18px 0}
+  .layer{border:1px solid var(--line);border-radius:10px;padding:12px 16px;position:relative;background:var(--panel)}
+  .layer .tag{font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .layer .name{font-weight:600;font-size:16px}
+  .layer .ex{color:var(--muted);font-size:14px}
+  .front{border-left:5px solid var(--green)}
+  .mid{border-left:5px solid var(--accent)}
+  .back{border-left:5px solid var(--accent2)}
+  .arrow{text-align:center;color:var(--muted);font-family:var(--mono);font-size:12px;margin:-2px 0}
+  .scene{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin:16px 0}
+  @media (max-width:640px){.scene{grid-template-columns:1fr}}
+  .chip{display:inline-block;font-family:var(--mono);font-size:12px;padding:2px 8px;border-radius:20px;border:1px solid var(--line)}
+  .chip.bg{color:var(--accent2);border-color:color-mix(in srgb,var(--accent2) 40%,var(--line))}
+  .chip.obj{color:var(--green);border-color:color-mix(in srgb,var(--green) 40%,var(--line))}
+  .chip.hi{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,var(--line))}
+  pre{background:color-mix(in srgb,var(--ink) 5%,transparent);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;font-family:var(--mono);font-size:13.5px;line-height:1.5}
+  .muted{color:var(--muted)}
+  footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="hero">
+  <div class="kicker">decompbound · graphics</div>
+  <h1>How EarthBound draws the overworld</h1>
+  <p class="sub">Why Ness walks <em>in front of</em> a tree trunk but <em>behind</em> its leaves — and how a
+  background can draw on top of a sprite. The answer isn't "more sprites."</p>
+</header>
+
+<div class="card tldr">
+  <p><strong>TL;DR.</strong> The map (ground, trees, buildings) is <strong>background tiles</strong>, not sprites.
+  Ness, NPCs, and small movable things (mailbox, signs) are <strong>sprites (OBJ)</strong>. A background tile can
+  carry a <strong>priority bit</strong> that makes it draw <em>in front of</em> sprites. Tree <em>leaves</em> are
+  high-priority background tiles → they cover Ness. Tree <em>trunks</em> are normal (low-priority) tiles → Ness
+  covers them. No extra sprite involved.</p>
+</div>
+
+<h2>The SNES draws in layers</h2>
+<p>The SNES PPU composites a frame from a few sources, back to front:</p>
+<ul>
+  <li><strong>Background layers</strong> (BG1–BG4): grids of 8×8 tiles. EarthBound's overworld map lives here —
+  the grass, roads, houses, and trees are all just tiles arranged on a big scrolling map.</li>
+  <li><strong>Sprites</strong> (OBJ): up to 128 free-floating objects, positioned anywhere (not on the tile grid).
+  Ness, NPCs, enemies, and small interactive props are sprites.</li>
+</ul>
+<p>Naïvely you'd think "backgrounds are behind, sprites are in front." That's the <em>default</em> — and it's
+exactly why a broken emulator draws Ness on top of trees. The real hardware is smarter: <strong>every tile and
+every sprite carries a priority</strong>, and the PPU interleaves them into one ordered stack.</p>
+
+<h2>The trick: a background tile can outrank a sprite</h2>
+<p>Each tile in a background's tilemap is a 16-bit word. One of those bits — <strong>bit 13, the priority
+bit</strong> (mask <code>0x2000</code>) — splits that layer into two sub-layers:</p>
+<div class="layers">
+  <div class="layer front"><span class="tag">drawn last · on top</span>
+    <div class="name">BG tiles with priority bit set <span class="chip hi">high-prio</span></div>
+    <div class="ex">Tree leaves/canopy, roof edges, awnings, anything you walk <em>behind</em>.</div></div>
+  <div class="arrow">▲ in front of sprites ▲ · · · ▼ behind sprites ▼</div>
+  <div class="layer mid"><span class="tag">the middle</span>
+    <div class="name">Sprites (OBJ) <span class="chip obj">Ness, NPCs, mailbox</span></div>
+    <div class="ex">Free-floating objects. Ness sits here, between the two halves of the background.</div></div>
+  <div class="arrow">▲ · · · ▼</div>
+  <div class="layer back"><span class="tag">drawn first · at the back</span>
+    <div class="name">BG tiles without priority bit <span class="chip bg">low-prio</span></div>
+    <div class="ex">Grass, road, tree trunk, the base of a house — the stuff Ness stands in front of.</div></div>
+</div>
+<p>So the <em>same tree</em> is split across two layers: its trunk tiles are low-priority (behind Ness), its leaf
+tiles have the priority bit set (in front of Ness). Walk up and your head slides under the canopy — no second
+sprite, no swap, just two tiles with different priority bits drawn on either side of the sprite layer.</p>
+
+<h2>Sprite vs. background: who's who in Onett</h2>
+<div class="scene">
+  <div class="card"><h3>Sprites <span class="chip obj">OBJ</span></h3>
+    <ul class="muted">
+      <li>Ness &amp; party</li>
+      <li>NPCs (townsfolk, the hotel clerk)</li>
+      <li>Enemies wandering the map</li>
+      <li>Small movable/interactive props — a mailbox, a sign, a present box</li>
+      <li>The mushroom that sprouts on Ness's head 🍄 (an overlay sprite)</li>
+    </ul>
+    <p class="muted">They move smoothly pixel-by-pixel, independent of the tile grid, and each has its own
+    2-bit priority slotting it into the stack.</p></div>
+  <div class="card"><h3>Background <span class="chip bg">BG tiles</span></h3>
+    <ul class="muted">
+      <li>Grass, dirt, roads, water</li>
+      <li>Buildings (walls, roofs, windows)</li>
+      <li>Trees, bushes, fences</li>
+      <li>Anything that scrolls as one solid map</li>
+    </ul>
+    <p class="muted">"That mailbox looks like a sprite" — often it <em>is</em>, precisely because the game wants it
+    to layer with Ness or be interactive. Static scenery stays as cheaper background tiles.</p></div>
+</div>
+<p class="muted"><strong>Rule of thumb:</strong> if it can move, be talked to, or needs to layer independently
+with Ness, it's a sprite. If it's fixed scenery, it's a background tile — and if you can walk behind part of it,
+that part has the priority bit set.</p>
+
+<h2>How our emulator does it (and where the bugs were)</h2>
+<p>In <code>src/decompbound/ppu.nim</code>, <code>bgScanlineInto(…, prio)</code> reads each tilemap word and can
+filter by that priority bit:</p>
+<pre>let entry = snes.vram[…]            # 16-bit tilemap word
+let tile  = entry and 0x03FF        # which character
+if prio >= 0 and ((entry and 0x2000) != 0).int != prio:
+  continue                          # skip tiles not in this priority pass</pre>
+<p><code>modeLayers</code> then produces the back-to-front passes for the mode — <em>low</em>-priority BG tiles,
+then sprites, then <em>high</em>-priority BG tiles — so a leaf tile lands in front of Ness while the trunk stays
+behind. Sprites carry their own 2-bit OBJ priority read from OAM, which interleaves into the same ladder.</p>
+<p>Getting this ladder <em>exactly</em> right is fiddly: draw all sprites unconditionally on top and Ness stands
+in front of every tree; over-correct the interleave and sprites vanish behind a cutscene. Both have been real
+bugs here — this priority stack is the thing being tuned.</p>
+
+<footer>
+  Part of the decompbound docs. See <a href="snes-architecture.html">SNES Architecture</a> for the full PPU /
+  memory picture, and <code>docs/graphics.md</code> for the sprite/tile format reverse-engineering.
+</footer>
+</div>
+</body>
+</html>
