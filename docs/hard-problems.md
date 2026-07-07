@@ -13,7 +13,21 @@ same treatment.
 
 ---
 
-## 1. Every "Photo Man" location  ·  *status: open — static exhausted, needs a dynamic trace*
+## 1. Every "Photo Man" location  ·  *status: cracking — dynamic trace landed the first confirmed spot*
+
+**Breakthrough (2026-07-06):** a user F12 screenshot caught the Photographer *active*, with
+the save-state embedded — the exact dynamic anchor this needed. From it:
+- **Confirmed spot #1 — Peaceful Rest Valley (entrance):** player pos `$0B8E`=`0x0590`,
+  `$0BCA`=`0x1B88`, sector `$89CA`=`0xFFFF`. Photographer spawned as **entity slot 10**, at
+  X `0x05B0` (player + `0x20`) same Y — the framing offset.
+- Spots are **position-triggered** (walk the exact tile → fire); miss the tile, miss the photo.
+- A guessed "photo counter" (value 22 at `$7E00A9`) is **unconfirmed / distrusted** — it
+  contradicts the player having taken only 1 photo. Do not rely on it.
+- **Next:** collect more Photographer save-states (each = a confirmed coord) and walk the
+  `counter → spot` table reader near the `$C09558` event dispatch + the `$C7ACxx` fuzzy text
+  refs + the `STA $0B8E,X`/`$0BCA,X` spawn (`$C096E9/$C096F9`) to enumerate the full ordered list.
+
+<details><summary>original "open — static exhausted" framing</summary>
 
 **Want:** the full list of ~32 Photographer ("Say fuzzy pickles!") photo spots —
 location + trigger order — extracted from the ROM.
@@ -46,6 +60,7 @@ location + trigger order — extracted from the ROM.
 3. **Album-display code.** The end-game photo album walks the photos in order; it must
    reference the same list. Find that reader (from the album text `$0x75562`) → the list +
    order for free. Also aided by a save-state at the album screen.
+</details>
 
 ---
 
