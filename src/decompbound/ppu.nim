@@ -128,18 +128,17 @@ proc bgScanlineInto(snes: SnesBus, buf: var openArray[ColorRGBA],
 proc modeLayers(mode: int, bg3prio: bool): seq[tuple[bg, bpp, pal, prio: int]] =
   ## Back-to-front BG passes for a mode: (layer, bpp, palette base, priority
   ## filter). prio -1 = all tiles; 0 = low-priority tiles only; 1 = high only.
-  ## Mode 1 always splits by per-tile priority bit (0x2000) so BG-vs-BG stacking
-  ## and OBJ interleave are correct per fullsnes chart. For bg3prio=0 (normal):
-  ## BG3.0, BG3.1, BG2.0, BG1.0, BG2.1, BG1.1 (back to front). When the
-  ## BG3-priority bit is set, BG3.1 moves to front: BG3.0, BG2.0, BG1.0,
-  ## BG2.1, BG1.1, BG3.1.
+  ## In mode 1 with the BG3-priority bit ($2105 bit 3) set, BG3 high-prio tiles
+  ## move to the front; additionally BG1/BG2 are split by per-tile priority so
+  ## the full hardware ladder is respected: BG3p0 < BG2p0 < BG1p0 < BG2p1 < BG1p1 < BG3p1
+  ## (back to front). This ensures e.g. a BG2 high-prio UI window draws in front
+  ## of a BG1 low-prio animated battle BG (while still keeping BG3p1 frontmost
+  ## for overworld menus and BG1 overall front of same-prio BG2).
   case mode:
   of 0: @[(3, 2, 96, -1), (2, 2, 64, -1), (1, 2, 32, -1), (0, 2, 0, -1)]
   of 1:
-    if bg3prio:
-      @[(2, 2, 0, 0), (1, 4, 0, 0), (0, 4, 0, 0), (1, 4, 0, 1), (0, 4, 0, 1), (2, 2, 0, 1)]
-    else:
-      @[(2, 2, 0, 0), (2, 2, 0, 1), (1, 4, 0, 0), (0, 4, 0, 0), (1, 4, 0, 1), (0, 4, 0, 1)]
+    if bg3prio: @[(2, 2, 0, 0), (1, 4, 0, 0), (0, 4, 0, 0), (1, 4, 0, 1), (0, 4, 0, 1), (2, 2, 0, 1)]
+    else: @[(2, 2, 0, -1), (1, 4, 0, -1), (0, 4, 0, -1)]
   of 3: @[(1, 4, 0, -1), (0, 8, 0, -1)]
   else: @[]
 
@@ -161,8 +160,8 @@ var
     ## Whether objSuppressLine[y] has any suppressing pixel (fast skip when not).
   objSpritePrio: array[ScreenHeight, array[ScreenWidth, int8]]
     ## OBJ priority (0-3) of the sprite drawn at each pixel this frame, or -1 if
-    ## none. Recorded by renderSprites; read by overlayForegroundBg to select
-    ## which BG priority bands (low/high) belong in front of that OBJ band.
+    ## none. Recorded by renderSprites; read by overlayForegroundBg to interleave
+    ## high-priority BG tiles in front of the sprites they should cover.
   anySpriteDrawn: bool
     ## True if renderSprites drew any pixel this frame (lets the foreground-BG
     ## overlay skip its passes entirely when nothing needs interleaving).
@@ -437,8 +436,8 @@ proc renderSprites*(snes: SnesBus, image: Image) =
 
   # OBJ-vs-OBJ order is OAM index only: a lower index is frontmost. (The 2-bit
   # attribute priority does NOT order sprites against each other — it only picks
-  # the OBJ-vs-BG band, recorded in objSpritePrio for overlayForegroundBg to
-  # select interleaving rungs.) Draw 127 down to 0 so sprite 0 ends up on top.
+  # the OBJ-vs-BG band, recorded in objSpritePrio for overlayForegroundBg.) Draw
+  # 127 down to 0 so sprite 0 ends up on top.
   for sprite in countdown(127, 0):
     let base = sprite * 4
     let extra = snes.oam[512 + sprite div 4]
@@ -504,38 +503,35 @@ proc renderSprites*(snes: SnesBus, image: Image) =
         anySpriteDrawn = true
 
 proc overlayForegroundBg*(snes: SnesBus, image: Image) =
-  ## Interleave BG priority bands (both low and high per-tile prio) in front of
-  ## the OBJ priority bands that sit behind them per the SNES mode-1 ladder.
-  ## The per-scanline composite draws BGs (now split) and sprites are drawn on
-  ## top; this pass then repaints the BG rungs that belong above each sprite's
-  ## 2-bit OAM prio (recorded during renderSprites). Uses the OAM prio (attr>>4 & 3)
-  ## and the BG tile 0x2000 bit (via bgScanlineInto prio filter) to select bands.
-  ## Roughly (back to front, mode1 normal): BG3.0 + OBJ.0 + BG2.0/BG1.0 + OBJ.1
-  ## + BG2.1/BG1.1 + OBJ.2/OBJ.3 + BG3.1 (when bg3prio bit).
-  ## Only sprite pixels are touched; preserves windows/TM/color-math/brightness
-  ## from the scanline pass elsewhere. Call AFTER renderSprites. Mode 1 only.
+  ## Interleave HIGH-priority BG tiles in FRONT of the sprites they should cover,
+  ## over the whole-frame sprite pass. The per-scanline composite already orders
+  ## BG layers correctly, but sprites are a separate later pass, so without this
+  ## every sprite sits on top of every BG. Per the SNES mode-1 priority ladder,
+  ## high-priority BG1/BG2 tiles sit above OBJ priority 0-2 (a foreground map tile
+  ## over an NPC; the battle command/status windows over the battlers), and BG3
+  ## high-priority tiles sit above OBJ 0 — or above ALL OBJ when the BG3-priority
+  ## bit ($2105.3) is set (dialogue/HUD windows over characters).
+  ##
+  ## Only pixels where a sprite was drawn (objSpritePrio >= 0) are touched, so the
+  ## full per-scanline composite (color math, windows, force-black) is preserved
+  ## everywhere else. Call AFTER renderSprites.
   if not anySpriteDrawn: return
   if (snes.ppuRegs[0x00] and 0x80) != 0: return         # force blank
   if (snes.ppuRegs[0x05] and 0x07) != 1: return         # scoped to mode 1
   let mainMask = snes.ppuRegs[0x2C].int
   let bg3prio = (snes.ppuRegs[0x05] and 0x08) != 0
-  # BG band passes (back to front). Each: (bg, bpp, pal, tilePrio 0/1, maxObjPrio).
-  # A band paints over a sprite pixel when sp <= maxObjPrio for that rung.
-  # BG1.0/BG2.0 cover up through OBJ.1; highs through OBJ.2; BG3.1b (no bit)
-  # only OBJ.0; BG3.1 (bit) covers all.
-  var passes: seq[tuple[bg, bpp, pal, tilePrio, maxPrio: int]] = @[]
+  # High-priority BG passes, back to front: (bg, bpp, paletteBase, maxSpritePrio
+  # covered). BG1/BG2-high sit above OBJ 0-2; BG3-high above OBJ 0, or all OBJ
+  # when the BG3-priority bit moves it to the very front.
+  var passes: seq[tuple[bg, bpp, pal, maxPrio: int]] = @[]
   if (mainMask and 0x04) != 0 and not bg3prio:
-    passes.add (2, 2, 0, 1, 0)     # BG3 high (b slot) over OBJ.0
+    passes.add (2, 2, 0, 0)     # BG3-high (no prio bit).
   if (mainMask and 0x02) != 0:
-    passes.add (1, 4, 0, 0, 1)     # BG2 low over OBJ <=1
+    passes.add (1, 4, 0, 2)     # BG2-high.
   if (mainMask and 0x01) != 0:
-    passes.add (0, 4, 0, 0, 1)     # BG1 low over OBJ <=1
-  if (mainMask and 0x02) != 0:
-    passes.add (1, 4, 0, 1, 2)     # BG2 high over OBJ <=2
-  if (mainMask and 0x01) != 0:
-    passes.add (0, 4, 0, 1, 2)     # BG1 high over OBJ <=2
+    passes.add (0, 4, 0, 2)     # BG1-high.
   if (mainMask and 0x04) != 0 and bg3prio:
-    passes.add (2, 2, 0, 1, 3)     # BG3 high (a slot) over all OBJ <=3
+    passes.add (2, 2, 0, 3)     # BG3-high (prio bit): frontmost, over all OBJ.
   let bright = (snes.ppuRegs[0x00].int and 0x0F) + 1
   var line: array[ScreenWidth, ColorRGBA]
   var drawn: array[ScreenWidth, bool]
@@ -543,13 +539,13 @@ proc overlayForegroundBg*(snes: SnesBus, image: Image) =
     for py in 0..<ScreenHeight:
       for px in 0..<ScreenWidth:
         drawn[px] = false
-      snes.bgScanlineInto(line, drawn, py, p.bg, p.bpp, p.pal, p.tilePrio)
+      snes.bgScanlineInto(line, drawn, py, p.bg, p.bpp, p.pal, 1)  # high tiles.
       for px in 0..<ScreenWidth:
         if not drawn[px]:
           continue
         let sp = objSpritePrio[py][px].int
         if sp < 0 or sp > p.maxPrio:
-          continue    # sprite absent or in front of this band
+          continue    # no sprite here, or the sprite is in front of this BG.
         var c = line[px]
         c.r = ((c.r.int * bright) div 16).uint8
         c.g = ((c.g.int * bright) div 16).uint8
