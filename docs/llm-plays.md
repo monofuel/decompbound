@@ -1,9 +1,12 @@
 # LLM Plays EarthBound — a scripted agent harness
 
-**Status:** base two-clock harness BUILT (`src/tools/llm_ai.nim` — LLM writes Lua,
-qwen via azem, windowed + labeled state). The learning-agent **evolution** below
-(skills + notes + pause-to-think) is designed, not built. Off the critical path;
-sanctioned fun.
+**Status:** two-clock harness BUILT and PLAYING (`src/tools/llm_ai.nim` — qwen
+writes Lua, windowed + labeled state). Much of the learning-agent **evolution**
+below is now built too: persistent skills (`walkTo`/`escapeMenu`/`winBattle`),
+the notes brain, isolated SRAM, and the `tg_pct` milestone metric. The one big
+gap left is **speed** — the LLM call still blocks the fast loop, so it crawls.
+See [Where it actually stands](#where-it-actually-stands--what-works-whats-next)
+for the honest state of the code. Off the critical path; sanctioned fun.
 
 Give an LLM a way to *play* the game: it authors **Lua** that can read game
 memory (read-only), see the screen, and press buttons — but never write game
@@ -304,6 +307,78 @@ Gotchas the hard way:
 - Known issue: loading a save-state captured mid-house resumes with a stale
   duplicate player object from an earlier room receiving d-pad input
   (object/slot identity vs save-state interaction; needs a dig).
+
+## Where it actually stands — what works, what's next
+
+The sections above are the vision + design; this is the honest state of the code
+as of the last update. Keep this section current — it's the first thing to read.
+
+### What works now
+
+- **Two-clock loop** (`src/tools/llm_ai.nim`): a Lua `update()` drives `joy1`
+  every frame; qwen (`qwen3.6-35b-a3b` via LM Studio on azem) rewrites the policy
+  every `--llm-interval` frames and hot-reloads it.
+- **Sandbox**: read-only `mem.read`, `screen.text()`, `pad`, `frame()`,
+  `sim.setSpeed()` — no memory-write binding exists, and an instruction-count
+  hook caps runaway scripts.
+- **Persistent skills** (`bin/states/llm_skills.lua`, loaded before the policy):
+  `walkTo(x, y)` (reactive, d-pad only, stuck-wiggle), `escapeMenu()` (B out of
+  overworld menus), `winBattle()`. Seeded from `touch_grass.nim` on first run.
+- **Persistent brain**: `bin/states/llm_notes.txt` (parsed `-- NOTE:` lines,
+  reloaded into every prompt) + isolated `--save-srm` battery save (never the
+  user's real `.srm`).
+- **Milestone metric**: `tg_pct` (see the section above) — 25 → 75 → 100 proven
+  end-to-end with a scripted walk.
+- **Menu-blindness fix** (commit `8865a94`): rich state reports
+  `menu_open`/`which_menu`; the prompt + skills forbid pressing A while walking
+  (A opens the command ring and freezes movement — the single biggest thing that
+  used to strand qwen in the bedroom).
+- **Watch mode**: `make llm-ai` runs windowed at `--speed 60` from a bedroom
+  save-state so you can watch qwen play in real time.
+
+### The next priority: SPEED (the fast path isn't fast)
+
+The two-clock design's whole promise is that the **fast Lua loop runs at emulator
+speed** and the LLM is only *occasional*. Today it doesn't deliver that, because
+**the qwen call is synchronous — it blocks the fast loop while it waits.**
+
+Measured (2026-07-07): each qwen call takes **~5.3 s**. At the default
+`--llm-interval 20`, a 120-frame stretch fires ~6 calls ≈ **~32 s of frozen
+emulation** — while the 120 frames of actual emulation are sub-second. At
+`--speed 60` this reads as: ~0.3 s of smooth play, ~5 s freeze, repeat. It crawls,
+and it's the thing to fix next.
+
+**The fix** (this is exactly the "pause-to-think" / async watch mode described in
+the Evolution section): **move the qwen HTTP call onto a background thread.** The
+fast Lua loop keeps emulating and rendering the *current* policy at 60 fps while
+the request is in flight; when the new policy string returns ~5 s later, hot-swap
+it. The worker thread never touches the Lua VM — it only turns strings into
+strings (summary → policy) — so the threading stays clean and the emulator stays
+single-owner of its state. Cheap complementary wins: raise `--llm-interval` so it
+queries less often, and stop echoing the full multi-KB context to stdout on every
+call (that I/O is not free either).
+
+*(Not yet implemented — top TODO.)*
+
+### Milestone reports (proposed)
+
+Rather than a single opaque `tg_pct` number scrolling past, have the harness emit
+a short **report each time the agent crosses a milestone** — e.g. *exit Ness's
+room* (25 → 75), *walk down the hallway / reach the downstairs*, *step outside*
+(→ 100). Each report captures:
+
+- the milestone name + the frame and wall-clock it was reached (or "not reached");
+- the `tg_pct` transition and the player pos at the crossing;
+- the policy Lua that achieved it, and any `-- NOTE:` the agent wrote that tick;
+- **the git commit hash** (`git rev-parse --short HEAD`) so every report is pinned
+  to the exact harness + metric code that produced it.
+
+Recording the commit hash is the load-bearing part: it makes runs **comparable
+across commits** — "did the menu-fix commit actually make *step outside*
+reachable?" becomes a diff of two reports, not a memory. Write them under
+`bin/llm_reports/<milestone>_<commit>.md` (gitignored, like the other run
+artifacts). This turns a run from a wall of stdout into a diffable record and
+makes "is the agent getting better?" an answerable question.
 
 ## Sibling: the LLM that *rewrites* the game
 
