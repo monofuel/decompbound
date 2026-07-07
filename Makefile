@@ -126,10 +126,12 @@ llm-play: nim.cfg
 	nim r src/tools/llm_play.nim --frames 240 "$(ROM)" examples/policy_demo.lua
 
 # LLM plays EarthBound: an azem-hosted model (qwen3.6-35b-a3b) writes the Lua
-# policy live. Drops frames to bin/ (--png-every) so you can watch its progress.
+# policy live, in a WINDOW at realtime (--speed 60) so you can WATCH it play and
+# give feedback. Starts in the bedroom (slot 4) chasing "touch grass %". Ctrl+C to
+# quit. Override anything via ARGS, e.g. make llm-ai ARGS="--load-state 1 --frames 40000".
 llm-ai: nim.cfg
 	@mkdir -p bin
-	nim r src/tools/llm_ai.nim -- --no-mock --frames 600 --png-every 30 "$(ROM)"
+	nim r src/tools/llm_ai.nim -- --no-mock --load-state 4 --speed 60 --frames 20000 $(ARGS) "$(ROM)"
 
 # Run a SNES test ROM through the accuracy harness (PASS/FAIL/UNKNOWN + a frame
 # dump). e.g. make testrom ROM=bin/testroms/blargg/test_speed.smc FRAMES=400
