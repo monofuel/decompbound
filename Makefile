@@ -1,4 +1,4 @@
-.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai testrom script-dump gfx-roundtrip trace inspect
+.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai testrom script-dump gfx-roundtrip trace inspect audio-check
 
 # bash + pipefail: the test loop pipes nim through sed, and without
 # pipefail the pipeline's exit status is sed's (always 0), which turns
@@ -154,6 +154,12 @@ trace: nim.cfg
 inspect: nim.cfg
 	@mkdir -p bin
 	nim r src/tools/state_inspect.nim -- "$(ROM)" $(SLOT) bin/state_inspect.png
+
+# Audio regression gate for S-DSP (silence/halving). Headless collect + peak/RMS
+# assert + WAV capture. Run on title/intro or --load-state for specific SFX.
+audio-check: nim.cfg
+	@mkdir -p bin
+	nim r src/tools/audio_check.nim --frames 1400 "$(ROM)"
 
 test: nim.cfg
 	@files=$$(ls tests/test_*.nim 2>/dev/null); \
