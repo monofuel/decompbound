@@ -16,13 +16,18 @@ modulation)**, and a PMOD high-pitch-sweep crop. Music is recognizable; the volu
 right; the sustained parts of complex sounds improved with PMOD.
 
 **Known-wrong (user-reported, by ear):**
-- **PK/PSI Rockin** — the *sustained/end* "crackly bit" improved (PMOD), but the
-  **initial/attack** sounds are still wrong.
+- **PK/PSI Rockin** — the **initial/attack** sounds wrong (the sustain is closer).
 - **Battle-swirl** — the rising whoosh (a pitch sweep) plays but sounds off.
 - **Enemy-death** — plays but wrong.
+- **UFO attack** — plays but wrong.
 
 The pattern: **rich/modulated/swept SFX** are the failures, which points at the pitch +
 attack-envelope + modulation path, not the basics.
+
+> **⚠️ Gate (2026-07-06):** a PMOD "refinement" that clamped the post-envelope sample to
+> ±0x4000 **halved all audio** and shipped unverified (audio can't be heard headless) —
+> reverted (`bbc587e`). **No further DSP change lands without the audio-output regression
+> test below.** Rendering + an amplitude/PCM check would have caught it instantly.
 
 ## The frontier — DSP synthesis accuracy
 
