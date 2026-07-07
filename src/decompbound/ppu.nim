@@ -128,14 +128,24 @@ proc bgScanlineInto(snes: SnesBus, buf: var openArray[ColorRGBA],
 proc modeLayers(mode: int, bg3prio: bool): seq[tuple[bg, bpp, pal, prio: int]] =
   ## Back-to-front BG passes for a mode: (layer, bpp, palette base, priority
   ## filter). prio -1 = all tiles; 0 = low-priority tiles only; 1 = high only.
-  ## In mode 1 with the BG3-priority bit ($2105 bit 3) set, BG3 high-prio tiles
-  ## move to the front; additionally BG1/BG2 are split by per-tile priority so
-  ## the full hardware ladder is respected: BG3p0 < BG2p0 < BG1p0 < BG2p1 < BG1p1 < BG3p1
-  ## (back to front). This ensures e.g. a BG2 high-prio UI window draws in front
-  ## of a BG1 low-prio animated battle BG (while still keeping BG3p1 frontmost
-  ## for overworld menus and BG1 overall front of same-prio BG2).
+  ## Splits layers by the per-tile priority bit (0x2000 in tilemap entry) using
+  ## prio arg to bgScanlineInto, to implement the real SNES ladder.
+  ##
+  ## Mode 0 (EarthBound battles use varying layer assignment for UI windows):
+  ##   back->front: BG4.0, BG3.0, BG4.1, BG3.1, BG2.0, BG1.0, BG2.1, BG1.1
+  ##   (with bg3prio: BG3.1 moves frontmost after the BG1.1).
+  ## Mode 1 (unchanged): with bg3prio, BG3p0 < BG2p0 < BG1p0 < BG2p1 < BG1p1 < BG3p1 .
+  ## This fixes UI (high-prio tiles on BG1/BG2/BG3 depending on BG setup) sorting
+  ## in front of low-prio animated battle BG.
   case mode:
-  of 0: @[(3, 2, 96, -1), (2, 2, 64, -1), (1, 2, 32, -1), (0, 2, 0, -1)]
+  of 0:
+    if bg3prio:
+      @[(3, 2, 96, 0), (2, 2, 64, 0), (3, 2, 96, 1),
+        (1, 2, 32, 0), (0, 2, 0, 0), (1, 2, 32, 1), (0, 2, 0, 1),
+        (2, 2, 64, 1)]
+    else:
+      @[(3, 2, 96, 0), (2, 2, 64, 0), (3, 2, 96, 1), (2, 2, 64, 1),
+        (1, 2, 32, 0), (0, 2, 0, 0), (1, 2, 32, 1), (0, 2, 0, 1)]
   of 1:
     if bg3prio: @[(2, 2, 0, 0), (1, 4, 0, 0), (0, 4, 0, 0), (1, 4, 0, 1), (0, 4, 0, 1), (2, 2, 0, 1)]
     else: @[(2, 2, 0, -1), (1, 4, 0, -1), (0, 4, 0, -1)]
