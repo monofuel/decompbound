@@ -662,6 +662,7 @@ proc main() =
   var saveSramEnabled = false
   var loadStateSlot = -1
   var loadStatePath = ""
+  var policyFile = ""
   var targetSpeed = DefaultSpeed
     ## emulation fps target: 0=unlimited (headless default), 60=realtime, 120=2x etc.
     ## wired for pacing; LLM tick (interval) remains on frameCount, decoupled.
@@ -711,6 +712,11 @@ proc main() =
       loadStatePath = paramStr(i)
     elif a.startsWith("--load-state-path="):
       loadStatePath = a[18..^1]
+    elif a == "--policy-file" and i < paramCount():
+      inc i
+      policyFile = paramStr(i)
+    elif a.startsWith("--policy-file="):
+      policyFile = a[14..^1]
     elif a == "--speed" and i < paramCount():
       inc i
       targetSpeed = parseInt(paramStr(i))
@@ -762,6 +768,9 @@ proc main() =
   echo fmt"llm_ai: ROM={romPath} frames={maxFrames} llmInterval={llmInterval} pngEvery={pngEvery} (set={pngEverySet}) speed={targetSpeed} mock={useMock} headless={useHeadless} loadState={loadStr} saveSram={saveStr}"
   # Scenario selection per --load-state (strategy: slot1 documented battle start)
   scenarioPolicy = llm_mock_policies.selectMockPolicy(loadStateSlot)
+  if policyFile.len > 0:
+    scenarioPolicy = readFile(policyFile)
+    echo "POLICY: initial policy from ", policyFile, " (len=", scenarioPolicy.len, ") — overrides mock/nav default"
   createDir("bin")
   createDir("bin/states")
   persistentNotes = if fileExists(NotesFile): readFile(NotesFile) else: ""

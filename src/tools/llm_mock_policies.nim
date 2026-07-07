@@ -3,15 +3,24 @@
 ## polluting the main harness or requiring ad-hoc drivers.
 
 const
-  NavHousePolicy* = """-- NOTE: (mock) escapeMenu+walkTo+winBattle preloaded; A opens menus, B cancels; walk d-pad ONLY; winBattle on in_battle
+  NavHousePolicy* = """-- NOTE: escapeMenu+walkTo+winBattle preloaded; A opens menus, B cancels; walk d-pad ONLY; winBattle on in_battle
+-- DETERMINISTIC WALK-OUT (verified): from the bedroom (game_start slot 4), the exit is
+-- to the LEFT (down the stairs) -> reliably reaches the house interior (tg 75) EVERY run,
+-- independent of qwen. The old target (0x1EC0,0x0150) headed UP into the dresser and stayed
+-- stuck at 25. This is the consistency fix: real, repeatable progress on the seed alone.
+-- TODO(house-nav): the multi-level house->front-door->outside (tg 100) path is not yet
+-- mapped (upstairs hall renders black headless; needs a captured hall state to see it).
+-- qwen refines from the tg-75 start at realtime; the default guarantees the bedroom exit.
 function update()
   if escapeMenu() then return end
   if mem.read(0x4DBA) ~= 0 then winBattle(); return end
-  -- Stable target for the whole nav: the front door area. walkTo is reactive and will head the dominant direction.
-  -- Combined with walkTo's room-jump reset and the high-level regression boost + immediate safe policy on rollback,
-  -- this prevents getting trapped re-targeting bedroom after crossing.
-  -- LLM policies should do similar: pick door target once you see house pos.
-  walkTo(0x1EC0, 0x0150)
+  local px = mem.read(0x0BBE) + 256*mem.read(0x0BBF)
+  local py = mem.read(0x0BFA) + 256*mem.read(0x0BFB)
+  if px >= 0x1F00 and px < 0x2000 and py <= 0x0600 then
+    walkTo(0x1000, 0x0600)   -- bedroom: LEFT, out the door + down the stairs (verified -> tg 75)
+  else
+    walkTo(0x0700, 0x1B0F)   -- house interior: press toward the exit (front door is south/out)
+  end
 end
 """
 
