@@ -22,6 +22,12 @@ right; the sustained parts of complex sounds improved with PMOD.
 - **UFO attack** — plays but wrong.
 - **"Went up in flames"** (Territorial Oak death) — plays but wrong. Fire/static SFX
   typically use the **noise generator (NON / LFSR)** → a strong hint the noise path is off.
+- **Spinning robo** — plays but wrong.
+
+**This is systematic, not N separate bugs.** With this many SFX wrong across enemies, the
+cause is a shared DSP-synthesis inaccuracy (pitch/resample rate, envelope, or noise clock).
+The fix is almost certainly one root cause — find it with a PCM-diff against a reference
+(task 3 below), not by ear-tweaking each SFX. Do NOT ship per-SFX DSP guesses.
 
 The pattern: **rich/modulated/swept SFX** are the failures, which points at the pitch +
 attack-envelope + modulation + **noise** path, not the basics. The flames clue elevates the
