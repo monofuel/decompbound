@@ -1,16 +1,22 @@
 ## Touch Grass milestone helpers for LLM agent: deterministic intro skill (Lua)
 ## + WalkToSkillLua (reactive walkTo) + touchGrassPercent metric (REAL player world pos).
 ## GROUND TRUTH: entity world X at WRAM $0B8E,X ; Y at $0BCA,X (X = slot*2).
-## Player = first active entity, slot 0 (idx=0). 81 LDA/STA $0B8E,X sites in ROM confirm.
-## Sector at $89CA. Captured via trace_tool + stepper equivalent to --load-srm --watch 0B8E-0BCC,89CA
-##   + IntroSkillLua sequence (auto-advance scripted A/Start/Down/Right).
-## Values (byte verified in bus.mem):
-##   title: (0000,0000) sec 0000 -> 0
-##   bedroom (post naming): (1F40,05C0) sec 0000/FFFF -> 25
-##   inter (slot2 proxy / house): (1E68,05C0) sec FFFF -> 50/75
-##   outside: region not matching bedroom/inter/title (when nonzero pos outside those boxes)
-## Slot stride for pos index: 2 (word arrays); player slot: 0.
-## HARD: slot1 battle (05C0,0970) sec FFFF must NOT return 25 or 100.
+## PLAYER = SLOT 24 (idx 0x30), NOT slot 0. Verified by live instruction trace:
+##   the per-frame projection at $C04E15/$C04E1D (STA $0B8E,X / $0BCA,X) writes the
+##   walking player's coords with X=0x30 (slot 24). Slot 28 = 2nd party member
+##   (Paula, seen in slot9/slot91 Photo Man states). Slot 0 is the first map
+##   NPC/object -- its coords sit near the player's room, which made it LOOK like
+##   the player while it never moved (masqueraded as "movement is frozen headless":
+##   the game walked fine; we watched furniture).
+## Sector at $89CA.
+## Values (slot-24, byte verified from bin/states/*.state):
+##   title/cold: (0000,0000) -> 0
+##   bedroom game_start: (1FB8,0452) -> 25
+##   house interior slot2: (1E90,05F8) -> 75
+##   battle slot1: (05C3,0945) -> 50
+##   outside (Twoson, slot9/91): (057F,1B0F) -> 100
+## Slot stride for pos index: 2 (word arrays); player slot: 24 (byte offset 0x30).
+## HARD: battle (05C3,0945) must NOT return 25 or 100.
 ## Only edit this file per constraints. All magic + TODO per AGENTS.
 
 import
@@ -22,7 +28,7 @@ const
   # because 65816 word arrays (ASL on slot for X index in asm, 30 entity slots).
   WorldXBase* = 0x0B8E
   WorldYBase* = 0x0BCA
-  PlayerSlot* = 0   # first active entity is player (slot 0)
+  PlayerSlot* = 24  # party leader lives in slot 24 (traced: $C04E15 writes $0B8E,X with X=0x30)
   SlotIndexStride* = 2  # bytes per slot for these parallel word arrays
   # legacy heuristic offsets (kept for ref; not used in fixed metric)
   PosXOff* = 0x00B4
@@ -44,17 +50,16 @@ proc readU16*(snes: SnesBus, off: int): int =
 
 proc touchGrassPercent*(snes: SnesBus): int =
   ## 0 at title/pre-game/naming (cold or small pos), 25 bedroom, 75 house inter, 50 other indoors/battle, 100 ONLY real Onett overworld.
-  ## Keys STRICTLY on verified player world pos $0B8E,X / $0BCA,X (slot 0, idx=slot*2)
-  ## + sector $89CA.
-  ## Captured coords (via stepper + loadState + llm_ai repro runs + pos logs):
-  ##   title/cold: (0x0000,0x0000) sec 0x0000 -> 0
-  ##   naming/pre (small pos, e.g. 0x0005,0x0028 or 0xFFFB): -> 0 (prevents title->100 jump)
-  ##   bedroom (post naming): (0x1F40,0x05C0) sec 0/FFFF -> 25
-  ##   inter/house (slot2): (0x1E68,0x05C0) sec FFFF -> 75
-  ##   battle (slot1): (0x05C0,0x0970) sec FFFF -> 50
-  ##   credit screen false (1D48,0B30): -> 50 (now guarded)
-  ##   outside: only when pos escapes broad indoor band AND not pre/small/battle (real Onett validated visually as non-naming/credit)
-  ## Slot stride=2; player=slot 0.
+  ## Keys STRICTLY on verified player world pos $0B8E,X / $0BCA,X (slot 24 = party
+  ## leader, idx=slot*2=0x30) + sector $89CA.
+  ## Captured slot-24 coords (from bin/states/*.state + live walk trace):
+  ##   title/cold: (0x0000,0x0000) -> 0
+  ##   naming/pre (small pos): -> 0 (prevents title->100 jump)
+  ##   bedroom (game_start): (0x1FB8,0x0452) -> 25
+  ##   inter/house (slot2): (0x1E90,0x05F8) -> 75
+  ##   battle (slot1): (0x05C3,0x0945) -> 50
+  ##   outside (slot9/91, Twoson): (0x057F,0x1B0F) -> 100
+  ## Slot stride=2; player=slot 24.
   ## All magic accompanied by TODO/comments per AGENTS.
   let sector = readU16(snes, SectorOff)
   let idx = PlayerSlot * SlotIndexStride
@@ -86,7 +91,9 @@ proc touchGrassPercent*(snes: SnesBus): int =
   # Visual ground truth: previous "100" states were naming menu or credits screen, not Onett trees/streets.
   # Real outside will have pos outside this band (per Onett map placement).
   # TODO: replace with exact captured outside (Onett) (X,Y) + sector when traced from successful exit.
-  let isBattleBox = (px >= 0x0580 and px <= 0x0600 and py >= 0x0950 and py <= 0x09A0)
+  # TODO(magic): battle party pos varies per encounter; slot-24 capture is
+  # (05C3,0945) so the Y floor is 0x0900 (old 0x0950 floor missed the real player).
+  let isBattleBox = (px >= 0x0580 and px <= 0x0600 and py >= 0x0900 and py <= 0x09A0)
   let isBroadIndoor = (px >= 0x1D00 and px < 0x2100 and py <= 0x0C00)
   if (px != 0 or py != 0) and not isBattleBox and not isBroadIndoor:
     return 100
@@ -121,8 +128,8 @@ function update()
     _intro.last_change_f = f
   end
 
-  local px = mem.read(0x0B8E) + 256 * mem.read(0x0B8F)
-  local py = mem.read(0x0BCA) + 256 * mem.read(0x0BCB)
+  local px = mem.read(0x0BBE) + 256 * mem.read(0x0BBF)
+  local py = mem.read(0x0BFA) + 256 * mem.read(0x0BFB)
   local sector = mem.read(0x89CA) + 256 * mem.read(0x89CB)
 
   -- STOP at bedroom (tg=25) or progressed in-game (read pos, per currentRoomLabel logic)
@@ -199,12 +206,12 @@ end
 const WalkToSkillLua* = """
 -- Reactive walkTo(tx, ty) skill for the LLM agent (touch-grass walk-out and general nav).
 -- REACTIVE pathfinding only: no collision map / tile reader used (exact pass bit in tile word at 0x2640 unpinned per decompilation.md).
--- Reads live player (slot 0) world pos every frame via mem.read: X at 0x0B8E/0x0B8F (LE), Y at 0x0BCA/0x0BCB.
+-- Reads live player (slot 24 = party leader) world pos every frame via mem.read: X at 0x0BBE/0x0BBF (LE), Y at 0x0BFA/0x0BFB.
 -- Computes dominant direction (larger delta axis), presses that d-pad dir via pad.press.
 -- DETECT STUCK: if pos unchanged for ~STUCK_N frames, switch to a perpendicular dir briefly to route around obstacle.
 -- STOP: when manhattan dist <= THRESH. Robust + BOUNDED by MAXF frame cap from first target (never infinite-loops).
 -- Usage (LLM includes this chunk then calls from its update() e.g. while not at door): walkTo(targetX, targetY)
--- TODO(magic): 0x0B8E etc are the byte-verified WRAM bases (WorldXBase/WorldYBase in this file); see policy.nim for mem.read/pad/frame API.
+-- TODO(magic): 0x0BBE/0x0BFA = WorldXBase/WorldYBase + PlayerSlot(24)*2 (this file); see policy.nim for mem.read/pad/frame API.
 local THRESH = 12
 local STUCK_N = 30
 local MAXF = 12000
@@ -222,8 +229,8 @@ function walkTo(tx, ty)
   if f - _walk.startf > MAXF then
     return
   end
-  local px = mem.read(0x0B8E) + 256 * mem.read(0x0B8F)
-  local py = mem.read(0x0BCA) + 256 * mem.read(0x0BCB)
+  local px = mem.read(0x0BBE) + 256 * mem.read(0x0BBF)
+  local py = mem.read(0x0BFA) + 256 * mem.read(0x0BFB)
   local dx = tx - px
   local dy = ty - py
   local adx, ady = math.abs(dx), math.abs(dy)
@@ -272,7 +279,7 @@ const WinBattleSkillLua* = """
 local MAXF = 3600
 local BATTLE_X1 = 0x0580
 local BATTLE_X2 = 0x0600
-local BATTLE_Y1 = 0x0950
+local BATTLE_Y1 = 0x0900
 local BATTLE_Y2 = 0x09A0
 
 local _wb = {
@@ -313,8 +320,8 @@ function winBattle()
   end
 
   -- robust exit: left battle box (pos from slot1 capture) sustained
-  local px = mem.read(0x0B8E) + 256 * mem.read(0x0B8F)
-  local py = mem.read(0x0BCA) + 256 * mem.read(0x0BCB)
+  local px = mem.read(0x0BBE) + 256 * mem.read(0x0BBF)
+  local py = mem.read(0x0BFA) + 256 * mem.read(0x0BFB)
   local in_box = (px >= BATTLE_X1 and px <= BATTLE_X2 and py >= BATTLE_Y1 and py <= BATTLE_Y2)
   if not in_box and _wb.no_prog > 30 then
     print("winBattle: exited battle box (pos outside) -> stop")

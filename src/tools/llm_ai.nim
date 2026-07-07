@@ -106,11 +106,11 @@ proc realProvider(summary: string, currentLua: string): string =
   let t0 = now()
   const SystemPrompt = """You are an expert at writing compact Lua policies that play EarthBound (SNES decomp harness).
 
-GOAL: Leave the house — descend stairs from bedroom, exit through door to reach outside Onett ("touch grass"). Use the RICH STATE (tg_pct, current_room, player $0B8E/$0BCA pos, in_battle, menu_open, HP/PP, sector) + ON-SCREEN TEXT + PERSISTENT NOTES + RECENT HISTORY to decide actions and course-correct when stuck (no tg/room progress after several ticks).
+GOAL: Leave the house — descend stairs from bedroom, exit through door to reach outside Onett ("touch grass"). Use the RICH STATE (tg_pct, current_room, player $0BBE/$0BFA pos, in_battle, menu_open, HP/PP, sector) + ON-SCREEN TEXT + PERSISTENT NOTES + RECENT HISTORY to decide actions and course-correct when stuck (no tg/room progress after several ticks).
 
 SANDBOX API (globals always available in update()):
 - frame() -> int (current frame)
-- mem.read(addr) -> byte (WRAM; player world pos lives at 0x0B8E/0x0B8F and 0x0BCA/0x0BCB)
+- mem.read(addr) -> byte (WRAM; player = party leader entity slot 24: world X at 0x0BBE/0x0BBF, Y at 0x0BFA/0x0BFB)
 - pad.press("A") / pad.set("Right", true)  (buttons: A B X Y L R Up Down Left Right Start Select)
 - screen.text() -> string  (current on-screen dialogue, menus, battle commands via getScreenText)
 - sim.setSpeed(fps) / sim.fast() / sim.normal()  (0=unlimited fast-forward for corridors; 60 for menus/fights. Decoupled from your LLM tick.)
@@ -282,7 +282,7 @@ proc buildStateSummary(ctx: policy.PolicyContext): string =
   let tgPct = touch_grass.touchGrassPercent(ctx.snes)
   let roomLabel = touch_grass.currentRoomLabel(ctx.snes)
 
-  # Ground truth player world pos: $0B8E / $0BCA (slot 0). NOT the legacy 0xB4.
+  # Ground truth player world pos: $0BBE / $0BFA (party leader, slot 24). NOT the legacy 0xB4.
   let pidx = touch_grass.PlayerSlot * touch_grass.SlotIndexStride
   let playerX = touch_grass.readU16(ctx.snes, touch_grass.WorldXBase + pidx)
   let playerY = touch_grass.readU16(ctx.snes, touch_grass.WorldYBase + pidx)
@@ -292,7 +292,7 @@ touch_grass_pct: {tgPct}
 current_room: {roomLabel}
 HP: {hpCur}/{hpMax}
 PP: {ppCur}/{ppMax}
-player_pos_$0B8E_$0BCA: X=0x{playerX:04X} ({playerX}), Y=0x{playerY:04X} ({playerY})
+player_pos_$0BBE_$0BFA: X=0x{playerX:04X} ({playerX}), Y=0x{playerY:04X} ({playerY})
 sector: {sector} (0x{sector:04X})
 in_battle: {inBattle}
 menu_open: {menuOpen}

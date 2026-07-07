@@ -118,10 +118,12 @@ proc wramHash*(snes: SnesBus): uint32 =
   h
 
 proc playerPos*(snes: SnesBus): tuple[x: uint16, y: uint16] =
-  ## Read Ness/player world position from verified WRAM bases (slot 0).
-  ## X at $0B8E (LE), Y at $0BCA (LE).
-  let xlo = snes.bus.mem[0x7E0000 + 0x0B8E]
-  let xhi = snes.bus.mem[0x7E0000 + 0x0B8F]
-  let ylo = snes.bus.mem[0x7E0000 + 0x0BCA]
-  let yhi = snes.bus.mem[0x7E0000 + 0x0BCB]
+  ## Read Ness/player world position from verified WRAM bases.
+  ## Party leader = entity slot 24 (traced: $C04E15 STA $0B8E,X runs with X=0x30
+  ## for the walking player; slot 0 is just the first map NPC/object).
+  ## X at $0B8E+0x30 = $0BBE (LE), Y at $0BCA+0x30 = $0BFA (LE).
+  let xlo = snes.bus.mem[0x7E0000 + 0x0BBE]
+  let xhi = snes.bus.mem[0x7E0000 + 0x0BBF]
+  let ylo = snes.bus.mem[0x7E0000 + 0x0BFA]
+  let yhi = snes.bus.mem[0x7E0000 + 0x0BFB]
   ( (xlo.uint16 or (xhi.uint16 shl 8)) , (ylo.uint16 or (yhi.uint16 shl 8)) )
