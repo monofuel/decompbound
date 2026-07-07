@@ -205,6 +205,28 @@ function update()
 end
 """
 
+const EscapeMenuSkillLua* = """
+-- escapeMenu(): robust escape for overworld menus (Talk/Check/Goods/Equip/Status etc).
+-- Detects via screen.text() (getScreenText) + excludes battle command menus (Bash/PSI use A).
+-- Presses B to cancel (never A to select deeper). Safe no-op if no menu.
+-- Call at top of update() or inside walkTo before d-pad nav. A opens menus on overworld; B is the cancel.
+-- Only for nav; winBattle handles its own A on battle menus.
+-- TODO(magic): menu strings from observed command menus; in_battle flag at 0x4DBA for safety.
+function escapeMenu()
+  local inBattle = mem.read(0x4DBA) ~= 0
+  local txt = (screen.text() or ""):lower()
+  local isOwMenu = txt:find("talk to") or txt:find("check") or txt:find("equip") or txt:find("status")
+  local isGoods = txt:find("goods")
+  local isBatCmd = txt:find("bash") or txt:find("psi") or txt:find("defend") or txt:find("input your command")
+  if (isOwMenu or (isGoods and not isBatCmd)) and not inBattle then
+    print("escapeMenu: overworld menu detected via screen.text -> press B to cancel")
+    pad.press("B")
+    return true
+  end
+  return false
+end
+"""
+
 const WalkToSkillLua* = """
 -- Reactive walkTo(tx, ty) skill for the LLM agent (touch-grass walk-out and general nav).
 -- REACTIVE pathfinding only: no collision map / tile reader used (exact pass bit in tile word at 0x2640 unpinned per decompilation.md).
@@ -212,6 +234,8 @@ const WalkToSkillLua* = """
 -- Computes dominant direction (larger delta axis), presses that d-pad dir via pad.press.
 -- DETECT STUCK: if pos unchanged for ~STUCK_N frames, switch to a perpendicular dir briefly to route around obstacle.
 -- STOP: when manhattan dist <= THRESH. Robust + BOUNDED by MAXF frame cap from first target (never infinite-loops).
+-- MENU ESCAPE: auto-calls escapeMenu() first; if overworld menu open (e.g. stray A), presses B and returns (never walks while menu).
+-- NEVER presses A -- navigation uses d-pad ONLY. A is for dialog/door confirm only when adjacent + text visible.
 -- Usage (LLM includes this chunk then calls from its update() e.g. while not at door): walkTo(targetX, targetY)
 -- TODO(magic): 0x0BBE/0x0BFA = WorldXBase/WorldYBase + PlayerSlot(24)*2 (this file); see policy.nim for mem.read/pad/frame API.
 local THRESH = 12
@@ -219,6 +243,7 @@ local STUCK_N = 30
 local MAXF = 12000
 local _walk = {tx=nil, ty=nil, lx=nil, ly=nil, stuck=0, startf=nil}
 function walkTo(tx, ty)
+  if escapeMenu() then return end
   local f = frame()
   if not _walk.startf or _walk.tx ~= tx or _walk.ty ~= ty then
     _walk.tx = tx

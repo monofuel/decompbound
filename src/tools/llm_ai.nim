@@ -51,28 +51,23 @@ var
 
 proc mockProvider(summary: string, currentLua: string): string =
   ## Canned fixed policy for verification without API key.
-  ## Always returns the same short update() that presses Right on even frames.
+  ## Returns nav policy using escapeMenu + walkTo (d-pad only; no A on overworld to avoid opening menus).
+  ## Demonstrates menu-blindness fix: auto-escapes if menu text appears, walks with d-pad.
   ## This string travels the identical loadbuffer/pcall/runPolicyFrame/joy1 path
   ## that a real LLM response would.
   ## Includes a -- NOTE: (only on first call when notes empty) so verify run records a note (parsed from returned policy).
   let includeNote = (persistentNotes.len == 0)
   if includeNote:
-    result = """-- NOTE: (mock) walkTo and skills preloaded at boot; persistent brain active
+    result = """-- NOTE: (mock) escapeMenu+walkTo preloaded; A opens menus, B cancels; walk d-pad ONLY never A while nav
 function update()
-  if frame() % 2 == 0 then
-    pad.press('Right')
-  else
-    pad.set('Right', false)
-  end
+  if escapeMenu() then return end
+  walkTo(0x1E90, 0x05F8)
 end
 """
   else:
     result = """function update()
-  if frame() % 2 == 0 then
-    pad.press('Right')
-  else
-    pad.set('Right', false)
-  end
+  if escapeMenu() then return end
+  walkTo(0x1E90, 0x05F8)
 end
 """
 
@@ -106,7 +101,15 @@ proc realProvider(summary: string, currentLua: string): string =
   let t0 = now()
   const SystemPrompt = """You are an expert at writing compact Lua policies that play EarthBound (SNES decomp harness).
 
-GOAL: Leave the house — descend stairs from bedroom, exit through door to reach outside Onett ("touch grass"). Use the RICH STATE (tg_pct, current_room, player $0BBE/$0BFA pos, in_battle, menu_open, HP/PP, sector) + ON-SCREEN TEXT + PERSISTENT NOTES + RECENT HISTORY to decide actions and course-correct when stuck (no tg/room progress after several ticks).
+GOAL: Leave the house — descend stairs from bedroom, exit through door to reach outside Onett ("touch grass"). Use the RICH STATE (tg_pct, current_room, player $0BBE/$0BFA pos, in_battle, menu_open, which_menu, HP/PP, sector) + ON-SCREEN TEXT + PERSISTENT NOTES + RECENT HISTORY to decide actions and course-correct when stuck (no tg/room progress after several ticks).
+
+CRITICAL INPUT RULES (A/B menu blindness fix — NEVER violate or you get stuck):
+- A opens the overworld command menu (Talk to / Check / Goods / Equip / Status) OR confirms a selection / advances dialog. NEVER tap or hold A while just walking or navigating. Only press A for actual visible dialogue text or when adjacent to a door/NPC and text clearly prompts interaction.
+- B cancels / closes menus / backs out of sub-menus / deselects. If menu_open=yes (overworld_command or submenu), press B (or call escapeMenu()). Do not use Down+A or hold A.
+- For navigation (bedroom -> stairs -> door -> outside): ALWAYS call walkTo(tx, ty) which uses d-pad ONLY. Do NOT add A presses in your update().
+- In update() pattern: if escapeMenu() then return end; walkTo(targetX, targetY) ...
+- screen.text() + menu_open/which_menu in RICH STATE tells you exactly when a menu is open. Use that + recent history to course correct (if opened menu, B immediately).
+- winBattle() is ONLY for in_battle=yes (it safely presses A on Bash/PSI menus inside battle).
 
 SANDBOX API (globals always available in update()):
 - frame() -> int (current frame)
@@ -116,13 +119,14 @@ SANDBOX API (globals always available in update()):
 - sim.setSpeed(fps) / sim.fast() / sim.normal()  (0=unlimited fast-forward for corridors; 60 for menus/fights. Decoupled from your LLM tick.)
 
 AVAILABLE LIBRARY SKILLS (preloaded from bin/states/llm_skills.lua into Lua globals; call them from your update()):
-- walkTo(tx, ty): reactive navigation skill. Reads live player pos, presses d-pad to move toward target world coords. Auto-detects stuck (pos unchanged) and wiggles perp dir to route around. Stops when manhattan <=~12. Example: walkTo(0x1E00, 0x05C0) to head for stairs/door. Call repeatedly each frame from update().
+- escapeMenu(): detects overworld menus via screen.text() (Talk/Check/Equip/Status/Goods without battle keywords) and presses B to cancel. Auto-called by walkTo. Call early in update() for safety.
+- walkTo(tx, ty): reactive navigation skill. Reads live player pos, presses d-pad ONLY to move toward target. Auto-detects stuck and wiggles; auto-escapes menus first. Stops when manhattan <=~12. NEVER presses A. Example: walkTo(0x1E00, 0x05C0) to head for stairs/door. Call repeatedly each frame from update().
 - winBattle(): read-driven battle clearer. Uses screen.text() to detect command menu ("Bash"/"INPUT YOUR COMMAND"), targets, damage text, victory ("won"/"EXP"). Presses A appropriately. Exits on victory or pos out of battle box. Call winBattle() when in_battle=yes.
 (Etc. More skills can be added to llm_skills.lua over runs; always safe to try calling known ones. If undefined the call is no-op.)
 
 PERSISTENT BRAIN:
 - Every time you return a policy, you can emit (anywhere):
-  -- NOTE: <one concise fact e.g. "bedroom exit door approx (1E00,05C0)", "hold Down+spam A clears stair text", "sector FFFF indoors">
+  -- NOTE: <one concise fact e.g. "bedroom exit door approx (1E00,05C0)", "A opens command menu on overworld - use B to cancel", "sector FFFF indoors">
   The harness parses -- NOTE: and appends to bin/states/llm_notes.txt (full file reloaded into prompt every slow tick).
 - Full llm_notes.txt is always included below so you remember discoveries across frames/runs.
 - Recent history tells you if prior policy made tg%/room progress.
@@ -141,7 +145,7 @@ Use /no_think at end if supported.
 LAST POLICY (reference; you may incrementally improve or replace the update body):
 {currentLua}
 
-Return ONLY the 'function update() ... end' block (nothing else). Call walkTo() / winBattle() / screen.text() etc as needed. /no_think"""
+Return ONLY the 'function update() ... end' block (nothing else). Call escapeMenu() / walkTo() / winBattle() / screen.text() etc as needed (A opens menus, B cancels). /no_think"""
 
   # Log FULL context sent to qwen (rich input is the point; 256K window, do not trim).
   let fullContextForLog = "SYSTEM:\n" & SystemPrompt & "\n\nUSER:\n" & userPrompt
@@ -252,7 +256,8 @@ proc extractAndAppendNotes(src: string) =
 proc buildStateSummary(ctx: policy.PolicyContext): string =
   ## Rich FULL LABELED state for qwen 256K context (do NOT trim). Restores + expands all detail:
   ## touch_grass_pct, current_room, HP/PP (party leader), explicit player world pos at $0B8E/$0BCA (ground truth),
-  ## sector, in_battle, menu_open + frame. Uses touch_grass for consistency + policy.getScreenText separately.
+  ## sector, in_battle, menu_open + which_menu (detected via getScreenText menu items or WRAM) + frame.
+  ## Uses touch_grass + policy.getScreenText for robust menu detection (fixes menu-blindness).
   let f = ctx.frameCount
   let mem = ctx.snes.bus.mem
   proc safeR8(off: int): int =
@@ -270,7 +275,6 @@ proc buildStateSummary(ctx: policy.PolicyContext): string =
     PpMaxOff  = 0x97F5 + 0x0246
     SectorOff = 0x89CA
     BattleOff = 0x4DBA
-    MenuTextOff = 0x0024
 
   let hpCur = safeR16(HpCurOff)
   let hpMax = safeR16(HpMaxOff)
@@ -278,9 +282,42 @@ proc buildStateSummary(ctx: policy.PolicyContext): string =
   let ppMax = safeR16(PpMaxOff)
   let sector = safeR16(SectorOff)
   let inBattle = if safeR8(BattleOff) != 0: "yes" else: "no"
-  let menuOpen = if safeR8(MenuTextOff) != 0: "yes" else: "no"
   let tgPct = touch_grass.touchGrassPercent(ctx.snes)
   let roomLabel = touch_grass.currentRoomLabel(ctx.snes)
+
+  # MENU DETECTION (robust for menu-blindness fix): prefer getScreenText (visible items) over old flag.
+  # Detects overworld (Talk/Check/..) vs battle (Bash/..) vs submenus; sets menu_open + which_menu.
+  # via getScreenText per task spec (or WRAM fallback).
+  let screenForMenu = policy.getScreenText(ctx.snes)
+  let lowM = screenForMenu.toLowerAscii()
+  var menuOpen = "no"
+  var whichMenu = "none"
+  let owKeys = ["talk to", "check", "equip", "status"]
+  let batKeys = ["bash", "psi", "defend", "input your command"]
+  let subKeys = ["use", "give", "info", "trash", "who", "which"]
+  if lowM.len > 0:
+    for k in owKeys:
+      if k in lowM:
+        menuOpen = "yes"
+        whichMenu = "overworld_command"
+        break
+    if menuOpen == "no":
+      for k in batKeys:
+        if k in lowM:
+          menuOpen = "yes"
+          whichMenu = "battle_command"
+          break
+    if menuOpen == "no":
+      for k in subKeys:
+        if k in lowM:
+          menuOpen = "yes"
+          whichMenu = "submenu"
+          break
+  if menuOpen == "no":
+    # legacy WRAM flag fallback (may be nonzero in non-menu; text is authoritative)
+    if safeR8(0x0024) != 0 and lowM.len == 0:
+      menuOpen = "maybe"
+      whichMenu = "unknown_flag"
 
   # Ground truth player world pos: $0BBE / $0BFA (party leader, slot 24). NOT the legacy 0xB4.
   let pidx = touch_grass.PlayerSlot * touch_grass.SlotIndexStride
@@ -296,6 +333,7 @@ player_pos_$0BBE_$0BFA: X=0x{playerX:04X} ({playerX}), Y=0x{playerY:04X} ({playe
 sector: {sector} (0x{sector:04X})
 in_battle: {inBattle}
 menu_open: {menuOpen}
+which_menu: {whichMenu}
 frame: {f}
 """
 
@@ -508,9 +546,9 @@ proc main() =
   policy.setupPolicyApi(L, ctx)
 
   # SKILL LIBRARY (persistent brain part 1): load bin/states/llm_skills.lua BEFORE any policy.
-  # If absent, SEED by writing WalkToSkillLua + IntroSkillLua (so walkTo() etc are in scope for LLM policies).
+  # If absent, SEED by writing Escape+WalkTo+Intro+Win (so escapeMenu/walkTo/winBattle etc in scope).
   # This happens once at boot; skills become globals callable from update().
-  # (Only edit llm_ai.nim per task; touch_grass provides the strings.)
+  # (touch_grass provides the strings; only edit allowed files.)
   if fileExists(SkillsFile):
     let skillSrc = readFile(SkillsFile)
     if loadPolicyChunk(L, skillSrc, "persistent_skills"):
@@ -518,9 +556,9 @@ proc main() =
     else:
       echo "SKILL_LIBRARY: WARNING: loadPolicyChunk failed for ", SkillsFile, " (continuing without)"
   else:
-    let seedSrc = touch_grass.WalkToSkillLua & "\n\n" & touch_grass.IntroSkillLua
+    let seedSrc = touch_grass.EscapeMenuSkillLua & "\n\n" & touch_grass.WalkToSkillLua & "\n\n" & touch_grass.IntroSkillLua & "\n\n" & touch_grass.WinBattleSkillLua
     writeFile(SkillsFile, seedSrc)
-    echo "SKILL_LIBRARY: absent; seeded ", SkillsFile, " (len=", seedSrc.len, ") with WalkToSkillLua + IntroSkillLua"
+    echo "SKILL_LIBRARY: absent; seeded ", SkillsFile, " (len=", seedSrc.len, ") with Escape+WalkTo+Intro+Win"
     discard loadPolicyChunk(L, seedSrc, "seeded_skills")
   # Confirm walkTo is callable (from WalkTo seed or prior skills) for verify logs.
   L.getglobal("walkTo".cstring)
