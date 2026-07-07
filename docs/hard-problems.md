@@ -131,8 +131,18 @@ right); the *graphics they point at* are absent or partial. Suspect the DMA path
    sanctuary / entering the scene** (while the map still looks *fine*) → step through the
    event, trace every DMA to `$2118/$2119` (+ `$420B` general DMA, `bbad=0x18/19`) + VMADD,
    and find which upload lands short vs. a working one (e.g. tiles 02/06 loaded, 00/04 didn't).
-2. **Static DMA-path review** — audit `runDma`'s 1/2/4-byte + fixed/decrement + size-0-wrap
-   handling for a gap specific to the transfer shape these events use.
+2. **Static DMA-path review (done 2026-07-07) — leading candidate found: VMAIN address
+   translation (`$2115` bits 3-2) is not implemented.** Our VRAM write path
+   (`ppuPortWrite $2118/$2119`) always uses the raw `vmadd & 0x7FFF` with no address rotation;
+   `vmain` is only consulted for bit 7 (inc-after) and bits 1-0 (step). Normal boot/overworld
+   loads use translation=0 → no symptom; but an event upload that sets a non-zero translation
+   would deposit CHR/tilemap words at un-rotated addresses → the exact partial-garbage shape
+   (some tiles land, others zeroed). **This is a real missing SNES feature regardless.**
+   Secondary candidates that also fit: a wrong step (32/128 vs 1) or a mode-1 word-pair split.
+   **Fix:** implement VMAIN address translation per fullsnes (the 8/9/10-bit low-address
+   rotate), verify **goldens byte-identical** (they use trans=0, so unaffected) + re-render
+   the captured garbage states (slot85 Lilliput / slot99 inn) to see if the garbage clears.
+   Still want a **live trace** (pre-event state) to confirm the events actually set the bits.
 3. Fix the **upload**, never hack OAM/CHR in the renderer — the state shows what the buggy
    machine had; the bug is the missing DMA. Verify byte-exact on the captured states
    (slot85 etc.) + no regression on sprite-heavy scenes (overworld NPCs, battles).
