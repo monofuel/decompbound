@@ -23,9 +23,16 @@ the save-state embedded — the exact dynamic anchor this needed. From it:
 - Spots are **position-triggered** (walk the exact tile → fire); miss the tile, miss the photo.
 - A guessed "photo counter" (value 22 at `$7E00A9`) is **unconfirmed / distrusted** — it
   contradicts the player having taken only 1 photo. Do not rely on it.
-- **Next:** collect more Photographer save-states (each = a confirmed coord) and walk the
-  `counter → spot` table reader near the `$C09558` event dispatch + the `$C7ACxx` fuzzy text
-  refs + the `STA $0B8E,X`/`$0BCA,X` spawn (`$C096E9/$C096F9`) to enumerate the full ordered list.
+- **Definitive finding (2026-07-07): there is NO central photo-spot table.** A deeper RE
+  pass confirmed the spots are **scattered as individual scripted triggers inside each map's
+  event bytecode** — walk the tile → the map script fires → spawn ops `$C096E3`/`$C096F3`
+  place the photographer (slot 10) + run the fuzzy dialogue (`$C7AC00`). Found the end-game
+  **album reader** at `~$C01819E`, but it only holds photo **order + captions** (`$C75562`
+  strings) + per-index taken-flags — **no map/X/Y locations**. So there's nothing to "dump."
+- **Only two ways to enumerate all spots:** (a) **capture them one-by-one as you play**
+  (each Photographer F12 = one confirmed coord — the playthrough IS the enumeration), or
+  (b) a full **event-script scan** across every map, interpreting the bytecode for the
+  photographer-spawn opcode. (a) is cheap + already underway; (b) is a big RE project.
 
 <details><summary>original "open — static exhausted" framing</summary>
 
