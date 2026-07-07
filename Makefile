@@ -1,4 +1,4 @@
-.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai testrom script-dump gfx-roundtrip battle-bg trace inspect audio-check audio-diff jukebox-app
+.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai testrom script-dump gfx-roundtrip battle-bg trace inspect audio-check jukebox-app
 
 # bash + pipefail: the test loop pipes nim through sed, and without
 # pipefail the pipeline's exit status is sed's (always 0), which turns
@@ -180,15 +180,6 @@ audio-check: nim.cfg
 	@mkdir -p bin
 	nim r src/tools/audio_check.nim --frames 1400 "$(ROM)"
 
-# PCM-diff rig: renders .spc via our APU/DSP and the reference snes_spc (raw),
-# then prints normalized RMS, windowed error peaks, dominant freq ratios,
-# envelope shape, and a verdict implicating the DSP module area.
-# SPC defaults to the logo.spc (short recognizable test); override with SPC=...
-SPC ?= /home/monofuel/Documents/Arcade/PSP/PSP/GAME/Snes9x_Euphoria/DATA/logo.spc
-audio-diff: nim.cfg
-	@mkdir -p bin
-	bash third_party/snes_spc/build.sh
-	nim r src/tools/audio_diff.nim --spc "$(SPC)"
 
 test: nim.cfg
 	@files=$$(ls tests/test_*.nim 2>/dev/null); \
