@@ -6,7 +6,7 @@
 
 import
   std/[os, strformat, strutils, parseopt],
-  decompbound/[snesbus, cpu, save_state],
+  ../decompbound/[snesbus, cpu, save_state],
   ./touch_grass
 
 proc loadAndCheck(path: string): (bool, string) =
