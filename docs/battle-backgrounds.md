@@ -20,8 +20,15 @@ scroll, a sine-wave **distortion/"compression"** warp (per-scanline offsets via 
 - **We have the pieces**: the graphics compression codec (`gfx_lz`, byte-exact round-trip,
   `docs/graphics.md`) + the tile-animation machinery RE'd (per-frame CHR-DMA queue
   `$C0823C`, palette-cycle `$C081C8`, effect command-lists `$C59400+`).
-- **What's missing**: the battle-BG-*specific* data format — the layer table, the
-  background-ID→layer mapping, and the per-layer animation parameters. A dig is running.
+- **RE progress (from the dig):** the per-layer **animation lists at `$C59400`** (keyed by
+  layer ID) drive the CHR-DMA queue, palette-DMA queue, HDMA line-offsets, and scroll each
+  frame — the `18 07` + `04 xx` streams are the distortion-wave / animation params. Layers
+  **combine on BG1+BG2 with color math** (sub/add) + windows for the classic look. Battle
+  paths: `code_00B65F` / `code_00B525` / `code_019EE6`; the NMI upload queues live in
+  `code_008000`.
+- **Still to pin**: the exact per-field layout of the ~12-byte layer entry (graphics
+  pointer + palette + anim-list reference) and the background-ID → layer mapping — one more
+  load-path trace (or a known background ID via a `Ctrl+3` in-battle save-state) nails it.
 
 ## The frontier — the battle-BG data structures
 
