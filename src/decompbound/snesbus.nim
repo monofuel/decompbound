@@ -57,7 +57,8 @@ type
     ## PPU port state.
     ppuRegs*: array[0x100, uint8]  ## Raw shadow of $21xx writes.
     bgScroll*: array[8, uint16]  ## Latched BG1-4 H/V offsets ($210D-$2114).
-    bgScrollLatch: uint8         ## Shared write-twice prev-byte latch.
+    bgScrollLatch: uint8         ## Prev1: last byte written to any BGxHOFS/BGxVOFS (shared by all 8).
+    bgHofsLatch: uint8           ## Prev2: last byte written to any BGnHOFS (H only); feeds low 3 bits.
     vmain: uint8
     vmadd: uint16
     cgadd: uint16
@@ -167,12 +168,26 @@ proc ppuPortWrite(snes: SnesBus, offset: uint32, value: uint8): bool =
     snes.oamAddr = (snes.oamAddr + 1) and 0x3FF
     true
   of 0x210D, 0x210E, 0x210F, 0x2110, 0x2111, 0x2112, 0x2113, 0x2114:
-    # BG scroll registers are write-twice through a shared latch:
-    # low byte first, then high; full value assembles on the second write.
+    # BGnHOFS/BGnVOFS are write-twice; all 8 ports share Prev1 latch.
+    # The 4 HOFS ports also share Prev2. Per fullsnes + superfamicom wiki exact:
+    #   for HOFS: BGnHOFS = (Current<<8) | (Prev1 & ~7) | (Prev2 & 7)
+    #   for VOFS: BGnVOFS = (Current<<8) | Prev1
+    #   then Prev1 = Current; if HOFS also Prev2 = Current.
+    # Low 3 bits of H scroll come from low 3 of the prior written byte (the
+    # "low byte" of the pair). Old single-latch always-(<<8|prev) worked for V
+    # but jittered H on motion; (val<<8)|(prev&F8)|((oldReg>>8)&7) wobbled.
     let index = (offset - 0x210D).int
-    snes.bgScroll[index] =
-      ((value.uint16 shl 8) or snes.bgScrollLatch.uint16) and 0x3FF
-    snes.bgScrollLatch = value
+    let isHofs = (offset and 1) == 1  # H: 210D/F/11/13 (odd), V: even
+    let cur = value
+    if isHofs:
+      snes.bgScroll[index] = ((cur.uint16 shl 8) or
+        (snes.bgScrollLatch.uint16 and 0xF8'u16) or
+        (snes.bgHofsLatch.uint16 and 0x07'u16)) and 0x3FF'u16
+      snes.bgHofsLatch = cur
+    else:
+      snes.bgScroll[index] = ((cur.uint16 shl 8) or
+        snes.bgScrollLatch.uint16) and 0x3FF'u16
+    snes.bgScrollLatch = cur
     true
   of 0x2115:
     snes.vmain = value
@@ -657,6 +672,8 @@ proc newSnesBus*(rom: seq[uint8]): SnesBus =
   snes.fixedColorR = 0
   snes.fixedColorG = 0
   snes.fixedColorB = 0
+  snes.bgScrollLatch = 0
+  snes.bgHofsLatch = 0
   snes.hdmaWrites = @[]
 
   # APU HLE state (clean for each fresh bus / boot capture).
