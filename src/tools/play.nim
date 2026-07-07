@@ -5,7 +5,12 @@
 ## Usage: nim r src/tools/play.nim [--verbose|-v] <rom>
 
 import
-  std/[os, strformat, strutils, monotimes, times, algorithm, osproc, options],
+  std/[os, strformat, strutils, monotimes, times, algorithm, osproc, options]
+
+when defined(posix):
+  import std/posix
+
+import
   pixie,
   opengl,
   windy,
@@ -139,6 +144,11 @@ proc main() =
   if romPath.len == 0:
     echo "Usage: nim r src/tools/play.nim [--verbose|-v] <rom>"
     quit(1)
+
+  when defined(posix):
+    # Reap children automatically (no zombies). Kernel reaps on SIGCHLD ignore.
+    # Use inline cast because Sighandler is unexported and SIG_IGN not predefined in posix.
+    signal(SIGCHLD, cast[proc (a: cint) {.noconv.}](1))
 
   const
     Scale = 3
@@ -931,18 +941,43 @@ void main() {
     # Auto-capture: every ~5s dump the frame + a PPU-register line to the
     # gitignored bin/autoshots/ so scenes can be reviewed/diagnosed later.
     if autoShot and (getMonoTime() - lastShotTime).inSeconds >= 5:
-      frameImage.writeFile(&"bin/autoshots/shot_{shotCount:04}.png")
+      let shotPath = &"bin/autoshots/shot_{shotCount:04}.png"
       let regLine = &"shot_{shotCount:04}  frame={frameCount} fps={fpsShown:.0f}  " &
         &"BGMODE={snes.ppuRegs[0x05] and 7} bg3prio={(snes.ppuRegs[0x05] and 8) != 0} " &
         &"TM={snes.ppuRegs[0x2C]:02X} TS={snes.ppuRegs[0x2D]:02X} INIDISP={snes.ppuRegs[0x00]:02X} " &
         &"CGADSUB={snes.ppuRegs[0x31]:02X} CGWSEL={snes.ppuRegs[0x30]:02X} " &
         &"fixedRGB={snes.fixedColorR},{snes.fixedColorG},{snes.fixedColorB} HDMAEN={snes.hdmaen:02X} " &
         &"W12={snes.ppuRegs[0x23]:02X} TMW={snes.ppuRegs[0x2E]:02X} TSW={snes.ppuRegs[0x2F]:02X}"
-      let lf = open("bin/autoshots/registers.log", fmAppend)
-      lf.writeLine(regLine)
-      lf.close()
       inc shotCount
       lastShotTime = getMonoTime()
+      when defined(posix):
+        let pid = fork()
+        if pid < 0:
+          # fork failed: fall back to the original synchronous write (never crash)
+          frameImage.writeFile(shotPath)
+          let lf = open("bin/autoshots/registers.log", fmAppend)
+          lf.writeLine(regLine)
+          lf.close()
+        elif pid == 0:
+          # CHILD: fork-before-write (Redis bgsave style). CoW snapshot of frameImage
+          # at the moment of fork is consistent+cheap. Do ONLY the encode+writeFile
+          # + append, then exitnow (bypass atexit, GL, audio, windy, Nim cleanups).
+          # Only this thread exists in child; no other threads duplicated.
+          try:
+            frameImage.writeFile(shotPath)
+            let lf = open("bin/autoshots/registers.log", fmAppend)
+            lf.writeLine(regLine)
+            lf.close()
+          except CatchableError:
+            discard
+          exitnow(0)
+        # PARENT (pid > 0): continue immediately; the main loop is never blocked on I/O.
+      else:
+        # non-POSIX guard: synchronous fallback
+        frameImage.writeFile(shotPath)
+        let lf = open("bin/autoshots/registers.log", fmAppend)
+        lf.writeLine(regLine)
+        lf.close()
 
     # Autosave the battery SRAM shortly after the game writes it (throttled so a
     # multi-byte in-game save coalesces into one .srm flush).
