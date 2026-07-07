@@ -80,9 +80,11 @@ proc touchGrassPercent*(snes: SnesBus): int =
     return 25
 
   # Intermediates (stairs, hall, downstairs, door inside house).
-  # Captured proxy (0x1E68,0x05C0) from slot2 state (house-area snapshot).
-  # TODO: pin exact per-room coords via more trace+input runs when outside script works.
-  if (px >= 0x1E00 and px < 0x1F00 and py <= 0x0600):
+  # Live walk capture (nav probe from game_start): upstairs hall (1DE8,03E8),
+  # stairwell exit (1D30,0150), living room (~1D48,0178), downstairs slot2 (1E90,05F8).
+  # All of Ness's house occupies the broad indoor band; anything there that is
+  # not the bedroom box counts as 75 (left the bedroom, still inside).
+  if (px >= 0x1D00 and px < 0x2100 and py <= 0x0C00):
     return 75
 
   # Outside Onett (first step out, touch grass = 100).
