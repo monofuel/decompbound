@@ -7,7 +7,7 @@
 ## packages [u16 len][u16 tgt][payload]..0, kick exec at $0500, BRR dir $6C00.
 
 import
-  std/[parseopt, strformat, strutils],
+  std/[math, parseopt, strformat, strutils],
   ../decompbound/apu
 
 const
@@ -171,12 +171,15 @@ proc main() =
   echo &"song {song} -> packs {packs}"
 
   var apuRam: array[0x10000, uint8]
-  for i in 0..<Ipl0500Stub.len:
-    apuRam[0x0500 + i] = Ipl0500Stub[i]
   for p in packs:
     let foff = packFileOffset(rom, p)
     echo &"  loading pack {p} from file 0x{foff:06X}"
     loadPackageToRam(apuRam, rom, foff)
+  # Overlay the captured IPL kick stub at $0500 after packs. Packs that target
+  # $0500 with their payload (e.g. pack 1) will have their entry there; for
+  # others the stub + IPL bootstrap launches the driver loaded at $7000+.
+  for i in 0..<Ipl0500Stub.len:
+    apuRam[0x0500 + i] = Ipl0500Stub[i]
 
   let apu = newApu()
   for i in 0..<0x10000:
@@ -188,31 +191,55 @@ proc main() =
   apu.spc.y = 0
   apu.spc.psw = 0
 
-  apu.portsIn[0] = (song and 0xFF).uint8
-  for i in 1..3: apu.portsIn[i] = 0
+  # Let driver/stub initialize.
+  for _ in 0..< (SampleRate div 10):
+    discard apu.runSample()
+
+  # The song-start protocol (from disasm of song loader $C4FBBD tail after the
+  # pack uploads via JSL $C0AB06, and SFX helper $C0AC01):
+  #   poke 0x57 to $2143   (C0AC01 when B4B6==0 / no music active)
+  #   poke 0 to $2140      (C0ABC6 ack/special cases)
+  #   poke songN to $2140  (tail: INC song-1 ; JSL C0ABBD which STA $2140)
+  # $B549/$B53B are SNES RAM shadows only (for pack/song dedup on 65816 side).
+  # The APU driver receives the command exclusively via the four I/O ports.
+  apu.portsIn[3] = 0x57'u8
+  for _ in 0..< (SampleRate div 200):
+    discard apu.runSample()
+  apu.portsIn[0] = 0'u8
+  for _ in 0..< (SampleRate div 200):
+    discard apu.runSample()
+  apu.portsIn[0] = (song and 0xFF).uint8  # play song N
 
   let total = if frames > 0: frames else: seconds * SampleRate
   var samples = newSeq[int16]()
   var nonzero = 0
   var maxAbs = 0
+  var sumSqL = 0.0
+  var sumSqR = 0.0
+  var pkL = 0
+  var pkR = 0
 
-  # Pace pokes lightly; avoid disturbing resident driver after start.
-  # Initial kick is main; occasional 0 may ack polls in some drivers.
   for si in 0..<total:
-    if si == SampleRate div 2:
-      apu.portsIn[0] = 0'u8
     let (l, r) = apu.runSample()
     samples.add(l)
     samples.add(r)
-    let al = abs(l.int); let ar = abs(r.int)
+    let al = abs(l.int)
+    let ar = abs(r.int)
+    if al > pkL: pkL = al
+    if ar > pkR: pkR = ar
     if al > 0 or ar > 0: nonzero += 1
     if al > maxAbs: maxAbs = al
     if ar > maxAbs: maxAbs = ar
+    sumSqL += float(l.int * l.int)
+    sumSqR += float(r.int * r.int)
 
   writeWav(outPath, samples)
 
   let secs = samples.len.float / 2.0 / float(SampleRate)
-  echo &"wrote {outPath}: {secs:.2f}s, {nonzero}/{samples.len} nonzero samples, peakAbs={maxAbs}"
+  let n = samples.len div 2
+  let rmsL = if n > 0: sqrt(sumSqL / float(n)) else: 0.0
+  let rmsR = if n > 0: sqrt(sumSqR / float(n)) else: 0.0
+  echo &"wrote {outPath}: {secs:.2f}s, {nonzero}/{samples.len} nonzero samples, peakAbs={maxAbs} pkL/R={pkL}/{pkR} rmsL/R={rmsL:.1f}/{rmsR:.1f}"
   echo &"final spc pc=${apu.spc.pc:04X} stopped={apu.spc.stopped}"
   # Quick sanity on DSP (master vol etc may be set by driver).
   let d = apu.dsp
