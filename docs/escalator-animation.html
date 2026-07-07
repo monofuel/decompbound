@@ -111,13 +111,21 @@ each frame — VRAM tile data vs. CGRAM palette entries. From a black-box view y
 inside the machine (or a trace) they're obviously different.</p>
 
 <div class="card todo">
-  <p><strong>Which does EarthBound use? — not yet confirmed.</strong> This page explains the two hardware
-  techniques faithfully, but <em>which</em> one EarthBound's escalators use is a reverse-engineering question we
-  haven't pinned. The clean way to settle it: reach an escalator (Fourside's department store has them), grab a
-  <strong>save-state right there</strong>, and let the trace tool watch a few frames — a per-frame <em>VRAM DMA</em>
-  targeting the escalator tiles means CHR animation; per-frame <em>CGRAM writes</em> with static tiles means
-  palette cycling. (Same trick that cracked the bedroom walk-out: a save-state at the moment turns a guess into a
-  fact.) A dig is running to look for the animation routine statically in the meantime.</p>
+  <p><strong>What we found (reverse-engineered from the ROM).</strong> EarthBound has <em>both</em> mechanisms
+  wired, both driven from the NMI (vblank) handler:</p>
+  <ul>
+    <li><strong>Palette cycling</strong> — a CGRAM DMA path at <code>$C081C8</code>: writes rotating colors to
+    <code>$2122</code>, with source/size/offset from a table at <code>$C08F92</code>.</li>
+    <li><strong>CHR animation</strong> — a VRAM-DMA queue at <code>$C0823C</code>: 8-byte records in WRAM at
+    <code>$0400</code> (config index + size + 24-bit source + <code>VMADD</code>), a config table at
+    <code>$C08FB0</code>, re-uploading tile graphics to <code>$2118</code> — fed from the effect command-lists at
+    <code>$C59400+</code> (dispatcher near <code>$C59894</code>).</li>
+  </ul>
+  <p class="muted">Both were confirmed in <code>make trace</code> logs (per-frame <code>$2122</code> CGRAM
+  <em>and</em> <code>$2118</code> VRAM DMAs). <strong>Which one escalators specifically use is still open</strong> —
+  the dig couldn't reach an active escalator headlessly. The clean confirmation: grab a <strong>save-state at a
+  Fourside escalator</strong> and let the trace tool watch one frame (a VRAM DMA to the escalator tiles = CHR
+  animation; rotating CGRAM = palette cycling). Same trick that's been cracking everything else.</p>
 </div>
 
 <h2>How our emulator handles it</h2>
