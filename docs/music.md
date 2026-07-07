@@ -17,12 +17,19 @@ and `docs/audio.md` (the shared SPC700/S-DSP foundation + the ROM-side data form
   near-silent.** The driver is resident and running, but the song is never *triggered*.
 - **`music_explore.nim`** is a sequence/data explorer, not a player.
 
-## The frontier — the song-start protocol
+## The frontier — two layers, first one partly cracked
 
-After the packs upload, the resident driver needs a **"play song N" command** poked to
-the APU ports (`$2140-$2143`) to actually start a track. We upload correctly but never
-send that trigger, so the driver idles → silence. This is the one blocker between "a
-WAV renderer" and "a jukebox."
+**Layer 1 — the song-start trigger (PARTLY DONE, 2026-07-06).** Disasm of the loader tail
+(`$C4FBBD` after `$C0AB06`) gave a play command: poke `0x57` → `$2143`, then songN →
+`$2140`. Wired into `sound_explore`. **Song 1 now produces audio** (~1330 peak, quiet) — the
+jukebox's first non-silent sound. So the trigger fires.
+
+**Layer 2 — the SPC halts for most songs (THE REAL BLOCKER NOW).** Songs 3/4/7/10/… stay
+silent because their **SPC700 halts on load** (`stopped=true`, `flg=$E0` = soft-reset +
+mute). The pack upload / driver init is wrong for most songs — the driver dies before it
+can play. This, not the trigger, is what stands between "song 1 barely plays" and "a
+jukebox." Likely: a missing/mis-ordered pack (engine vs song vs instrument packs), a wrong
+upload address/entry-point, or a handshake step skipped so the driver resets itself.
 
 ## Delegatable tasks (pick one)
 
