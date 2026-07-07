@@ -663,6 +663,7 @@ proc main() =
   var loadStateSlot = -1
   var loadStatePath = ""
   var policyFile = ""
+  var saveStateSlot = -1
   var targetSpeed = DefaultSpeed
     ## emulation fps target: 0=unlimited (headless default), 60=realtime, 120=2x etc.
     ## wired for pacing; LLM tick (interval) remains on frameCount, decoupled.
@@ -717,6 +718,9 @@ proc main() =
       policyFile = paramStr(i)
     elif a.startsWith("--policy-file="):
       policyFile = a[14..^1]
+    elif a == "--save-state-slot" and i < paramCount():
+      inc i
+      saveStateSlot = parseInt(paramStr(i))
     elif a == "--speed" and i < paramCount():
       inc i
       targetSpeed = parseInt(paramStr(i))
@@ -1109,6 +1113,9 @@ proc main() =
   if finalTg > maxTouchGrass: maxTouchGrass = finalTg
   logTg(fmt"{now()} frame={ctx.frameCount} touch_grass_pct={finalTg} max={maxTouchGrass} (final)")
   echo fmt"done: ran {ctx.frameCount} frames. final joy1=0x{snes.joy1:04x} max_touch_grass={maxTouchGrass}"
+  if saveStateSlot >= 0:
+    save_state.saveState(snes, cpu, saveStateSlot)
+    echo fmt"saved final state to slot {saveStateSlot} (px=0x{touch_grass.readU16(snes, 0x0BBE):04X} py=0x{touch_grass.readU16(snes, 0x0BFA):04X})"
   if saveSramEnabled and snes.sramDirty:
     saveSram(snes, saveSramPath)
   L.close()
