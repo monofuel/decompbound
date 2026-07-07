@@ -13,7 +13,7 @@
 ## The harness + API is our code; ROM and any dumps are user-supplied at runtime.
 
 import
-  std/[os, strutils, strformat, times, algorithm, options],
+  std/[os, strutils, strformat, times, algorithm, options, monotimes],
   pixie,
   windy,
   openai_leap,
@@ -24,6 +24,9 @@ const
   DefaultFrames = 60
   DefaultLlmInterval = 20
   DefaultPngEvery = 0
+  DefaultSpeed = 0
+  MaxPacingBacklogFrames = 4
+    ## How many frames of "debt" we allow before resetting schedule (prevents burst after stall).
   AzemBaseUrl = "http://10.11.2.22:1234/v1"
     ## LM Studio on azem (local, free, always-on). Change for a cloud/other host.
   AzemApiKey = "lm-studio"
@@ -77,7 +80,8 @@ proc realProvider(summary: string, currentLua: string): string =
   let openai = newOpenAiApi(baseUrl = AzemBaseUrl, apiKey = AzemApiKey)
   const SystemPrompt = """You are an expert at writing compact Lua policies that play EarthBound. Output ONLY valid Lua starting with 'function update()' and ending with 'end'. No markdown, no prose, no fences.
 
-Sandbox (exact names): frame() int, mem.read(addr) byte, pad.press(name), pad.set(name,bool). Names: A B X Y L R Up Down Left Right Start Select.
+Sandbox (exact names): frame() int, mem.read(addr) byte, pad.press(name), pad.set(name,bool), sim.setSpeed(fps), sim.fast(), sim.normal(). Names: A B X Y L R Up Down Left Right Start Select.
+sim controls emulation fps (0=unlimited, 60=normal); use to go fast in corridors, slow for menus/fights (decoupled from your update tick).
 
 Skills: walkTo(tx, ty) is preloaded from persistent skill library (if present) and available as global. Call it from inside your update() for reactive navigation (see WalkToSkillLua).
 
@@ -291,6 +295,9 @@ proc main() =
   var saveSramPath = ""
   var saveSramEnabled = false
   var loadStateSlot = -1
+  var targetSpeed = DefaultSpeed
+    ## emulation fps target: 0=unlimited (headless default), 60=realtime, 120=2x etc.
+    ## wired for pacing; LLM tick (interval) remains on frameCount, decoupled.
   var i = 1
   while i <= paramCount():
     let a = paramStr(i)
@@ -332,11 +339,18 @@ proc main() =
       loadStateSlot = parseInt(paramStr(i))
     elif a.startsWith("--load-state="):
       loadStateSlot = parseInt(a[13..^1])
+    elif a == "--speed" and i < paramCount():
+      inc i
+      targetSpeed = parseInt(paramStr(i))
+    elif a.startsWith("--speed="):
+      targetSpeed = parseInt(a[8..^1])
     elif a == "--help" or a == "-h":
-      echo "usage: nim c -r src/tools/llm_ai.nim -- [--frames N] [--llm-interval K] [--png-every M] [--headless] [--mock|--no-mock] [--save-srm | --save-srm=PATH] [--load-state N | --load-state=N] [rom]"
-      echo "  defaults: --frames 60 --llm-interval 20 ROM=bin/Earthbound (U) [!].smc"
+      echo "usage: nim c -r src/tools/llm_ai.nim -- [--frames N] [--llm-interval K] [--png-every M] [--speed N] [--headless] [--mock|--no-mock] [--save-srm | --save-srm=PATH] [--load-state N | --load-state=N] [rom]"
+      echo "  defaults: --frames 60 --llm-interval 20 --speed 0 ROM=bin/Earthbound (U) [!].smc"
       echo "  windowed by default (opens GL window titled 'EarthBound - LLM (qwen)' for watching)"
       echo "  --headless: no window (for CI / batch); --png-every only dumps when flag is passed"
+      echo "  --speed N: pace emulated frames to N fps (0=unlimited/as-fast, 60=realtime). Decouples from LLM query interval."
+      echo "  --speed 0 (default for headless): run full speed; --speed 120: 240 frames ~2s wall time."
       echo "  --mock (default): use canned policy string, no key needed"
       echo "  --no-mock: call real LLM via openai_leap (needs OPENAI_API_KEY)"
       echo "  --save-srm: enable OPTIONAL isolated SRAM for LLM's own progress (never user's)"
@@ -349,6 +363,7 @@ proc main() =
       echo "    bin/states/llm_skills.lua (seeded with walkTo+Intro if absent; loaded into Lua sandbox before policy)"
       echo "    bin/states/llm_notes.txt (loaded into prompt; -- NOTE: lines in policy output are appended)"
       echo "    Both live under bin/states/ (gitignored, user-local; never committed). Skills make walkTo() etc available to policies."
+      echo "  sim.setSpeed / sim.fast / sim.normal available in policies (from PolicyContext) to let AI control fps at runtime."
       echo "  To run live: export OPENAI_API_KEY=sk-... ; nix develop -c nim c -r src/tools/llm_ai.nim -- --no-mock --frames 120"
       quit(0)
     elif romPath.len == 0 and not a.startsWith("--"):
@@ -372,7 +387,7 @@ proc main() =
 
   let saveStr = if saveSramEnabled: saveSramPath else: "(ephemeral)"
   let loadStr = if loadStateSlot >= 0: $loadStateSlot else: "none"
-  echo fmt"llm_ai: ROM={romPath} frames={maxFrames} llmInterval={llmInterval} pngEvery={pngEvery} (set={pngEverySet}) mock={useMock} headless={useHeadless} loadState={loadStr} saveSram={saveStr}"
+  echo fmt"llm_ai: ROM={romPath} frames={maxFrames} llmInterval={llmInterval} pngEvery={pngEvery} (set={pngEverySet}) speed={targetSpeed} mock={useMock} headless={useHeadless} loadState={loadStr} saveSram={saveStr}"
   createDir("bin")
   createDir("bin/states")
   persistentNotes = if fileExists(NotesFile): readFile(NotesFile) else: ""
@@ -401,7 +416,8 @@ proc main() =
     snes: snes,
     frameImage: frameImage,
     frameCount: 0,
-    joy1: 0'u16
+    joy1: 0'u16,
+    targetFps: targetSpeed
   )
 
   let L = lua53.newstate()
@@ -477,9 +493,14 @@ proc main() =
 
   var status = "running"
 
-  # Main loop: policy + step + (optional) GL present. Realtime-ish pacing left to
-  # the caller (LLM slow-clock already avoids per-frame blocking). Window path
-  # does poll + upload + letterbox draw + swap each frame.
+  # Pacing state for --speed wiring (and AI-controlled via ctx.targetFps / sim.setSpeed).
+  # Use deadline schedule: after each frame, advance deadline by 1/fps, sleep remainder if early.
+  # Clamp using MaxPacingBacklogFrames: if far behind, reset deadline (prevents weird future over-sleep after stall).
+  # 0 = unlimited. Decouples from LLM tick (queries keyed on frameCount only).
+  var nextDeadline = getMonoTime()
+
+  # Main loop: policy + step + (optional) GL present. Emulation now paced by --speed / ctx.targetFps.
+  # LLM re-queries remain on frame count (llmInterval) regardless of wall time per frame.
   while ctx.frameCount < maxFrames:
     if (not useHeadless) and blit.window.closeRequested:
       break
@@ -497,6 +518,26 @@ proc main() =
 
     policy.stepOneFrame(snes, cpu, frameImage)
     ctx.frameCount += 1
+
+    # WIRE --speed / AI fps control: pace to target.
+    # After frame, compute next deadline = prev + (1s/fps), sleep remainder to it.
+    # If behind by >4 frames worth, reset deadline (clamp backlog, resume without catchup burst/sleep debt).
+    # fps=0: skip, run full speed (near-instant for --speed 0).
+    # ctx.targetFps read after policy run, so sim.setSpeed(fps) in update() takes effect immediately for next iter.
+    let fps = ctx.targetFps
+    if fps > 0:
+      let frameNs = 1_000_000_000'i64 div fps.int64
+      nextDeadline = nextDeadline + initDuration(nanoseconds = frameNs)
+      let now = getMonoTime()
+      if now < nextDeadline:
+        let ns = (nextDeadline - now).inNanoseconds
+        let ms = (ns div 1_000_000).int
+        if ms > 0:
+          sleep(ms)
+      else:
+        let behind = (now - nextDeadline).inNanoseconds
+        if behind > frameNs * MaxPacingBacklogFrames:
+          nextDeadline = now
 
     if not useHeadless:
       blit.blit(frameImage)

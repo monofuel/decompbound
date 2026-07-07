@@ -198,6 +198,9 @@ type
     frameImage*: Image
     frameCount*: int
     joy1*: uint16
+    targetFps*: int = 0
+      ## 0 = unlimited (run as fast as possible). >0 = target frames/sec for emulation pacing.
+      ## Read by llm_ai main loop each frame; written by sim.setSpeed from inside policy update().
 
 proc countHook*(L: lua53.PState, ar: pointer) {.cdecl.} =
   ## Debug hook installed around each update() call. Errors out of the pcall
@@ -284,10 +287,34 @@ proc frameGetter*(L: lua53.PState): cint {.cdecl.} =
   L.pushinteger(ctx.frameCount)
   return 1
 
+proc simSetSpeed*(L: lua53.PState): cint {.cdecl.} =
+  ## Lua: sim.setSpeed(fps). Agent-controlled emulation speed (unsyncs from real-time).
+  ## 0=unlimited (fast-forward safe stretches), 60=normal, higher for speed. Clamped sane.
+  ## Value is read each frame by llm_ai pacing; survives across LLM policy reloads until changed.
+  let ctx = getPolicyCtx(L)
+  var fps = L.toInteger(1).int
+  if fps < 0: fps = 0
+  if fps > 360: fps = 360
+  ctx.targetFps = fps
+  return 0
+
+proc simFast*(L: lua53.PState): cint {.cdecl.} =
+  ## Lua: sim.fast(). Convenience: set high fps (e.g. 300) for fast progress through low-risk areas.
+  let ctx = getPolicyCtx(L)
+  ctx.targetFps = 300
+  return 0
+
+proc simNormal*(L: lua53.PState): cint {.cdecl.} =
+  ## Lua: sim.normal(). Convenience: set 60 fps for reaction-sensitive moments (menus, fights, text).
+  let ctx = getPolicyCtx(L)
+  ctx.targetFps = 60
+  return 0
+
 proc setupPolicyApi*(L: lua53.PState, ctx: PolicyContext) =
   ## Expose the read-only + input-only sandboxed surface to Lua.
-  ## mem.read, screen.{width,height,pixel,text}, pad.{set,press}, frame.
+  ## mem.read, screen.{width,height,pixel,text}, pad.{set,press}, frame, sim.{setSpeed,fast,normal}.
   ## screen.text() returns decoded BG tilemap on-screen text (menus, dialogue, battle commands).
+  ## sim.* controls targetFps in ctx (read by llm_ai loop; additive only, llm_play unaffected).
   # Store ctx in Lua registry under string key so callbacks can retrieve without upvalues.
   L.pushlightuserdata(cast[pointer](ctx))
   L.setfield(lua53.RegistryIndex.cint, CtxRegKey.cstring)
@@ -317,6 +344,15 @@ proc setupPolicyApi*(L: lua53.PState, ctx: PolicyContext) =
   # frame
   L.pushcfunction(frameGetter)
   L.setglobal("frame".cstring)
+  # sim (fps control exposed to policy so agent can drive emulation rate independent of LLM tick)
+  L.newtable()
+  L.pushcfunction(simSetSpeed)
+  L.setfield(-2, "setSpeed".cstring)
+  L.pushcfunction(simFast)
+  L.setfield(-2, "fast".cstring)
+  L.pushcfunction(simNormal)
+  L.setfield(-2, "normal".cstring)
+  L.setglobal("sim".cstring)
 
 proc stepOneFrame*(snes: SnesBus, cpu: var Cpu, image: Image) =
   ## Advance the emulator by exactly one frame (262 scanlines), render to image.
