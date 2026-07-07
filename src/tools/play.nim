@@ -11,7 +11,7 @@ import
   windy,
   paddy,
   slappy,
-  ../decompbound/[apu, cpu, ppu, save_state, snesbus, png_state]
+  ../decompbound/[apu, cpu, ppu, replay, save_state, snesbus, png_state]
 
 proc readRomFile(filepath: string): seq[uint8] =
   ## Read ROM file and return bytes, stripping a 512-byte copier header.
@@ -177,6 +177,7 @@ Controls:
   F10         Dump per-scanline TM/TS band profile only (bin/autoshots/scanline_trace.txt)
   F11         Toggle auto-screenshots (bin/autoshots/ every 5s; ON by default)
   F12         Screenshot (raw 256x224 frame to ~/Pictures/Screenshots/earthbound_yyyyMMdd-HHmmss.png)
+  F7          Toggle INPUT RECORDING (TAS): snaps bin/replays/start.state + writes deltas to bin/replays/<ts>.tas on joy1 changes. Echoes state.
   1-4         Load state from slot 1-4 (bin/states/slotN.state)
   Ctrl+1-4    Save state to slot 1-4
   (close the window or Ctrl+C to quit — no Esc-to-quit, too easy to fat-finger)
@@ -269,6 +270,15 @@ Controls:
   var prevHdmaen: uint8 = 0
   var lastJoy1: uint16 = 0
   var currentInputDisplay = "none"
+
+  # Minimal input recording (F7 toggle). Only taps at joy1 chokepoint; never
+  # touches render, scroll, PPU, APU or emu step logic. Start state + deltas.
+  var recording = false
+  var replayLog: File
+  var replayLogOpen = false
+  var recordFrame = 0
+  var lastRecordJoy: uint16 = 0
+  var replayLogPath = ""
 
   # Audio is driven by the live APU in the bus (snes.tickApu) — no per-frame
   # snapshot/replay state is needed here anymore.
@@ -519,6 +529,14 @@ void main() {
     # handles its own diagonals; we don't hack around bad hardware.
     snes.joy1 = joy1
 
+    # MINIMAL record tap (ONLY at the joy1 chokepoint; play.nim render/emu untouched).
+    # Deltas written only on joy1 change (plus first after toggle).
+    if recording and replayLogOpen:
+      if recordFrame == 0 or joy1 != lastRecordJoy:
+        replay.appendReplayDelta(replayLog, recordFrame, joy1)
+        lastRecordJoy = joy1
+      inc recordFrame
+
     # Live input logging: decode bitmask to names, append to title, and print on
     # change (with kbd/pad source note). Always active (verbose adds raw dumps).
     const BtnNamePairs = [
@@ -610,6 +628,33 @@ void main() {
       echo &"  windows: W12SEL={snes.ppuRegs[0x23]:02X} W34SEL={snes.ppuRegs[0x24]:02X} " &
         &"WOBJSEL={snes.ppuRegs[0x25]:02X} WH0-3={snes.ppuRegs[0x26]:02X}/{snes.ppuRegs[0x27]:02X}/" &
         &"{snes.ppuRegs[0x28]:02X}/{snes.ppuRegs[0x29]:02X} TMW={snes.ppuRegs[0x2E]:02X} TSW={snes.ppuRegs[0x2F]:02X}"
+    if window.buttonPressed[KeyF7]:
+      if not recording:
+        createDir("bin/replays")
+        let startP = "bin/replays/start.state"
+        let stateB = serializeState(snes, cpu)
+        writeFile(startP, cast[string](stateB))
+        let ts = now().format("yyyyMMdd-HHmmss")
+        replayLogPath = "bin/replays" / &"{ts}.tas"
+        replayLogOpen = open(replayLog, replayLogPath, fmWrite)
+        if replayLogOpen:
+          let rh = romHashOf(rom)
+          replay.writeReplayHeader(replayLog, rh, "bin/replays/start.state")
+          recording = true
+          recordFrame = 0
+          lastRecordJoy = joy1 xor 0xFFFF'u16  # force delta on first post-toggle frame
+          echo &"RECORDING ON -> {replayLogPath} (start.state snapped)"
+          writeLog(&"RECORD ON {replayLogPath}")
+        else:
+          echo "ERROR: failed to open record log ", replayLogPath
+      else:
+        if replayLogOpen:
+          replayLog.close()
+          replayLogOpen = false
+        recording = false
+        recordFrame = 0
+        echo "RECORDING OFF"
+        writeLog("RECORD OFF")
     # State save/load (Ctrl+1..4 = save slot N, 1..4 = load slot N; documented in
     # Controls above). Uses public fields only.
     for slot in 1..4:
@@ -907,6 +952,9 @@ void main() {
   # Flush any pending battery save, then shut audio down cleanly, on exit.
   if snes.sramDirty:
     snes.saveSram(sramPath)
+  if recording and replayLogOpen:
+    replayLog.close()
+    replayLogOpen = false
   ss.close()
   slappyClose()
   if logOpened:
