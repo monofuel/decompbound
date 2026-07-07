@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SRAM vs. Save-States · What's saved where · decompbound</title>
+<style>
+  :root{
+    --bg:#faf9f7; --panel:#ffffff; --ink:#1c1a17; --muted:#6b6560; --line:#e6e1da;
+    --accent:#c0392b; --accent2:#2c6e8f; --gold:#c8a24a; --green:#3a7d44; --purple:#7d5ba6;
+    --sram:#c8a24a; --state:#2c6e8f;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#16140f; --panel:#211d17; --ink:#ece6dc; --muted:#9c948a; --line:#332d24;
+      --accent:#e05a4c; --accent2:#4d9ec4; --gold:#d8b45e; --green:#5aa86a; --purple:#a985d0;
+      --sram:#d8b45e; --state:#4d9ec4; }
+  }
+  :root[data-theme="light"]{ --bg:#faf9f7; --panel:#fff; --ink:#1c1a17; --muted:#6b6560; --line:#e6e1da; --sram:#c8a24a; --state:#2c6e8f; }
+  :root[data-theme="dark"]{ --bg:#16140f; --panel:#211d17; --ink:#ece6dc; --muted:#9c948a; --line:#332d24; --sram:#d8b45e; --state:#4d9ec4; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.6;font-size:16px}
+  .wrap{max-width:900px;margin:0 auto;padding:0 22px 96px}
+  header.hero{padding:56px 0 24px;border-bottom:1px solid var(--line);margin-bottom:8px}
+  .kicker{font-family:var(--mono);font-size:12.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+  h1{font-size:clamp(28px,5vw,42px);line-height:1.1;margin:.28em 0 .2em;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:18px;max-width:62ch}
+  h2{font-size:24px;margin:52px 0 6px;letter-spacing:-.01em}
+  h3{font-size:17px;margin:0 0 4px}
+  p{margin:.55em 0} ul{margin:.4em 0}
+  code{font-family:var(--mono);font-size:.9em;background:color-mix(in srgb,var(--accent2) 12%,transparent);padding:.08em .4em;border-radius:4px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 22px;margin:18px 0}
+  .tldr{border-left:4px solid var(--accent)}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:18px 0}
+  @media (max-width:640px){.cols{grid-template-columns:1fr}}
+  .box{border:1px solid var(--line);border-radius:12px;padding:16px 18px;background:var(--panel)}
+  .box.sram{border-top:5px solid var(--sram)}
+  .box.state{border-top:5px solid var(--state)}
+  .box .lead{font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .box h3 .sz{font-family:var(--mono);font-size:12.5px;color:var(--muted);font-weight:400}
+  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14.5px}
+  th,td{border:1px solid var(--line);padding:9px 12px;text-align:left;vertical-align:top}
+  th{background:color-mix(in srgb,var(--ink) 4%,transparent);font-weight:600}
+  td.s{font-family:var(--mono);font-size:12.5px}
+  .chip{display:inline-block;font-family:var(--mono);font-size:11px;padding:2px 7px;border-radius:20px;border:1px solid var(--line)}
+  .chip.y{color:var(--green);border-color:color-mix(in srgb,var(--green) 40%,var(--line))}
+  .chip.n{color:var(--muted)}
+  .muted{color:var(--muted)}
+  footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="hero">
+  <div class="kicker">decompbound · saves</div>
+  <h1>SRAM vs. save-states</h1>
+  <p class="sub">Two things people both call "saving," and they could not be more different. One is the
+  <em>game's</em> save. The other is a photograph of the entire machine.</p>
+</header>
+
+<div class="card tldr">
+  <p><strong>TL;DR.</strong> <strong>SRAM</strong> is the game's own battery save — the 3 save slots EarthBound
+  writes when you save at a phone (8&nbsp;KB, your progress). A <strong>save-state</strong> is the emulator
+  freezing the <em>whole console</em> at one instant — every byte of RAM, video, audio, and registers
+  (~330&nbsp;KB). <strong>A save-state <em>includes</em> the SRAM</strong>, so it's a strict superset: the game's
+  save is just one small slice of the full snapshot.</p>
+</div>
+
+<div class="cols">
+  <div class="box sram">
+    <div class="lead">the game's save</div>
+    <h3>SRAM <span class="sz">· 8 KB · <code>.srm</code></span></h3>
+    <p>Battery-backed memory the <em>cartridge</em> carries. EarthBound uses it for its <strong>3 save
+    slots</strong> — the persistent record of your run.</p>
+    <p class="muted">Written only when <em>you</em> save (call Mom / a phone / a hotel). Survives power-off (that's
+    the battery). It's the "HAL Laboratory, inc." signed block.</p>
+    <p><strong>Holds:</strong> party members &amp; stats, level/EXP, inventory, money in &amp; out of the bank,
+    story flags, current location, playtime — the resumable <em>save file</em>.</p>
+    <p class="muted">In decompbound this is the <code>.srm</code> next to the ROM (plus rotating timestamped
+    backups — dead-cart insurance). The emulator loads it on boot and writes it when the game saves.</p>
+  </div>
+  <div class="box state">
+    <div class="lead">the whole machine, frozen</div>
+    <h3>Save-state <span class="sz">· ~330 KB · <code>.state</code></span></h3>
+    <p>A snapshot of <strong>everything</strong>, taken at any instant — mid-battle, mid-animation, mid-jump.
+    Not a save <em>point</em>; a save <em>moment</em>.</p>
+    <p class="muted">Written whenever you ask (Ctrl+1–4 / F12). Restoring it drops you back to that exact frame,
+    down to the sub-pixel and the sound envelope.</p>
+    <p><strong>Holds:</strong> all 128&nbsp;KB WRAM, 64&nbsp;KB VRAM, palettes (CGRAM), sprites (OAM), every
+    PPU/CPU/DSP register, the 64&nbsp;KB APU RAM (live audio), <em>and</em> the 8&nbsp;KB SRAM.</p>
+    <p class="muted">In decompbound this is a slot file — and now, embedded inside a <strong>screenshot PNG</strong>
+    (drag it onto the window to restore). The save literally rides inside a picture.</p>
+  </div>
+</div>
+
+<h2>Side by side</h2>
+<table>
+  <tr><th>&nbsp;</th><th>SRAM (<code>.srm</code>)</th><th>Save-state (<code>.state</code>)</th></tr>
+  <tr><td>What it is</td><td>The game's battery save file</td><td>A snapshot of the entire console</td></tr>
+  <tr><td>Size</td><td class="s">8 KB</td><td class="s">~330 KB</td></tr>
+  <tr><td>When written</td><td>Only when the game saves (phone/hotel)</td><td>Any instant, on demand (Ctrl+N / F12)</td></tr>
+  <tr><td>Granularity</td><td>Save <em>points</em> the game allows</td><td>Any single frame, anywhere</td></tr>
+  <tr><td>Real hardware?</td><td>Yes — battery on the cart</td><td>No — an emulator-only superpower</td></tr>
+  <tr><td>Captures live RAM / video / audio state</td><td><span class="chip n">no</span></td><td><span class="chip y">yes</span> (WRAM/VRAM/OAM/APU/regs)</td></tr>
+  <tr><td>Captures the game's save data</td><td><span class="chip y">yes</span> (it <em>is</em> that)</td><td><span class="chip y">yes</span> (SRAM is one of its slices)</td></tr>
+  <tr><td>Survives power-off on real hardware</td><td><span class="chip y">yes</span></td><td>n/a (emulator concept)</td></tr>
+</table>
+
+<h2>Why the distinction matters here</h2>
+<ul>
+  <li><strong>A save-state resuming also restores your save file.</strong> Because the SRAM is inside it, dropping
+  a save-state back in returns both the live moment <em>and</em> the game's <code>.srm</code> to that point.</li>
+  <li><strong>SRAM is the thing you never want to lose.</strong> That's why the emulator keeps rotating,
+  timestamped <code>.srm</code> backups — the specific ghost of a cartridge whose battery never held a save.</li>
+  <li><strong>The state-screenshot feature snapshots the <em>state</em>, not just the SRAM.</strong> So a dropped
+  screenshot puts you back mid-anything — far more than a save point. (See the screenshot/drag-drop feature.)</li>
+</ul>
+
+<p class="muted">Analogy: SRAM is a <em>bookmark</em> the game let you place in the story. A save-state is a
+<em>photograph of every atom in the room</em> at one instant — and the bookmark happens to be lying on the desk
+in that photo.</p>
+
+<footer>
+  Part of the decompbound docs. See <a href="snes-architecture.html">SNES Architecture</a> for the memory map,
+  <code>src/decompbound/save_state.nim</code> for exactly what a state serializes, and
+  <code>docs/sram-format.md</code> for the SRAM save layout.
+</footer>
+</div>
+</body>
+</html>
