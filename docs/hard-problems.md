@@ -99,6 +99,40 @@ lets the trace tool watch the exact loads.
 
 ---
 
+## 4. Event VRAM-upload garbage — Paula, inn, Lilliput (ONE bug)  ·  *status: root cause found, fix is delicate*
+
+**Symptom:** a scripted event triggers, and part of the screen renders as **garbage tiles**.
+Three instances, now proven to share **one root cause**:
+- **Paula telepathy scene** — BG2 tilemap/CHR junk (mode 1).
+- **Inn (Happy Happy) wake-up** — BG1+BG2+BG3 all junk (whole screen).
+- **Lilliput Steps sanctuary vision** ("baby in a red cap") — a vertical column of broken
+  **sprites** at center-screen: sprites 0-3 (tiles 00/02/04/06, `tileBase $4000`) whose CHR
+  only **partially loaded**.
+
+**Root cause (confirmed):** the game DMAs graphics into VRAM during the scripted event —
+BG tiles/CHR in the first two, **sprite (OBJ) CHR** in Lilliput — and **some of that DMA
+doesn't fully land** in our emulator. The OAM/tilemaps are correct (the game set them up
+right); the *graphics they point at* are absent or partial. Suspect the DMA path
+(`snesbus.runDma` → `writeBbus` → `vram` + `vramIncrement`/VMAIN): word order, incr mode
+(1 vs 32), auto-inc, or size==0 wrap on the specific transfer shape these events use.
+
+**Why it's hard:** it's a **DMA-accuracy** bug in delicate `snesbus`/`ppu` territory
+(regressions happened there today), and pinning *which* transfer drops needs a live trace.
+
+**Leads / approaches:**
+1. **Live DMA trace (surest).** A `Ctrl+3` save-state from **just before touching the
+   sanctuary / entering the scene** (while the map still looks *fine*) → step through the
+   event, trace every DMA to `$2118/$2119` (+ `$420B` general DMA, `bbad=0x18/19`) + VMADD,
+   and find which upload lands short vs. a working one (e.g. tiles 02/06 loaded, 00/04 didn't).
+2. **Static DMA-path review** — audit `runDma`'s 1/2/4-byte + fixed/decrement + size-0-wrap
+   handling for a gap specific to the transfer shape these events use.
+3. Fix the **upload**, never hack OAM/CHR in the renderer — the state shows what the buggy
+   machine had; the bug is the missing DMA. Verify byte-exact on the captured states
+   (slot85 etc.) + no regression on sprite-heavy scenes (overworld NPCs, battles).
+
+**Cosmetic** — every instance still plays the event correctly (sanctuary collected, scene
+advances); only the visuals corrupt, and they clear on the next scene's re-upload.
+
 ## How to promote a problem out of this doc
 
 When a save-state, trace, or breakthrough cracks one: move its findings into the relevant
