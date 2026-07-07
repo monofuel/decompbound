@@ -167,7 +167,14 @@ proc main() =
     outPath = &"bin/jukebox_song{song:03d}.wav"
 
   let rom = readRomFile(romPath)
-  let packs = getSongPackIndices(rom, song)
+  var packs = getSongPackIndices(rom, song)
+  # Many songs rely on a resident engine/bootstrap at $0500 (provided by pack 1's
+  # large upload block). Song 1 includes it; others assume prior upload left it.
+  # Upload the engine pack first (if needed) so its 0500 code + init is present,
+  # then song packs to populate the correct song data/instruments/sequences.
+  # This fixes the SPC700 hitting zeros -> STOP / DSP flg=$E0 soft-reset+mute.
+  if 1 notin packs:
+    packs = @[1] & packs
   echo &"song {song} -> packs {packs}"
 
   var apuRam: array[0x10000, uint8]
@@ -175,11 +182,11 @@ proc main() =
     let foff = packFileOffset(rom, p)
     echo &"  loading pack {p} from file 0x{foff:06X}"
     loadPackageToRam(apuRam, rom, foff)
-  # Overlay the captured IPL kick stub at $0500 after packs. Packs that target
-  # $0500 with their payload (e.g. pack 1) will have their entry there; for
-  # others the stub + IPL bootstrap launches the driver loaded at $7000+.
-  for i in 0..<Ipl0500Stub.len:
-    apuRam[0x0500 + i] = Ipl0500Stub[i]
+  # Only overlay the IPL-deposited stub if no pack wrote to $0500 (pack 1 does).
+  # Packs targeting $0500 (pack 1) contain the bootstrap+init; others rely on it.
+  if apuRam[0x0500] == 0:
+    for i in 0..<Ipl0500Stub.len:
+      apuRam[0x0500 + i] = Ipl0500Stub[i]
 
   let apu = newApu()
   for i in 0..<0x10000:
@@ -191,8 +198,8 @@ proc main() =
   apu.spc.y = 0
   apu.spc.psw = 0
 
-  # Let driver/stub initialize.
-  for _ in 0..< (SampleRate div 10):
+  # Let driver/stub initialize (longer for some pack combos to be ready).
+  for _ in 0..< (SampleRate div 5):
     discard apu.runSample()
 
   # The song-start protocol (from disasm of song loader $C4FBBD tail after the
@@ -208,7 +215,7 @@ proc main() =
   apu.portsIn[0] = 0'u8
   for _ in 0..< (SampleRate div 200):
     discard apu.runSample()
-  apu.portsIn[0] = (song and 0xFF).uint8  # play song N
+  apu.portsIn[0] = 1'u8  # trigger playback of the loaded song data (1 works across engine+data combos; matches render_song fallback and observed working pokes)
 
   let total = if frames > 0: frames else: seconds * SampleRate
   var samples = newSeq[int16]()
@@ -220,6 +227,8 @@ proc main() =
   var pkR = 0
 
   for si in 0..<total:
+    if si > 0 and (si mod SampleRate == SampleRate div 2):
+      apu.portsIn[0] = (song and 0xFF).uint8  # re-kick in case driver needs refresh
     let (l, r) = apu.runSample()
     samples.add(l)
     samples.add(r)
