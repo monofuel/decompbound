@@ -175,7 +175,7 @@ Controls:
               (bin/autoshots/, preserved as f9_NNN_*). The emulator ALSO auto-captures a
               bundle whenever an HDMA screen-split starts (a battle/iris) — no keypress needed.
   F10         Dump per-scanline TM/TS band profile only (bin/autoshots/scanline_trace.txt)
-  F11         Toggle auto-screenshots (bin/autoshots/ every 5s; ON by default)
+  F11         Toggle auto-screenshots (bin/autoshots/ every 5s; OFF by default — causes a periodic stutter when on)
   F12         Screenshot (raw 256x224 frame to ~/Pictures/Screenshots/earthbound_yyyyMMdd-HHmmss.png)
   F7          Toggle INPUT RECORDING (TAS): snaps bin/replays/start.state + writes deltas to bin/replays/<ts>.tas on joy1 changes. Echoes state.
   1-4         Load state from slot 1-4 (bin/states/slotN.state)
@@ -214,10 +214,11 @@ Controls:
   var frameAcc: int64 = 0
   var lastFrameTime = getMonoTime()
   # Auto-capture: every 5s dump the frame + PPU state to bin/autoshots/
-  # (gitignored) so scenes can be reviewed/diagnosed after the fact. ON by
-  # default (the periodic PNG write costs one frame ~every 5s = a tiny stutter,
-  # worth it for the rolling capture history); press F11 to toggle it off.
-  var autoShot = true
+  # (gitignored) so scenes can be reviewed/diagnosed after the fact. OFF by
+  # default: the synchronous per-5s PNG write blocks one frame = a ~5s-periodic
+  # stutter, not worth it during normal play (F12 captures on demand anyway).
+  # Press F11 to toggle it ON for a capture/diagnosis session.
+  var autoShot = false
   var lastShotTime = getMonoTime()
   var shotCount = 0
   createDir("bin/autoshots")
