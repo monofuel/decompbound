@@ -20,9 +20,13 @@ right; the sustained parts of complex sounds improved with PMOD.
 - **Battle-swirl** — the rising whoosh (a pitch sweep) plays but sounds off.
 - **Enemy-death** — plays but wrong.
 - **UFO attack** — plays but wrong.
+- **"Went up in flames"** (Territorial Oak death) — plays but wrong. Fire/static SFX
+  typically use the **noise generator (NON / LFSR)** → a strong hint the noise path is off.
 
 The pattern: **rich/modulated/swept SFX** are the failures, which points at the pitch +
-attack-envelope + modulation path, not the basics.
+attack-envelope + modulation + **noise** path, not the basics. The flames clue elevates the
+**noise generator (NON $3D, the LFSR rate/output)** to a prime suspect alongside the attack
+envelope.
 
 > **⚠️ Gate (2026-07-06):** a PMOD "refinement" that clamped the post-envelope sample to
 > ±0x4000 **halved all audio** and shipped unverified (audio can't be heard headless) —
