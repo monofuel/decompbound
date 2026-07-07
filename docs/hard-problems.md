@@ -13,7 +13,7 @@ same treatment.
 
 ---
 
-## 1. Every "Photo Man" location  ·  *status: open, candidate under test*
+## 1. Every "Photo Man" location  ·  *status: open — static exhausted, needs a dynamic trace*
 
 **Want:** the full list of ~32 Photographer ("Say fuzzy pickles!") photo spots —
 location + trigger order — extracted from the ROM.
@@ -32,16 +32,20 @@ location + trigger order — extracted from the ROM.
   reliably (per `docs/scripts.md`).
 
 **Leads / approaches:**
-1. **Candidate table `~0x0D0000`** — a ~31-entry, ~6-byte-stride coordinate block (close
-   to the community ~32). *A dig is decoding it now* — do the entries parse as valid world
-   coords, and does any code read `$0D:xxxx`? (Other candidates: `~0x0A0000`, `~0x0C0000`,
-   `~0x0E0000`.)
-2. **Dynamic trace (surest).** Reach a known photo spot in-game, save-state there, and
-   trace `$0B8E/$0BCA` (player pos) + `$89CA` (sector) + the event state + the PC *at the
-   moment the photographer spawns*. That reveals the exact check + the table it reads.
-   **The playthrough enables this** — a save-state near a spot is the key.
+1. ~~**Candidate table `~0x0D0000`**~~ — **REFUTED** (decode dig, commit `e3ca981`-era).
+   Decoded to non-coordinate packed data (compressed-stream-like: small-int runs, `ff/1f`
+   masks), **no code indexes `$0D:0000`**, and the ~31 count was coincidence. Siblings
+   `~0x0A0000 / 0x0C0000 / 0x0E0000` refuted too. Blind static table-scanning is exhausted —
+   the spots almost certainly live in **interpreted event/script data** or a small trigger
+   table reached only through a pos-check the interpreter runs at runtime.
+2. **Dynamic trace — THE path now.** Reach a photo spot in-game, `Ctrl+3` a save-state
+   *right there*, and trace `$0B8E/$0BCA` (player pos) + `$89CA` (sector) + event state +
+   the **PC at the instant the photographer spawns**. That reveals the exact check + the
+   data it reads — turning a static needle-in-haystack into a one-frame observation.
+   **The playthrough is the instrument** — a save-state at a spot is the whole key.
 3. **Album-display code.** The end-game photo album walks the photos in order; it must
-   reference the same list. Find that reader → get the list + order for free.
+   reference the same list. Find that reader (from the album text `$0x75562`) → the list +
+   order for free. Also aided by a save-state at the album screen.
 
 ---
 
