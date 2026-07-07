@@ -5,6 +5,8 @@
 ## Output goes to bin/ (gitignored). Never commits audio.
 ## Per docs/audio.md: song table 0x04F70A (3 pack idx/song), pack table 0x04F947,
 ## packages [u16 len][u16 tgt][payload]..0, kick exec at $0500, BRR dir $6C00.
+## Pack 1 is the engine (provides $0500 driver); prepended when song omits it.
+## Start pokes: 0x57->$2143, 0x01->$2141, 0->$2140, songN->$2140 (from $C4FBBD tail + helpers).
 
 import
   std/[math, parseopt, strformat, strutils],
@@ -168,11 +170,10 @@ proc main() =
 
   let rom = readRomFile(romPath)
   var packs = getSongPackIndices(rom, song)
-  # Many songs rely on a resident engine/bootstrap at $0500 (provided by pack 1's
-  # large upload block). Song 1 includes it; others assume prior upload left it.
-  # Upload the engine pack first (if needed) so its 0500 code + init is present,
-  # then song packs to populate the correct song data/instruments/sequences.
-  # This fixes the SPC700 hitting zeros -> STOP / DSP flg=$E0 soft-reset+mute.
+  # Pack 1 contains the SPC driver/bootstrap ($0500 entry + init). Songs that omit it
+  # in their table entry rely on it being left resident by a prior load. For a fresh
+  # APU we prepend pack 1 (when missing) before the song's packs so the driver is
+  # present before song data overlays (6C00/6E00/7000/4800 etc).
   if 1 notin packs:
     packs = @[1] & packs
   echo &"song {song} -> packs {packs}"
@@ -202,20 +203,22 @@ proc main() =
   for _ in 0..< (SampleRate div 5):
     discard apu.runSample()
 
-  # The song-start protocol (from disasm of song loader $C4FBBD tail after the
-  # pack uploads via JSL $C0AB06, and SFX helper $C0AC01):
-  #   poke 0x57 to $2143   (C0AC01 when B4B6==0 / no music active)
-  #   poke 0 to $2140      (C0ABC6 ack/special cases)
-  #   poke songN to $2140  (tail: INC song-1 ; JSL C0ABBD which STA $2140)
-  # $B549/$B53B are SNES RAM shadows only (for pack/song dedup on 65816 side).
-  # The APU driver receives the command exclusively via the four I/O ports.
+  # Song-start protocol from disasm of $C4FBBD (after $C0AB06 pack uploads) + helpers:
+  #   0x57 -> $2143  (C0AC01 when B4B6==0 / no music active)
+  #   0x01 -> $2141  (C0AC0C)
+  #   0    -> $2140  (C0ABC6 ack)
+  #   song -> $2140  (tail: INC(song-1); JSL C0ABBD which does STA $2140)
+  # Ports are the only way the driver sees the command; $B* shadows are SNES-side.
   apu.portsIn[3] = 0x57'u8
+  for _ in 0..< (SampleRate div 200):
+    discard apu.runSample()
+  apu.portsIn[1] = 1'u8
   for _ in 0..< (SampleRate div 200):
     discard apu.runSample()
   apu.portsIn[0] = 0'u8
   for _ in 0..< (SampleRate div 200):
     discard apu.runSample()
-  apu.portsIn[0] = 1'u8  # trigger playback of the loaded song data (1 works across engine+data combos; matches render_song fallback and observed working pokes)
+  apu.portsIn[0] = (song and 0xFF).uint8
 
   let total = if frames > 0: frames else: seconds * SampleRate
   var samples = newSeq[int16]()
@@ -227,8 +230,8 @@ proc main() =
   var pkR = 0
 
   for si in 0..<total:
-    if si > 0 and (si mod SampleRate == SampleRate div 2):
-      apu.portsIn[0] = (song and 0xFF).uint8  # re-kick in case driver needs refresh
+    if si > 0 and (si mod (SampleRate div 2) == 0):
+      apu.portsIn[0] = (song and 0xFF).uint8
     let (l, r) = apu.runSample()
     samples.add(l)
     samples.add(r)
