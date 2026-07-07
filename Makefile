@@ -1,4 +1,4 @@
-.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai testrom script-dump gfx-roundtrip trace inspect audio-check
+.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai testrom script-dump gfx-roundtrip trace inspect audio-check jukebox-app
 
 # bash + pipefail: the test loop pipes nim through sed, and without
 # pipefail the pipeline's exit status is sed's (always 0), which turns
@@ -20,6 +20,7 @@ help:
 	@echo "  make title        - screenshot deep into the attract sequence"
 	@echo "  make frames       - render reference frames to bin/frame_<N>.png"
 	@echo "  make jukebox SONG=N - render EarthBound song N to bin/jukebox_songNNN.wav (7/8 songs play)"
+	@echo "  make jukebox-app  - interactive GUI jukebox (click songs in list; realtime slappy audio)"
 	@echo "  make vectors      - full 65816 CPU vector sweep (needs bin/65816-vectors)"
 	@echo "  make spc-vectors  - full SPC700 vector sweep (needs bin/spc700-vectors)"
 	@echo "  make regions      - regenerate all code regions from the gold ROM"
@@ -99,6 +100,10 @@ SONG ?= 1
 jukebox song: nim.cfg
 	@mkdir -p bin
 	nim r -d:release src/tools/sound_explore.nim --song $(SONG) $(ARGS) "$(ROM)"
+
+jukebox-app: nim.cfg
+	@mkdir -p bin
+	nim r -d:release src/tools/jukebox_app.nim "$(ROM)"
 
 # --- Verification -----------------------------------------------------
 
