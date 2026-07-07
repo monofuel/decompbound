@@ -23,6 +23,7 @@ right; the sustained parts of complex sounds improved with PMOD.
 - **"Went up in flames"** (Territorial Oak death) — plays but wrong. Fire/static SFX
   typically use the **noise generator (NON / LFSR)** → a strong hint the noise path is off.
 - **Spinning robo** — plays but wrong.
+- **Franklin Badge** (lightning reflect) — plays but wrong.
 
 **This is systematic, not N separate bugs.** With this many SFX wrong across enemies, the
 cause is a shared DSP-synthesis inaccuracy (pitch/resample rate, envelope, or noise clock).
