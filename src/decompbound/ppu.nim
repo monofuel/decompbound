@@ -135,11 +135,7 @@ proc modeLayers(mode: int, bg3prio: bool): seq[tuple[bg, bpp, pal, prio: int]] =
   ## of a BG1 low-prio animated battle BG (while still keeping BG3p1 frontmost
   ## for overworld menus and BG1 overall front of same-prio BG2).
   case mode:
-  of 0:
-    if bg3prio:
-      @[(3, 2, 96, -1), (1, 2, 32, -1), (0, 2, 0, -1), (2, 2, 64, -1)]  # BG4, BG2, BG1, BG3-front
-    else:
-      @[(3, 2, 96, -1), (2, 2, 64, -1), (1, 2, 32, -1), (0, 2, 0, -1)]
+  of 0: @[(3, 2, 96, -1), (2, 2, 64, -1), (1, 2, 32, -1), (0, 2, 0, -1)]
   of 1:
     if bg3prio: @[(2, 2, 0, 0), (1, 4, 0, 0), (0, 4, 0, 0), (1, 4, 0, 1), (0, 4, 0, 1), (2, 2, 0, 1)]
     else: @[(2, 2, 0, -1), (1, 4, 0, -1), (0, 4, 0, -1)]
