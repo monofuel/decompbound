@@ -257,6 +257,54 @@ where to go, and freezing there costs nothing. This sidesteps "the game runs for
 - [ ] North star: unattended, it makes real, measurable story progress across many
       sessions.
 
+## Milestone metric: "touch grass %" (tg_pct)
+
+The first-milestone progress score for the agent: **get Ness out of his house**
+("touch grass"). Computed by `touchGrassPercent` in `src/tools/touch_grass.nim`
+from the player's live world position; fed to the LLM every slow tick as
+`tg_pct` + `current_room`, logged to `bin/llm_ai_log.txt`, and printed as
+`TOUCH GRASS ACHIEVED` at 100.
+
+**Ground truth: the player is entity slot 24.** Entity world positions live in
+parallel word arrays at `7E:0B8E + slot*2` (X) and `7E:0BCA + slot*2` (Y); the
+party leader's render slot is **24** (X at `7E:0BBE`, Y at `7E:0BFA`), verified
+by live instruction trace: the per-frame projection at `$C04E15/$C04E1D`
+(`STA $0B8E,X / $0BCA,X`) runs with X=0x30 for the walking player; slot 28 is
+the second party member. Slot 0 is just the first map NPC/object — reading it
+(the original implementation) watched *furniture* that never moves, which
+masqueraded for days as "movement is frozen headless". The game was fine.
+
+Tiers (calibrated from `bin/states/*.state` captures + a live scripted
+walk-out):
+
+| tg_pct | meaning | captured player pos |
+|---|---|---|
+| 0 | title / naming / pre-game (zero or tiny pos) | (0,0) |
+| 25 | Ness's bedroom (game start) | (1FB8,0452) |
+| 75 | anywhere else inside the house (hall, stairs, living room) | e.g. (1DE8,03E8), (1D30,0150) |
+| 50 | battle (box around 0580-0600 x 0900-09A0) or unknown | (05C3,0945) |
+| 100 | outside — not indoor band, not battle box | (0A60,0158) Onett; (057F,1B0F) Twoson |
+
+**Proven end-to-end** (2026-07-07, headless): a scripted waypoint walk from
+`bin/states/game_start.state` drives 25 → 75 → 100 in ~13s of game time. The
+verified route out (also seeded into `bin/states/llm_notes.txt` for the agent):
+bedroom west door (walk to `1F00,0450`) → hall west (`1D40,03E8` then
+`1CC0,03E8` = stairwell) → downstairs arrival `(1D30,0150)` → east across the
+sitting room (`1E61,0178`) → the **east-wall front door** (`1E85,0150` →
+`1EC0,0148`) → outside at `(~0A60,0158)`.
+
+Gotchas the hard way:
+- **A opens the command menu and freezes movement.** Don't spam A while
+  walking; tap B to close an accidental menu.
+- King the dog sleeps at `(~1D48,0178)` and body-blocks; route around him.
+- Room transitions teleport the player (pos jumps > 0x80 in one frame).
+- Known issue: after the front-door transition the *exterior* renders black
+  headless (fade-in never completes visually) even though position/logic/tg
+  are correct — render-side, tracked separately.
+- Known issue: loading a save-state captured mid-house resumes with a stale
+  duplicate player object from an earlier room receiving d-pad input
+  (object/slot identity vs save-state interaction; needs a dig).
+
 ## Sibling: the LLM that *rewrites* the game
 
 This harness makes an LLM *play* EarthBound. Its sibling, `docs/llm-remix.md`,
