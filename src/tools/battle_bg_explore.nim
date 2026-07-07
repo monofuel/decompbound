@@ -44,17 +44,6 @@ proc fileOff(snesAddr: int): int =
   ## Convert SNES HiROM address to file offset.
   snesAddr and FileOffsetMask
 
-proc extractCompressed(rom: seq[uint8], off: int): seq[uint8] =
-  ## Extract the compressed stream starting at off, up to and including 0xFF.
-  result = @[]
-  var j = off
-  while j < rom.len:
-    let b = rom[j]
-    result.add(b)
-    j += 1
-    if b == 0xFFu8:
-      break
-
 proc tilePixelFromBytes(chr: seq[uint8], tile: int, x: int, y: int, bpp: int): int =
   ## Decode a single pixel (0..(1<<bpp)-1) from planar tile bytes in the
   ## decompressed stream. Layout matches ppu.tilePixel: per-row low-byte=plane0,
@@ -152,10 +141,12 @@ proc loadLayerGfx(rom: seq[uint8], gfxIdx: int): seq[uint8] =
   let foff = fileOff(snesAddr.int)
   if foff < 0 or foff >= rom.len:
     return @[]
-  let comp = extractCompressed(rom, foff)
-  if comp.len == 0:
-    return @[]
-  gfx_lz.decode(comp)
+  # Decode over a generous window rather than pre-extracting up to the first
+  # 0xFF byte: 0xFF also occurs as *data* mid-stream (e.g. gfx idx 4 has one at
+  # ~byte 100), so a naive scan truncates the texture. gfx_lz.decode stops at
+  # the real 0xFF *command* (the terminator), yielding the full CHR.
+  let hi = min(foff + 0x10000, rom.len)
+  gfx_lz.decode(rom[foff ..< hi])
 
 proc loadPalette(rom: seq[uint8], palIdx: int): seq[ColorRGBA] =
   ## Load 16-color inline palette (BGR555 LE) and convert via ppu.
