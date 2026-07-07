@@ -59,8 +59,15 @@
     scoped to exactly what EarthBound touches.</div>
   </a>
   <a class="doc" href="rom-format.md"><div class="t">💾 ROM format <span class="tag">md</span></div><div class="d">How the cartridge image is laid out &amp; addressed.</div></a>
-  <a class="doc" href="sram-format.md"><div class="t">🗃️ SRAM save format <span class="tag">md</span></div><div class="d">Mapped save offsets (money, HP/PP, backup copy) + how to map more.</div></a>
+  <a class="doc" href="sram-format.html"><div class="t">🗃️ SRAM save format <span class="tag html">HTML</span></div><div class="d">Visual memory map of the 8&nbsp;KB battery save — signature, money, HP/PP, the ~$60 stat stride &amp; the +$500 backup mirror.</div></a>
   <a class="doc" href="snes-asm.md"><div class="t">⚙️ 65816 assembly <span class="tag">md</span></div><div class="d">The instruction set as EarthBound uses it.</div></a>
+</div>
+
+<h2>How it works — illustrated</h2>
+<div class="cards">
+  <a class="doc" href="overworld-rendering.html"><div class="t">🌳 Overworld rendering <span class="tag html">HTML</span></div><div class="d">How Ness walks <i>behind</i> trees — BG tile priority bits vs sprites, with a layer diagram. The mechanism behind the sprite-priority bugs.</div></a>
+  <a class="doc" href="saves-vs-states.html"><div class="t">💾 SRAM vs. save-states <span class="tag html">HTML</span></div><div class="d">Two very different "saves": the game's 8&nbsp;KB battery file vs the ~330&nbsp;KB whole-machine snapshot (which <i>contains</i> the SRAM). Side-by-side.</div></a>
+  <a class="doc" href="escalator-animation.html"><div class="t">🔃 Escalator animation <span class="tag html">HTML</span></div><div class="d">How the SNES makes escalator steps appear to "move" — tile/CHR animation vs palette cycling — with a diagram.</div></a>
 </div>
 
 <h2>Decompiling the data — the other 90%</h2>

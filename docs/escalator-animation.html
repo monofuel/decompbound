@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Escalator animation · How SNES "moving" tiles work · decompbound</title>
+<style>
+  :root{
+    --bg:#faf9f7; --panel:#ffffff; --ink:#1c1a17; --muted:#6b6560; --line:#e6e1da;
+    --accent:#c0392b; --accent2:#2c6e8f; --green:#3a7d44; --gold:#c8a24a; --purple:#7d5ba6;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#16140f;--panel:#211d17;--ink:#ece6dc;--muted:#9c948a;--line:#332d24;--accent:#e05a4c;--accent2:#4d9ec4;--green:#5aa86a;--gold:#d8b45e;--purple:#a985d0; }
+  }
+  :root[data-theme="light"]{--bg:#faf9f7;--panel:#fff;--ink:#1c1a17;--muted:#6b6560;--line:#e6e1da;--accent:#c0392b;--accent2:#2c6e8f;--green:#3a7d44;--gold:#c8a24a;--purple:#7d5ba6}
+  :root[data-theme="dark"]{--bg:#16140f;--panel:#211d17;--ink:#ece6dc;--muted:#9c948a;--line:#332d24;--accent:#e05a4c;--accent2:#4d9ec4;--green:#5aa86a;--gold:#d8b45e;--purple:#a985d0}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.6;font-size:16px}
+  .wrap{max-width:900px;margin:0 auto;padding:0 22px 96px}
+  header.hero{padding:56px 0 24px;border-bottom:1px solid var(--line);margin-bottom:8px}
+  .kicker{font-family:var(--mono);font-size:12.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+  h1{font-size:clamp(28px,5vw,42px);line-height:1.1;margin:.28em 0 .2em;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:18px;max-width:62ch}
+  h2{font-size:24px;margin:52px 0 6px;letter-spacing:-.01em}
+  h3{font-size:17px;margin:0 0 4px}
+  p{margin:.55em 0} ul{margin:.4em 0}
+  code{font-family:var(--mono);font-size:.9em;background:color-mix(in srgb,var(--accent2) 12%,transparent);padding:.08em .4em;border-radius:4px}
+  a{color:var(--accent2);text-decoration:none;border-bottom:1px solid transparent} a:hover{border-bottom-color:currentColor}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 22px;margin:18px 0}
+  .tldr{border-left:4px solid var(--accent)}
+  .todo{border-left:4px solid var(--gold)}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:18px 0}
+  @media(max-width:640px){.cols{grid-template-columns:1fr}}
+  .box{border:1px solid var(--line);border-radius:12px;padding:16px 18px;background:var(--panel)}
+  .box.a{border-top:5px solid var(--accent2)} .box.b{border-top:5px solid var(--purple)}
+  .box .lead{font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  /* the animated escalator demo */
+  .demo{display:flex;gap:22px;align-items:center;flex-wrap:wrap;margin:14px 0}
+  .esc{width:120px;height:150px;border:2px solid var(--line);border-radius:8px;overflow:hidden;position:relative;background:#2b2f3a}
+  .esc .steps{position:absolute;inset:-40px 0;background:repeating-linear-gradient(160deg,
+     #6b7280 0 14px,#9aa2ad 14px 18px,#4b5563 18px 32px);animation:roll 1.1s linear infinite}
+  .esc.pal .steps{animation:none;background:repeating-linear-gradient(160deg,var(--c1) 0 14px,var(--c2) 14px 18px,var(--c3) 18px 32px);
+     --c1:#6b7280;--c2:#9aa2ad;--c3:#4b5563;animation:cyc 1.1s steps(3) infinite}
+  @keyframes roll{from{transform:translateY(0)}to{transform:translateY(32px)}}
+  @keyframes cyc{
+    0%{--c1:#6b7280;--c2:#9aa2ad;--c3:#4b5563}
+    33%{--c1:#4b5563;--c2:#6b7280;--c3:#9aa2ad}
+    66%{--c1:#9aa2ad;--c2:#4b5563;--c3:#6b7280}
+    100%{--c1:#6b7280;--c2:#9aa2ad;--c3:#4b5563}
+  }
+  @property --c1{syntax:'<color>';inherits:false;initial-value:#6b7280}
+  @property --c2{syntax:'<color>';inherits:false;initial-value:#9aa2ad}
+  @property --c3{syntax:'<color>';inherits:false;initial-value:#4b5563}
+  .demo .cap{font-size:13.5px;color:var(--muted);max-width:22ch}
+  @media(prefers-reduced-motion:reduce){.esc .steps{animation:none}}
+  .muted{color:var(--muted)}
+  footer{margin-top:52px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="hero">
+  <div class="kicker">decompbound · graphics</div>
+  <h1>How escalators move</h1>
+  <p class="sub">The steps roll endlessly, but the escalator never actually scrolls off the screen. Two SNES
+  tricks pull this off — and neither one moves a single pixel of geometry.</p>
+</header>
+
+<div class="card tldr">
+  <p><strong>TL;DR.</strong> An escalator is a <em>fixed</em> patch of background tiles. The illusion of motion
+  comes from changing what those tiles <em>look like</em> every frame — either by <strong>swapping the tile
+  graphics</strong> (CHR animation) or by <strong>rotating the palette colors</strong> (palette cycling). The
+  tilemap positions never change; only their appearance does.</p>
+</div>
+
+<div class="demo card">
+  <div class="esc"><div class="steps"></div></div>
+  <div class="cap"><strong>The effect.</strong> Steps stream upward forever. Watch the geometry — nothing is
+  actually being drawn "moving." (CSS approximation of the illusion.)</div>
+</div>
+
+<h2>Two ways to fake motion</h2>
+<div class="cols">
+  <div class="box a">
+    <div class="lead">Method 1</div>
+    <h3>CHR / tile-graphics animation</h3>
+    <p>The tilemap keeps the same tile <em>indices</em> at the same positions, but the actual 8×8 pixel data
+    for those tiles (the <strong>CHR</strong> in VRAM) is re-uploaded every frame or two via DMA. Frame 1 shows
+    step-pattern A, frame 2 shows it shifted a few pixels, and so on — looped.</p>
+    <p class="muted">Cost: a small VRAM DMA each frame. Flexible — the steps can shift by any amount and even
+    change shape. This is the usual choice for escalators &amp; conveyor belts.</p>
+  </div>
+  <div class="box b">
+    <div class="lead">Method 2</div>
+    <h3>Palette cycling (color rotation)</h3>
+    <p>The tile graphics stay <em>fixed</em>. Instead, the escalator is drawn using a small band of palette
+    indices, and the <strong>colors assigned to those indices</strong> (in CGRAM) are rotated each frame. Draw
+    diagonal stripes with a repeating color ramp, rotate the ramp, and the stripes appear to march.</p>
+    <p class="muted">Cost: a handful of CGRAM writes — cheaper than a CHR DMA. Classic for water, lava, and
+    stripe-based conveyors. The trade-off: motion is locked to the palette pattern.</p>
+    <div class="demo" style="margin-top:12px">
+      <div class="esc pal"><div class="steps"></div></div>
+      <div class="cap">Same look, driven by rotating <em>colors</em> instead of moving pixels.</div>
+    </div>
+  </div>
+</div>
+<p class="muted">Both produce the identical on-screen result; they differ only in <em>what</em> the game rewrites
+each frame — VRAM tile data vs. CGRAM palette entries. From a black-box view you can't tell them apart; from
+inside the machine (or a trace) they're obviously different.</p>
+
+<div class="card todo">
+  <p><strong>Which does EarthBound use? — not yet confirmed.</strong> This page explains the two hardware
+  techniques faithfully, but <em>which</em> one EarthBound's escalators use is a reverse-engineering question we
+  haven't pinned. The clean way to settle it: reach an escalator (Fourside's department store has them), grab a
+  <strong>save-state right there</strong>, and let the trace tool watch a few frames — a per-frame <em>VRAM DMA</em>
+  targeting the escalator tiles means CHR animation; per-frame <em>CGRAM writes</em> with static tiles means
+  palette cycling. (Same trick that cracked the bedroom walk-out: a save-state at the moment turns a guess into a
+  fact.) A dig is running to look for the animation routine statically in the meantime.</p>
+</div>
+
+<h2>How our emulator handles it</h2>
+<p>Either technique "just works" if the emulator is faithful, because both are ordinary hardware writes we
+already model: a CHR DMA lands new tile data in VRAM (and <code>renderScanline</code> reads it next frame), while
+a palette write updates CGRAM (and the composite picks up the new colors). No special escalator code — if the
+steps move on hardware, they move for us, as long as our DMA and CGRAM timing are right. If an escalator ever
+looked <em>frozen</em> or <em>wrong</em> in decompbound, that'd point at a per-frame DMA or palette-update bug,
+not at anything escalator-specific.</p>
+
+<footer>
+  Part of the decompbound docs. See <a href="overworld-rendering.html">Overworld rendering</a> and
+  <code>docs/graphics.md</code> for tiles/CHR/palettes, and the trace tool (<code>make trace</code>) for watching
+  per-frame DMA/CGRAM activity.
+</footer>
+</div>
+</body>
+</html>
