@@ -324,11 +324,13 @@ proc mixSample*(dsp: Dsp): tuple[left: int16, right: int16] =
       # Pitch modulation (PMON): if enabled for this voice and not a noise voice,
       # scale the pitch step by prior voice's post-env output. Voice 0 never
       # modulated (PMON bit 0 unused). prevOut from voice i-1 this tick.
+      # Exact per fullsnes: Factor=(OUTX SAR4)+0x400; Step=(Step*Factor) SAR10; crop
+      # step to 0x3FFF (128kHz max) after mod to avoid distorting high-pitch sweeps.
       if i > 0 and ((pmon shr i) and 1) != 0 and ((non shr i) and 1) == 0:
         let factor = (prevOut shr 4) + 0x400'i32
-        let f = if factor < 0: 0'i32 else: factor
-        # Use u64 for mul to be safe; result fits u32. Matches ~1.0x..2.0x scaling.
+        let f = max(0'i32, min(0x7FF'i32, factor))
         step = ((step.uint64 * f.uint64) shr 10).uint32
+        if step > 0x3FFF'u32: step = 0x3FFF'u32  # crop per fullsnes note; clamp no wrap
       v.pitchCounter += step
       while v.pitchCounter >= 0x1000:
         v.pitchCounter -= 0x1000
@@ -354,7 +356,8 @@ proc mixSample*(dsp: Dsp): tuple[left: int16, right: int16] =
       interp += (Gaussian[0x100 + ii].int32 * v.samples[2]) shr 11
       interp += (Gaussian[0x000 + ii].int32 * v.samples[3]) shr 11
       sample = clampS16(interp) and (not 1'i32)
-    let enveloped = (sample * v.envLevel) shr 11
+    var enveloped = (sample * v.envLevel) shr 11
+    enveloped = max(-0x4000'i32, min(0x3FFF'i32, enveloped))
     prevOut = enveloped   # OUTX (post-env, pre-vol) for next voice's PMON if any.
     let volL = cast[int8](dsp.regs[i * 0x10 + 0]).int32
     let volR = cast[int8](dsp.regs[i * 0x10 + 1]).int32
