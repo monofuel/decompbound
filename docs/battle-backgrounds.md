@@ -26,9 +26,19 @@ scroll, a sine-wave **distortion/"compression"** warp (per-scanline offsets via 
   **combine on BG1+BG2 with color math** (sub/add) + windows for the classic look. Battle
   paths: `code_00B65F` / `code_00B525` / `code_019EE6`; the NMI upload queues live in
   `code_008000`.
-- **Still to pin**: the exact per-field layout of the ~12-byte layer entry (graphics
-  pointer + palette + anim-list reference) and the background-ID → layer mapping — one more
-  load-path trace (or a known background ID via a `Ctrl+3` in-battle save-state) nails it.
+- **Format RE'd (2026-07-07) — complete enough to build the renderer.** The **layer table**
+  is at `$CADEA1`: **17 bytes/entry, ~327 layers**. Per entry:
+  - `[0]` graphics index, `[1]` palette index
+  - `[3–7]` palette-animation (type / params / #palettes / speed)
+  - `[8–11]` scroll / translation ("Mov")
+  - `[12–16]` effects — the `$C59400` anim-list reference + distortion / HDMA / CHR-DMA /
+    palette-cycle params (drives the per-frame warp).
+  - Indices resolve through parallel far-pointer tables: **gfx `$CAD9A1`**, arrangement
+    `$CADB3D`, **palette `$CADCD9`** (4B each), plus scroll `$CAF458`, distortion `$CAF908`.
+- **Background-ID → layers**: table at **`$CBDA9A`** — `layerA:u16, layerB:u16` pairs
+  (`B=0` = single layer), the two layers combining on **BG1+BG2 with color math**. One
+  layer's compressed gfx round-tripped **byte-exact** via `gfx_lz`. The full pipeline
+  (bg-ID → layer pair → decompress gfx + palette → run anim params) is now documented.
 
 ## The frontier — the battle-BG data structures
 
