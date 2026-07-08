@@ -26,6 +26,11 @@ right; the sustained parts of complex sounds improved with PMOD.
 - **Franklin Badge** (lightning reflect) — plays but wrong.
 - **Menu "click into" (select) sound** — wrong (deep). But the menu-cursor-**move** sound
   (high-pitch) is **CORRECT**.
+- **"Tessie has been sighted" (song) — the WIND element sounds LOW + DISTORTED, should be
+  HIGH-pitched.** A high element rendering *low* = the PITCH itself is mis-computed, not just
+  interpolation. Best concrete test case for the PCM-diff rig (a real song with a known-wrong
+  high element; a synthetic low tone MATCHED snes_spc, so the bug is elsewhere — likely the
+  VxPITCH step / pitch-counter or high-pitch resample/aliasing, not the low-pitch Gaussian).
 
 **⭐ KEY CLUE (2026-07-07): high-pitch sounds are RIGHT, deep/low-pitch sounds are WRONG.**
 The menu cursor-move (high) is correct; the menu-select (deep) is wrong. This strongly
