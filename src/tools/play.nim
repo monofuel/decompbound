@@ -3,7 +3,7 @@
 ## NMI injection, maps keyboard + all paddy gamepads (as player 1) to joy1,
 ## renders via PPU each frame.
 ## Usage: nim r src/tools/play.nim [--verbose|-v] [--frame-diag] <rom>
-## --frame-diag adds lightweight per-frame timing + HITCH/EVENT logs to bin/frametime.log (no render/window/audio/input/pacing changes).
+## --frame-diag adds lightweight per-frame timing + HITCH/EVENT logs to stdout (no render/window/audio/input/pacing changes).
 
 import
   std/[os, strformat, strutils, monotimes, times, algorithm, osproc, options],
@@ -191,7 +191,7 @@ Controls:
     D-pad (real buttons OR left-stick axes for cheap fake-dpad pads) + face buttons, Select, Start feed joy1 (OR with keyboard).
 
   --verbose / -v   Print input changes (joy1 + only active gamepads) for debugging
-  --frame-diag     Enable per-frame wall-clock timing + HITCH (slow >2x normal or >25ms) / EVENT logs to bin/frametime.log (logging only; frame pacing/render/audio/input unchanged)
+  --frame-diag     Enable per-frame wall-clock timing + HITCH (slow >2x normal or >25ms) / EVENT logs to stdout (logging only; frame pacing/render/audio/input unchanged)
   Mouse cursor hides after 3s (180 frames) idle; reappears on movement.
   Events (input changes, saves/loads, F9-F12, pause/speed) are logged to bin/play_log.txt
 """
@@ -258,7 +258,7 @@ Controls:
 
   # Frame-time diagnostics (hitch hunting, ~8s periodic suspect: ORC GC or periodic saves).
   # Always declare (zero cost); gated by frameDiag. Measurements + appends ONLY when enabled.
-  # Rolling median of recent "normal" frames for adaptive threshold. Logs to bin/frametime.log.
+  # Rolling median of recent "normal" frames for adaptive threshold. Logs to stdout.
   var frameDiagEnabled = frameDiag
   var frameTimes: seq[float] = @[]   # rolling recent normal frame durations (ms)
   const MaxFrameTimes = 120
@@ -266,22 +266,15 @@ Controls:
   var hitchCount = 0
   var hitchTimes: seq[(int, float)] = @[]  # (frame, epochSec) for mean interval
   var gcDropHitches = 0
-  var frametimeLogOpen = false
-  var frametimeLog: File
   if frameDiagEnabled:
-    createDir("bin")
-    frametimeLogOpen = open(frametimeLog, "bin/frametime.log", fmAppend)
-    if frametimeLogOpen:
-      let ts0 = now().format("yyyy-MM-dd HH:mm:ss")
-      frametimeLog.writeLine(&"{ts0}  FRAME-DIAG START  ROM={romPath}")
-      frametimeLog.flushFile()
+    echo &"[frame-diag] FRAME-DIAG START  ROM={romPath}"
 
   proc writeFrameLog(msg: string) =
-    ## Append to bin/frametime.log (for hitch + event correlation). Flushed.
-    if frametimeLogOpen:
-      let ts = now().format("yyyy-MM-dd HH:mm:ss")
-      frametimeLog.writeLine(&"{ts}  {msg}")
-      frametimeLog.flushFile()
+    ## Print straight to stdout (you're watching the terminal) — no file to open.
+    ## Only active when --frame-diag.
+    if frameDiagEnabled:
+      let ts = now().format("HH:mm:ss")
+      echo &"[frame-diag] {ts}  {msg}"
 
   proc gcStats(): string =
     ## Current ORC GC stats string (occupied + max + the stats dump).
@@ -911,11 +904,15 @@ void main() {
                 &"bin/autoshots/f9_{f9Count:03}_trace.txt")
               echo &"  F9 bundle preserved -> bin/autoshots/f9_{f9Count:03}_*"
               writeLog(&"F9: bundle preserved as f9_{f9Count:03}_*")
+              if frameDiagEnabled:
+                writeFrameLog(&"EVENT F9-bundle-preserved frame={frameCount} {gcStats()}")
               inc f9Count
               captureManual = false
           else:
             echo "wrote bin/autoshots/scanline_trace.txt"
             writeLog("wrote scanline_trace.txt")
+            if frameDiagEnabled:
+              writeFrameLog(&"EVENT scanline-trace frame={frameCount} {gcStats()}")
         frameCount += 1
         if frameDiagEnabled:
           # End timing after frame inc (and after any bundle writes for it). Detect
@@ -924,7 +921,7 @@ void main() {
           let workEnd = getMonoTime()
           let durMs = (workEnd - workStart).inNanoseconds.float / 1_000_000.0
           let med = medianFrameTime(frameTimes)
-          let thresh = max(25.0, med * 2.0)
+          let thresh = if frameTimes.len < 5 or frameCount < 10: 33.0 else: max(25.0, med * 2.0)
           let isHitch = durMs > thresh
           if isHitch:
             inc hitchCount
@@ -1049,6 +1046,18 @@ void main() {
   if logOpened:
     writeLog("PLAY SESSION END")
     logFile.close()
+
+  if frameDiagEnabled:
+    let nH = hitchCount
+    var meanInt = 0.0
+    if hitchTimes.len >= 2:
+      var sum = 0.0
+      for i in 1 ..< hitchTimes.len:
+        sum += hitchTimes[i][1] - hitchTimes[i-1][1]
+      meanInt = sum / float(hitchTimes.len - 1)
+    let meanStr = if meanInt > 0.0: &"{meanInt:.2f}s" else: "n/a"
+    let corr = if gcDropHitches > 0: &"GC-drops-at-hitches={gcDropHitches}" else: "no-GC-drop-observed"
+    echo &"[frame-diag] SUMMARY hitches={nH} meanInterval={meanStr} {corr}"
 
 when isMainModule:
   main()
