@@ -76,6 +76,15 @@ type
     fixedColorR*: uint8  ## 0-31 from COLDATA $2132.
     fixedColorG*: uint8
     fixedColorB*: uint8
+    ## Mode 7 matrix / general-purpose signed multiply ($211B/$211C → $2134-$2136).
+    ## EarthBound fills battle-BG / Giygas HDMA distortion tables via
+    ## M7A (16-bit) * last M7B byte (signed 8-bit) → 24-bit MPY. Without this
+    ## the distortion buffer stays zero and the intro "red snow" looks like a
+    ## coherent Giygas face instead of warped TV static.
+    m7a: uint16
+    m7b: uint16
+    m7MulLatch: uint8   ## Write-twice latch for M7A/M7B (mode7_latch).
+    mpy: uint32         ## 24-bit signed product in low 24 bits.
     hdmaWrites*: seq[(uint32, uint8)]  ## Trace of B-bus writes performed by HDMA (for debug).
     joy1*: uint16  ## Auto-read joypad 1 state ($4218/19). Bit layout:
                    ## high byte B,Y,Sel,Start,U,D,L,R; low byte A,X,L,R.
@@ -140,6 +149,15 @@ proc mmioRead(snes: SnesBus, offset: uint32): uint8 =
     # HVBJOY: toggle vblank/hblank bits so polls terminate.
     snes.vblankToggle = not snes.vblankToggle
     if snes.vblankToggle: 0x81'u8 else: 0x00'u8
+  of 0x2134:
+    # MPYL: low 8 bits of signed M7A * (int8)M7B product.
+    (snes.mpy and 0xFF).uint8
+  of 0x2135:
+    # MPYM: middle 8 bits.
+    ((snes.mpy shr 8) and 0xFF).uint8
+  of 0x2136:
+    # MPYH: high 8 bits (sign-extended into bit 23 of the 24-bit product).
+    ((snes.mpy shr 16) and 0xFF).uint8
   else:
     0x00
 
@@ -197,6 +215,21 @@ proc ppuPortWrite(snes: SnesBus, offset: uint32, value: uint8): bool =
     true
   of 0x2117:
     snes.vmadd = (snes.vmadd and 0x00FF) or (value.uint16 shl 8)
+    true
+  of 0x211B:
+    # M7A write-twice: M7A = (value << 8) | latch; latch = value.
+    snes.m7a = (value.uint16 shl 8) or snes.m7MulLatch.uint16
+    snes.m7MulLatch = value
+    true
+  of 0x211C:
+    # M7B write-twice + signed multiply trigger.
+    # product = (int16)M7A * (int8)value  (last byte written), 24-bit result.
+    snes.m7b = (value.uint16 shl 8) or snes.m7MulLatch.uint16
+    snes.m7MulLatch = value
+    let a = cast[int16](snes.m7a).int32
+    let b = cast[int8](value).int32
+    let prod = a * b
+    snes.mpy = (cast[uint32](prod)) and 0x00FF_FFFF'u32
     true
   of 0x2118:
     let index = (snes.vmadd and 0x7FFF).int

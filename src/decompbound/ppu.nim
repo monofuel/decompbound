@@ -609,9 +609,10 @@ proc renderFrame*(snes: SnesBus): Image =
   let subMask = snes.ppuRegs[0x2D]
   let cgadsub = snes.ppuRegs[0x31]
   let cgwsel = snes.ppuRegs[0x30]
-  let useFixedSub = (cgwsel and 0x02) != 0
+  # CGWSEL bit 1: 0 = fixed color operand, 1 = subscreen operand (matches renderScanline).
+  let useSubScreen = (cgwsel and 0x02) != 0
   var subImg: Image = nil
-  if (cgadsub and 0x3F) != 0 and (subMask != 0 or useFixedSub):
+  if (cgadsub and 0x3F) != 0 and (subMask != 0 or not useSubScreen):
     subImg = newImage(ScreenWidth, ScreenHeight)
     let subBackdrop = bgr555ToColor(snes.cgram[0])
     subImg.fill(subBackdrop)
@@ -656,7 +657,7 @@ proc renderFrame*(snes: SnesBus): Image =
     let objMathEnabled = (cgadsub and 0x10) != 0  # CGADSUB bit 4: OBJ layer enable for color math
     for i in 0 ..< result.data.len:
       var m = result.data[i]
-      var s = if useFixedSub or subImg == nil:
+      var s = if (not useSubScreen) or subImg == nil:
                 fixedPx
               else:
                 subImg.data[i]

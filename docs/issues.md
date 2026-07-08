@@ -18,6 +18,7 @@ Live-play captures come from F12 (preserved `f12_NNN` bundles) per the debug wor
 - Controller-disconnect crash (guarded poll+read, catches Defect).
 - Alt-tab super-speed (pacing backlog clamp).
 - Swirl color-math MODE (CGADSUB add/subtract bits were swapped).
+- Giygas intro red-snow (Mode 7 multiply for HDMA distortion; 2026-07-08 — please confirm in `make play`).
 
 ## IN PROGRESS (fork/agent actively on it)
 
@@ -29,9 +30,10 @@ Live-play captures come from F12 (preserved `f12_NNN` bundles) per the debug wor
 
 ## OPEN (not yet assigned)
 
-- Giygas red-snow static ANIMATION fidelity (compositor fixed; animation-phase gap — see [red-snow.md](red-snow.md)).
-
-  There is ONE Giygas death animation: swirl -> random red/black/white TV snow. The full progression is shown at the END of the game. The INTRO deliberately shows **only the snow tail** (the game hides that the snow IS Giygas until the very end — "the beginning is secretly the ending"). We render the swirl start instead. The effect now churns (animation runs) but selects the wrong segment of the death-animation data.
+- ~~Giygas red-snow static ANIMATION fidelity~~ **FIXED 2026-07-08** (see [red-snow.md](red-snow.md)).
+  Missing Mode 7 multiply (`$211B`/`$211C` → `$2134`–`$2136`) left the HDMA
+  BG2HOFS distortion table all zeros, so the intro showed a coherent Giygas
+  face tile grid instead of warped TV snow.
 
 - Sprite-behind-object 1px flicker/lag during movement (OAM/frame-timing polish).
 - test_speed ROM fails (CPU cycle-accuracy — we use a fixed instruction budget, not cycles).

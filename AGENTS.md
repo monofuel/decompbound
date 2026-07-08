@@ -3,25 +3,31 @@
 - Earthbound (SNES) decompilation project in Nim.
 - This will be a complex and open ended progress, you will need to get creative and may have to make tools to help.
 
-## Delegate to grok — and be proactive about it
+## Delegate via Grok 4.5 sub-agents — and be proactive about it
 
-Most substantive work on this project should be **delegated to grok** ("groknards"
-— grok-build coding instances launched with `agnt -w grok "<task>"`). Be *responsive*:
-when a bounded task lands (an RE dig, a new tool, a self-contained feature), dispatch
-a groknard right away rather than doing it inline or queuing it. Keep the pipeline
-full — when a wave lands, verify it and dispatch the next; don't wait to be asked.
+Most substantive work should be **fanned out to Grok Build native sub-agents**
+(`spawn_subagent`). One Grok 4.5 top session is the conductor: it sets goals,
+verifies results, and re-drives incomplete children. Be *responsive*: when a
+bounded task lands (an RE dig, a new tool, a self-contained feature), spawn a
+child right away rather than doing it all inline or queuing it. Keep the
+pipeline full — when a wave lands, verify it and dispatch the next.
 
-- **Groknards do:** ROM/format reverse-engineering (report offsets + format —
+- **Workers do:** ROM/format reverse-engineering (report offsets + format —
   *analysis only*, never commit assets / ROM / dumps) and bounded build tasks
-  (new tools, self-contained features).
-- **Claude keeps:** emulator-correctness + risky/timing changes (via fork subagents),
-  and **verifying every groknard result byte-exact against the gold ROM before
-  trusting or committing** — this has repeatedly caught real bugs.
-- **How:** grok plan-mode is broken headless — use write-mode (`-w`) + "analysis only"
-  for RE. Put the full task + the verification bar in the prompt.
-- **Parallel-safety:** don't let concurrent groknards edit the same shared file (e.g.
-  the Makefile) — they clobber each other. Have them build/verify via `nim c -r`
-  directly; Claude adds shared edits (make targets) afterward.
+  (new tools, self-contained features, adoptions). Prefer `explore` for pure
+  RE; `general-purpose` for write work; worktree isolation when parallel
+  writers would collide.
+- **Conductor keeps:** final verify/merge calls, emulator-correctness +
+  risky/timing ownership, and **re-running every worker result against the gold
+  harness before trusting or committing** — this has repeatedly caught real bugs.
+  Never merge on a worker's self-report. The referee (`compare.nim`, `tests/`,
+  opcode table) is sacred.
+- **How:** self-contained briefs (task + verification bar + handoff fields).
+  Children get no chat history. Parent re-drives ~70% bail-outs until green.
+- **Parallel-safety:** don't let concurrent children edit the same shared file
+  (e.g. the Makefile) — they clobber each other. Have them build/verify via
+  `nim r` / targeted tests directly; conductor adds shared make targets afterward.
+- **`agnt`:** optional dogfood / cross-harness only — not the default worker lane.
 
 See `docs/delegation.md` for the fuller playbook.
 
