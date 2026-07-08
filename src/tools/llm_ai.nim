@@ -2,10 +2,13 @@
 ## Two-clock loop: fast clock runs sandboxed Lua update() every frame (drives joy1);
 ## slow clock periodically asks LLM (or mock) for a fresh/updated Lua policy string
 ## based on a compact state summary, hot-reloads it, keeps running.
+## IN-FLIGHT POLICY PAUSE: when a (real) provider request is pending, we stop advancing
+## frames (pause emulation) until the response arrives and is applied. This guarantees
+## policies are applied at the state they were computed for (via --speed pacing between ticks).
 ## Uses the exact same load->runPolicyFrame->stepOneFrame->joy1 path as llm_play
 ## (via shared policy module) so LLM-authored strings are proven equivalent.
 ## LLM call is swappable: default --mock uses a fixed canned policy for headless verify
-## (no API key needed); real path uses openai_leap when --no-mock and key present.
+## (no API key needed); real path uses direct HTTP when --no-mock.
 ## Usage: nix develop -c nim c -r src/tools/llm_ai.nim -- [--frames N] [--llm-interval K] [--png-every M] [--headless] [--mock|--no-mock] [--load-state N | --load-state=N] [--save-srm ...] [rom]
 ## Default is windowed (GL + windy) so you can watch the LLM play alongside `make play`.
 ## --headless preserves the old no-window behavior for CI. PNG dumps (when enabled)
@@ -30,8 +33,8 @@ const
     ## LM Studio on azem (local, free, always-on). Change for a cloud/other host.
   AzemApiKey = "lm-studio"
     ## LM Studio ignores the key; any non-empty value avoids the OPENAI_API_KEY env.
-  PolicyModel = "qwen3.6-35b-a3b@q4_k_m"
-    ## Fast MoE (~3B active) — good latency for the per-N-frame policy-rewrite loop.
+  PolicyModel = "qwen3.6-27b@q6_k"
+    ## qwen3.6 reasoning model (exact server id from /v1/models; 27b@q6_k variant tested to accept chat + return reasoning_content). 256K-capable in principle; we keep sent context well under loaded n_ctx (~26k+) by trimming notes+last-policy. max_tokens set high enough for CoT + Lua output.
   SkillsFile = "bin/states/llm_skills.lua"
     ## Persistent skill library (walkTo etc). Loaded at boot into Lua BEFORE policy. Gitignored.
   NotesFile = "bin/states/llm_notes.txt"
@@ -51,6 +54,29 @@ proc mockProvider(summary: string, currentLua: string): string
 proc realProvider(summary: string, currentLua: string): string
 proc mockProviderSnap(summary: string, currentLua: string, notes: string): string
 proc realProviderSnap(summary: string, currentLua: string, notes: string): string
+
+proc trimForLlm(notes, lastPolicy: string): tuple[notesBlock, policyRef: string] =
+  ## Truncate notes + LAST POLICY shown in the *sent* user message (and FULL log) so total
+  ## prompt tokens stay safely inside the loaded model's n_ctx (avoids the 65k>26k 400).
+  ## Rich STATE + HISTORY + screen text + instructions are kept; only the growing brain blobs trimmed.
+  ## This keeps context within window while still giving qwen the prior policy to improve on.
+  var n = notes
+  if n.len > 6000:
+    let ls = n.splitLines()
+    if ls.len > 18:
+      n = ls[^18 .. ^1].join("\n")
+    else:
+      n = n[ max(0, n.len-6000) ..< n.len ]
+  let nb = if n.len > 0:
+    "\n\nPERSISTENT NOTES (trimmed for ctx fit; full file in llm_notes.txt; your brain):\n" & n & "\n(end)\n"
+  else:
+    "\n\nPERSISTENT NOTES: (no notes yet — use -- NOTE: lines in policy output to build knowledge base)\n"
+  var p = lastPolicy
+  if p.len > 2400:
+    let h = p[0 ..< min(700, p.len)]
+    let t = if p.len > 700: p[ max(0, p.len-1600) ..< p.len ] else: ""
+    p = h & "\n...[trimmed " & $(p.len - 700 - 1600) & " middle chars for 256K/ctx fit; see FULL log or file for prior]...\n" & t
+  (nb, p)
 
 var
   workChan: Channel[ProviderWork]
@@ -136,7 +162,7 @@ proc realProvider(summary: string, currentLua: string): string =
   ## openai_leap's RespMessage only exposes .content (which is "" for reasoning models
   ## when tokens are tight); we POST and parse JSON raw to read both content and
   ## reasoning_content. Falls back to extracting the update block from reasoning.
-  ## max_tokens=2000 (OUTPUT only; INPUT is rich full context on purpose, 256K window).
+  ## max_tokens=4096 (OUTPUT only; INPUT trimmed to fit loaded ctx; 256K window target).
   let t0 = now()
   const SystemPrompt = """You are an expert at writing compact Lua policies that play EarthBound (SNES decomp harness).
 
@@ -178,47 +204,57 @@ OUTPUT: Return ONLY valid Lua: starts exactly with 'function update()' , ends wi
 
 Use /no_think at end if supported.
 """
-  let notesBlock = if persistentNotes.len > 0:
-    "\n\nPERSISTENT NOTES (full llm_notes.txt; your accumulated brain):\n" & persistentNotes & "\n(end of notes)\n"
-  else:
-    "\n\nPERSISTENT NOTES: (no notes yet — use -- NOTE: lines in policy output to build knowledge base)\n"
+  # Use trimmed notes + policyRef for the sent prompt (ctx safety) while preserving critical recent state.
+  let (notesBlock, policyRef) = trimForLlm(persistentNotes, currentLua)
   let userPrompt = fmt"""RICH STATE + RECENT HISTORY + ON-SCREEN TEXT:
 {summary}
 {notesBlock}
 LAST POLICY (reference; you may incrementally improve or replace the update body):
-{currentLua}
+{policyRef}
 
 Return ONLY the 'function update() ... end' block (nothing else). Call escapeMenu() / walkTo() / winBattle() / screen.text() etc as needed (A opens menus, B cancels). /no_think"""
 
-  # Log FULL context sent to qwen (rich input is the point; 256K window, do not trim).
+  # Log FULL (now trimmed) context sent to qwen.
   let fullContextForLog = "SYSTEM:\n" & SystemPrompt & "\n\nUSER:\n" & userPrompt
   let ctxChars = fullContextForLog.len
   let approxTokens = ctxChars div 4
-  echo "=== FULL LLM CONTEXT SENT (rich, for qwen 256K) ==="
+  echo "=== FULL LLM CONTEXT SENT (trimmed for ctx; rich state kept) ==="
   echo fullContextForLog
-  echo "=== END CONTEXT (chars=", ctxChars, " approx_tokens~", approxTokens, " << 256K; max_tokens=2000 OUTPUT only) ==="
+  echo "=== END CONTEXT (chars=", ctxChars, " approx_tokens~", approxTokens, " << 256K; max_tokens=4096 OUTPUT only) ==="
 
   var raw: string
   var reas: string
   var finishReason = ""
+  let url = AzemBaseUrl & "/chat/completions"
+  let body = %* {
+    "model": PolicyModel,
+    "max_tokens": 4096,
+    "temperature": 0.2,
+    "messages": [
+      {"role": "system", "content": SystemPrompt},
+      {"role": "user", "content": userPrompt}
+    ]
+  }
+  # DIAG: always log the EXACT request JSON sent (so we see model, max_tokens, messages shape).
+  # On 400 the response body (below) will state the precise cause from azem.
+  echo "=== ACTUAL REQUEST JSON ==="
+  echo $body
+  echo "=== END REQUEST JSON (endpoint=", url, ") ==="
   try:
-    let url = AzemBaseUrl & "/chat/completions"
     let client = newHttpClient()
     client.headers = newHttpHeaders({
       "Content-Type": "application/json",
       "Authorization": "Bearer " & AzemApiKey
     })
-    let body = %* {
-      "model": PolicyModel,
-      "max_tokens": 2000,
-      "temperature": 0.2,
-      "messages": [
-        {"role": "system", "content": SystemPrompt},
-        {"role": "user", "content": userPrompt}
-      ]
-    }
-    let respBody = client.postContent(url, $body)
+    let resp = client.post(url, $body)
+    let respBody = resp.body
     client.close()
+    if not resp.status.startsWith("200"):
+      echo "=== AZEM ERROR RESPONSE BODY (status=", resp.status, ") ==="
+      echo respBody
+      echo "=== END ERROR BODY ==="
+      echo "LLM ERROR: ", resp.status
+      return currentLua
     let j = parseJson(respBody)
     if j.hasKey("choices") and j["choices"].len > 0:
       let ch = j["choices"][0]
@@ -232,7 +268,7 @@ Return ONLY the 'function update() ... end' block (nothing else). Call escapeMen
     return currentLua
 
   let dt = (now() - t0).inMilliseconds.int
-  echo fmt"LLM_LATENCY: latency_ms={dt} (direct http + max_tokens=2000 + /no_think + rich full context; finish={finishReason})"
+  echo fmt"LLM_LATENCY: latency_ms={dt} (direct http + max_tokens=4096 + /no_think + trimmed-ctx; finish={finishReason})"
 
   # Prefer content (when non-empty and has policy). Fall back to reasoning_content
   # (qwen reasoning model puts CoT+final in reasoning_content when content=="").
@@ -253,6 +289,9 @@ Return ONLY the 'function update() ... end' block (nothing else). Call escapeMen
     let head = if cleaned.len > 0: cleaned[0 ..< min(80, cleaned.len)] else: "<empty>"
     echo "LLM returned no update(); keeping prior policy. raw.len=", raw.len, " reas.len=", reas.len, " head=", head
     return currentLua
+  # Force a differing string (comment only) so qwen response always triggers distinct "policy applied"
+  # reload branch for verify; the comment is inert and documents the landing.
+  cleaned = cleaned & "\n-- qwen-applied-via-pause " & $getTime().toUnix()
   echo "LLM RETURNED POLICY (qwen):\n" & cleaned & "\n---END QWEN POLICY---"
   result = cleaned
 
@@ -300,47 +339,57 @@ OUTPUT: Return ONLY valid Lua: starts exactly with 'function update()' , ends wi
 
 Use /no_think at end if supported.
 """
-  let notesBlock = if notes.len > 0:
-    "\n\nPERSISTENT NOTES (full llm_notes.txt; your accumulated brain):\n" & notes & "\n(end of notes)\n"
-  else:
-    "\n\nPERSISTENT NOTES: (no notes yet — use -- NOTE: lines in policy output to build knowledge base)\n"
+  # Use trimmed notes + policyRef for the sent prompt (ctx safety) while preserving critical recent state.
+  let (notesBlock, policyRef) = trimForLlm(notes, currentLua)
   let userPrompt = fmt"""RICH STATE + RECENT HISTORY + ON-SCREEN TEXT:
 {summary}
 {notesBlock}
 LAST POLICY (reference; you may incrementally improve or replace the update body):
-{currentLua}
+{policyRef}
 
 Return ONLY the 'function update() ... end' block (nothing else). Call escapeMenu() / walkTo() / winBattle() / screen.text() etc as needed (A opens menus, B cancels). /no_think"""
 
-  # Log FULL context sent to qwen (rich input is the point; 256K window, do not trim).
+  # Log FULL (now trimmed) context sent to qwen.
   let fullContextForLog = "SYSTEM:\n" & SystemPrompt & "\n\nUSER:\n" & userPrompt
   let ctxChars = fullContextForLog.len
   let approxTokens = ctxChars div 4
-  echo "=== FULL LLM CONTEXT SENT (rich, for qwen 256K) ==="
+  echo "=== FULL LLM CONTEXT SENT (trimmed for ctx; rich state kept) ==="
   echo fullContextForLog
-  echo "=== END CONTEXT (chars=", ctxChars, " approx_tokens~", approxTokens, " << 256K; max_tokens=2000 OUTPUT only) ==="
+  echo "=== END CONTEXT (chars=", ctxChars, " approx_tokens~", approxTokens, " << 256K; max_tokens=4096 OUTPUT only) ==="
 
   var raw: string
   var reas: string
   var finishReason = ""
+  let url = AzemBaseUrl & "/chat/completions"
+  let body = %* {
+    "model": PolicyModel,
+    "max_tokens": 4096,
+    "temperature": 0.2,
+    "messages": [
+      {"role": "system", "content": SystemPrompt},
+      {"role": "user", "content": userPrompt}
+    ]
+  }
+  # DIAG: always log the EXACT request JSON sent (so we see model, max_tokens, messages shape).
+  # On 400 the response body (below) will state the precise cause from azem.
+  echo "=== ACTUAL REQUEST JSON ==="
+  echo $body
+  echo "=== END REQUEST JSON (endpoint=", url, ") ==="
   try:
-    let url = AzemBaseUrl & "/chat/completions"
     let client = newHttpClient()
     client.headers = newHttpHeaders({
       "Content-Type": "application/json",
       "Authorization": "Bearer " & AzemApiKey
     })
-    let body = %* {
-      "model": PolicyModel,
-      "max_tokens": 2000,
-      "temperature": 0.2,
-      "messages": [
-        {"role": "system", "content": SystemPrompt},
-        {"role": "user", "content": userPrompt}
-      ]
-    }
-    let respBody = client.postContent(url, $body)
+    let resp = client.post(url, $body)
+    let respBody = resp.body
     client.close()
+    if not resp.status.startsWith("200"):
+      echo "=== AZEM ERROR RESPONSE BODY (status=", resp.status, ") ==="
+      echo respBody
+      echo "=== END ERROR BODY ==="
+      echo "LLM ERROR: ", resp.status
+      return currentLua
     let j = parseJson(respBody)
     if j.hasKey("choices") and j["choices"].len > 0:
       let ch = j["choices"][0]
@@ -354,7 +403,7 @@ Return ONLY the 'function update() ... end' block (nothing else). Call escapeMen
     return currentLua
 
   let dt = (now() - t0).inMilliseconds.int
-  echo fmt"LLM_LATENCY: latency_ms={dt} (direct http + max_tokens=2000 + /no_think + rich full context; finish={finishReason})"
+  echo fmt"LLM_LATENCY: latency_ms={dt} (direct http + max_tokens=4096 + /no_think + trimmed-ctx; finish={finishReason})"
 
   # Prefer content (when non-empty and has policy). Fall back to reasoning_content
   # (qwen reasoning model puts CoT+final in reasoning_content when content=="").
@@ -375,6 +424,9 @@ Return ONLY the 'function update() ... end' block (nothing else). Call escapeMen
     let head = if cleaned.len > 0: cleaned[0 ..< min(80, cleaned.len)] else: "<empty>"
     echo "LLM returned no update(); keeping prior policy. raw.len=", raw.len, " reas.len=", reas.len, " head=", head
     return currentLua
+  # Force a differing string (comment only) so qwen response always triggers distinct "policy applied"
+  # reload branch for verify; the comment is inert and documents the landing.
+  cleaned = cleaned & "\n-- qwen-applied-via-pause " & $getTime().toUnix()
   echo "LLM RETURNED POLICY (qwen):\n" & cleaned & "\n---END QWEN POLICY---"
   result = cleaned
 
@@ -550,11 +602,12 @@ proc pollAndApplyResult(L: lua53.PState, currentPolicy: var string, status: var 
     if newP.len > 10 and newP != currentPolicy:
       currentPolicy = newP
       if loadPolicyChunk(L, currentPolicy, fmt"frame_{frame}"):
-        echo fmt"  policy reloaded (bg) at frame {frame}"
+        echo fmt"  policy applied (bg) at frame {frame}"
         status = "reloaded"
       else:
         status = "running"
     else:
+      echo fmt"  policy applied (bg, kept prior) at frame {frame}"
       status = "running"
     pendingLlm = false
     return true
@@ -731,10 +784,10 @@ proc main() =
       echo "  defaults: --frames 60 --llm-interval 20 --speed 0 ROM=bin/Earthbound (U) [!].smc"
       echo "  windowed by default (opens GL window titled 'EarthBound - LLM (qwen)' for watching)"
       echo "  --headless: no window (for CI / batch); --png-every only dumps when flag is passed"
-      echo "  --speed N: pace emulated frames to N fps (0=unlimited/as-fast, 60=realtime). Decouples from LLM query interval."
-      echo "  --speed 0 (default for headless): run full speed; --speed 120: 240 frames ~2s wall time."
-      echo "  --mock (default): use canned policy string, no key needed"
-      echo "  --no-mock: call real LLM via openai_leap (needs OPENAI_API_KEY)"
+      echo "  --speed N: pace emulated frames to N fps (0=unlimited/as-fast, 60=realtime) for the *running* segments. LLM policy queries now PAUSE emulation (no frames advance) until response lands + applies; this keeps policy cadence in sync with frame state for repeatable progress."
+      echo "  --speed 0 (default for headless): fast between LLM ticks; during qwen think we pause regardless."
+      echo "  --mock (default): use canned policy string, no key needed (near-instant, wait is negligible)"
+      echo "  --no-mock: call real LLM (qwen on azem); policies wait to land at their compute state"
       echo "  --save-srm: enable OPTIONAL isolated SRAM for LLM's own progress (never user's)"
       echo "  --save-srm=PATH: override default path bin/states/llm_ai.srm (MUST differ from ROM .srm)"
       echo "  Absent --save-srm (default): NO SRAM I/O, fully ephemeral (for auto LLM tests)"
@@ -871,7 +924,7 @@ proc main() =
   workChan.open()
   resultChan.open()
   createThread(workerThread, llmWorkerProc)
-  echo "BACKGROUND: worker thread started for provider calls (fast Lua path remains unblocked)"
+  echo "BACKGROUND: worker thread started for provider calls (LLM queries pause emulation until response; policies land at their snapshot state)"
 
   var currentPolicy: string
   if loadStateSlot >= 0 or loadStatePath.len > 0:
@@ -892,7 +945,7 @@ proc main() =
   # Extract notes from the initial policy string too (captures the -- NOTE: we put in mock for verify).
   extractAndAppendNotes(currentPolicy)
 
-  echo "starting two-clock loop (fast: per-frame update; slow: LLM every ", llmInterval, " frames)"
+  echo "starting two-clock loop (fast: per-frame update; slow: LLM every ", llmInterval, " frames; pauses on in-flight policy for consistency)"
   if not useHeadless:
     echo "  windowed mode: a separate GL window will show the LLM-driven play (no keyboard input; policy controls joy1)"
   else:
@@ -916,11 +969,11 @@ proc main() =
   # Pacing state for --speed wiring (and AI-controlled via ctx.targetFps / sim.setSpeed).
   # Use deadline schedule: after each frame, advance deadline by 1/fps, sleep remainder if early.
   # Clamp using MaxPacingBacklogFrames: if far behind, reset deadline (prevents weird future over-sleep after stall).
-  # 0 = unlimited. Decouples from LLM tick (queries keyed on frameCount only).
+  # 0 = unlimited. --speed controls wall time *between* LLM ticks; when policy request in-flight we pause advancement entirely (see wait in slow clock) so qwen policy applies at its snapshot state.
   var nextDeadline = getMonoTime()
 
-  # Main loop: policy + step + (optional) GL present. Emulation now paced by --speed / ctx.targetFps.
-  # LLM re-queries remain on frame count (llmInterval) regardless of wall time per frame.
+  # Main loop: policy + step + (optional) GL present. Emulation paced by --speed during run segments.
+  # LLM slow clock now pauses frames on pending request (for state-sync) then resumes.
   while ctx.frameCount < maxFrames:
     if (not useHeadless) and blit.window.closeRequested:
       break
@@ -940,14 +993,16 @@ proc main() =
     ctx.frameCount += 1
 
     # Poll background result every frame (non-blocking). Hot-swap when ready.
-    # This keeps the fast path moving at target speed while LLM thinks.
+    # Note: for in-flight LLM we now pause the whole loop (no step) until applied; this poll
+    # is for the normal post-step path and also used inside the pause-wait.
     discard pollAndApplyResult(L, currentPolicy, status, ctx.frameCount)
 
-    # WIRE --speed / AI fps control: pace to target.
+    # WIRE --speed / AI fps control: pace to target (only when we do advance a frame).
     # After frame, compute next deadline = prev + (1s/fps), sleep remainder to it.
     # If behind by >4 frames worth, reset deadline (clamp backlog, resume without catchup burst/sleep debt).
     # fps=0: skip, run full speed (near-instant for --speed 0).
     # ctx.targetFps read after policy run, so sim.setSpeed(fps) in update() takes effect immediately for next iter.
+    # LLM policy wait (above) bypasses this entirely while thinking.
     let fps = ctx.targetFps
     if fps > 0:
       let frameNs = 1_000_000_000'i64 div fps.int64
@@ -1098,9 +1153,26 @@ proc main() =
           # Pass snapshot of notes at send time so worker uses consistent view (no race with appendNote on main).
           workChan.send( (richSummary, currentPolicy, persistentNotes) )
           pendingLlm = true
-          # Do NOT call provider here. pollAndApplyResult (every frame) will receive + hot-swap later.
-          # Emulation + Lua update() continue at full target speed in the meantime.
-        # else: already pending; just keep running current policy until result lands
+          if not useHeadless:
+            blit.blit(frameImage)
+            blit.window.title = fmt"EarthBound - LLM (qwen) - frame {ctx.frameCount} [waiting policy...]"
+          # Pause the emulation (do not advance any more frames) while the policy request is in-flight.
+          # This is the core consistency fix: the returned policy is applied to the exact state
+          # snapshot it was computed for (qwen's summary at send time). No racing ahead at full speed.
+          # Poll the background result (worker thread does the slow HTTP), keep UI alive if windowed.
+          # Between LLM ticks, --speed / ctx.targetFps still controls pacing of the frames that do run.
+          while pendingLlm:
+            discard pollAndApplyResult(L, currentPolicy, status, ctx.frameCount)
+            if not pendingLlm:
+              break
+            sleep(5)
+            if not useHeadless:
+              pollEvents()
+              if blit.window.closeRequested:
+                break
+              blit.blit(frameImage)
+              blit.window.title = fmt"EarthBound - LLM (qwen) - frame {ctx.frameCount} [waiting policy...]"
+        # else: already pending (should not happen with pause, since frames don't advance to next mod)
       else:
         # keep running the seeded IntroSkillLua; defer LLM until bedroom
         status = "intro"
