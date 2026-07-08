@@ -12,9 +12,9 @@ import
 import ../decompbound/[apu, dsp]
 
 const
-  DefaultSpc = "/home/monofuel/Documents/Arcade/PSP/PSP/GAME/Snes9x_Euphoria/DATA/logo.spc"
-  DefaultSeconds = 8.0
-  DefaultSkip = 0.25
+  # No personal/hardcoded path. Default is synthesized low-pitch tone (portable).
+  DefaultSeconds = 2.0
+  DefaultSkip = 0.1
   SampleRate = 32000
   RmsTolerancePercent = 5.0
   WindowFrames = 1600  # ~50 ms at 32 kHz
@@ -137,6 +137,127 @@ proc windowRms(samples: seq[int16], startFrame, nframes: int, ch: int): float =
     sum += v * v
   sqrt(sum / float(nframes))
 
+proc synthesizeToneSpc(): string =
+  ## Generate a portable, self-contained minimal .spc that plays a constant
+  ## LOW-pitch tone through a single voice (BRR loop + low VxPITCH + direct GAIN).
+  ## Written to bin/test_tone_low.spc (gitignored). Used as default when no --spc.
+  ## Both our DSP (via APU) and snes_spc ref will render from identical snapshot.
+  ## This exercises Gaussian interp + pitch counter heavily (low pitch = many
+  ## interp samples per BRR input sample).
+  ##
+  ## The .spc contains a tiny SPC700 program at $0600 (outside magic 0500 hook range)
+  ## that pokes the DSP regs (dir, sample, vol, low pitch ~0x0200, srcn, gain/direct,
+  ## flg no-echo, KON voice0) then idles with periodic re-KON. PC set to program entry
+  ## so snes_spc's real SPC700 executes the setup on load/play. DSP regs area also
+  ## pre-populated for immediate state on both sides. Header uses correct spc_file_t
+  ## layout (sig 35b + has/ver + pc at 0x25 etc) so load_spc succeeds with valid CPU
+  ## state. All other voices/FIR/echo zeroed to keep tone clean (no saturation).
+  createDir("bin")
+  const SpcSize = 0x10200
+  var spcData = newSeq[uint8](SpcSize)
+
+  # Correct SPC file header (matches snes_spc spc_file_t + init_header).
+  let sig = "SNES-SPC700 Sound File Data v0.30\x1A\x1A"
+  for k in 0..<sig.len:
+    spcData[k] = sig[k].uint8
+  spcData[0x23] = 26'u8   # has_id666 (none)
+  spcData[0x24] = 30'u8   # version
+  const ProgramEntry = 0x0600'u16  # safe addr: outside runSample 0500-05FF kick hook
+  spcData[0x25] = (ProgramEntry and 0xFF).uint8  # pcl
+  spcData[0x26] = ((ProgramEntry shr 8) and 0xFF).uint8  # pch
+  spcData[0x27] = 0'u8    # a
+  spcData[0x28] = 0'u8    # x
+  spcData[0x29] = 0'u8    # y
+  spcData[0x2A] = 0'u8    # psw
+  spcData[0x2B] = 0xEF'u8 # sp
+  # text[212] at 0x2C remains 0
+
+  # Sample dir at $0200: srcn0 start $0300, loop $0300
+  spcData[0x100 + 0x0200] = 0x00
+  spcData[0x100 + 0x0201] = 0x03
+  spcData[0x100 + 0x0202] = 0x00
+  spcData[0x100 + 0x0203] = 0x03
+
+  # Minimal 1-block looped BRR at $0300 (range=0, filter=0, end+loop flag).
+  # Decodes to small signed steps forming a low-freq triangle-ish wave.
+  # At pitch 0x0200 (1/8 rate) -> ~250Hz fundamental (low pitch for interp stress).
+  let brr = [0x03'u8, 0x10, 0x32, 0x54, 0x76, 0x98, 0xBA, 0xDC, 0xFE]
+  for i, b in brr:
+    spcData[0x100 + 0x0300 + i] = b
+
+  # Tiny SPC700 program at $0600: pokes via 8F xx F2 / 8F yy F3, KON, then clean self-loop idle.
+  # snes_spc executes from PC=entry (runs the setup pokes live to configure DSP/KON).
+  # Our side uses snapshot DSP regs + force (SPC steps will also hit the KON write via hook).
+  # Idle is pure "bra -2" (no further writes after setup, no opcode misalignment risk).
+  let setup = [
+    # mvolL $0C=7F
+    0x8F'u8, 0x0C, 0xF2, 0x8F'u8, 0x7F, 0xF3,
+    # mvolR $1C=7F
+    0x8F'u8, 0x1C, 0xF2, 0x8F'u8, 0x7F, 0xF3,
+    # dir $5D=02
+    0x8F'u8, 0x5D, 0xF2, 0x8F'u8, 0x02, 0xF3,
+    # v0 volL $00=7F
+    0x8F'u8, 0x00, 0xF2, 0x8F'u8, 0x7F, 0xF3,
+    # v0 volR $01=7F
+    0x8F'u8, 0x01, 0xF2, 0x8F'u8, 0x7F, 0xF3,
+    # v0 pitchL $02=00 , pitchH $03=02  => 0x0200 (LOW pitch, heavy Gaussian)
+    0x8F'u8, 0x02, 0xF2, 0x8F'u8, 0x00, 0xF3,
+    0x8F'u8, 0x03, 0xF2, 0x8F'u8, 0x02, 0xF3,
+    # srcn $04=00
+    0x8F'u8, 0x04, 0xF2, 0x8F'u8, 0x00, 0xF3,
+    # adsr1 $05=00 (gain mode), adsr2 $06=00
+    0x8F'u8, 0x05, 0xF2, 0x8F'u8, 0x00, 0xF3,
+    0x8F'u8, 0x06, 0xF2, 0x8F'u8, 0x00, 0xF3,
+    # gain $07=7F direct full sustain
+    0x8F'u8, 0x07, 0xF2, 0x8F'u8, 0x7F, 0xF3,
+    # flg $6C=20 (echo disabled, no reset/mute)
+    0x8F'u8, 0x6C, 0xF2, 0x8F'u8, 0x20, 0xF3,
+    # KON $4C=01 voice0  -- last setup write
+    0x8F'u8, 0x4C, 0xF2, 0x8F'u8, 0x01, 0xF3,
+    # clean idle: bra *-2 (self). Once reached, no side effects, stays here.
+    0x2F'u8, 0xFE
+  ]
+  for i, b in setup:
+    spcData[0x100 + 0x0600 + i] = b
+
+  # DSP regs snapshot at 0x10100 (pre-set to match program pokes; snes_spc load
+  # will also see new_kon from kon reg and program will re-apply on run).
+  # Zero everything else (FIR, echo, other voices) to prevent saturation/bleed.
+  spcData[0x10100 + 0x00] = 0x7F  # v0 volL
+  spcData[0x10100 + 0x01] = 0x7F  # v0 volR
+  spcData[0x10100 + 0x02] = 0x00  # v0 pitchL
+  spcData[0x10100 + 0x03] = 0x02  # v0 pitchH -> 0x0200
+  spcData[0x10100 + 0x04] = 0x00  # v0 srcn
+  spcData[0x10100 + 0x05] = 0x00  # v0 adsr1 (gain)
+  spcData[0x10100 + 0x06] = 0x00  # v0 adsr2
+  spcData[0x10100 + 0x07] = 0x7F  # v0 gain (direct)
+  spcData[0x10100 + 0x0C] = 0x7F  # mvolL
+  spcData[0x10100 + 0x1C] = 0x7F  # mvolR
+  spcData[0x10100 + 0x4C] = 0x01  # kon (voice0)
+  spcData[0x10100 + 0x5D] = 0x02  # dir
+  spcData[0x10100 + 0x6C] = 0x20  # flg (echo off)
+  # zero echo vols, esa, edl, fir coefs (0x0F slots), koff, pmon, non, eon, other voices
+  spcData[0x10100 + 0x2C] = 0
+  spcData[0x10100 + 0x3C] = 0
+  spcData[0x10100 + 0x4D] = 0
+  spcData[0x10100 + 0x2D] = 0
+  spcData[0x10100 + 0x3D] = 0
+  spcData[0x10100 + 0x6D] = 0
+  spcData[0x10100 + 0x7D] = 0
+  for t in 0..7:
+    spcData[0x10100 + t * 0x10 + 0x0F] = 0'u8
+  for v in 1..7:
+    spcData[0x10100 + v * 0x10 + 0] = 0
+    spcData[0x10100 + v * 0x10 + 1] = 0
+
+  let tonePath = "bin/test_tone_low.spc"
+  var outStr = newString(SpcSize)
+  for i, b in spcData:
+    outStr[i] = b.char
+  writeFile(tonePath, outStr)
+  echo &"synthesized portable low-pitch tone SPC: {tonePath} (entry=0x0600, pitch=0x0200, direct GAIN, kon=01)"
+  tonePath
+
 proc main() =
   ## Parse args, load .spc into our APU (direct regs, hydrate voices), render ours,
   ## shell to spc2wav --no-filter (or with filter), read ref, diff + report.
@@ -166,8 +287,9 @@ proc main() =
     elif a == "--filter":
       applyFilter = true
     elif a == "--help" or a == "-h":
-      echo "Usage: nim r src/tools/audio_diff.nim --spc <path.spc> [--seconds N] [--skip 0.25] [--filter]"
+      echo "Usage: nim r src/tools/audio_diff.nim [--spc <path.spc>] [--seconds N] [--skip 0.1] [--filter]"
       echo "  --filter : let ref use SPC_Filter (default: raw --no-filter for DSP-vs-DSP)"
+      echo "  Default (no --spc): synthesize portable low-pitch test tone SPC in bin/"
       quit(0)
     else:
       if not a.startsWith("--") and spcPath.len == 0:
@@ -175,10 +297,9 @@ proc main() =
     inc i
 
   if spcPath.len == 0:
-    spcPath = DefaultSpc
+    spcPath = synthesizeToneSpc()
   if not fileExists(spcPath):
     echo &"ERROR: SPC not found: {spcPath}"
-    echo "Provide --spc /path/to/something.spc or ensure default logo.spc exists."
     quit(1)
 
   if seconds <= 0.1 or seconds > 300:
@@ -221,6 +342,16 @@ proc main() =
   for j in 0..<128:
     apu.dsp.regs[j] = spcData[0x10100 + j]
 
+  # Sanitize echo/FIR/other for clean tone (in case snapshot carried defaults).
+  apu.dsp.regs[0x2C] = 0
+  apu.dsp.regs[0x3C] = 0
+  apu.dsp.regs[0x6D] = 0
+  apu.dsp.regs[0x7D] = 0
+  for t in 0..7: apu.dsp.regs[t * 0x10 + 0x0F] = 0'u8
+  for v in 1..7:
+    apu.dsp.regs[v * 0x10 + 0] = 0
+    apu.dsp.regs[v * 0x10 + 1] = 0
+
   apu.spc.stopped = false
   apu.spc.iplEnabled = false
 
@@ -233,6 +364,22 @@ proc main() =
             ((apu.dsp.regs[v * 0x10 + 3].uint16 and 0x3F) shl 8)
     if vl != 0 or vr != 0 or p != 0:
       apu.dsp.forceKeyOnForTest(v)
+  # Debug the tone voice state right after force (for synth default)
+  let v0pitch = (apu.dsp.regs[2].uint16) or ((apu.dsp.regs[3].uint16 and 0x3F) shl 8)
+  let v0srcn = apu.dsp.regs[4]
+  let v0gain = apu.dsp.regs[7]
+  let v0adsr1 = apu.dsp.regs[5]
+  let dir = apu.dsp.regs[0x5D]
+  let entry0 = (dir.uint16 * 0x100) + (v0srcn.uint16 * 4)
+  let brr0 = (apu.spc.ram[entry0].uint16) or (apu.spc.ram[entry0+1].uint16 shl 8)
+  echo &"voice0: pitch=0x{v0pitch:04X} srcn={v0srcn} gain=0x{v0gain:02X} adsr1=0x{v0adsr1:02X} dirPg=0x{dir:02X} brr@=0x{brr0:04X} hdr=0x{apu.spc.ram[brr0]:02X}"
+
+  discard apu.runSample()
+  # Warmup: advance SPC (executes pokes from PC) + DSP mixes for several frames so
+  # pitch/vol/KON writes complete and low-pitch counter ramps (needs ~8+ frames for
+  # first 0x1000 cross + decode). Post-skip render then sees stable tone on both sides.
+  for _ in 0..<32:
+    discard apu.runSample()
 
   # Render N seconds via runSample()
   createDir("bin")
@@ -372,8 +519,8 @@ proc main() =
     if nf < 200: break
     let roL = windowRms(oPost, f0, nf, 0)
     let rrL = windowRms(rPost, f0, nf, 0)
-    let _roR = windowRms(oPost, f0, nf, 1)
-    let _rrR = windowRms(rPost, f0, nf, 1)
+    discard windowRms(oPost, f0, nf, 1)
+    discard windowRms(rPost, f0, nf, 1)
     let rat = if rrL > 1.0: roL / rrL else: 0.0
     earlyRatios.add(rat)
     let tt = skipSec + (float(f0) / float(SampleRate))

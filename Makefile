@@ -1,4 +1,4 @@
-.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai testrom script-dump gfx-roundtrip battle-bg trace inspect audio-check jukebox-app
+.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai testrom script-dump gfx-roundtrip battle-bg trace inspect audio-check audio-diff jukebox-app
 
 # bash + pipefail: the test loop pipes nim through sed, and without
 # pipefail the pipeline's exit status is sed's (always 0), which turns
@@ -179,6 +179,14 @@ inspect: nim.cfg
 audio-check: nim.cfg
 	@mkdir -p bin
 	nim r src/tools/audio_check.nim --frames 1400 "$(ROM)"
+
+# PCM-diff rig for S-DSP low-pitch divergence (see src/tools/audio_diff.nim + docs/sfx.md).
+# Builds a minimal valid test-tone .spc (if needed) and renders via our DSP + snes_spc,
+# reports RMS + divergence stats. Headless; uses --no-filter by default for raw DSP compare.
+# Run with ARGS e.g. --seconds 1 --skip 0.05 for quicker. Rebuilds spc2wav if missing.
+audio-diff: nim.cfg
+	@mkdir -p bin
+	nim r src/tools/audio_diff.nim $(ARGS)
 
 
 test: nim.cfg
