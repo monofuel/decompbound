@@ -19,6 +19,23 @@ proc bgr555ToColor*(value: uint16): ColorRGBA =
   ColorRGBA(r: (r shl 3) or (r shr 2), g: (g shl 3) or (g shr 2),
             b: (b shl 3) or (b shr 2), a: 255)
 
+proc applyMasterBrightness*(c: ColorRGBA, inidisp: uint8): ColorRGBA =
+  ## Apply INIDISP master brightness (bits 0-3) as on hardware.
+  ## Level 0 is true black; levels 1..15 scale each channel by n/15.
+  ## (Bit 7 force-blank is handled by callers — this only covers the ramp.)
+  ## Old (level+1)/16 never reached black, so brightness-only fades (Halken
+  ## card, battle wipe, etc.) lingered on a dim ghost of the last frame.
+  let level = inidisp.int and 0x0F
+  if level == 0:
+    return ColorRGBA(r: 0, g: 0, b: 0, a: c.a)
+  if level >= 15:
+    return c
+  ColorRGBA(
+    r: ((c.r.int * level) div 15).uint8,
+    g: ((c.g.int * level) div 15).uint8,
+    b: ((c.b.int * level) div 15).uint8,
+    a: c.a)
+
 proc tilePixel(snes: SnesBus, chrBase: int, tile: int, x: int, y: int,
                bpp: int): int =
   ## Decode one pixel (palette index within the tile's palette) from a
@@ -256,9 +273,42 @@ proc compositeScreen(snes: SnesBus, py: int, mask: uint8, winReg: uint8,
         result.buf[px] = line[px]
         result.drawn[px] = true
 
-proc clamp8(v: int): uint8 =
-  ## Clamp an int to a byte.
-  if v < 0: 0'u8 elif v > 255: 255'u8 else: v.uint8
+proc clamp5(v: int): int =
+  ## Clamp to a SNES 5-bit color channel (0..31).
+  if v < 0: 0 elif v > 31: 31 else: v
+
+proc expand5to8(v: int): uint8 =
+  ## Expand a 5-bit SNES channel to 8-bit display (same as bgr555ToColor).
+  uint8((v shl 3) or (v shr 2))
+
+proc colorMathBlend*(main, sub: ColorRGBA; doSub, doHalf: bool): ColorRGBA =
+  ## Apply SNES color math in the true 5-bit domain, then expand to 8-bit.
+  ## Doing the add/sub in 8-bit after expansion (old path) oversaturates —
+  ## mid-gray static + war card becomes a yellow/green mess during the Giygas
+  ## intro fade. Hardware: (main ± sub), optional /2, clamp each channel 0..31.
+  var r = main.r.int shr 3
+  var g = main.g.int shr 3
+  var b = main.b.int shr 3
+  let sr = sub.r.int shr 3
+  let sg = sub.g.int shr 3
+  let sb = sub.b.int shr 3
+  if doSub:
+    r -= sr
+    g -= sg
+    b -= sb
+  else:
+    r += sr
+    g += sg
+    b += sb
+  if doHalf:
+    r = r div 2
+    g = g div 2
+    b = b div 2
+  ColorRGBA(
+    r: expand5to8(clamp5(r)),
+    g: expand5to8(clamp5(g)),
+    b: expand5to8(clamp5(b)),
+    a: 255)
 
 proc renderScanline*(snes: SnesBus, image: Image, py: int) =
   ## Render one fully composited scanline: main + subscreen color math +
@@ -277,19 +327,23 @@ proc renderScanline*(snes: SnesBus, image: Image, py: int) =
   let useSubScreen = (cgwsel and 0x02) != 0
 
   let main = snes.compositeScreen(py, mainMask, snes.ppuRegs[0x2E], backdrop)  # TMW.
+  let fixedColor = bgr555ToColor(snes.fixedColorB.uint16 or
+    (snes.fixedColorG.uint16 shl 5) or (snes.fixedColorR.uint16 shl 10))
   var mathBuf: array[ScreenWidth, ColorRGBA]
   var subDrawn: array[ScreenWidth, bool]
   if mathLayers != 0:
     if useSubScreen:
+      # Subscreen transparent pixels must math against the FIXED color (COLDATA),
+      # not CGRAM $00. Using the main backdrop here made every hole in the Giygas
+      # noise layer add cgram0 (often a non-black thrash color like $32AD) and
+      # turn the "almost faded" static into a yellow/green mess.
       let sub = snes.compositeScreen(py, snes.ppuRegs[0x2D], snes.ppuRegs[0x2F],
-                                     backdrop)  # TSW.
+                                     fixedColor)  # TSW + fixed as sub backdrop.
       mathBuf = sub.buf
       subDrawn = sub.drawn
     else:
-      let fixed = bgr555ToColor(snes.fixedColorB.uint16 or
-        (snes.fixedColorG.uint16 shl 5) or (snes.fixedColorR.uint16 shl 10))
       for px in 0..<ScreenWidth:
-        mathBuf[px] = fixed
+        mathBuf[px] = fixedColor
         subDrawn[px] = true
 
   # Color (math) window: CGWSEL bits 7-6 force the main screen to black, and
@@ -317,7 +371,7 @@ proc renderScanline*(snes: SnesBus, image: Image, py: int) =
     snes.windowAreaLine(snes.ppuRegs[0x25], 0, objCombine, objWin)
   objSuppressActive[py] = forceBlackMode != 0 or objWindowed
 
-  let bright = ((snes.ppuRegs[0x00].int and 0x0F) + 1)
+  let inidisp = snes.ppuRegs[0x00]
   for px in 0..<ScreenWidth:
     var m: ColorRGBA
     let showSubscreenDirect = (mainMask == 0'u8) and useSubScreen and (mathLayers != 0) and (snes.ppuRegs[0x2D] != 0'u8)
@@ -347,18 +401,11 @@ proc renderScanline*(snes: SnesBus, image: Image, py: int) =
         else: true)
       if mathHere:
         let s = mathBuf[px]
-        var r = if doSub: m.r.int - s.r.int else: m.r.int + s.r.int
-        var g = if doSub: m.g.int - s.g.int else: m.g.int + s.g.int
-        var b = if doSub: m.b.int - s.b.int else: m.b.int + s.b.int
-        if doHalf and (useSubScreen and subDrawn[px] or not useSubScreen):
-          r = r div 2
-          g = g div 2
-          b = b div 2
-        m = ColorRGBA(r: clamp8(r), g: clamp8(g), b: clamp8(b), a: 255)
-    m.r = ((m.r.int * bright) div 16).uint8
-    m.g = ((m.g.int * bright) div 16).uint8
-    m.b = ((m.b.int * bright) div 16).uint8
-    image[px, py] = m
+        # Half only when the subscreen actually contributed a pixel (or when
+        # the math operand is the fixed color). Matches prior half-gate.
+        let half = doHalf and (useSubScreen and subDrawn[px] or not useSubScreen)
+        m = colorMathBlend(m, s, doSub, half)
+    image[px, py] = applyMasterBrightness(m, inidisp)
 
 proc renderBgScanline*(snes: SnesBus, image: Image, py: int, bg: int, bpp: int,
                        paletteBase: int, prio: int = -1) =
@@ -411,7 +458,7 @@ proc renderSprites*(snes: SnesBus, image: Image) =
   anySpriteDrawn = false
   if (snes.ppuRegs[0x00] and 0x80) != 0:
     return  # force blank: nothing is displayed
-  let bright = (snes.ppuRegs[0x00].int and 0x0F) + 1
+  let inidisp = snes.ppuRegs[0x00]
   # OBJ color math: when CGADSUB enables OBJ (bit 4), sprites in palettes 4-7
   # take the same fixed-color add/subtract (+ optional half) as the BG layers —
   # so a world-wide darken (a subtract, e.g. the boss-intro dim) dims those
@@ -491,18 +538,8 @@ proc renderSprites*(snes: SnesBus, image: Image) =
           continue
         var color = bgr555ToColor(snes.cgram[128 + paletteGroup * 16 + index])
         if objMath and objUseFixed and paletteGroup >= 4:
-          var r = if objSub: color.r.int - objFixed.r.int else: color.r.int + objFixed.r.int
-          var g = if objSub: color.g.int - objFixed.g.int else: color.g.int + objFixed.g.int
-          var b = if objSub: color.b.int - objFixed.b.int else: color.b.int + objFixed.b.int
-          if objHalf:
-            r = r div 2
-            g = g div 2
-            b = b div 2
-          color = ColorRGBA(r: clamp8(r), g: clamp8(g), b: clamp8(b), a: 255)
-        color.r = ((color.r.int * bright) div 16).uint8
-        color.g = ((color.g.int * bright) div 16).uint8
-        color.b = ((color.b.int * bright) div 16).uint8
-        image[screenX, screenY] = color
+          color = colorMathBlend(color, objFixed, objSub, objHalf)
+        image[screenX, screenY] = applyMasterBrightness(color, inidisp)
         objSpritePrio[screenY][screenX] = prio.int8
         anySpriteDrawn = true
 
@@ -536,7 +573,7 @@ proc overlayForegroundBg*(snes: SnesBus, image: Image) =
     passes.add (0, 4, 0, 2)     # BG1-high.
   if (mainMask and 0x04) != 0 and bg3prio:
     passes.add (2, 2, 0, 3)     # BG3-high (prio bit): frontmost, over all OBJ.
-  let bright = (snes.ppuRegs[0x00].int and 0x0F) + 1
+  let inidisp = snes.ppuRegs[0x00]
   var line: array[ScreenWidth, ColorRGBA]
   var drawn: array[ScreenWidth, bool]
   for p in passes:
@@ -550,11 +587,7 @@ proc overlayForegroundBg*(snes: SnesBus, image: Image) =
         let sp = objSpritePrio[py][px].int
         if sp < 0 or sp > p.maxPrio:
           continue    # no sprite here, or the sprite is in front of this BG.
-        var c = line[px]
-        c.r = ((c.r.int * bright) div 16).uint8
-        c.g = ((c.g.int * bright) div 16).uint8
-        c.b = ((c.b.int * bright) div 16).uint8
-        image[px, py] = c
+        image[px, py] = applyMasterBrightness(line[px], inidisp)
 
 proc renderFrame*(snes: SnesBus): Image =
   ## Render the current PPU state: backdrop, then BG layers back to front.
@@ -611,11 +644,13 @@ proc renderFrame*(snes: SnesBus): Image =
   let cgwsel = snes.ppuRegs[0x30]
   # CGWSEL bit 1: 0 = fixed color operand, 1 = subscreen operand (matches renderScanline).
   let useSubScreen = (cgwsel and 0x02) != 0
+  let fixedPx = bgr555ToColor(snes.fixedColorB.uint16 or
+    (snes.fixedColorG.uint16 shl 5) or (snes.fixedColorR.uint16 shl 10))
   var subImg: Image = nil
   if (cgadsub and 0x3F) != 0 and (subMask != 0 or not useSubScreen):
     subImg = newImage(ScreenWidth, ScreenHeight)
-    let subBackdrop = bgr555ToColor(snes.cgram[0])
-    subImg.fill(subBackdrop)
+    # Subscreen transparent = fixed color (COLDATA), not CGRAM $00.
+    subImg.fill(fixedPx)
     let subMode = mode
     case subMode:
     of 0:
@@ -635,25 +670,11 @@ proc renderFrame*(snes: SnesBus): Image =
     if (subMask and 0x10) != 0:
       snes.renderSprites(subImg)
 
-  # Brightness scale (0-15).
-  let bright = (inidisp and 0x0F) + 1
-  if bright < 16:
-    for i in 0 ..< result.data.len:
-      var px = result.data[i]
-      px.r = ((px.r.uint16 * bright.uint16) div 16).uint8
-      px.g = ((px.g.uint16 * bright.uint16) div 16).uint8
-      px.b = ((px.b.uint16 * bright.uint16) div 16).uint8
-      result.data[i] = px
-
   # Color math: blend main with subscreen or fixed color where enabled.
   # This is what makes the red tv static overlay the war card (and giygas death).
   if (cgadsub and 0x3F) != 0:
     let doAdd = (cgadsub and 0x80) == 0    # CGADSUB bit 7: 0=add, 1=subtract
     let doHalf = (cgadsub and 0x40) != 0   # CGADSUB bit 6: halve the math result
-    let fixed15 = snes.fixedColorB.uint16 or
-                  (snes.fixedColorG.uint16 shl 5) or
-                  (snes.fixedColorR.uint16 shl 10)
-    let fixedPx = bgr555ToColor(fixed15)
     let objMathEnabled = (cgadsub and 0x10) != 0  # CGADSUB bit 4: OBJ layer enable for color math
     for i in 0 ..< result.data.len:
       var m = result.data[i]
@@ -672,22 +693,8 @@ proc renderFrame*(snes: SnesBus): Image =
         # Bit set: renderSprites already applied (gated) tint using live COLDATA;
         # skip here to prevent double application on sprite pixels.
         continue
-      var br = m.r.int
-      var bg = m.g.int
-      var bb = m.b.int
-      if doAdd:
-        br += s.r.int
-        bg += s.g.int
-        bb += s.b.int
-      else:
-        br -= s.r.int
-        bg -= s.g.int
-        bb -= s.b.int
-      if doHalf:
-        br = br div 2
-        bg = bg div 2
-        bb = bb div 2
-      br = clamp(br, 0, 255)
-      bg = clamp(bg, 0, 255)
-      bb = clamp(bb, 0, 255)
-      result.data[i] = ColorRGBA(r: br.uint8, g: bg.uint8, b: bb.uint8, a: 255)
+      result.data[i] = colorMathBlend(m, s, not doAdd, doHalf)
+
+  # Master brightness last (matches renderScanline): level 0 → true black.
+  for i in 0 ..< result.data.len:
+    result.data[i] = applyMasterBrightness(result.data[i], inidisp)

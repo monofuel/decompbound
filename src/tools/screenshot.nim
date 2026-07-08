@@ -8,7 +8,9 @@ import
   ../decompbound/[cpu, ppu, snesbus]
 
 const
-  InstructionsPerFrame = 8000
+  # Must match play.nim budget so frame:N lands on the same scene.
+  InstrPerLine = 150
+  InstructionsPerFrame = InstrPerLine * 262  # ~39300
   DefaultMaxInstructions = 2_000_000
 
 proc readRomFile(filepath: string): seq[uint8] =
@@ -46,7 +48,6 @@ proc main() =
   let snes = newSnesBus(rom)
   var cpu = snes.resetCpu()
 
-  const InstrPerLine = 30
   var executed = 0
   var line = 0
   var frameNum = 0
@@ -55,14 +56,16 @@ proc main() =
   image.fill(backdrop)
   snes.initHdma()
   while executed < maxInstructions and not cpu.stopped:
+    snes.setScanline(line)
+    if (snes.nmitimen and 0x80) != 0 and line == 224:
+      cpu.nmiPending = true
+      snes.raiseNmi()
+      if not noInput:
+        # Press Start as an EDGE: held ~8 frames, released ~112. A permanently
+        # held button never re-triggers a "press Start" advance, so we must
+        # release between presses to walk attract -> title -> file-select menu.
+        snes.joy1 = if frameNum mod 120 < 8: 0x1000'u16 else: 0
     for i in 0..<InstrPerLine:
-      if (snes.nmitimen and 0x80) != 0 and line == 240 and i == 0:
-        cpu.nmiPending = true
-        if not noInput:
-          # Press Start as an EDGE: held ~8 frames, released ~112. A permanently
-          # held button never re-triggers a "press Start" advance, so we must
-          # release between presses to walk attract -> title -> file-select menu.
-          snes.joy1 = if frameNum mod 120 < 8: 0x1000'u16 else: 0
       cpu.step(snes.bus)
       executed += 1
       if executed >= maxInstructions or cpu.stopped:

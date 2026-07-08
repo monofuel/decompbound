@@ -39,14 +39,29 @@ readable tiled face.
 
 ## Fix
 
-`snesbus.nim`: Mode 7 multiply unit
+### 1. Mode 7 multiply (`snesbus.nim`)
 
 - M7A/M7B write-twice latch (`m7MulLatch`)
 - On every M7B write: `mpy = (int16)m7a * (int8)value` (24-bit)
 - MPYL/M/H readable at `$2134`/`$2135`/`$2136`
 
-Also corrected inverted CGWSEL bit-1 handling in `renderFrame` (subscreen vs
-fixed operand) so it matches `renderScanline`.
+### 2. Color math accuracy (`ppu.nim`) — yellow/green linger
+
+F12 savestate at "should be almost faded" had full-bright mid-gray thrash
+plus wrong transparent-sub math:
+
+- **Subscreen transparent pixels** must use **COLDATA fixed color** as the
+  math operand, not CGRAM `$00`. We used `cgram[0]` (`$32AD` thrash purple),
+  so every hole in the noise layer added junk and blew out to yellow/green.
+- Color math is now done in the **5-bit** channel domain (hardware), then
+  expanded to 8-bit display.
+
+### 3. Timing regs
+
+- `INIDISP` brightness: level 0 = true black (`n/15` for 1..15)
+- HVBJOY/RDNMI: scanline-based vblank + sticky NMI flag (not a shared toggle)
+
+Also corrected inverted CGWSEL bit-1 handling in `renderFrame`.
 
 ## Verification
 

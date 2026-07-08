@@ -19,6 +19,8 @@ Live-play captures come from F12 (preserved `f12_NNN` bundles) per the debug wor
 - Alt-tab super-speed (pacing backlog clamp).
 - Swirl color-math MODE (CGADSUB add/subtract bits were swapped).
 - Giygas intro red-snow (Mode 7 multiply for HDMA distortion; 2026-07-08 — please confirm in `make play`).
+- INIDISP brightness 0 = true black (was `(n+1)/16`, never reached black — Halken/battle
+  fade linger on last dim frame). Still open: logo glow 1px bottom gap.
 
 ## IN PROGRESS (fork/agent actively on it)
 
