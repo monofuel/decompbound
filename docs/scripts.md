@@ -1,6 +1,7 @@
 # Scripts: text + the event system (decomp track)
 
-**Status:** NOT STARTED. A data-decompilation track — see the hub,
+**Status:** CHARSET + POINTER TABLES + DUMP TOOL STARTED. Event opcode
+semantics and full control-code widths still open. See the hub,
 `docs/decompilation.md`. This is the one that lets us **read the game**.
 
 EarthBound's "scripts" are two intertwined layers, both stored as data the game
@@ -118,11 +119,32 @@ the opcode meanings are the next dig.
 - **Text-block dispatch: file `0x1890E`** (SNES `$C1890E`) — the dialogue-stream
   interpreter. `CMP #$0020; BCC` (verified at `0x18914`: `c9 20 00 90 03 4c 04 8b`)
   splits control codes (`< 0x20`) from glyph runs; `0x00` is the terminator
-  (special-cased right after). Codes **`0x15/0x16/0x17`** switch the active stream
-  via the `0x8CDED` / `~0x8D1ED` / `~0x8D5ED` far-pointer tables — the
-  "call/include other text" mechanism. Observed control bytes in real blocks:
-  `0x00–0x02, 04, 06, 07, 09–0B, 11, 12, 15–19, 1C`; per-opcode operand widths
-  (the round-trip detail) still want the live hook.
+  (special-cased in the fetch loop at `$C1878F` as well as in the CMP chain).
+- **Fetch loop: file `0x18754`** — `LDA [$0A]; AND #$00FF; BEQ …; STA $14; INC $0A`
+  (stream already advanced past the opcode before dispatch). Working pointer is
+  `$1A/$1C`; secondary multi-byte mode uses `$1E` as a bank-local handler ptr
+  (RTS-trick at `$C187D0`).
+- **Runtime dump tool:** `src/tools/script_dump.nim` + `src/decompbound/text_decode.nim`.
+  Stdout only — never write dialogue dumps into the repo.
+
+### Text control codes with evidence (operand width + purpose)
+
+| Code | Ops | Purpose (current reading) | Evidence |
+|------|-----|---------------------------|----------|
+| **`0x00`** | 0 | **End of block.** | Fetch BEQ at `$C18794`; dispatch `CMP #$0000` → JMP `$8A04` → `JSL $C438B1` then `JMP $8754`. |
+| **`0x01`** | 0 | **Line / layout helper** (not a pure no-op). | JMP `$8A0B`: `JSR $04B5` (window/width lookup via `$8958` tables); if zero, return to loop, else same end path as `0x00`. Tag: `[nl]`. |
+| **`0x02`** | 0 | **Prompt / suspend interpreter.** | JMP `$8B0A`: copies text-state pointer, `JSR $869D` / `JSR $4049`, saves resume ptr to `$2A/$2C`, **`PLD; RTL`** out of the JSL'd interpreter. No stream operand reads. Leading `@` in blocks like `0x63040` / table id 30 is a **real glyph** (`0x70` = ASCII `@` + `0x30`), not an operand. Tag: `[prompt]`. |
+| **`0x15` / `0x16` / `0x17`** | **1** (u8 index) | **Call / include** another text block via far-ptr table 0/1/2. | Pre-dispatch at `$C187ED`. Handler `$C18804` (and siblings): `LDA #$CDED / #$D1ED / #$D5ED` + `LDA #$00C8` → tables `$C8CDED` / `$C8D1ED` / `$C8D5ED`; `LDA [$0A]; AND #$00FF; ASL; ASL` → **1-byte** index × 4; `INC $0A` once; loads far ptr and redirects `$1A/$1C`, then `JMP $890E`. Each table is `0x400` bytes = **256** entries. Tags: `[call0:XX]` / `[call1:XX]` / `[call2:XX]`. |
+| **`0x18`** | 1+ (sub-op) | **Multi-byte CC prefix** (family `$790B`). | Main handler `$8AC4`: `LDY #$790B; STY $1E; JMP $8754`. Next stream byte is dispatched via `$1E` (secondary switch at file `0x1790B` for sub-ops `0x00–0x0A`, `0x0D`, …). First-order dump model consumes **1** sub-op byte; some sub-ops re-arm `$1E` for more operands. Tag: `[cc18:XX]`. |
+| **`0x1C`** | 1+ (sub-op) | **Multi-byte CC prefix** (family `$7D94`). | Main handler `$8AE4`: `LDY #$7D94; STY $1E`. Secondary at file `0x17D94` is a CMP-chain on the sub-op. Tag: `[cc1C:XX]`. |
+
+**Still open (need live hook or deeper sub-op RE):** exact semantics of `0x03–0x14` / `0x19–0x1B` / `0x1D–0x1F` (many just `LDY #imm; STY $1E` — secondary handler installers); full sub-op operand widths under `0x18`/`0x1C`; name/item/PSI substitution codes.
+
+**Spot-check blocks (storage = ASCII+0x30):**
+
+- File `0x63040`: `[cc18:0A][prompt]@INPUT YOUR COMMAND.[end]`
+- File `0x45B67`: `PSI info.Unconscious[end]`
+- Table0 id 0 @ `0x8BC2D`: spaces then `[end]`; id 1: ` in the [end]`; id 30: `@Do you want to [end]`
 
 ## What goes in git (and what never does)
 
@@ -136,7 +158,9 @@ the extractor on your ROM*, not *open a file in the repo*.** See AGENTS.md
 
 ## Definition of done
 
-- [ ] Character table + common text control codes decode dialogue readably.
+- [x] Character table (ASCII+0x30) + pointer tables + first control codes decode
+      dialogue readably via `script_dump` (stdout only).
+- [ ] Full text control-code set + sub-op widths (live hook + secondary RE).
 - [ ] The event opcode set is documented (learned via the interpreter hook +
       disassembly).
 - [ ] An **extractor** that produces a readable dump of the game's scripts —

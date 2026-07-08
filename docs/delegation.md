@@ -96,6 +96,10 @@ Grok 4.5 top session  (conductor: goals, verify, merge decisions)
   the conductor already decided — the decision stays top-level).
 - Anything that changes the referee (harness / tests / opcode table) after the
   conductor has read the diff.
+- **Human-facing verify queue** — when a fix needs monofuel's eyes (live play,
+  "does this look right"), append a row to **`docs/human-verify.md`**. Do not
+  rely on chat-only "please test this"; he will have moved on. Details in that
+  file.
 
 ### What sub-agents do
 
@@ -129,7 +133,99 @@ Workers run blind to each other. Rules:
 - Prefer children that build/verify via `nim c -r` / `nim r` / targeted tests
   rather than racing on shared Makefile edits; the conductor adds shared
   make targets afterward if needed.
-- Worktree isolation when two writers would otherwise touch overlapping paths.
+- Worktree isolation when two writers would otherwise touch overlapping paths
+  (see **Worktrees** below).
+
+### Worktrees
+
+Use `spawn_subagent` with `isolation: "worktree"` when it reduces blast radius
+or parallel clobber risk. Shared-workspace (`isolation: "none"`) is fine for
+read-only explore, digs that only write under `bin/` / scratch, or a single
+writer with nothing else live.
+
+**When worktrees help**
+
+- Two+ **write** children that might touch overlapping modules, docs, or the
+  Makefile.
+- Goal 1.5 adoptions, new tools, test files — anything that would fight if two
+  agents edit the main tree at once.
+- Risky refactors you want quarantined until green.
+
+**When to skip them**
+
+- Pure `explore` / analysis (no edits) — shared tree is fine.
+- One writer only, or writers already partitioned onto **disjoint paths** the
+  briefs enforce.
+- Conductor is the only editor (children report; parent types the patch).
+
+**How to use them**
+
+1. Spawn write children with `isolation: "worktree"` (one worktree per task).
+2. Child implements + runs its verify bar **in that worktree**.
+3. Conductor **re-runs** the gate (or audits real command output), then
+   brings accepted changes into the main workspace (copy/merge/cherry-pick —
+   whatever the harness returns; the decision is top-level).
+4. Do **not** commit or push from a child worktree as the final ship path
+   unless the conductor explicitly assigned that and re-verified first.
+5. Drop or leave obsolete worktrees after merge; do not leave long-lived
+   divergent trees as the source of truth.
+
+**Parallel packing example (safe wave)**
+
+```
+explore (shared)     → game-data dig        # no edits
+explore (shared)     → map dig              # no edits
+general-purpose + worktree → Goal 1.5 adoption
+general-purpose + worktree → sram report tool
+explore (shared)     → battle-BG RE notes   # analysis only
+```
+
+### Commit and push
+
+Shipping is a **conductor** duty after gates are green. Workers produce diffs
+and handoffs; they do not own "it's on origin/master now" from self-report.
+
+**Before any commit**
+
+1. Re-run the ticket's verify bar yourself (`make test`, `nim r tests/...`,
+   disasm spot-check of claimed offsets, tool against a real `.srm` / ROM path
+   as appropriate). **Never commit on a worker's "tests pass" alone.**
+2. `git status` / `git diff` — confirm only intended paths; **copyright
+   hygiene** (AGENTS.md): no ROM slices, extracted scripts/dialogue, graphics
+   dumps, WAVs, savestates, or screenshots of game graphics in the index.
+3. Leave dig-only scratch tools untracked unless they are lasting project
+   tools; do not commit `bin/` asset output.
+4. Prefer **focused commits** (one logical unit: adoption plumbing, sram
+   report, replay codec) over a single mega-dump of a whole wave — easier to
+   revert and review.
+
+**Commit**
+
+- Conductor (or a child **explicitly** tasked to commit after the conductor
+  already decided and verified) runs the normal git flow: stage intended
+  paths, message that states why, `git status` clean of secrets/assets.
+- Do not amend published commits or force-push unless the user asked for that
+  recovery path.
+- Analysis-only waves may produce **no** commit — notes go in handoffs /
+  `docs/` updates the conductor authors after spot-check.
+
+**Push**
+
+- Push **`origin`** when the change set is verified and ready to share —
+  typically after the user asks, or after a gated wave when the session goal
+  was explicitly "land it" / "commit and push."
+- Default caution: if the user only said "kick off agents" or "dig," leave
+  results in the working tree (or local commits) until they ask to push.
+- After push: confirm `git status` is clean vs `origin` for the shipped
+  branch; report the commit range.
+
+**Who may push**
+
+| Actor | Commit | Push |
+|-------|--------|------|
+| Sub-agent (default) | No — unless brief says "commit locally in worktree for handoff" | **No** |
+| Conductor after verify | Yes | Yes, when user/session goal asks to ship |
+| User | Always | Always |
 
 ### What sub-agents must not do alone
 
@@ -228,6 +324,8 @@ Do not modify: src/decompbound/opcodes.nim, compare.nim, tests/ (the referee)
   unless the conductor explicitly assigned a harness change and will review the diff.
 Constraints: prefer nim r / nim check; no magic bytes without TODO + comment;
   parallel-safe — only touch the files listed in the task.
+  Do not git push. Do not commit unless this brief explicitly says to commit
+  locally after your verify bar; conductor owns origin/master.
 ```
 
 ---
@@ -236,6 +334,14 @@ Constraints: prefer nim r / nim check; no magic bytes without TODO + comment;
 
 - Verify against the harness yourself; **never merge on a worker's self-report.**
 - `git status` audit on analysis-only runs (especially `agnt -w` analysis-only).
+- If write work is accepted: **commit** (focused messages) and **push** only
+  when shipping is in scope — see **Commit and push** above. A finished wave
+  with green gates still sitting uncommitted is unfinished shipping, not
+  unfinished engineering; say which when reporting status.
+- If the change needs a **human eyeball** (play feel, visual, audio): add or
+  update **`docs/human-verify.md`** (Run + Pass if). Optional one-liner in
+  chat: `human-verify: <title>`. Never leave "please confirm in make play" only
+  in a long reply.
 - Surprising failures or successes → dated incidents in racha_notes model field
   notes (`AI/models/grok.md` / related model notes), per the calling-agent
   protocol. Routine runs stay in the session log and/or `~/.agnt/tasks/` when
@@ -248,6 +354,8 @@ Constraints: prefer nim r / nim check; no magic bytes without TODO + comment;
 ```
 Are you in Grok Build / Grok 4.5 as the long session?
   YES → spawn_subagent for workers. You are conductor + manager.
+        Parallel write kids → worktree isolation.
+        After green gates → commit (focused); push when shipping is in scope.
         Use agnt only if dogfooding or scripting outside the session.
   NO  → Cross-harness / headless batch → agnt -w grok with a full brief.
         Still apply trust tiers; still never merge on self-report.

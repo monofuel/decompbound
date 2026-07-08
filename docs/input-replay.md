@@ -1,7 +1,12 @@
 # Goal: input recording & replay (a TAS format)
 
-**Status:** NOT STARTED (design). A companion to the accuracy work, and fun in
-its own right.
+**Status:** FORMAT + STUB IN PROGRESS. The text `.tas` codec lives in
+`src/decompbound/replay.nim` (serialize/parse round-trip, file record appends,
+`deltasToTable` / `joyAtFrame`). `play.nim` already has F7 record taps writing
+`bin/replays/*.tas` + `start.state`; headless feed is `src/tools/replay.nim`.
+Verified by `tests/test_replay.nim`. Full record→byte-identical replay from a
+pinned state (checkpoint hashes end-to-end) is still open — see DoD below.
+A companion to the accuracy work, and fun in its own right.
 
 Record every controller input during a session — frame number → joypad byte —
 so an entire playthrough can be **replayed exactly**. A human (or the LLM agent,
@@ -48,25 +53,31 @@ things threaten that today:
 Nailing determinism here also *pays back* the accuracy work — a run that can't
 replay identically is itself evidence of a timing bug to chase.
 
-## Components (conceptual — no code yet)
+## Components
 
-1. **Log format** — compact `(frame, joy1)` deltas + a header (ROM hash, start
-   state reference, emulator version). Human-diffable if possible.
-2. **Record mode** in `play.nim` — a toggle that appends input deltas to a file.
-3. **Replay mode** — feed the log to `snes.joy1` frame-by-frame instead of live
-   input; run headless or windowed.
-4. **Pinned start state** — bundle/reference a savestate so replay is exact
-   despite boot non-determinism.
-5. **Checkpoint hashes (optional)** — periodic WRAM hashes in the log so a
-   replay can assert "state matches" and flag the first divergent frame — the
-   regression-test payoff.
+1. **Log format** — **done (codec).** Text `DBTAS1` format: header
+   (`rom_hash`, `start_state`) + sparse `(frame, joy1)` deltas. Human-diffable.
+   Procs: `serializeReplay` / `parseReplayString` / `parseReplay`,
+   `writeReplayHeader` / `appendReplayDelta`. See module header comment in
+   `src/decompbound/replay.nim`.
+2. **Record mode** in `play.nim` — **stubbed.** F7 toggles recording: snaps
+   `bin/replays/start.state`, writes deltas on joy1 change to `bin/replays/<ts>.tas`.
+3. **Replay mode** — **headless stub.** `src/tools/replay.nim` loads start state
+   + log and feeds `snes.joy1` from the schedule. Windowed replay-in-`play.nim`
+   not required yet.
+4. **Pinned start state** — **partial.** Recorder writes `start.state`; headless
+   tool accepts a path or slot. Exact end-to-end determinism still blocked on
+   boot-timing / full checkpoint story.
+5. **Checkpoint hashes (optional)** — **helpers only.** `wramHash` exists for
+   end-of-run reports; periodic in-log checkpoints not wired yet.
 
 ## Definition of done
 
-- [ ] `make play` can **record** a session to an input-log file.
+- [x] Log format serialize/parse round-trip (`tests/test_replay.nim`).
+- [x] `play` can **record** a session to an input-log file (F7 → `.tas`).
+- [x] Replay runs **headless** (`src/tools/replay.nim`).
 - [ ] The log **replays** to a byte-identical run from a pinned start state
       (verified by matching WRAM checkpoint hashes end to end).
-- [ ] Replay runs **headless** for automated/regression use.
 - [ ] A recorded human playthrough and a recorded LLM-agent run use the same
       format and both replay cleanly.
 

@@ -79,6 +79,8 @@ store the comparison rom at `./bin/Earthbound (U) [!].smc`
 - decompbound/docs/goal-1.5.md - the adoption campaign: replacing generated scaffolding with understood, named code
 - decompbound/docs/audio.md - SNES/Earthbound audio, the standalone SPC player track, slappy tools
 - decompbound/docs/delegation.md - Grok 4.5 conductor + native sub-agents (agnt optional)
+- decompbound/docs/human-verify.md - **your** short playtest checklist (run / pass if)
+- decompbound/docs/issues.md - known emulator fidelity issues (status board)
 - decompbound/docs/snes-asm.md
 - decompbound/docs/graphics.md
 - decompbound/docs/rom-format.md

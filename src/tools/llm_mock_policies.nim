@@ -1,26 +1,53 @@
-## Pure mock policy strings for llm_ai verification scenarios.
-## Separated so nav and battle paths can be selected independently without
-## polluting the main harness or requiring ad-hoc drivers.
+## Pure mock / seed policy strings for llm_ai verification scenarios.
+## Nav (touch grass) and battle paths stay separate — house walk is waypoints only.
 
 const
-  NavHousePolicy* = """-- NOTE: escapeMenu+walkTo+winBattle preloaded; A opens menus, B cancels; walk d-pad ONLY; winBattle on in_battle
--- DETERMINISTIC WALK-OUT (verified): from the bedroom (game_start slot 4), the exit is
--- to the LEFT (down the stairs) -> reliably reaches the house interior (tg 75) EVERY run,
--- independent of qwen. The old target (0x1EC0,0x0150) headed UP into the dresser and stayed
--- stuck at 25. This is the consistency fix: real, repeatable progress on the seed alone.
--- TODO(house-nav): the multi-level house->front-door->outside (tg 100) path is not yet
--- mapped (upstairs hall renders black headless; needs a captured hall state to see it).
--- qwen refines from the tg-75 start at realtime; the default guarantees the bedroom exit.
+  ## Deterministic bedroom → outside (tg 25 → 75 → 100). d-pad / walkTo only.
+  ## After stairs, south first to y~0x0178 — pure east from (1D30,0150) dies on furniture.
+  NavHousePolicy* = """-- NOTE: pure house walk; escapeMenu+walkTo; no A; winBattle only if in_battle
+-- Touch grass: bedroom -> stairs -> sitting room (south) -> east door -> outside.
+-- Waypoints verified for 25->75->100 from bin/states/llm/bedroom.state (seed of game_start).
 function update()
   if escapeMenu() then return end
   if mem.read(0x4DBA) ~= 0 then winBattle(); return end
-  local px = mem.read(0x0BBE) + 256*mem.read(0x0BBF)
-  local py = mem.read(0x0BFA) + 256*mem.read(0x0BFB)
-  if px >= 0x1F00 and px < 0x2000 and py <= 0x0600 then
-    walkTo(0x1000, 0x0600)   -- bedroom: LEFT, out the door + down the stairs (verified -> tg 75)
-  else
-    walkTo(0x0700, 0x1B0F)   -- house interior: press toward the exit (front door is south/out)
+  local px = mem.read(0x0BBE) + 256 * mem.read(0x0BBF)
+  local py = mem.read(0x0BFA) + 256 * mem.read(0x0BFB)
+  -- already outside Onett band
+  if px < 0x1C00 then
+    walkTo(0x0A60, 0x0158)
+    return
   end
+  -- upstairs bedroom: leave west to hall/stairs
+  if py >= 0x0300 and px >= 0x1F00 then
+    walkTo(0x1F00, 0x0450)
+    return
+  end
+  -- upstairs hall: continue west toward stairwell
+  if py >= 0x0300 and px > 0x1D50 then
+    walkTo(0x1D40, 0x03E8)
+    return
+  end
+  -- stairwell / transition approach
+  if py >= 0x0300 then
+    walkTo(0x1CC0, 0x03E8)
+    return
+  end
+  -- downstairs: SOUTH first into open sitting area (do not hug y=0x0140)
+  if py < 0x0168 and px < 0x1DC0 then
+    walkTo(0x1D30, 0x0178)
+    return
+  end
+  -- east across sitting room
+  if px < 0x1E40 then
+    walkTo(0x1E70, 0x0170)
+    return
+  end
+  -- approach front door height then push east through door
+  if math.abs(py - 0x0150) > 6 then
+    walkTo(0x1E80, 0x0148)
+    return
+  end
+  walkTo(0x1F40, 0x0148)
 end
 """
 
@@ -29,10 +56,49 @@ end
 end
 """
 
+  ## After touch-grass (tg 100): keep walking Onett streets so the house display
+  ## does not idle at the door. Placeholder waypoints near Ness house exit; no A spam.
+  ExploreOnettPolicy* = """-- NOTE: explore Onett after outside; cycle street walkTo targets; no battle focus
+-- Seed for display loop once tg==100. Coords are soft placeholders near house exit.
+function update()
+  if escapeMenu() then return end
+  if mem.read(0x4DBA) ~= 0 then winBattle(); return end
+  local px = mem.read(0x0BBE) + 256 * mem.read(0x0BBF)
+  local py = mem.read(0x0BFA) + 256 * mem.read(0x0BFB)
+  -- still indoors: finish house path east to door / outside band
+  if px >= 0x1C00 then
+    if py >= 0x0300 then
+      walkTo(0x1CC0, 0x03E8)
+      return
+    end
+    if py < 0x0168 and px < 0x1DC0 then
+      walkTo(0x1D30, 0x0178)
+      return
+    end
+    if px < 0x1E40 then
+      walkTo(0x1E70, 0x0170)
+      return
+    end
+    walkTo(0x1F40, 0x0148)
+    return
+  end
+  -- outside: cycle four soft street targets (~10s each @60fps)
+  local t = math.floor(frame() / 600) % 4
+  if t == 0 then
+    walkTo(0x0A60, 0x0158)
+  elseif t == 1 then
+    walkTo(0x0B40, 0x0188)
+  elseif t == 2 then
+    walkTo(0x09A0, 0x01A8)
+  else
+    walkTo(0x0AC0, 0x0128)
+  end
+end
+"""
+
 proc selectMockPolicy*(loadStateSlot: int): string =
-  ## Key scenario to --load-state per strategist recommendation.
-  ## slot1 (documented battle start) -> pure winBattle
-  ## others (bedroom/house) -> nav + guarded winBattle
+  ## LLM-namespace slot1 battle fixture → BattlePolicy; otherwise house nav.
+  ## Numeric slots are bin/states/llm/slotN.state, not make-play slots.
   if loadStateSlot == 1:
     BattlePolicy
   else:

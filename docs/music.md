@@ -1,7 +1,7 @@
 # Music — the jukebox track
 
-**Status:** foundation built, **blocked on the song-start protocol.** The renderer
-runs; the music doesn't sing yet.
+**Status:** foundation built; pack-1 prepend fixed most standalone halts
+(2026-07-08). Residual quiet songs (ids 4/11/76) and polish remain.
 
 The goal: **every EarthBound song plays audibly**, and a browsable **jukebox** where
 you pick any track and hear it. Distinct from `docs/sfx.md` (DSP synthesis accuracy)
@@ -24,12 +24,13 @@ and `docs/audio.md` (the shared SPC700/S-DSP foundation + the ROM-side data form
 `$2140`. Wired into `sound_explore`. **Song 1 now produces audio** (~1330 peak, quiet) — the
 jukebox's first non-silent sound. So the trigger fires.
 
-**Layer 2 — the SPC halts for most songs (THE REAL BLOCKER NOW).** Songs 3/4/7/10/… stay
-silent because their **SPC700 halts on load** (`stopped=true`, `flg=$E0` = soft-reset +
-mute). The pack upload / driver init is wrong for most songs — the driver dies before it
-can play. This, not the trigger, is what stands between "song 1 barely plays" and "a
-jukebox." Likely: a missing/mis-ordered pack (engine vs song vs instrument packs), a wrong
-upload address/entry-point, or a handshake step skipped so the driver resets itself.
+**Layer 2 — pack 1 (engine @ `$0500`) must be present (CRACKED 2026-07-08).** Songs
+whose table omits pack 1 used to halt (`stopped=true`, `flg=$E0`) because only song
+data packs loaded and `$0500` was empty/stub. **`sound_explore` / `jukebox_app` now
+prepend pack 1 when missing** → full scan ≈188/191 songs audible; **0 halts**.
+Without prepend, song 3 dies at `pc=$00F4` (see `src/tools/songstart_dig.nim`).
+Residual **quiet** ids **4 / 11 / 76** (alive but peak≈0) are sequence/id selection
+inside shared packs — next dig, not soft-reset.
 
 ## Delegatable tasks (pick one)
 

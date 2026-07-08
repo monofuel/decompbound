@@ -15,18 +15,27 @@ pipeline full — when a wave lands, verify it and dispatch the next.
 - **Workers do:** ROM/format reverse-engineering (report offsets + format —
   *analysis only*, never commit assets / ROM / dumps) and bounded build tasks
   (new tools, self-contained features, adoptions). Prefer `explore` for pure
-  RE; `general-purpose` for write work; worktree isolation when parallel
-  writers would collide.
+  RE; `general-purpose` for write work; **worktree isolation** when parallel
+  writers would collide (see `docs/delegation.md` → Worktrees).
 - **Conductor keeps:** final verify/merge calls, emulator-correctness +
   risky/timing ownership, and **re-running every worker result against the gold
-  harness before trusting or committing** — this has repeatedly caught real bugs.
-  Never merge on a worker's self-report. The referee (`compare.nim`, `tests/`,
-  opcode table) is sacred.
+  harness before trusting, committing, or pushing** — this has repeatedly
+  caught real bugs. Never merge on a worker's self-report. The referee
+  (`compare.nim`, `tests/`, opcode table) is sacred.
 - **How:** self-contained briefs (task + verification bar + handoff fields).
   Children get no chat history. Parent re-drives ~70% bail-outs until green.
 - **Parallel-safety:** don't let concurrent children edit the same shared file
   (e.g. the Makefile) — they clobber each other. Have them build/verify via
   `nim r` / targeted tests directly; conductor adds shared make targets afterward.
+- **Commit / push:** conductor duty after gates are green and copyright hygiene
+  is clean. Workers do not push; they do not commit unless the brief says so.
+  Prefer focused commits; push when the user/session asks to ship. Details in
+  `docs/delegation.md` → Commit and push.
+- **Human verify:** monofuel plays and often skips chat "please test this."
+  Anything that needs human eyes goes in **`docs/human-verify.md`** as a short
+  checkbox (**Run** + **Pass if** only) — never chat-only. New bugs he finds
+  while playing land under **Found in play** there; promote durable ones to
+  `docs/issues.md`. See that file's "For agents" section.
 - **`agnt`:** optional dogfood / cross-harness only — not the default worker lane.
 
 See `docs/delegation.md` for the fuller playbook.

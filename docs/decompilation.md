@@ -102,10 +102,13 @@ tile+attr words, standard SNES BG format), and **tileset graphics** at file
   there is **no simple `(X,Y)→ID` formula** — the sector is set on area-load /
   boundary-cross, not derived from continuous position. The walk-time boundary-cross
   recompute (likely a per-tile sector attribute or a grid lookup) isn't isolated yet.
-- **Doors/warps** — *not* a flat table: exits are per-entity **script streams**
-  run by the `[$80],Y` object interpreter (the same `$C09558` engine, see
-  `scripts.md`), executor at file `0x009D9E` (`JML [$0A5A]`), chained via `$125A`.
-  The per-map door *data source* (the real "table") is upstream in area-load: next dig.
+- **Doors/warps** — *not* a flat door table: exits are per-entity **script streams**
+  run by the object interpreter, executor at file `0x009D9E` (`JML [$0A5A]`).
+  **Data source (2026-07-08):** object-config far-ptr table at SNES `$EF133F`
+  (file `0x2F133F`, 4-byte entries, `id*4`) → records (script bank `@+8`, script
+  base `@+9`) → spawn `$C01E49` / `$C09321` → run `$C09D9E`. Placement also uses
+  8-byte object-ID records at `$C3E012` (file `0x03E012`) and a coarse map-
+  attribute filter at `$D7A800` (file `0x17A800`).
 - **Player position + collision (for pathfinding)** — the player/entity **world X/Y**
   is at WRAM `$0B8E,X` / `$0BCA,X` (indexed by entity slot; the player is the first
   active entity, usually slot 0) — byte-verified (81 `(LDA|STA) $0B8E,X` sites; `STA
@@ -138,9 +141,13 @@ of SRAM. Round-trip DoD: decode a table → re-encode → byte-exact.
   `money +0x08`, then two 3-byte gfx pointers, and `Offense/Defense/Speed` as u16
   at `+0x17 / +0x19 / +0x1B` (odd offsets — our review corrected grok's off-by-one).
   Canonical table base + indexing code: next dig.
-- **Item table** — `0x27`-byte records; `price` u16 at `+0x00` (verified: Cookie
-  `$7`, Bread Roll `$12`, Hamburger `$14`). Type/equip/effect fields + base id-0:
-  next dig.
+- **Item table** — **base SNES `$D55000` / file `0x155000`**, `0x27`-byte records,
+  indexed `id * 0x27` via hardware mul `JSL $C08FF7` then `LDA $D55000,X` (or far
+  ptr `$06/$08` = `$D55000`). **Name** is EB-encoded text at `+0x00` (id0=`Null`,
+  id1=`Franklin badge`). **Price** is u16 LE at **`+0x1A`** (Cookie id=88 → `$7`,
+  Bread roll id=103 → `$12`, Hamburger id=90 → `$14`) — not `+0x00` (older note
+  was wrong). Type/equip flag byte at `+0x19`; more equip fields `+0x1C`… still
+  soft.
 - **PSI table** — located at file `0x158C50` (SNES `$D58C50`), ~15-byte records
   directly before the EXP table; verified byte-exact, with PSI Rockin α's PP=10
   (`0x0A`) present. Fields (per grok, tentative): name idx, greek tier, type,

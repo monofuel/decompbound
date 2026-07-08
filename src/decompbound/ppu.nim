@@ -241,7 +241,8 @@ proc bgWindowParams(bg: int): tuple[selIdx, shift, logicShift, screenBit: int] =
 
 proc compositeScreen(snes: SnesBus, py: int, mask: uint8, winReg: uint8,
                      backdrop: ColorRGBA): tuple[buf: array[ScreenWidth, ColorRGBA],
-                                                 drawn: array[ScreenWidth, bool]] =
+                                                 drawn: array[ScreenWidth, bool],
+                                                 srcBit: array[ScreenWidth, uint8]] =
   ## Composite one screen (main or sub) for scanline py: backdrop, then the
   ## mask-enabled BG layers of the current mode, back to front. `winReg` is the
   ## screen's window-disable register (TMW $212E for main, TSW $212F for sub):
@@ -249,10 +250,17 @@ proc compositeScreen(snes: SnesBus, py: int, mask: uint8, winReg: uint8,
   ## layer for this scanline so lower layers / backdrop show through. This is
   ## what carves the scene-transition iris and clips the battle bands. With
   ## winReg = 0 (the common case) nothing is masked and output is unchanged.
+  ##
+  ## `srcBit[px]` is the CGADSUB layer bit of the topmost contributor:
+  ## bit0 BG1 .. bit3 BG4, bit5 backdrop (matches $2131). Used so color math
+  ## only applies to layers that enable it — without this, battle UI (BG1) was
+  ## half-blended whenever BG3 math was on, so the animated BG looked "on top".
   let mode = (snes.ppuRegs[0x05] and 0x07).int
   let bg3prio = (snes.ppuRegs[0x05] and 0x08) != 0
+  const BackdropMathBit = 0x20'u8  ## CGADSUB bit 5.
   for px in 0..<ScreenWidth:
     result.buf[px] = backdrop
+    result.srcBit[px] = BackdropMathBit
   var line: array[ScreenWidth, ColorRGBA]
   var lineDrawn: array[ScreenWidth, bool]
   var winHidden: WindowLine
@@ -268,10 +276,12 @@ proc compositeScreen(snes: SnesBus, py: int, mask: uint8, winReg: uint8,
       lineDrawn[px] = false
     snes.bgScanlineInto(line, lineDrawn, py, layer.bg, layer.bpp, layer.pal,
                         layer.prio)
+    let layerBit = (1'u8 shl layer.bg)
     for px in 0..<ScreenWidth:
       if lineDrawn[px] and not (windowed and winHidden[px]):
         result.buf[px] = line[px]
         result.drawn[px] = true
+        result.srcBit[px] = layerBit
 
 proc clamp5(v: int): int =
   ## Clamp to a SNES 5-bit color channel (0..31).
@@ -394,7 +404,10 @@ proc renderScanline*(snes: SnesBus, image: Image, py: int) =
         m = ColorRGBA(r: 0, g: 0, b: 0, a: 255)
       objSuppressLine[py][px] = blackHere or (objWindowed and objWin[px])
       # Color-math enable window: 0=always, 1=inside, 2=outside, 3=never.
-      let mathHere = mathLayers != 0 and (case mathEnableMode
+      # Also require the *topmost main layer* to be in CGADSUB (hardware): UI on
+      # BG1 must stay opaque when only BG3 has math enabled (borderless battles).
+      let layerMath = (mathLayers and main.srcBit[px]) != 0
+      let mathHere = layerMath and (case mathEnableMode
         of 1: colorWin[px]
         of 2: not colorWin[px]
         of 3: false
@@ -498,11 +511,13 @@ proc renderSprites*(snes: SnesBus, image: Image) =
     let size = if large: sizes[1] else: sizes[0]
 
     let y = snes.oam[base + 1].int
-    # Hardware: sprites appear one scanline below OAM Y (same as NES). First
-    # drawn line is y+1, last is y+size (mod 256). Skip when every drawn line
-    # sits in the 224..255 band with no wrap past 256 onto line 0.
+    # Hardware: first drawn scanline is OAM Y+1 (NES-style). Range checks use
+    # linear Y+1 .. Y+size, *not* 8-bit wrap: a 32px sprite parked at Y=$E0
+    # (standard offscreen) covers lines 225..256, which are outside 0..223.
+    # Using `(y+py+1) and 0xFF` wrongly mapped line 256 → 0 and painted a garbage
+    # top scanline from every "hidden" 32px sprite (battle UI / overworld).
     # See: https://snes.nesdev.org/wiki/Sprites
-    if y >= ScreenHeight and y + size < 256:
+    if y >= ScreenHeight and y + 1 + size <= 256:
       continue
 
     var x = snes.oam[base].int or (xHigh.int shl 8)
@@ -520,11 +535,10 @@ proc renderSprites*(snes: SnesBus, image: Image) =
 
     for py in 0..<size:
       let sy = if flipY: size - 1 - py else: py
-      # Sprite Y wraps at 256: a sprite near line 256 shows its wrapped rows at
-      # the top of the screen (how sprites enter from the top edge).
-      # +1: OAM Y is the scanline *above* the first visible sprite row.
-      let screenY = (y + py + 1) and 0xFF
-      if screenY >= ScreenHeight:
+      # +1: OAM Y is the scanline above the first visible sprite row.
+      # No 8-bit wrap into the active 224-line display (see comment above).
+      let screenY = y + py + 1
+      if screenY < 0 or screenY >= ScreenHeight:
         continue
       for px in 0..<size:
         let sx = if flipX: size - 1 - px else: px

@@ -3,8 +3,9 @@
 **Status:** two-clock harness BUILT and PLAYING (`src/tools/llm_ai.nim` — qwen
 writes Lua, windowed + labeled state). Much of the learning-agent **evolution**
 below is now built too: persistent skills (`walkTo`/`escapeMenu`/`winBattle`),
-the notes brain, isolated SRAM, and the `tg_pct` milestone metric. The one big
-gap left is **speed** — the LLM call still blocks the fast loop, so it crawls.
+the notes brain, isolated SRAM, and the `tg_pct` milestone metric. **Async watch
+mode** (`--watch-async`, default windowed) keeps the fast Lua loop stepping while
+qwen thinks; `--sync-llm` (default headless) still pause-for-consistency.
 See [Where it actually stands](#where-it-actually-stands--what-works-whats-next)
 for the honest state of the code. Off the critical path; sanctioned fun.
 
@@ -301,9 +302,10 @@ Gotchas the hard way:
   walking; tap B to close an accidental menu.
 - King the dog sleeps at `(~1D48,0178)` and body-blocks; route around him.
 - Room transitions teleport the player (pos jumps > 0x80 in one frame).
-- Known issue: after the front-door transition the *exterior* renders black
-  headless (fade-in never completes visually) even though position/logic/tg
-  are correct — render-side, tracked separately.
+- ~~**Known issue: force-blank after front door**~~ **FIXED 2026-07-08:** save-state
+  v1 dropped APU timers; music driver hung on `$FD` so `$2140` never acked and
+  `INIDISP` stayed `$80`. Cold-boot `make play` was fine; llm-ai load-state was
+  not. Timers restored on load (v2 + v1 recovery).
 - Known issue: loading a save-state captured mid-house resumes with a stale
   duplicate player object from an earlier room receiving d-pad input
   (object/slot identity vs save-state interaction; needs a dig).
@@ -333,32 +335,70 @@ as of the last update. Keep this section current — it's the first thing to rea
   `menu_open`/`which_menu`; the prompt + skills forbid pressing A while walking
   (A opens the command ring and freezes movement — the single biggest thing that
   used to strand qwen in the bedroom).
-- **Watch mode**: `make llm-ai` runs windowed at `--speed 60` from a bedroom
-  save-state so you can watch qwen play in real time.
+- **Watch mode**: `make llm-ai` runs windowed at `--speed 60` with
+  `--watch-async`, loading **`bin/states/llm/bedroom.state`** only (never human
+  `slot1–4`). Deterministic seed policy walks bedroom→outside (tg 25→100);
+  qwen may refine. Always-on display: `make llm-ai-display` (long frame cap;
+  wrap in a shell loop to restart).
 
-### The next priority: SPEED (the fast path isn't fast)
+### SPEED: async watch mode (shipped)
 
-The two-clock design's whole promise is that the **fast Lua loop runs at emulator
-speed** and the LLM is only *occasional*. Today it doesn't deliver that, because
-**the qwen call is synchronous — it blocks the fast loop while it waits.**
+The two-clock design's promise is that the **fast Lua loop runs at emulator
+speed** and the LLM is only *occasional*. That is now the default for windowed
+runs.
 
-Measured (2026-07-07): each qwen call takes **~5.3 s**. At the default
-`--llm-interval 20`, a 120-frame stretch fires ~6 calls ≈ **~32 s of frozen
-emulation** — while the 120 frames of actual emulation are sub-second. At
-`--speed 60` this reads as: ~0.3 s of smooth play, ~5 s freeze, repeat. It crawls,
-and it's the thing to fix next.
+**What shipped** (`src/tools/llm_ai.nim`):
 
-**The fix** (this is exactly the "pause-to-think" / async watch mode described in
-the Evolution section): **move the qwen HTTP call onto a background thread.** The
-fast Lua loop keeps emulating and rendering the *current* policy at 60 fps while
-the request is in flight; when the new policy string returns ~5 s later, hot-swap
-it. The worker thread never touches the Lua VM — it only turns strings into
-strings (summary → policy) — so the threading stays clean and the emulator stays
-single-owner of its state. Cheap complementary wins: raise `--llm-interval` so it
-queries less often, and stop echoing the full multi-KB context to stdout on every
-call (that I/O is not free either).
+- **Worker thread + channels** — provider call (HTTP or mock) runs off the main
+  thread; main owns Lua + SNES only. `pollAndApplyResult` every frame hot-swaps
+  the policy string when the result lands.
+- **`--watch-async`** (default when **not** `--headless`): while LLM is
+  in-flight, keep stepping frames with the *current* policy at `--speed` pacing;
+  no freeze. Title bar shows `thinking (async)`. End-of-run log prints
+  `frames_during_pending=N` (must be >0 under async).
+- **`--sync-llm` / `--pause-llm`** (default when `--headless`): pause frame
+  advance until the response applies — deterministic apply-at-snapshot for
+  milestone / CI runs that need the policy to land on the state it was computed
+  for.
+- **`--verbose` / `-v`**: full multi-KB prompt + request JSON dump. Quiet by
+  default (one-line `LLM_REQUEST: chars=...` only).
 
-*(Not yet implemented — top TODO.)*
+**Consistency tradeoff:** async means the policy may apply several seconds (and
+many frames) after the summary snapshot it was written for — fine for watching,
+less ideal for repeatable headless milestone runs. Use `--sync-llm` when you need
+the old pause-for-consistency behavior.
+
+### House decoration / always-on play
+
+Goal: one (or more) window(s) on a spare display where qwen hammering EarthBound
+is ambient furniture. Practical recipe:
+
+1. Azem LM Studio with `qwen3.6-27b@q6_k` (or whatever `PolicyModel` is).
+2. `make llm-ai-display` — windowed, 60 fps, async think, LLM bedroom fixture.
+3. Always-on restart loop (preferred): `make llm-ai-display-loop` →
+   `scripts/llm_display_loop.sh` restarts forever, logs `bin/llm_display.log`,
+   echoes last `max_touch_grass` between restarts. Dry-run:
+   `make llm-ai-display-loop DRY_RUN=1`.
+4. Optional second instance: another terminal / another machine with a different
+   `--load-state-path` under `bin/states/llm/` (never share human play slots).
+
+State hygiene: all LLM savestates under `bin/states/llm/`; your `make play`
+Ctrl+1–4 slots stay personal. Seed `NavHousePolicy` is pure waypoints (no battle
+focus) — battle is a separate fixture track. Empty/broken qwen Lua keeps the
+prior working policy (`pollAndApplyResult` + provider `return currentLua`).
+After tg 100 the seed auto-switches to `ExploreOnettPolicy` (street walk cycle)
+so the window does not idle at the door.
+
+**Verify async path (mock, no key):**
+```
+
+nim r src/tools/llm_ai.nim -- --mock --headless --frames 80 --llm-interval 20 \
+  --speed 0 --watch-async
+```
+Expect exit 0 and `frames_during_pending=` greater than 0.
+
+**Still useful knobs:** raise `--llm-interval` so qwen is queried less often;
+keep `--speed 60` for watch, `0` for headless grind.
 
 ### Milestone reports (proposed)
 

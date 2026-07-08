@@ -2,14 +2,20 @@
 ## Two-clock loop: fast clock runs sandboxed Lua update() every frame (drives joy1);
 ## slow clock periodically asks LLM (or mock) for a fresh/updated Lua policy string
 ## based on a compact state summary, hot-reloads it, keeps running.
-## IN-FLIGHT POLICY PAUSE: when a (real) provider request is pending, we stop advancing
-## frames (pause emulation) until the response arrives and is applied. This guarantees
-## policies are applied at the state they were computed for (via --speed pacing between ticks).
+##
+## Two modes for the slow clock while a provider request is in-flight:
+##   --watch-async (default windowed): keep stepping frames with the *current* policy at
+##     --speed pacing; poll + hot-swap when the result lands. True two-clock watch mode.
+##   --sync-llm / --pause-llm (default headless): pause frame advance until the response
+##     applies. Deterministic apply-at-snapshot for milestone / CI runs.
+##
 ## Uses the exact same load->runPolicyFrame->stepOneFrame->joy1 path as llm_play
 ## (via shared policy module) so LLM-authored strings are proven equivalent.
 ## LLM call is swappable: default --mock uses a fixed canned policy for headless verify
 ## (no API key needed); real path uses direct HTTP when --no-mock.
-## Usage: nix develop -c nim c -r src/tools/llm_ai.nim -- [--frames N] [--llm-interval K] [--png-every M] [--headless] [--mock|--no-mock] [--load-state N | --load-state=N] [--save-srm ...] [rom]
+## Usage: nim r src/tools/llm_ai.nim -- [--frames N] [--llm-interval K] [--png-every M]
+##   [--speed N] [--watch-async|--sync-llm|--pause-llm] [--verbose] [--headless]
+##   [--mock|--no-mock] [--load-state N] [--save-srm ...] [rom]
 ## Default is windowed (GL + windy) so you can watch the LLM play alongside `make play`.
 ## --headless preserves the old no-window behavior for CI. PNG dumps (when enabled)
 ## now go to bin/llm_frames/ only when --png-every is passed.
@@ -39,6 +45,11 @@ const
     ## Persistent skill library (walkTo etc). Loaded at boot into Lua BEFORE policy. Gitignored.
   NotesFile = "bin/states/llm_notes.txt"
     ## Persistent notes (agent knowledge). Loaded into prompt; -- NOTE: appends here. Gitignored.
+  LlmStateDir = "bin/states/llm"
+    ## LLM-only savestates. NEVER bin/states/slotN.state (human make-play slots).
+  LlmBedroomState = "bin/states/llm/bedroom.state"
+  LlmRollbackState = "bin/states/llm/rollback.state"
+  LlmDefaultSram = "bin/states/llm_ai.srm"
 
 # --- Background LLM provider (threads+channels) for non-blocking two-clock ---
 # Main thread owns Lua + Snes exclusively (fast per-frame path never blocks).
@@ -83,7 +94,9 @@ var
   resultChan: Channel[ProviderResult]
   workerThread: Thread[void]
   gUseMock: bool            # set at startup; worker dispatches without storing proc (GC-safety)
+  gVerbose = false          # --verbose: dump full multi-KB prompts / request JSON
   pendingLlm = false        # true while a request is in flight (prevents duplicate queueing)
+  framesDuringPending = 0   # frames advanced while a request was in-flight (async proof)
 
 proc llmWorkerProc() {.thread.} =
   ## Worker: loops, receives work nonblockingly, executes the provider (HTTP or mock) using SNAPSHOT of notes.
@@ -109,7 +122,7 @@ var
   prevTg = 0
   prevRoom = ""
     ## For detecting progress between LLM queries (tg% or room label changed?).
-  lastMilestoneSlot = -1
+  lastMilestonePath = ""
   stuckCounter = 0
   prevMoney = 0
   prevPlayerX = 0
@@ -166,19 +179,13 @@ proc realProvider(summary: string, currentLua: string): string =
   let t0 = now()
   const SystemPrompt = """You are an expert at writing compact Lua policies that play EarthBound (SNES decomp harness).
 
-GOAL: Leave the house — descend stairs from bedroom, exit through door to reach outside Onett ("touch grass"). Use the RICH STATE (tg_pct, current_room, player $0BBE/$0BFA pos, in_battle, menu_open, which_menu, HP/PP, money, party_roster, sector) + ON-SCREEN TEXT + PERSISTENT NOTES + RECENT HISTORY to decide actions and course-correct when stuck (no tg/room progress after several ticks).
-CRITICAL NAV RULE (prevents bedroom/house door oscillation seen in runs): ALWAYS inspect current player pos + tg_pct + room in the RICH STATE on every response.
-- If tg==25 or pos x roughly >= 0x1F00 (bedroom box): target a hall/stair point west of you e.g. walkTo(0x1D40, 0x03E8) or 0x1CC0,0x03E8.
-- Once tg becomes 75 (you are in house_interior, pos typically 0x1Dxx-1Exx): IMMEDIATELY switch your walkTo target to the front door area e.g. walkTo(0x1EC0, 0x0150). Do NOT keep using a bedroom-side target.
-- Re-evaluate and update the numeric target every time based on live pos. Room transitions teleport pos (big jumps >0x80) — treat as success and pick the next waypoint. Call walkTo repeatedly; it auto-resets on jumps.
-
-CRITICAL INPUT RULES (A/B menu blindness fix — NEVER violate or you get stuck):
-- A opens the overworld command menu (Talk to / Check / Goods / Equip / Status) OR confirms a selection / advances dialog. NEVER tap or hold A while just walking or navigating. Only press A for actual visible dialogue text or when adjacent to a door/NPC and text clearly prompts interaction.
-- B cancels / closes menus / backs out of sub-menus / deselects. If menu_open=yes (overworld_command or submenu), press B (or call escapeMenu()). Do not use Down+A or hold A.
-- For navigation (bedroom -> stairs -> door -> outside): ALWAYS call walkTo(tx, ty) which uses d-pad ONLY. Do NOT add A presses in your update().
-- In update() pattern: if escapeMenu() then return end; walkTo(targetX, targetY) ...
-- screen.text() + menu_open/which_menu in RICH STATE tells you exactly when a menu is open. Use that + recent history to course correct (if opened menu, B immediately).
-- winBattle() is ONLY for in_battle=yes (it safely presses A on Bash/PSI menus inside battle).
+GOAL: Touch grass — walk bedroom → stairs → sitting room (south first) → east front door → outside Onett (tg 25→75→100). No battle on this path.
+WAYPOINTS (pick next from live px/py; call walkTo every frame):
+- bedroom (tg25 / x>=0x1F00 upstairs): walkTo(0x1F00,0x0450) then hall (0x1D40,0x03E8) then stair (0x1CC0,0x03E8)
+- after stairs (downstairs): SOUTH first walkTo(0x1D30,0x0178) — do NOT pure-east along y=0x0140 (furniture)
+- sitting: walkTo(0x1E70,0x0170) then door (0x1E80,0x0148) then push (0x1F40,0x0148) → outside ~0x0A60,0x0158
+INPUT: d-pad only via walkTo. Never A while walking (opens menu). B / escapeMenu() if menu_open. winBattle ONLY if in_battle=yes.
+PATTERN: if escapeMenu() then return end; then walkTo(nextWaypoint) based on pos/tg.
 
 SANDBOX API (globals always available in update()):
 - frame() -> int (current frame)
@@ -214,13 +221,16 @@ LAST POLICY (reference; you may incrementally improve or replace the update body
 
 Return ONLY the 'function update() ... end' block (nothing else). Call escapeMenu() / walkTo() / winBattle() / screen.text() etc as needed (A opens menus, B cancels). /no_think"""
 
-  # Log FULL (now trimmed) context sent to qwen.
+  # Log FULL context only with --verbose (multi-KB dump is slow and noisy for watch mode).
   let fullContextForLog = "SYSTEM:\n" & SystemPrompt & "\n\nUSER:\n" & userPrompt
   let ctxChars = fullContextForLog.len
   let approxTokens = ctxChars div 4
-  echo "=== FULL LLM CONTEXT SENT (trimmed for ctx; rich state kept) ==="
-  echo fullContextForLog
-  echo "=== END CONTEXT (chars=", ctxChars, " approx_tokens~", approxTokens, " << 256K; max_tokens=4096 OUTPUT only) ==="
+  if gVerbose:
+    echo "=== FULL LLM CONTEXT SENT (trimmed for ctx; rich state kept) ==="
+    echo fullContextForLog
+    echo "=== END CONTEXT (chars=", ctxChars, " approx_tokens~", approxTokens, " << 256K; max_tokens=4096 OUTPUT only) ==="
+  else:
+    echo fmt"LLM_REQUEST: chars={ctxChars} approx_tokens~{approxTokens} (pass --verbose for full prompt dump)"
 
   var raw: string
   var reas: string
@@ -235,11 +245,10 @@ Return ONLY the 'function update() ... end' block (nothing else). Call escapeMen
       {"role": "user", "content": userPrompt}
     ]
   }
-  # DIAG: always log the EXACT request JSON sent (so we see model, max_tokens, messages shape).
-  # On 400 the response body (below) will state the precise cause from azem.
-  echo "=== ACTUAL REQUEST JSON ==="
-  echo $body
-  echo "=== END REQUEST JSON (endpoint=", url, ") ==="
+  if gVerbose:
+    echo "=== ACTUAL REQUEST JSON ==="
+    echo $body
+    echo "=== END REQUEST JSON (endpoint=", url, ") ==="
   try:
     let client = newHttpClient()
     client.headers = newHttpHeaders({
@@ -291,8 +300,11 @@ Return ONLY the 'function update() ... end' block (nothing else). Call escapeMen
     return currentLua
   # Force a differing string (comment only) so qwen response always triggers distinct "policy applied"
   # reload branch for verify; the comment is inert and documents the landing.
-  cleaned = cleaned & "\n-- qwen-applied-via-pause " & $getTime().toUnix()
-  echo "LLM RETURNED POLICY (qwen):\n" & cleaned & "\n---END QWEN POLICY---"
+  cleaned = cleaned & "\n-- qwen-applied " & $getTime().toUnix()
+  if gVerbose:
+    echo "LLM RETURNED POLICY (qwen):\n" & cleaned & "\n---END QWEN POLICY---"
+  else:
+    echo fmt"LLM RETURNED POLICY (qwen): len={cleaned.len} (pass --verbose for full dump)"
   result = cleaned
 
 proc realProviderSnap(summary: string, currentLua: string, notes: string): string =
@@ -301,19 +313,13 @@ proc realProviderSnap(summary: string, currentLua: string, notes: string): strin
   let t0 = now()
   const SystemPrompt = """You are an expert at writing compact Lua policies that play EarthBound (SNES decomp harness).
 
-GOAL: Leave the house — descend stairs from bedroom, exit through door to reach outside Onett ("touch grass"). Use the RICH STATE (tg_pct, current_room, player $0BBE/$0BFA pos, in_battle, menu_open, which_menu, HP/PP, money, party_roster, sector) + ON-SCREEN TEXT + PERSISTENT NOTES + RECENT HISTORY to decide actions and course-correct when stuck (no tg/room progress after several ticks).
-CRITICAL NAV RULE (prevents bedroom/house door oscillation seen in runs): ALWAYS inspect current player pos + tg_pct + room in the RICH STATE on every response.
-- If tg==25 or pos x roughly >= 0x1F00 (bedroom box): target a hall/stair point west of you e.g. walkTo(0x1D40, 0x03E8) or 0x1CC0,0x03E8.
-- Once tg becomes 75 (you are in house_interior, pos typically 0x1Dxx-1Exx): IMMEDIATELY switch your walkTo target to the front door area e.g. walkTo(0x1EC0, 0x0150). Do NOT keep using a bedroom-side target.
-- Re-evaluate and update the numeric target every time based on live pos. Room transitions teleport pos (big jumps >0x80) — treat as success and pick the next waypoint. Call walkTo repeatedly; it auto-resets on jumps.
-
-CRITICAL INPUT RULES (A/B menu blindness fix — NEVER violate or you get stuck):
-- A opens the overworld command menu (Talk to / Check / Goods / Equip / Status) OR confirms a selection / advances dialog. NEVER tap or hold A while just walking or navigating. Only press A for actual visible dialogue text or when adjacent to a door/NPC and text clearly prompts interaction.
-- B cancels / closes menus / backs out of sub-menus / deselects. If menu_open=yes (overworld_command or submenu), press B (or call escapeMenu()). Do not use Down+A or hold A.
-- For navigation (bedroom -> stairs -> door -> outside): ALWAYS call walkTo(tx, ty) which uses d-pad ONLY. Do NOT add A presses in your update().
-- In update() pattern: if escapeMenu() then return end; walkTo(targetX, targetY) ...
-- screen.text() + menu_open/which_menu in RICH STATE tells you exactly when a menu is open. Use that + recent history to course correct (if opened menu, B immediately).
-- winBattle() is ONLY for in_battle=yes (it safely presses A on Bash/PSI menus inside battle).
+GOAL: Touch grass — walk bedroom → stairs → sitting room (south first) → east front door → outside Onett (tg 25→75→100). No battle on this path.
+WAYPOINTS (pick next from live px/py; call walkTo every frame):
+- bedroom (tg25 / x>=0x1F00 upstairs): walkTo(0x1F00,0x0450) then hall (0x1D40,0x03E8) then stair (0x1CC0,0x03E8)
+- after stairs (downstairs): SOUTH first walkTo(0x1D30,0x0178) — do NOT pure-east along y=0x0140 (furniture)
+- sitting: walkTo(0x1E70,0x0170) then door (0x1E80,0x0148) then push (0x1F40,0x0148) → outside ~0x0A60,0x0158
+INPUT: d-pad only via walkTo. Never A while walking (opens menu). B / escapeMenu() if menu_open. winBattle ONLY if in_battle=yes.
+PATTERN: if escapeMenu() then return end; then walkTo(nextWaypoint) based on pos/tg.
 
 SANDBOX API (globals always available in update()):
 - frame() -> int (current frame)
@@ -349,13 +355,16 @@ LAST POLICY (reference; you may incrementally improve or replace the update body
 
 Return ONLY the 'function update() ... end' block (nothing else). Call escapeMenu() / walkTo() / winBattle() / screen.text() etc as needed (A opens menus, B cancels). /no_think"""
 
-  # Log FULL (now trimmed) context sent to qwen.
+  # Log FULL context only with --verbose (multi-KB dump is slow and noisy for watch mode).
   let fullContextForLog = "SYSTEM:\n" & SystemPrompt & "\n\nUSER:\n" & userPrompt
   let ctxChars = fullContextForLog.len
   let approxTokens = ctxChars div 4
-  echo "=== FULL LLM CONTEXT SENT (trimmed for ctx; rich state kept) ==="
-  echo fullContextForLog
-  echo "=== END CONTEXT (chars=", ctxChars, " approx_tokens~", approxTokens, " << 256K; max_tokens=4096 OUTPUT only) ==="
+  if gVerbose:
+    echo "=== FULL LLM CONTEXT SENT (trimmed for ctx; rich state kept) ==="
+    echo fullContextForLog
+    echo "=== END CONTEXT (chars=", ctxChars, " approx_tokens~", approxTokens, " << 256K; max_tokens=4096 OUTPUT only) ==="
+  else:
+    echo fmt"LLM_REQUEST: chars={ctxChars} approx_tokens~{approxTokens} (pass --verbose for full prompt dump)"
 
   var raw: string
   var reas: string
@@ -370,11 +379,10 @@ Return ONLY the 'function update() ... end' block (nothing else). Call escapeMen
       {"role": "user", "content": userPrompt}
     ]
   }
-  # DIAG: always log the EXACT request JSON sent (so we see model, max_tokens, messages shape).
-  # On 400 the response body (below) will state the precise cause from azem.
-  echo "=== ACTUAL REQUEST JSON ==="
-  echo $body
-  echo "=== END REQUEST JSON (endpoint=", url, ") ==="
+  if gVerbose:
+    echo "=== ACTUAL REQUEST JSON ==="
+    echo $body
+    echo "=== END REQUEST JSON (endpoint=", url, ") ==="
   try:
     let client = newHttpClient()
     client.headers = newHttpHeaders({
@@ -426,8 +434,11 @@ Return ONLY the 'function update() ... end' block (nothing else). Call escapeMen
     return currentLua
   # Force a differing string (comment only) so qwen response always triggers distinct "policy applied"
   # reload branch for verify; the comment is inert and documents the landing.
-  cleaned = cleaned & "\n-- qwen-applied-via-pause " & $getTime().toUnix()
-  echo "LLM RETURNED POLICY (qwen):\n" & cleaned & "\n---END QWEN POLICY---"
+  cleaned = cleaned & "\n-- qwen-applied " & $getTime().toUnix()
+  if gVerbose:
+    echo "LLM RETURNED POLICY (qwen):\n" & cleaned & "\n---END QWEN POLICY---"
+  else:
+    echo fmt"LLM RETURNED POLICY (qwen): len={cleaned.len} (pass --verbose for full dump)"
   result = cleaned
 
 proc getProvider(useMock: bool): PolicyProvider =
@@ -593,21 +604,23 @@ proc loadPolicyChunk(L: lua53.PState, src: string, label: string): bool =
 
 proc pollAndApplyResult(L: lua53.PState, currentPolicy: var string, status: var string, frame: int): bool =
   ## Non-blocking poll for background provider result. Hot-swap policy if arrived.
-  ## Returns true if a result was consumed this call. Safe to call every frame on main.
+  ## Empty, short, unchanged, or load-failed Lua never clobbers a working policy string
+  ## (seed NavHouse / explore / prior qwen stay live). Returns true if a result was consumed.
   let (got, res) = resultChan.tryRecv()
   if got:
     let (newP, lat) = res
     echo fmt"BACKGROUND: received policy (latency_ms={lat}) at frame {frame}"
     extractAndAppendNotes(newP)
-    if newP.len > 10 and newP != currentPolicy:
-      currentPolicy = newP
-      if loadPolicyChunk(L, currentPolicy, fmt"frame_{frame}"):
-        echo fmt"  policy applied (bg) at frame {frame}"
-        status = "reloaded"
-      else:
-        status = "running"
-    else:
+    if newP.len <= 10 or newP == currentPolicy:
       echo fmt"  policy applied (bg, kept prior) at frame {frame}"
+      status = "running"
+    elif loadPolicyChunk(L, newP, fmt"frame_{frame}"):
+      currentPolicy = newP
+      echo fmt"  policy applied (bg) at frame {frame}"
+      status = "reloaded"
+    else:
+      echo fmt"  policy load FAILED; kept prior working policy at frame {frame}"
+      discard loadPolicyChunk(L, currentPolicy, fmt"frame_{frame}_restore")
       status = "running"
     pendingLlm = false
     return true
@@ -651,6 +664,39 @@ git_commit: {h}
 """
   writeFile(fname, body)
   echo fmt"  MILESTONE_REPORT written: {fname}"
+
+proc llmSlotPath(slot: int): string =
+  ## LLM-namespace numbered slot (not make-play bin/states/slotN.state).
+  LlmStateDir / &"slot{slot}.state"
+
+proc ensureLlmStateDir() =
+  createDir(LlmStateDir)
+
+proc writeStateFile(path: string, snes: SnesBus, cpu: Cpu) =
+  ## Write savestate to an arbitrary path (LLM namespace only by convention).
+  let dir = path.splitFile.dir
+  if dir.len > 0: createDir(dir)
+  writeFile(path, cast[string](serializeState(snes, cpu)))
+
+proc readStateFile(path: string, snes: SnesBus, cpu: var Cpu) =
+  if not fileExists(path):
+    raise newException(IOError, &"state file not found: {path}")
+  deserializeState(cast[seq[byte]](readFile(path)), snes, cpu)
+
+proc seedLlmBedroomIfMissing() =
+  ensureLlmStateDir()
+  if fileExists(LlmBedroomState): return
+  const seed = "bin/states/game_start.state"
+  if fileExists(seed):
+    copyFile(seed, LlmBedroomState)
+    echo fmt"LLM state: seeded {LlmBedroomState} from {seed}"
+  else:
+    echo fmt"LLM state: missing {LlmBedroomState} and {seed} — capture a bedroom state under {LlmStateDir}/"
+
+proc isHumanPlaySlotPath(path: string): bool =
+  for hs in 1..4:
+    if path == statePathForSlot(hs): return true
+  false
 
 proc loadSram(snes: SnesBus, path: string) =
   ## Load a battery save into SRAM if the .srm file exists (else start fresh).
@@ -720,6 +766,10 @@ proc main() =
   var targetSpeed = DefaultSpeed
     ## emulation fps target: 0=unlimited (headless default), 60=realtime, 120=2x etc.
     ## wired for pacing; LLM tick (interval) remains on frameCount, decoupled.
+  var watchAsync = false
+    ## true: keep stepping while LLM in-flight (true two-clock). false: pause-for-consistency.
+  var clockModeSet = false
+    ## true if user passed --watch-async / --sync-llm / --pause-llm (else default by headless).
   var i = 1
   while i <= paramCount():
     let a = paramStr(i)
@@ -746,6 +796,14 @@ proc main() =
       useMock = false
     elif a == "--mock":
       useMock = true
+    elif a == "--watch-async":
+      watchAsync = true
+      clockModeSet = true
+    elif a == "--sync-llm" or a == "--pause-llm":
+      watchAsync = false
+      clockModeSet = true
+    elif a == "--verbose" or a == "-v":
+      gVerbose = true
     elif a == "--save-srm":
       saveSramEnabled = true
       if i < paramCount():
@@ -780,14 +838,20 @@ proc main() =
     elif a.startsWith("--speed="):
       targetSpeed = parseInt(a[8..^1])
     elif a == "--help" or a == "-h":
-      echo "usage: nim c -r src/tools/llm_ai.nim -- [--frames N] [--llm-interval K] [--png-every M] [--speed N] [--headless] [--mock|--no-mock] [--save-srm | --save-srm=PATH] [--load-state N | --load-state=N] [--load-state-path PATH] [rom]"
+      echo "usage: nim r src/tools/llm_ai.nim -- [--frames N] [--llm-interval K] [--png-every M] [--speed N] [--watch-async|--sync-llm|--pause-llm] [--verbose] [--headless] [--mock|--no-mock] [--save-srm | --save-srm=PATH] [--load-state N | --load-state=N] [--load-state-path PATH] [rom]"
       echo "  defaults: --frames 60 --llm-interval 20 --speed 0 ROM=bin/Earthbound (U) [!].smc"
       echo "  windowed by default (opens GL window titled 'EarthBound - LLM (qwen)' for watching)"
       echo "  --headless: no window (for CI / batch); --png-every only dumps when flag is passed"
-      echo "  --speed N: pace emulated frames to N fps (0=unlimited/as-fast, 60=realtime) for the *running* segments. LLM policy queries now PAUSE emulation (no frames advance) until response lands + applies; this keeps policy cadence in sync with frame state for repeatable progress."
-      echo "  --speed 0 (default for headless): fast between LLM ticks; during qwen think we pause regardless."
-      echo "  --mock (default): use canned policy string, no key needed (near-instant, wait is negligible)"
-      echo "  --no-mock: call real LLM (qwen on azem); policies wait to land at their compute state"
+      echo "  --speed N: pace emulated frames to N fps (0=unlimited/as-fast, 60=realtime)"
+      echo "  --watch-async: keep stepping frames while LLM is in-flight (current policy at --speed);"
+      echo "                 poll + hot-swap when result lands. DEFAULT for windowed/watch mode."
+      echo "  --sync-llm / --pause-llm: pause frame advance until policy applies (deterministic"
+      echo "                 apply-at-snapshot). DEFAULT for --headless milestone/CI runs."
+      echo "  Tradeoff: async = smooth 60fps watch, policy may land after game state has moved;"
+      echo "            sync = freeze while qwen thinks, policy applies at the summary snapshot."
+      echo "  --verbose / -v: dump full multi-KB LLM prompts + request JSON (quiet by default)"
+      echo "  --mock (default): use canned policy string, no key needed (near-instant)"
+      echo "  --no-mock: call real LLM (qwen on azem)"
       echo "  --save-srm: enable OPTIONAL isolated SRAM for LLM's own progress (never user's)"
       echo "  --save-srm=PATH: override default path bin/states/llm_ai.srm (MUST differ from ROM .srm)"
       echo "  Absent --save-srm (default): NO SRAM I/O, fully ephemeral (for auto LLM tests)"
@@ -799,7 +863,7 @@ proc main() =
       echo "    bin/states/llm_notes.txt (loaded into prompt; -- NOTE: lines in policy output are appended)"
       echo "    Both live under bin/states/ (gitignored, user-local; never committed). Skills make walkTo() etc available to policies."
       echo "  sim.setSpeed / sim.fast / sim.normal available in policies (from PolicyContext) to let AI control fps at runtime."
-      echo "  To run live: export OPENAI_API_KEY=sk-... ; nix develop -c nim c -r src/tools/llm_ai.nim -- --no-mock --frames 120"
+      echo "  To run live: nim r src/tools/llm_ai.nim -- --no-mock --frames 120 --speed 60"
       quit(0)
     elif romPath.len == 0 and not a.startsWith("--"):
       romPath = a
@@ -807,9 +871,13 @@ proc main() =
   if romPath.len == 0:
     romPath = "bin/Earthbound (U) [!].smc"
 
+  # Default clock mode: windowed/watch -> async (smooth 60fps); headless -> pause-for-consistency.
+  if not clockModeSet:
+    watchAsync = not useHeadless
+
   if saveSramEnabled:
     if saveSramPath.len == 0:
-      saveSramPath = "bin/states/llm_ai.srm"
+      saveSramPath = LlmDefaultSram
     let romSrm = romPath.changeFileExt("srm")
     if saveSramPath == romSrm:
       echo fmt"ERROR: --save-srm path must never resolve to the ROM's .srm: {romSrm} (would touch the user's real save). Refusing."
@@ -820,16 +888,24 @@ proc main() =
     else:
       createDir("bin")
 
+  ensureLlmStateDir()
+  seedLlmBedroomIfMissing()
+
   let saveStr = if saveSramEnabled: saveSramPath else: "(ephemeral)"
-  let loadStr = if loadStateSlot >= 0: $loadStateSlot else: "none"
-  echo fmt"llm_ai: ROM={romPath} frames={maxFrames} llmInterval={llmInterval} pngEvery={pngEvery} (set={pngEverySet}) speed={targetSpeed} mock={useMock} headless={useHeadless} loadState={loadStr} saveSram={saveStr}"
-  # Scenario selection per --load-state (strategy: slot1 documented battle start)
+  let loadStr =
+    if loadStatePath.len > 0: loadStatePath
+    elif loadStateSlot >= 0: llmSlotPath(loadStateSlot)
+    else: "none"
+  let clockStr = if watchAsync: "watch-async" else: "sync-llm"
+  echo fmt"llm_ai: ROM={romPath} frames={maxFrames} llmInterval={llmInterval} pngEvery={pngEvery} (set={pngEverySet}) speed={targetSpeed} mock={useMock} headless={useHeadless} clock={clockStr} verbose={gVerbose} loadState={loadStr} saveSram={saveStr}"
+  echo fmt"llm_ai: state namespace = {LlmStateDir}/ (human play slots bin/states/slotN.state never written by default)"
   scenarioPolicy = llm_mock_policies.selectMockPolicy(loadStateSlot)
   if policyFile.len > 0:
     scenarioPolicy = readFile(policyFile)
     echo "POLICY: initial policy from ", policyFile, " (len=", scenarioPolicy.len, ") — overrides mock/nav default"
   createDir("bin")
   createDir("bin/states")
+  ensureLlmStateDir()
   persistentNotes = if fileExists(NotesFile): readFile(NotesFile) else: ""
   if persistentNotes.len > 0:
     echo fmt"NOTES: loaded {NotesFile} ({persistentNotes.len} bytes) — will include in LLM prompt"
@@ -842,28 +918,29 @@ proc main() =
     loadSram(snes, saveSramPath)
   var cpu = snes.resetCpu()
   if loadStatePath.len > 0:
+    if isHumanPlaySlotPath(loadStatePath):
+      echo fmt"ERROR: refusing human play slot path {loadStatePath}. Use {LlmStateDir}/ fixtures only."
+      quit(1)
     if not fileExists(loadStatePath):
       echo fmt"ERROR: --load-state-path {loadStatePath} not found"
       quit(1)
-    let data = cast[seq[byte]](readFile(loadStatePath))
-    deserializeState(data, snes, cpu)
+    readStateFile(loadStatePath, snes, cpu)
     echo "loaded start state from path ", loadStatePath
-    # select scenario for battle fixture
     if "battle" in loadStatePath.toLowerAscii:
       scenarioPolicy = llm_mock_policies.BattlePolicy
-    # validate if battle
     if scenarioPolicy == llm_mock_policies.BattlePolicy:
       let (ok, d) = touch_grass.battleFixtureOk(snes)
       if not ok:
         echo "BATTLE FIXTURE INVALID: ", d
         quit(1)
   elif loadStateSlot >= 0:
-    let path = fmt"bin/states/slot{loadStateSlot}.state"
+    let path = llmSlotPath(loadStateSlot)
     if not fileExists(path):
-      echo fmt"ERROR: --load-state {loadStateSlot} requested but state file missing: {path}"
+      echo fmt"ERROR: --load-state {loadStateSlot} is LLM namespace only: missing {path}"
+      echo fmt"  Human play: bin/states/slotN.state | LLM: {LlmStateDir}/"
       quit(1)
-    loadState(snes, cpu, loadStateSlot)
-    echo "loaded start state from slot ", loadStateSlot
+    readStateFile(path, snes, cpu)
+    echo "loaded start state from LLM slot ", loadStateSlot, " <- ", path
     if loadStateSlot == 1:
       scenarioPolicy = llm_mock_policies.BattlePolicy
   else:
@@ -924,7 +1001,10 @@ proc main() =
   workChan.open()
   resultChan.open()
   createThread(workerThread, llmWorkerProc)
-  echo "BACKGROUND: worker thread started for provider calls (LLM queries pause emulation until response; policies land at their snapshot state)"
+  if watchAsync:
+    echo "BACKGROUND: worker thread started; --watch-async: frames keep stepping while LLM in-flight; hot-swap on result"
+  else:
+    echo "BACKGROUND: worker thread started; --sync-llm: pause frames until policy applies (apply-at-snapshot)"
 
   var currentPolicy: string
   if loadStateSlot >= 0 or loadStatePath.len > 0:
@@ -945,7 +1025,11 @@ proc main() =
   # Extract notes from the initial policy string too (captures the -- NOTE: we put in mock for verify).
   extractAndAppendNotes(currentPolicy)
 
-  echo "starting two-clock loop (fast: per-frame update; slow: LLM every ", llmInterval, " frames; pauses on in-flight policy for consistency)"
+  let clockDesc = if watchAsync:
+    "async: keep stepping current policy while LLM thinks"
+  else:
+    "sync: pause frames until policy applies"
+  echo "starting two-clock loop (fast: per-frame update; slow: LLM every ", llmInterval, " frames; ", clockDesc, ")"
   if not useHeadless:
     echo "  windowed mode: a separate GL window will show the LLM-driven play (no keyboard input; policy controls joy1)"
   else:
@@ -969,16 +1053,19 @@ proc main() =
   # Pacing state for --speed wiring (and AI-controlled via ctx.targetFps / sim.setSpeed).
   # Use deadline schedule: after each frame, advance deadline by 1/fps, sleep remainder if early.
   # Clamp using MaxPacingBacklogFrames: if far behind, reset deadline (prevents weird future over-sleep after stall).
-  # 0 = unlimited. --speed controls wall time *between* LLM ticks; when policy request in-flight we pause advancement entirely (see wait in slow clock) so qwen policy applies at its snapshot state.
+  # 0 = unlimited. --speed paces running segments. --sync-llm pauses while pending; --watch-async does not.
   var nextDeadline = getMonoTime()
 
   # Main loop: policy + step + (optional) GL present. Emulation paced by --speed during run segments.
-  # LLM slow clock now pauses frames on pending request (for state-sync) then resumes.
+  # --watch-async: keep stepping with current policy while LLM in-flight; poll+hot-swap each frame.
+  # --sync-llm: pause frame advance until policy applies (apply-at-snapshot).
   while ctx.frameCount < maxFrames:
     if (not useHeadless) and blit.window.closeRequested:
       break
     if not useHeadless:
       pollEvents()
+
+    let wasPending = pendingLlm
 
     let err = policy.runPolicyFrame(L, ctx)
     if err.len > 0:
@@ -991,10 +1078,11 @@ proc main() =
 
     policy.stepOneFrame(snes, cpu, frameImage)
     ctx.frameCount += 1
+    if wasPending:
+      framesDuringPending += 1
 
     # Poll background result every frame (non-blocking). Hot-swap when ready.
-    # Note: for in-flight LLM we now pause the whole loop (no step) until applied; this poll
-    # is for the normal post-step path and also used inside the pause-wait.
+    # Async watch path relies on this every-frame poll; sync path also uses it inside pause-wait.
     discard pollAndApplyResult(L, currentPolicy, status, ctx.frameCount)
 
     # WIRE --speed / AI fps control: pace to target (only when we do advance a frame).
@@ -1002,7 +1090,7 @@ proc main() =
     # If behind by >4 frames worth, reset deadline (clamp backlog, resume without catchup burst/sleep debt).
     # fps=0: skip, run full speed (near-instant for --speed 0).
     # ctx.targetFps read after policy run, so sim.setSpeed(fps) in update() takes effect immediately for next iter.
-    # LLM policy wait (above) bypasses this entirely while thinking.
+    # --sync-llm pause-wait bypasses this; --watch-async keeps pacing while thinking.
     let fps = ctx.targetFps
     if fps > 0:
       let frameNs = 1_000_000_000'i64 div fps.int64
@@ -1049,9 +1137,22 @@ proc main() =
       if tg > maxTouchGrass:
         maxTouchGrass = tg
       logTg(fmt"{now()} frame={ctx.frameCount} touch_grass_pct={tg} max={maxTouchGrass} room={room}")
-      if tg >= 100:
+      if oldTg < 100 and tg >= 100:
         logTg(fmt"TOUCH GRASS ACHIEVED at frame {ctx.frameCount}")
         echo "TOUCH GRASS ACHIEVED!"
+        # Display handoff: once outside, stop idling at the door — seed explore Onett walk.
+        # Only when seed is still house-nav (or current string is the house seed). Leaves
+        # qwen-refined policies alone unless current is still the pure NavHouse seed.
+        if scenarioPolicy == llm_mock_policies.NavHousePolicy or
+            currentPolicy == llm_mock_policies.NavHousePolicy:
+          let explore = llm_mock_policies.ExploreOnettPolicy
+          if loadPolicyChunk(L, explore, "explore_onett_after_tg100"):
+            scenarioPolicy = explore
+            currentPolicy = explore
+            echo "POLICY: tg>=100 — switched seed to ExploreOnettPolicy (street walk cycle)"
+            status = "explore"
+          else:
+            echo "POLICY: ExploreOnettPolicy load failed; keeping prior"
       # Read live player pos for *fine-grained* progress (critical after tg plateaus at 75).
       # tg/room only flips on big milestones; inside the house we must detect "still walking toward exit".
       let pidx = touch_grass.PlayerSlot * touch_grass.SlotIndexStride
@@ -1080,13 +1181,13 @@ proc main() =
         elif (oldTg == 75 or oldTg == 0) and tg == 50: mname = "enter_battle"
         writeMilestoneReport(mname, ctx.frameCount, oldTg, tg, oldRoom, room, px, py, currentPolicy)
 
-        # On real progress (tg up), snapshot for rollback target.
+        # On real progress (tg up), snapshot under LLM namespace only (never play slots).
         if tg > oldTg:
           try:
-            saveState(snes, cpu, 99)
-            lastMilestoneSlot = 99
+            writeStateFile(LlmRollbackState, snes, cpu)
+            lastMilestonePath = LlmRollbackState
             stuckCounter = 0
-            echo "  SAVED rollback milestone slot 99"
+            echo "  SAVED rollback milestone -> ", LlmRollbackState
           except CatchableError as e:
             echo "  save milestone failed: ", e.msg
 
@@ -1108,10 +1209,10 @@ proc main() =
       prevMoney = curMoney
       prevPlayerX = px
       prevPlayerY = py
-      if stuckCounter > 18 and lastMilestoneSlot >= 0:
-        echo fmt"STUCK_DETECTED (counter={stuckCounter}); rolling back to slot {lastMilestoneSlot}"
+      if stuckCounter > 18 and lastMilestonePath.len > 0:
+        echo fmt"STUCK_DETECTED (counter={stuckCounter}); rolling back to {lastMilestonePath}"
         try:
-          loadState(snes, cpu, lastMilestoneSlot)
+          readStateFile(lastMilestonePath, snes, cpu)
           snes.joy1 = 0
           ctx.joy1 = 0
           # Reset prev* + pos trackers to post-load values.
@@ -1122,8 +1223,7 @@ proc main() =
           prevPlayerX = touch_grass.readU16(snes, touch_grass.WorldXBase + pidxR)
           prevPlayerY = touch_grass.readU16(snes, touch_grass.WorldYBase + pidxR)
           stuckCounter = 0
-          pendingLlm = false   # force a fresh policy query immediately so the brain can replan from the restored milestone
-          # Immediately switch to the known-good adaptive nav policy (from scenario) to break any bad fixed-target loop the previous policy had.
+          pendingLlm = false
           currentPolicy = scenarioPolicy
           discard loadPolicyChunk(L, currentPolicy, "post_rollback_safe_nav")
           status = "rollback"
@@ -1137,7 +1237,7 @@ proc main() =
       let doLlmCall = useMock or (tg >= 25)
       if doLlmCall:
         if not pendingLlm:
-          status = "thinking"
+          status = if watchAsync: "thinking-async" else: "thinking"
           if not useHeadless:
             # Keep last frame visible while we queue the (occasional) LLM call.
             blit.blit(frameImage)
@@ -1153,26 +1253,29 @@ proc main() =
           # Pass snapshot of notes at send time so worker uses consistent view (no race with appendNote on main).
           workChan.send( (richSummary, currentPolicy, persistentNotes) )
           pendingLlm = true
+          let modeLabel = if watchAsync: "async" else: "sync"
+          echo fmt"LLM_QUEUED: frame={ctx.frameCount} mode={modeLabel}"
           if not useHeadless:
             blit.blit(frameImage)
-            blit.window.title = fmt"EarthBound - LLM (qwen) - frame {ctx.frameCount} [waiting policy...]"
-          # Pause the emulation (do not advance any more frames) while the policy request is in-flight.
-          # This is the core consistency fix: the returned policy is applied to the exact state
-          # snapshot it was computed for (qwen's summary at send time). No racing ahead at full speed.
-          # Poll the background result (worker thread does the slow HTTP), keep UI alive if windowed.
-          # Between LLM ticks, --speed / ctx.targetFps still controls pacing of the frames that do run.
-          while pendingLlm:
-            discard pollAndApplyResult(L, currentPolicy, status, ctx.frameCount)
-            if not pendingLlm:
-              break
-            sleep(5)
-            if not useHeadless:
-              pollEvents()
-              if blit.window.closeRequested:
+            let thinkLabel = if watchAsync: "thinking (async)" else: "waiting policy..."
+            blit.window.title = fmt"EarthBound - LLM (qwen) - frame {ctx.frameCount} [{thinkLabel}]"
+          if not watchAsync:
+            # --sync-llm / --pause-llm: freeze frames until policy applies (apply-at-snapshot).
+            # The returned policy matches the summary state at send time — good for milestone CI.
+            while pendingLlm:
+              discard pollAndApplyResult(L, currentPolicy, status, ctx.frameCount)
+              if not pendingLlm:
                 break
-              blit.blit(frameImage)
-              blit.window.title = fmt"EarthBound - LLM (qwen) - frame {ctx.frameCount} [waiting policy...]"
-        # else: already pending (should not happen with pause, since frames don't advance to next mod)
+              sleep(5)
+              if not useHeadless:
+                pollEvents()
+                if blit.window.closeRequested:
+                  break
+                blit.blit(frameImage)
+                blit.window.title = fmt"EarthBound - LLM (qwen) - frame {ctx.frameCount} [waiting policy...]"
+          # else --watch-async: do nothing special; main loop keeps stepping current policy
+          # and pollAndApplyResult hot-swaps when the worker result lands.
+        # else: already pending (async path may still hit next llmInterval while in-flight — skip)
       else:
         # keep running the seeded IntroSkillLua; defer LLM until bedroom
         status = "intro"
@@ -1185,9 +1288,11 @@ proc main() =
   if finalTg > maxTouchGrass: maxTouchGrass = finalTg
   logTg(fmt"{now()} frame={ctx.frameCount} touch_grass_pct={finalTg} max={maxTouchGrass} (final)")
   echo fmt"done: ran {ctx.frameCount} frames. final joy1=0x{snes.joy1:04x} max_touch_grass={maxTouchGrass}"
+  echo fmt"frames_during_pending={framesDuringPending} (frames advanced while LLM request in-flight; async proof when >0)"
   if saveStateSlot >= 0:
-    save_state.saveState(snes, cpu, saveStateSlot)
-    echo fmt"saved final state to slot {saveStateSlot} (px=0x{touch_grass.readU16(snes, 0x0BBE):04X} py=0x{touch_grass.readU16(snes, 0x0BFA):04X})"
+    let outPath = llmSlotPath(saveStateSlot)
+    writeStateFile(outPath, snes, cpu)
+    echo fmt"saved final state to LLM path {outPath} (px=0x{touch_grass.readU16(snes, 0x0BBE):04X} py=0x{touch_grass.readU16(snes, 0x0BFA):04X})"
   if saveSramEnabled and snes.sramDirty:
     saveSram(snes, saveSramPath)
   L.close()

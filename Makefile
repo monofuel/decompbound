@@ -1,4 +1,4 @@
-.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai testrom script-dump gfx-roundtrip battle-bg trace inspect audio-check audio-diff jukebox-app
+.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai llm-ai-display llm-ai-display-loop testrom script-dump gfx-roundtrip battle-bg trace inspect audio-check audio-diff jukebox-app
 
 # bash + pipefail: the test loop pipes nim through sed, and without
 # pipefail the pipeline's exit status is sed's (always 0), which turns
@@ -132,13 +132,33 @@ llm-play: nim.cfg
 	@mkdir -p bin
 	nim r src/tools/llm_play.nim --frames 240 "$(ROM)" examples/policy_demo.lua
 
-# LLM plays EarthBound: an azem-hosted model (qwen3.6-35b-a3b) writes the Lua
-# policy live, in a WINDOW at realtime (--speed 60) so you can WATCH it play and
-# give feedback. Starts in the bedroom (slot 4) chasing "touch grass %". Ctrl+C to
-# quit. Override anything via ARGS, e.g. make llm-ai ARGS="--load-state 1 --frames 40000".
+# LLM plays EarthBound (qwen on azem): windowed --speed 60 --watch-async.
+# Start: bin/states/llm/bedroom.state ONLY (never make-play slot1–4). Seeds from game_start if missing.
+# Ctrl+C quit. Sync: ARGS="--sync-llm". Fixture: ARGS="--load-state-path bin/states/llm/foo.state".
 llm-ai: nim.cfg
+	@mkdir -p bin bin/states/llm
+	@if [ ! -f bin/states/llm/bedroom.state ] && [ -f bin/states/game_start.state ]; then \
+	  cp bin/states/game_start.state bin/states/llm/bedroom.state; \
+	  echo "seeded bin/states/llm/bedroom.state from game_start.state"; \
+	fi
+	nim r src/tools/llm_ai.nim -- --no-mock --load-state-path bin/states/llm/bedroom.state --speed 60 --watch-async --frames 20000 $(ARGS) "$(ROM)"
+
+# Always-on house-display: same as llm-ai but huge frame cap. LLM state namespace only.
+# Prefer `make llm-ai-display-loop` for crash-restart + logging.
+llm-ai-display: nim.cfg
+	@mkdir -p bin bin/states/llm
+	@if [ ! -f bin/states/llm/bedroom.state ] && [ -f bin/states/game_start.state ]; then \
+	  cp bin/states/game_start.state bin/states/llm/bedroom.state; \
+	  echo "seeded bin/states/llm/bedroom.state from game_start.state"; \
+	fi
+	nim r src/tools/llm_ai.nim -- --no-mock --load-state-path bin/states/llm/bedroom.state --speed 60 --watch-async --frames 999999 $(ARGS) "$(ROM)"
+
+# Forever restart wrapper: logs bin/llm_display.log, prints last tg max between restarts.
+# Dry-run: make llm-ai-display-loop DRY_RUN=1
+# Env: SLEEP_SECS, LOG, ARGS, DRY_RUN (see scripts/llm_display_loop.sh).
+llm-ai-display-loop:
 	@mkdir -p bin
-	nim r src/tools/llm_ai.nim -- --no-mock --load-state 4 --speed 60 --frames 20000 $(ARGS) "$(ROM)"
+	DRY_RUN="$(DRY_RUN)" SLEEP_SECS="$(SLEEP_SECS)" LOG="$(LOG)" ARGS="$(ARGS)" ./scripts/llm_display_loop.sh
 
 # Run a SNES test ROM through the accuracy harness (PASS/FAIL/UNKNOWN + a frame
 # dump). e.g. make testrom ROM=bin/testroms/blargg/test_speed.smc FRAMES=400

@@ -8,6 +8,11 @@ import
   std/[os, strformat, strutils, tables],
   ./snesbus
 
+const
+  ReplayMagic* = "DBTAS1"
+  ReplayHeaderComment* =
+    "# frame joy1   -- joy1 (hex) holds from listed frame until next delta line"
+
 type
   ReplayHeader* = object
     ## Parsed header from a .tas log.
@@ -35,25 +40,43 @@ proc parseJoy1Token(tok: string): uint16 =
   except ValueError:
     0'u16
 
+proc formatDeltaLine*(frame: int, joy1: uint16): string =
+  ## Format one delta line as written by the recorder.
+  &"{frame} {joy1:04x}"
+
+proc serializeReplay*(header: ReplayHeader, deltas: seq[ReplayDelta]): string =
+  ## Serialize header + deltas to the text .tas format (trailing newline).
+  ## Inverse of parseReplayString for the fields we define.
+  let magic =
+    if header.magic.len > 0: header.magic
+    else: ReplayMagic
+  var lines: seq[string]
+  lines.add(magic)
+  lines.add(&"rom_hash 0x{header.romHash:08X}")
+  lines.add(&"start_state {header.startStateRef}")
+  lines.add(ReplayHeaderComment)
+  for d in deltas:
+    lines.add(formatDeltaLine(d.frame, d.joy1))
+  result = lines.join("\n") & "\n"
+
 proc writeReplayHeader*(f: File, romHash: uint32, startStateRef: string) =
   ## Write header block (once) when starting a recording.
-  f.writeLine("DBTAS1")
-  f.writeLine(&"rom_hash 0x{romHash:08X}")
-  f.writeLine(&"start_state {startStateRef}")
-  f.writeLine("# frame joy1   -- joy1 (hex) holds from listed frame until next delta line")
+  let header = ReplayHeader(
+    magic: ReplayMagic,
+    romHash: romHash,
+    startStateRef: startStateRef
+  )
+  f.write(serializeReplay(header, @[]))
   f.flushFile()
 
 proc appendReplayDelta*(f: File, frame: int, joy1: uint16) =
   ## Append a delta. Caller ensures only on change (or initial frame 0).
-  f.writeLine(&"{frame} {joy1:04x}")
+  f.writeLine(formatDeltaLine(frame, joy1))
   f.flushFile()
 
-proc parseReplay*(path: string): tuple[header: ReplayHeader, deltas: seq[ReplayDelta]] =
-  ## Parse full .tas into header + ordered deltas. Ignores blank/# lines.
+proc parseReplayString*(content: string): tuple[header: ReplayHeader, deltas: seq[ReplayDelta]] =
+  ## Parse .tas text into header + ordered deltas. Ignores blank and # lines.
   ## Deltas need not start at 0; replay runner applies holding last value.
-  if not fileExists(path):
-    raise newException(IOError, &"replay log not found: {path}")
-  let content = readFile(path)
   let lines = content.splitLines()
   var header = ReplayHeader(magic: "", romHash: 0'u32, startStateRef: "")
   var deltas: seq[ReplayDelta] = @[]
@@ -63,8 +86,8 @@ proc parseReplay*(path: string): tuple[header: ReplayHeader, deltas: seq[ReplayD
     if line.len == 0 or line.startsWith("#"):
       continue
     if not headerDone:
-      if line == "DBTAS1":
-        header.magic = "DBTAS1"
+      if line == ReplayMagic or line == "DBTAS1":
+        header.magic = line
         continue
       # header key-value lines until we hit a line starting with digit (frame delta)
       if line[0] in {'0'..'9'}:
@@ -77,8 +100,12 @@ proc parseReplay*(path: string): tuple[header: ReplayHeader, deltas: seq[ReplayD
           let val = parts[1].strip()
           if key in ["rom_hash", "romhash"]:
             var hv = val.toLowerAscii()
-            if hv.startsWith("0x"): hv = hv[2..^1]
-            try: header.romHash = parseHexInt(hv).uint32 except: discard
+            if hv.startsWith("0x"):
+              hv = hv[2..^1]
+            try:
+              header.romHash = parseHexInt(hv).uint32
+            except ValueError:
+              discard
             continue
           elif key in ["start_state", "startstate", "start"]:
             header.startStateRef = val
@@ -94,8 +121,14 @@ proc parseReplay*(path: string): tuple[header: ReplayHeader, deltas: seq[ReplayD
       except ValueError:
         discard
   if header.magic.len == 0:
-    header.magic = "DBTAS1"
+    header.magic = ReplayMagic
   (header, deltas)
+
+proc parseReplay*(path: string): tuple[header: ReplayHeader, deltas: seq[ReplayDelta]] =
+  ## Parse full .tas into header + ordered deltas from a path.
+  if not fileExists(path):
+    raise newException(IOError, &"replay log not found: {path}")
+  parseReplayString(readFile(path))
 
 proc deltasToTable*(deltas: seq[ReplayDelta]): Table[int, uint16] =
   ## For convenience in runners: map frame -> joy1 at that point.
@@ -103,6 +136,14 @@ proc deltasToTable*(deltas: seq[ReplayDelta]): Table[int, uint16] =
   result = initTable[int, uint16]()
   for d in deltas:
     result[d.frame] = d.joy1
+
+proc joyAtFrame*(deltas: seq[ReplayDelta], frame: int): uint16 =
+  ## Resolve held joy1 at `frame` (last delta with d.frame <= frame, else 0).
+  result = 0'u16
+  for d in deltas:
+    if d.frame > frame:
+      break
+    result = d.joy1
 
 proc wramHash*(snes: SnesBus): uint32 =
   ## Cheap deterministic hash of the 128KB WRAM (7E+7F) for end-of-run reports.

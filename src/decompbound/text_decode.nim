@@ -2,31 +2,34 @@
 ## Reverse-engineered from verified findings in docs/scripts.md.
 ## Encodes storage as byte = ASCII + 0x30 for printable glyphs.
 ## Controls < 0x20 dispatch at file 0x1890E (CMP #$0020).
-## 0x15/0x16/0x17 perform calls via the far-ptr tables.
+## 0x15/0x16/0x17 perform calls via the far-ptr tables (1-byte index).
 ## Never produces committed dialogue output; used only at runtime on user ROM.
 
 import
   std/[strformat, strutils]
 
 const
-  # Verified text encoding per docs/scripts.md
-  TextEncodingOffset = 0x30
-  # Text block dispatch threshold (CMP #$0020 at file 0x1890E)
-  ControlThreshold = 0x20
-  # Primary dialogue pointer table (id*4 -> 24-bit far ptr)
-  # TODO: magic byte from scripts.md verified location at file 0x8CDED (SNES $C8CDED); parallel tables ~0x8D1ED/~0x8D5ED
+  # Verified text encoding: storage byte = ASCII + 0x30 (docs/scripts.md).
+  TextEncodingOffset* = 0x30
+  # Text block dispatch threshold (CMP #$0020 at file 0x1890E).
+  ControlThreshold* = 0x20
+  # Dialogue far-pointer tables: id * 4 -> 24-bit far ptr (bank C8).
+  # Verified: handlers at file 0x18815 / 0x1886F / 0x188C8 load these bases.
+  # Each table is 0x400 bytes = 256 entries.
   DialoguePtrTable0* = 0x8CDED
   DialoguePtrTable1* = 0x8D1ED
   DialoguePtrTable2* = 0x8D5ED
+  DialoguePtrTables* = [DialoguePtrTable0, DialoguePtrTable1, DialoguePtrTable2]
 
-# Operand counts for controls (number of extra bytes after the control byte in stream).
-# TODO: widths determined incrementally from dispatch analysis + verify block requirements (0x63040 needs 0x02:1);
-# full set requires live interpreter hook per scripts.md. Observed controls: 0x00-0x1C.
+# Operand counts: extra stream bytes after the control opcode itself.
+# Verified from dispatch/handlers where noted; prefixes (0x18/0x1C) consume a
+# 1-byte sub-op as a first-order model — secondary $1E collectors may take more.
+# TODO: complete per-sub-op widths via live interpreter hook (docs/scripts.md).
 const
   ControlOperandCounts: array[0x20, int] = [
-    0, # 00: terminator
-    0, # 01
-    1, # 02: consumes 1 (required for 0x63040 verify to strip leading operand byte before "INPUT...")
+    0, # 00: end (also special-cased as zero-byte in the fetch loop)
+    0, # 01: line / window helper (JSR $04B5); no stream operands
+    0, # 02: prompt/suspend (RTL out of interpreter at $C18B0A); no stream ops
     0, # 03
     0, # 04
     0, # 05
@@ -34,7 +37,7 @@ const
     0, # 07
     0, # 08
     0, # 09
-    0, # 0A
+    0, # 0A: sets $1E collector (can gather further bytes — TODO)
     0, # 0B
     0, # 0C
     0, # 0D
@@ -45,14 +48,14 @@ const
     0, # 12
     0, # 13
     0, # 14
-    2, # 15: call other text via table 0
-    2, # 16: call other text via table 1
-    2, # 17: call other text via table 2
-    0, # 18
+    1, # 15: call table0[index] — 1-byte index (AND #$00FF; INC once @ 0x18837)
+    1, # 16: call table1[index]
+    1, # 17: call table2[index]
+    1, # 18: multi-byte CC prefix; next byte is sub-op ($1E=$790B @ 0x18AC4)
     0, # 19
     0, # 1A
     0, # 1B
-    0, # 1C
+    1, # 1C: multi-byte CC prefix; next byte is sub-op ($1E=$7D94 @ 0x18AE4)
     0, # 1D
     0, # 1E
     0, # 1F
@@ -63,10 +66,12 @@ proc farPtrToFileOffset*(bank: uint8, physAddr: uint16): int =
   ## Mapping derived from table base at 0x8CDED pointing inside C8 bank.
   ((bank and 0x3f).int shl 16) or physAddr.int
 
-proc resolveDialogueBlock*(rom: openArray[uint8], id: int): int =
-  ## Resolve a dialogue block id via the 0x8CDED far-pointer table (id -> far ptr -> file offset).
-  ## Returns the file offset of the block start, or -1 if out of range.
-  let entryOff = DialoguePtrTable0 + id * 4
+proc resolveDialogueBlock*(rom: openArray[uint8], id: int, table = 0): int =
+  ## Resolve a dialogue block id via a far-pointer table (id -> far ptr -> file offset).
+  ## `table` selects 0/1/2 (0x8CDED / 0x8D1ED / 0x8D5ED). Returns -1 if out of range.
+  if table < 0 or table > 2:
+    return -1
+  let entryOff = DialoguePtrTables[table] + id * 4
   if entryOff + 3 >= rom.len:
     return -1
   let lo = rom[entryOff + 0].uint16
@@ -78,11 +83,33 @@ proc resolveDialogueBlock*(rom: openArray[uint8], id: int): int =
     return -1
   return fileOff
 
+proc controlTag(b: uint8, ops: string): string =
+  ## Map a control opcode (+ optional operand hex) to a readable tag.
+  case b
+  of 0x00:
+    "[end]"
+  of 0x01:
+    "[nl]"
+  of 0x02:
+    "[prompt]"
+  of 0x15, 0x16, 0x17:
+    let t = int(b) - 0x15
+    if ops.len > 0:
+      &"[call{t}:{ops}]"
+    else:
+      &"[call{t}]"
+  of 0x18:
+    if ops.len > 0: &"[cc18:{ops}]" else: "[cc18]"
+  of 0x1C:
+    if ops.len > 0: &"[cc1C:{ops}]" else: "[cc1C]"
+  else:
+    if ops.len > 0: &"[ctl:{b:02X}:{ops}]" else: &"[ctl:{b:02X}]"
+
 proc decodeText*(rom: openArray[uint8], offset: int): string =
   ## Decode an EB dialogue byte stream at file offset to a readable tagged string.
   ## Printable glyphs use byte - 0x30 -> ASCII for the known letter/space/punct range.
   ## Unknown glyphs >= 0x20 become [g:XX].
-  ## Controls < 0x20 become [end] / [call:XX] / [ctl:XX] and consume their documented operands.
+  ## Controls < 0x20 become tags ([end]/[prompt]/[callN:XX]/[cc18:XX]/[ctl:XX]) and consume operands.
   var pos = offset
   var resultStr = ""
   const MaxBytes = 8192
@@ -95,29 +122,15 @@ proc decodeText*(rom: openArray[uint8], offset: int): string =
       resultStr.add "[end]"
       break
     if b < ControlThreshold:
-      if b in [0x15'u8, 0x16, 0x17]:
-        # call via far-ptr table; consume 2-byte operand (typically table id)
-        var operand: uint16 = 0
+      let nOps = if b.int < ControlOperandCounts.len: ControlOperandCounts[b] else: 0
+      var opsStr = ""
+      for i in 0 ..< nOps:
         if pos < rom.len:
-          operand = rom[pos].uint16
+          opsStr.add &"{rom[pos]:02X}"
           inc pos
-        if pos < rom.len:
-          operand = operand or (rom[pos].uint16 shl 8)
-          inc pos
-        resultStr.add &"[call:{b:02X}:{operand:04X}]"
-      else:
-        let nOps = if b.int < ControlOperandCounts.len: ControlOperandCounts[b] else: 0
-        var opsStr = ""
-        for i in 0 ..< nOps:
-          if pos < rom.len:
-            opsStr.add &"{rom[pos]:02X}"
-            inc pos
-          else:
-            break
-        if opsStr.len > 0:
-          resultStr.add &"[ctl:{b:02X}:{opsStr}]"
         else:
-          resultStr.add &"[ctl:{b:02X}]"
+          break
+      resultStr.add controlTag(b, opsStr)
       continue
     # printable glyph path (>= 0x20)
     let chVal = int(b) - TextEncodingOffset
