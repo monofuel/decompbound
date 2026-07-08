@@ -20,6 +20,19 @@ const
   WindowFrames = 1600  # ~50 ms at 32 kHz
   NumLogBins = 20
 
+  # For --song mode: replicate sound_explore upload path (song table 0x04F70A,
+  # pack table 0x04F947, engine pack 1 prepended, $0500 kick, port seq).
+  SongTableFile = 0x04F70A
+  PackTableFile = 0x04F947
+  DefaultRom = "bin/Earthbound (U) [!].smc"
+  # Stub from sound_explore (IPL side effect at $0500 for len=0 target).
+  Ipl0500Stub: array[32, uint8] = [
+    0x20'u8, 0xCD, 0xCF, 0xBD, 0xE8, 0x00, 0x5D, 0xAF,
+    0xC8, 0xE0, 0xD0, 0xFB, 0x3F, 0xA5, 0x16, 0xE8,
+    0x55, 0xC4, 0x18, 0xC4, 0x19, 0xE8, 0x00, 0xBC,
+    0x3F, 0x2C, 0x0B, 0xA2, 0x48, 0xE8, 0x70, 0x8D
+  ]
+
 proc readRomFile(filepath: string): seq[uint8] =
   ## Read a binary file (no copier header stripping for .spc).
   let data = readFile(filepath)
@@ -258,13 +271,156 @@ proc synthesizeToneSpc(): string =
   echo &"synthesized portable low-pitch tone SPC: {tonePath} (entry=0x0600, pitch=0x0200, direct GAIN, kon=01)"
   tonePath
 
+proc readRomFileForSong(filepath: string): seq[uint8] =
+  ## Read ROM for pack extraction; strip optional 512-byte copier header.
+  let data = readFile(filepath)
+  var start = 0
+  if data.len mod 1024 == 512:
+    start = 512
+  result = newSeq[uint8](data.len - start)
+  for i in 0..<result.len:
+    result[i] = data[start + i].uint8
+
+proc getSongPackIndices(rom: seq[uint8], songId: int): seq[int] =
+  ## Lookup up to 3 pack indices for songId from song table.
+  if songId < 1:
+    quit("song id must be >= 1")
+  let base = SongTableFile + (songId - 1) * 3
+  if base + 2 >= rom.len:
+    quit(&"song table overrun for id {songId}")
+  result = @[]
+  for i in 0..2:
+    let p = rom[base + i].int
+    if p != 0xFF:
+      result.add(p)
+
+proc packFileOffset(rom: seq[uint8], packIdx: int): int =
+  ## Pack table entry -> far ptr -> file offset (HiROM).
+  let base = PackTableFile + packIdx * 3
+  if base + 2 >= rom.len:
+    quit(&"pack table overrun for idx {packIdx}")
+  let bank = rom[base + 0]
+  let lo = rom[base + 1]
+  let hi = rom[base + 2]
+  result = ((bank and 0x3F).int shl 16) or ((hi.int shl 8) or lo.int)
+
+proc loadPackageToRam(ram: var array[0x10000, uint8], rom: seq[uint8], fileOff: int) =
+  ## Replicate $C0AB06 package block copy: [u16 len][u16 tgt][payload] until len=0.
+  var pos = fileOff
+  while pos + 3 < rom.len:
+    let len = (rom[pos + 0].int) or (rom[pos + 1].int shl 8)
+    let tgt = (rom[pos + 2].int) or (rom[pos + 3].int shl 8)
+    pos += 4
+    if len == 0: break
+    if pos + len > rom.len: break
+    for i in 0..<len:
+      let a = tgt + i
+      if a >= 0 and a < 0x10000: ram[a] = rom[pos + i]
+    pos += len
+
+proc snapshotApuToSpc(apu: Apu, songId: int): string =
+  ## Build a valid .spc file capturing current APU RAM + SPC CPU state + DSP regs.
+  ## For song snapshots: build a setup program that re-applies the captured DSP voice
+  ## config (vol/pitch/srcn/gain + re-KON active) so both our DSP and snes_spc
+  ## render the high-pitch element voices from identical snapshot state.
+  createDir("bin")
+  const SpcSize = 0x10200
+  var spcData = newSeq[uint8](SpcSize)
+
+  let sig = "SNES-SPC700 Sound File Data v0.30\x1A\x1A"
+  for k in 0..<sig.len:
+    spcData[k] = sig[k].uint8
+  spcData[0x23] = 26'u8
+  spcData[0x24] = 30'u8
+
+  # For song: use a setup poke program (re-KON captured voices). For tone keep live pc.
+  let useSetup = songId > 0
+  let ProgramEntry: uint16 = if useSetup: 0x0F00'u16 else: apu.spc.pc
+  spcData[0x25] = (ProgramEntry and 0xFF).uint8
+  spcData[0x26] = ((ProgramEntry shr 8) and 0xFF).uint8
+  spcData[0x27] = 0'u8
+  spcData[0x28] = 0'u8
+  spcData[0x29] = 0'u8
+  spcData[0x2A] = 0'u8
+  spcData[0x2B] = 0xEF'u8
+
+  for j in 0..<0x10000:
+    spcData[0x100 + j] = apu.spc.ram[j]
+  for j in 0..<128:
+    spcData[0x10100 + j] = apu.dsp.regs[j]
+
+  if useSetup:
+    # If driver left dir at 00 but table at $6C00, force $5D=6C in snapshot DSP for
+    # the .spc render to point voices at the BRR dir/samples (helps resume audio).
+    if spcData[0x10100 + 0x5D] == 0:
+      spcData[0x10100 + 0x5D] = 0x6C'u8
+    # Build SPC700 poke program at ProgramEntry: set mvol/flg/dir, per-voice params for
+    # active voices, re-KON them, then clean idle (bra *-2). Matches tone style.
+    var setup: seq[uint8] = @[]
+    # mvol L/R
+    setup.add([0x8F'u8, 0x0C, 0xF2, 0x8F'u8, apu.dsp.regs[0x0C], 0xF3])
+    setup.add([0x8F'u8, 0x1C, 0xF2, 0x8F'u8, apu.dsp.regs[0x1C], 0xF3])
+    # dir
+    setup.add([0x8F'u8, 0x5D, 0xF2, 0x8F'u8, apu.dsp.regs[0x5D], 0xF3])
+    # flg (preserve but force no reset/mute if possible)
+    var flg = apu.dsp.regs[0x6C]
+    if (flg and 0x80) != 0: flg = flg and 0x7F  # avoid soft reset if set
+    setup.add([0x8F'u8, 0x6C, 0xF2, 0x8F'u8, flg, 0xF3])
+    # per voice: if has vol or pitch, poke its regs + collect kon mask
+    var konMask: uint8 = 0
+    for v in 0..7:
+      let base = v * 0x10
+      let vl = apu.dsp.regs[base + 0]
+      let vr = apu.dsp.regs[base + 1]
+      let pl = apu.dsp.regs[base + 2]
+      let ph = apu.dsp.regs[base + 3]
+      let p = (pl.uint16) or ((ph.uint16 and 0x3F) shl 8)
+      if vl != 0 or vr != 0 or p != 0:
+        konMask = konMask or (1'u8 shl v)
+        # vol L/R
+        setup.add([0x8F'u8, (base + 0).uint8, 0xF2, 0x8F'u8, vl, 0xF3])
+        setup.add([0x8F'u8, (base + 1).uint8, 0xF2, 0x8F'u8, vr, 0xF3])
+        # pitch L/H
+        setup.add([0x8F'u8, (base + 2).uint8, 0xF2, 0x8F'u8, pl, 0xF3])
+        setup.add([0x8F'u8, (base + 3).uint8, 0xF2, 0x8F'u8, ph, 0xF3])
+        # srcn, adsr1, adsr2, gain
+        setup.add([0x8F'u8, (base + 4).uint8, 0xF2, 0x8F'u8, apu.dsp.regs[base+4], 0xF3])
+        setup.add([0x8F'u8, (base + 5).uint8, 0xF2, 0x8F'u8, apu.dsp.regs[base+5], 0xF3])
+        setup.add([0x8F'u8, (base + 6).uint8, 0xF2, 0x8F'u8, apu.dsp.regs[base+6], 0xF3])
+        setup.add([0x8F'u8, (base + 7).uint8, 0xF2, 0x8F'u8, apu.dsp.regs[base+7], 0xF3])
+    # KON the active mask
+    setup.add([0x8F'u8, 0x4C, 0xF2, 0x8F'u8, konMask, 0xF3])
+    # idle bra *-2
+    setup.add([0x2F'u8, 0xFE])
+    # write setup at ProgramEntry in RAM area of spc
+    for ii, b in setup:
+      if 0x100 + ProgramEntry.int + ii < SpcSize:
+        spcData[0x100 + ProgramEntry.int + ii] = b
+    # also ensure DSP snapshot area has the captured (already done)
+    # and set initial KON in DSP area for our hydrate path
+    spcData[0x10100 + 0x4C] = konMask
+
+  let path = if songId > 0: &"bin/song{songId:03d}_tessie_snapshot.spc" else: "bin/live_snapshot.spc"
+  var outStr = newString(SpcSize)
+  for i, b in spcData:
+    outStr[i] = b.char
+  writeFile(path, outStr)
+  let pcLogged = if useSetup: ProgramEntry else: apu.spc.pc
+  echo &"snapped APU state after song kick+play: {path} (pc=${pcLogged:04X})"
+  path
+
 proc main() =
   ## Parse args, load .spc into our APU (direct regs, hydrate voices), render ours,
   ## shell to spc2wav --no-filter (or with filter), read ref, diff + report.
+  ## Supports --song N to play real EB song via upload path (sound_explore logic),
+  ## snapshot live APU to .spc, then diff that against snes_spc ref (for real high-pitch
+  ## element like Tessie wind).
   var spcPath = ""
   var seconds = DefaultSeconds
   var skipSec = DefaultSkip
   var applyFilter = false
+  var song = 0
+  var romPath = DefaultRom
 
   var i = 1
   while i <= paramCount():
@@ -286,10 +442,21 @@ proc main() =
       skipSec = parseFloat(a[7 .. ^1])
     elif a == "--filter":
       applyFilter = true
+    elif a == "--song" and i < paramCount():
+      inc i
+      song = parseInt(paramStr(i))
+    elif a.startsWith("--song="):
+      song = parseInt(a[7 .. ^1])
+    elif a == "--rom" and i < paramCount():
+      inc i
+      romPath = paramStr(i)
+    elif a.startsWith("--rom="):
+      romPath = a[6 .. ^1]
     elif a == "--help" or a == "-h":
-      echo "Usage: nim r src/tools/audio_diff.nim [--spc <path.spc>] [--seconds N] [--skip 0.1] [--filter]"
+      echo "Usage: nim r src/tools/audio_diff.nim [--spc <path.spc>] [--song N] [--seconds N] [--skip 0.1] [--filter] [--rom path]"
+      echo "  --song N : play real song via pack upload (like sound_explore), snapshot APU to .spc, diff it"
       echo "  --filter : let ref use SPC_Filter (default: raw --no-filter for DSP-vs-DSP)"
-      echo "  Default (no --spc): synthesize portable low-pitch test tone SPC in bin/"
+      echo "  Default (no --spc/--song): synthesize portable low-pitch test tone SPC in bin/"
       quit(0)
     else:
       if not a.startsWith("--") and spcPath.len == 0:
@@ -297,7 +464,60 @@ proc main() =
     inc i
 
   if spcPath.len == 0:
-    spcPath = synthesizeToneSpc()
+    if song > 0:
+      # (a) .spc-snapshot route using sound_explore upload path exactly.
+      # Play target song (e.g. Tessie sighting), advance into sustained element,
+      # snapshot full APU (RAM + SPC regs + DSP regs) to valid .spc.
+      echo &"song mode: uploading song {song} via pack tables and kicking..."
+      let rom = readRomFileForSong(romPath)
+      var packs = getSongPackIndices(rom, song)
+      if 1 notin packs:
+        packs = @[1] & packs
+      echo &"song {song} -> packs {packs}"
+      var apuRam: array[0x10000, uint8]
+      for p in packs:
+        let foff = packFileOffset(rom, p)
+        echo &"  loading pack {p} from file 0x{foff:06X}"
+        loadPackageToRam(apuRam, rom, foff)
+      if apuRam[0x0500] == 0:
+        for ii in 0..<Ipl0500Stub.len:
+          apuRam[0x0500 + ii] = Ipl0500Stub[ii]
+      let apuLive = newApu()
+      for ii in 0..<0x10000:
+        apuLive.spc.ram[ii] = apuRam[ii]
+      apuLive.spc.pc = 0x0500'u16
+      apuLive.spc.sp = 0xEF'u8
+      apuLive.spc.a = 0
+      apuLive.spc.x = 0
+      apuLive.spc.y = 0
+      apuLive.spc.psw = 0
+      for _ in 0 ..< (SampleRate div 5):
+        discard apuLive.runSample()
+      # Kick protocol (from sound_explore + C4FBBD tail):
+      apuLive.portsIn[3] = 0x57'u8
+      for _ in 0 ..< (SampleRate div 200):
+        discard apuLive.runSample()
+      apuLive.portsIn[1] = 1'u8
+      for _ in 0 ..< (SampleRate div 200):
+        discard apuLive.runSample()
+      apuLive.portsIn[0] = 0'u8
+      for _ in 0 ..< (SampleRate div 200):
+        discard apuLive.runSample()
+      apuLive.portsIn[0] = (song and 0xFF).uint8
+      # Check dir right after kick (should become 0x6C once driver inits samples).
+      echo &"post-kick before advance: dir=${apuLive.dsp.regs[0x5D]:02X} mvol=${apuLive.dsp.regs[0x0C]:02X} flg=${apuLive.dsp.regs[0x6C]:02X}"
+      # Advance fixed time post-kick to reach sustained part of song (high wind element).
+      # Re-kick song periodically. Snapshot whatever state the driver is in (RAM/DSP at that time).
+      let playFrames = int(0.9 * float(SampleRate) + 0.5)
+      for fi in 0..<playFrames:
+        if (fi mod (SampleRate div 2)) == 0:
+          apuLive.portsIn[0] = (song and 0xFF).uint8
+        discard apuLive.runSample()
+      echo &"advanced {playFrames} frames into song for snapshot; dir=${apuLive.dsp.regs[0x5D]:02X} mvolL=${apuLive.dsp.regs[0x0C]:02X}"
+      # Snapshot the live state (driver running, voices+regs+RAM).
+      spcPath = snapshotApuToSpc(apuLive, song)
+    else:
+      spcPath = synthesizeToneSpc()
   if not fileExists(spcPath):
     echo &"ERROR: SPC not found: {spcPath}"
     quit(1)
@@ -342,15 +562,18 @@ proc main() =
   for j in 0..<128:
     apu.dsp.regs[j] = spcData[0x10100 + j]
 
-  # Sanitize echo/FIR/other for clean tone (in case snapshot carried defaults).
-  apu.dsp.regs[0x2C] = 0
-  apu.dsp.regs[0x3C] = 0
-  apu.dsp.regs[0x6D] = 0
-  apu.dsp.regs[0x7D] = 0
-  for t in 0..7: apu.dsp.regs[t * 0x10 + 0x0F] = 0'u8
-  for v in 1..7:
-    apu.dsp.regs[v * 0x10 + 0] = 0
-    apu.dsp.regs[v * 0x10 + 1] = 0
+  # Sanitize only for synthetic tone snapshots (keep full live state for real-song
+  # snapshots so echo, multi-voice, flg, and active high-pitch voices are preserved).
+  let isTone = spcPath.contains("test_tone") or spcPath.contains("tone")
+  if isTone:
+    apu.dsp.regs[0x2C] = 0
+    apu.dsp.regs[0x3C] = 0
+    apu.dsp.regs[0x6D] = 0
+    apu.dsp.regs[0x7D] = 0
+    for t in 0..7: apu.dsp.regs[t * 0x10 + 0x0F] = 0'u8
+    for v in 1..7:
+      apu.dsp.regs[v * 0x10 + 0] = 0
+      apu.dsp.regs[v * 0x10 + 1] = 0
 
   apu.spc.stopped = false
   apu.spc.iplEnabled = false
@@ -378,7 +601,9 @@ proc main() =
   # Warmup: advance SPC (executes pokes from PC) + DSP mixes for several frames so
   # pitch/vol/KON writes complete and low-pitch counter ramps (needs ~8+ frames for
   # first 0x1000 cross + decode). Post-skip render then sees stable tone on both sides.
-  for _ in 0..<32:
+  # For song snapshots use longer warmup to let setup pokes + envelopes settle.
+  let warmupN = if spcPath.contains("song") and spcPath.contains("snapshot"): 64 else: 32
+  for _ in 0..<warmupN:
     discard apu.runSample()
 
   # Render N seconds via runSample()
