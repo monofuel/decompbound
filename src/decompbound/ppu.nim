@@ -498,9 +498,11 @@ proc renderSprites*(snes: SnesBus, image: Image) =
     let size = if large: sizes[1] else: sizes[0]
 
     let y = snes.oam[base + 1].int
-    # Skip sprites with no visible row: entirely in the off-screen 224-255 band
-    # and not wrapping past line 256 back to the top.
-    if y >= ScreenHeight and y + size <= 256:
+    # Hardware: sprites appear one scanline below OAM Y (same as NES). First
+    # drawn line is y+1, last is y+size (mod 256). Skip when every drawn line
+    # sits in the 224..255 band with no wrap past 256 onto line 0.
+    # See: https://snes.nesdev.org/wiki/Sprites
+    if y >= ScreenHeight and y + size < 256:
       continue
 
     var x = snes.oam[base].int or (xHigh.int shl 8)
@@ -520,7 +522,8 @@ proc renderSprites*(snes: SnesBus, image: Image) =
       let sy = if flipY: size - 1 - py else: py
       # Sprite Y wraps at 256: a sprite near line 256 shows its wrapped rows at
       # the top of the screen (how sprites enter from the top edge).
-      let screenY = (y + py) and 0xFF
+      # +1: OAM Y is the scanline *above* the first visible sprite row.
+      let screenY = (y + py + 1) and 0xFF
       if screenY >= ScreenHeight:
         continue
       for px in 0..<size:
