@@ -24,14 +24,12 @@ type
     portsIn*: array[4, uint8]   ## What the S-CPU wrote ($2140-$2143).
     portsOut*: array[4, uint8]  ## What the SPC700 wrote back.
     cycleRemainder: int
-    prevPc: uint16  ## For detecting transition into driver entry on IPL kick.
 
 proc newApu*(): Apu =
   ## Build the APU with I/O hooks installed.
   let apu = Apu()
   apu.spc = newSpc()
   apu.dsp = newDsp(apu.spc.ram)
-  apu.prevPc = 0'u16
 
   apu.spc.readHook = proc(address: uint16): int =
     case address:
@@ -116,21 +114,6 @@ proc tickTimers*(apu: Apu, cycles: int) =
 proc runSample*(apu: Apu): tuple[left: int16, right: int16] =
   ## Run the SPC700 for one 32kHz sample worth of cycles, tick timers,
   ## and mix one output sample.
-  # Kick-to-driver hook (IPL path): when IPL lands exec at $0500 (via 1F 00 00
-  # after len=0), normalize to the entry state the stub/driver expects (as used
-  # in sound_explore direct start and captured during real IPL+pack1 upload).
-  # This makes the post-upload ack (write 0 to port) happen promptly so
-  # $C0AB90 exits. The data bytes themselves come from preload of pack 1.
-  let curPc = apu.spc.pc
-  if (curPc >= 0x0500'u16 and curPc < 0x0600'u16) and not (apu.prevPc >= 0x0500'u16 and apu.prevPc < 0x0600'u16):
-    # Transition into driver area (IPL kick). Set entry state once.
-    apu.spc.sp = 0xEF'u8
-    apu.spc.a = 0
-    apu.spc.x = 0
-    apu.spc.y = 0
-    apu.spc.psw = 0
-  apu.prevPc = curPc
-
   let startCycles = apu.spc.cycles
   while apu.spc.cycles - startCycles < CyclesPerSample and not apu.spc.stopped:
     apu.spc.step()
@@ -139,32 +122,3 @@ proc runSample*(apu: Apu): tuple[left: int16, right: int16] =
     apu.spc.cycles += CyclesPerSample
   apu.tickTimers(CyclesPerSample)
   result = apu.dsp.mixSample()
-
-proc loadPack*(apu: Apu, rom: seq[uint8], packIdx: int) =
-  ## Load one music data pack's blocks directly into APU RAM (the same
-  ## [len, target, payload...] format streamed by $C0AB06). Call this at boot
-  ## to place pack 1 (the engine/driver) so the $0500 entry point and init
-  ## code are present before the first song load that omits pack 1 from its
-  ## list. The game relies on prior residency for such songs; our fresh IPL
-  ## path does not perform that prior load.
-  const PackTableFile = 0x04F947
-  if packIdx < 0 or packIdx > 255: return
-  let base = PackTableFile + packIdx * 3
-  if base + 2 >= rom.len: return
-  let bank = rom[base]
-  let lo = rom[base + 1]
-  let hi = rom[base + 2]
-  let fileOff = ((bank and 0x3F).int shl 16) or ((hi.int shl 8) or lo.int)
-  if fileOff <= 0 or fileOff >= rom.len: return
-  var pos = fileOff
-  while pos + 3 < rom.len:
-    let len = (rom[pos + 0].int) or (rom[pos + 1].int shl 8)
-    let tgt = (rom[pos + 2].int) or (rom[pos + 3].int shl 8)
-    pos += 4
-    if len == 0: break
-    if pos + len > rom.len: break
-    for i in 0..<len:
-      let a = tgt + i
-      if a >= 0 and a < 0x10000:
-        apu.spc.ram[a] = rom[pos + i]
-    pos += len

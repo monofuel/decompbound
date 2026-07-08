@@ -2,8 +2,7 @@
 ## control Earthbound for debugging. Boots ROM, runs at ~60 fps with
 ## NMI injection, maps keyboard + all paddy gamepads (as player 1) to joy1,
 ## renders via PPU each frame.
-## Usage: nim r src/tools/play.nim [--verbose|-v] [--frame-diag] <rom>
-## --frame-diag adds lightweight per-frame timing + HITCH/EVENT logs to stdout (no render/window/audio/input/pacing changes).
+## Usage: nim r src/tools/play.nim [--verbose|-v] <rom>
 
 import
   std/[os, strformat, strutils, monotimes, times, algorithm, osproc, options],
@@ -126,14 +125,11 @@ proc main() =
   ## paddy gamepads (treated as player 1) feed joy1 (ORed).
   ## Pass --verbose to print input state changes to stdout.
   var verbose = false
-  var frameDiag = false
   var romPath = ""
   for i in 1..paramCount():
     let arg = paramStr(i)
     if arg == "--verbose" or arg == "-v":
       verbose = true
-    elif arg == "--frame-diag":
-      frameDiag = true
     elif romPath.len == 0:
       romPath = arg
     else:
@@ -141,7 +137,7 @@ proc main() =
       quit(1)
 
   if romPath.len == 0:
-    echo "Usage: nim r src/tools/play.nim [--verbose|-v] [--frame-diag] <rom>"
+    echo "Usage: nim r src/tools/play.nim [--verbose|-v] <rom>"
     quit(1)
 
   const
@@ -191,7 +187,6 @@ Controls:
     D-pad (real buttons OR left-stick axes for cheap fake-dpad pads) + face buttons, Select, Start feed joy1 (OR with keyboard).
 
   --verbose / -v   Print input changes (joy1 + only active gamepads) for debugging
-  --frame-diag     Enable per-frame wall-clock timing + HITCH (slow >2x normal or >25ms) / EVENT logs to stdout (logging only; frame pacing/render/audio/input unchanged)
   Mouse cursor hides after 3s (180 frames) idle; reappears on movement.
   Events (input changes, saves/loads, F9-F12, pause/speed) are logged to bin/play_log.txt
 """
@@ -255,42 +250,6 @@ Controls:
       let ts = now().format("yyyy-MM-dd HH:mm:ss")
       logFile.writeLine(&"{ts}  {msg}")
       logFile.flushFile()
-
-  # Frame-time diagnostics (hitch hunting, ~8s periodic suspect: ORC GC or periodic saves).
-  # Always declare (zero cost); gated by frameDiag. Measurements + appends ONLY when enabled.
-  # Rolling median of recent "normal" frames for adaptive threshold. Logs to stdout.
-  var frameDiagEnabled = frameDiag
-  var frameTimes: seq[float] = @[]   # rolling recent normal frame durations (ms)
-  const MaxFrameTimes = 120
-  var prevGcMem = getOccupiedMem()
-  var hitchCount = 0
-  var hitchTimes: seq[(int, float)] = @[]  # (frame, epochSec) for mean interval
-  var gcDropHitches = 0
-  if frameDiagEnabled:
-    echo &"[frame-diag] FRAME-DIAG START  ROM={romPath}"
-
-  proc writeFrameLog(msg: string) =
-    ## Print straight to stdout (you're watching the terminal) — no file to open.
-    ## Only active when --frame-diag.
-    if frameDiagEnabled:
-      let ts = now().format("HH:mm:ss")
-      echo &"[frame-diag] {ts}  {msg}"
-
-  proc gcStats(): string =
-    ## Current ORC GC stats string (occupied + max + the stats dump).
-    let occ = getOccupiedMem()
-    let mx = getMaxMem()
-    let tot = getTotalMem()
-    let st = GC_getStatistics()
-    &"occ={occ} max={mx} total={tot} stats=\"{st.strip()}\""
-
-  proc medianFrameTime(fts: seq[float]): float =
-    ## Rolling median of frame times (ms). Used as "normal" baseline for >2x threshold.
-    if fts.len == 0: return 16.67
-    var s = fts
-    s.sort()
-    let n = s.len
-    if n mod 2 == 1: s[n div 2] else: (s[n div 2 - 1] + s[n div 2]) / 2.0
 
   # F10: one-shot per-scanline TM/TS profile -> bin/autoshots/scanline_trace.txt,
   # for diagnosing HDMA screen-splits (e.g. the battle's bottom status band).
@@ -664,8 +623,6 @@ void main() {
       let rhash = romHashOf(rom)
       saveScreenshot(frameImage, screenshotsDir, stateBytes, rhash)
       writeLog("screenshot (F12)")
-      if frameDiagEnabled:
-        writeFrameLog(&"EVENT screenshot F12 frame={frameCount} {gcStats()}")
       echo &"  BGMODE={snes.ppuRegs[0x05] and 7} bg3prio={(snes.ppuRegs[0x05] and 8) != 0} " &
         &"TM(main)={snes.ppuRegs[0x2C]:02X} TS(sub)={snes.ppuRegs[0x2D]:02X} INIDISP={snes.ppuRegs[0x00]:02X}"
       echo &"  CGADSUB={snes.ppuRegs[0x31]:02X} CGWSEL={snes.ppuRegs[0x30]:02X} HDMAEN={snes.hdmaen:02X}"
@@ -751,11 +708,6 @@ void main() {
             inc n
           n
       for t in 0 ..< ticks:
-        # Per-frame work timing (wall-clock) for diagnostics. Placed at the start of
-        # emulated-frame body so dur covers CPU steps + HDMA + APU ticks + sprite/overlay
-        # raster + any capture writes (F9 trace/bundle) done for this frame. getMonoTime
-        # is cheap; the ifs ensure no behavior or pacing change.
-        let workStart = getMonoTime()
         # Instructions per scanline = the CPU's per-frame budget (× 262 lines). The
         # SNES gives the CPU a fixed CYCLE budget/frame; we approximate with an
         # instruction count (goal.md: no cycle accuracy). This budget must cover the
@@ -890,8 +842,6 @@ void main() {
             echo "wrote diagnostic bundle -> bin/autoshots/ " &
               "(scanline_trace.txt + bundle_frame.png + bundle_regs.txt)"
             writeLog("F9/auto: wrote diagnostic bundle (scanline_trace + frame + regs)")
-            if frameDiagEnabled:
-              writeFrameLog(&"EVENT F9-bundle frame={frameCount} {gcStats()}")
             if captureManual:
               # F9 (manual) captures get numbered copies the HDMA auto-capture
               # can't overwrite — so a deliberate F9 (e.g. on the battle HP/PP
@@ -904,41 +854,12 @@ void main() {
                 &"bin/autoshots/f9_{f9Count:03}_trace.txt")
               echo &"  F9 bundle preserved -> bin/autoshots/f9_{f9Count:03}_*"
               writeLog(&"F9: bundle preserved as f9_{f9Count:03}_*")
-              if frameDiagEnabled:
-                writeFrameLog(&"EVENT F9-bundle-preserved frame={frameCount} {gcStats()}")
               inc f9Count
               captureManual = false
           else:
             echo "wrote bin/autoshots/scanline_trace.txt"
             writeLog("wrote scanline_trace.txt")
-            if frameDiagEnabled:
-              writeFrameLog(&"EVENT scanline-trace frame={frameCount} {gcStats()}")
         frameCount += 1
-        if frameDiagEnabled:
-          # End timing after frame inc (and after any bundle writes for it). Detect
-          # slow frames; use rolling median of normals for adaptive threshold (>2x or >25ms).
-          # Log HITCH with ts, frame, dur, fps, GC stats so GC collection (occ drop) is visible.
-          let workEnd = getMonoTime()
-          let durMs = (workEnd - workStart).inNanoseconds.float / 1_000_000.0
-          let med = medianFrameTime(frameTimes)
-          let thresh = if frameTimes.len < 5 or frameCount < 10: 33.0 else: max(25.0, med * 2.0)
-          let isHitch = durMs > thresh
-          if isHitch:
-            inc hitchCount
-            let fpsNow = fpsShown
-            let gstat = gcStats()
-            let occB = prevGcMem
-            let occA = getOccupiedMem()
-            if occA < occB and occB > 100_000:
-              inc gcDropHitches
-            prevGcMem = occA
-            writeFrameLog(&"HITCH frame={frameCount} durMs={durMs:.2f} thresh={thresh:.1f} fps={fpsNow:.1f} occB={occB} occA={occA} {gstat}")
-            hitchTimes.add((frameCount, epochTime()))
-          else:
-            frameTimes.add(durMs)
-            if frameTimes.len > MaxFrameTimes:
-              frameTimes.delete(0)
-            prevGcMem = getOccupiedMem()
         # Automated anomaly capture: when HDMA turns on (0 -> non-zero) a screen
         # split just began (battle swirl/bands, scene iris) — auto-arm a full
         # bundle so the human never has to catch the exact frame. Once per edge.
@@ -1022,21 +943,15 @@ void main() {
       lf.writeLine(regLine)
       lf.close()
       inc shotCount
-      if frameDiagEnabled:
-        writeFrameLog(&"EVENT autoshot frame={frameCount} {gcStats()}")
       lastShotTime = getMonoTime()
 
     # Autosave the battery SRAM shortly after the game writes it (throttled so a
     # multi-byte in-game save coalesces into one .srm flush).
     if snes.sramDirty and frameCount mod 60 == 0:
-      if frameDiagEnabled:
-        writeFrameLog(&"EVENT sram-save frame={frameCount} {gcStats()}")
       snes.saveSram(sramPath)
 
   # Flush any pending battery save, then shut audio down cleanly, on exit.
   if snes.sramDirty:
-    if frameDiagEnabled:
-      writeFrameLog(&"EVENT sram-save-exit frame={frameCount} {gcStats()}")
     snes.saveSram(sramPath)
   if recording and replayLogOpen:
     replayLog.close()
@@ -1046,18 +961,6 @@ void main() {
   if logOpened:
     writeLog("PLAY SESSION END")
     logFile.close()
-
-  if frameDiagEnabled:
-    let nH = hitchCount
-    var meanInt = 0.0
-    if hitchTimes.len >= 2:
-      var sum = 0.0
-      for i in 1 ..< hitchTimes.len:
-        sum += hitchTimes[i][1] - hitchTimes[i-1][1]
-      meanInt = sum / float(hitchTimes.len - 1)
-    let meanStr = if meanInt > 0.0: &"{meanInt:.2f}s" else: "n/a"
-    let corr = if gcDropHitches > 0: &"GC-drops-at-hitches={gcDropHitches}" else: "no-GC-drop-observed"
-    echo &"[frame-diag] SUMMARY hitches={nH} meanInterval={meanStr} {corr}"
 
 when isMainModule:
   main()

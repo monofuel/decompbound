@@ -106,22 +106,7 @@ proc mmioRead(snes: SnesBus, offset: uint32): uint8 =
     # protocol + observed EB upload behavior; document the real IPL if
     # we move beyond HLE.
     if snes.apu != nil:
-      let idx = (offset - 0x2140).int
-      var v = snes.apu.portsOut[idx]
-      if idx == 0 and v != 0:
-        snes.apuReadStreak += 1
-        if snes.apuReadStreak > 32:
-          # Minimal HLE for the post-kick ready ack on first (pack1-omitting)
-          # intro load. Our IPL+driver path lands exec but the 0 write is
-          # delayed; after modest reads-without-write, surface 0 so the
-          # $C0AB90 exits and intro advances. Real writes from SPC still
-          # take precedence when they occur. Does not affect in-game or
-          # jukebox once driver is producing real acks.
-          v = 0
-          snes.apu.portsOut[0] = 0
-      else:
-        snes.apuReadStreak = 0
-      return v
+      return snes.apu.portsOut[(offset - 0x2140).int]
     case snes.apuState:
     of ahsIdle:
       if offset == 0x2140: 0xAA'u8 else: 0xBB'u8
@@ -501,7 +486,6 @@ proc mmioWrite(snes: SnesBus, offset: uint32, value: uint8) =
   # skip the legacy HLE capture. The real driver + IPL handle the protocol.
   if snes.apu != nil and offset >= 0x2140 and offset <= 0x2143:
     snes.apu.portsIn[(offset - 0x2140).int] = value
-    snes.apuReadStreak = 0  # reset during protocol activity; allows final ready wait to build streak
     return
   case offset:
   of 0x2140:
@@ -714,20 +698,6 @@ proc newSnesBus*(rom: seq[uint8]): SnesBus =
   # here the main CPU speaks the real upload protocol over $2140-$2143.
   snes.apu = newApu()
   snes.apu.bootWithIpl()
-
-  # Let IPL ROM execute its init and announce ready (AA/BB on ports). IPL init
-  # touches some low RAM; we must place *after* that.
-  for _ in 0 ..< 2000:
-    discard snes.apu.runSample()
-  # Pre-place pack 1 (the engine/driver, file 0x260000 bank E6, $0500 entry).
-  # Intro HAL (and some title/early loads) use a song whose pack list omits
-  # pack 1 and rely on it being resident from a prior load (real hw performed
-  # one; our cold IPL path had not). Pre-place after IPL init so $0500 has the
-  # real driver bytes when the first (omitting) upload's len=0 kick executes.
-  # Uploads of pack 1 will re-write identical bytes. $FF reboots + later songs
-  # unaffected. Matches the prepend logic + "pack 1 is the engine" in
-  # sound_explore. This is a minimal boot-time residency setup (data only).
-  snes.apu.loadPack(rom, 1)
 
   result = snes
 
