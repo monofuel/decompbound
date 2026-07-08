@@ -168,28 +168,6 @@ proc vramIncrement(snes: SnesBus, highWrite: bool) =
       else: 128'u16
     snes.vmadd = snes.vmadd + step
 
-proc translatedVramAddr(snes: SnesBus): uint16 =
-  ## Return the effective VRAM word address for $2118/$2119 writes after VMAIN bits 3-2 address translation per fullsnes.
-  let trans = (snes.vmain shr 2) and 3
-  let vaddr = snes.vmadd and 0x7FFF
-  if trans == 0:
-    return vaddr
-  case trans:
-  of 1:
-    let low = vaddr and 0xFF
-    let rot = ((low shl 3) or (low shr 5)) and 0xFF
-    return (vaddr and 0xFF00) or rot
-  of 2:
-    let low = vaddr and 0x1FF
-    let rot = ((low shl 3) or (low shr 6)) and 0x1FF
-    return (vaddr and not 0x1FF'u16) or rot
-  of 3:
-    let low = vaddr and 0x3FF
-    let rot = ((low shl 3) or (low shr 7)) and 0x3FF
-    return (vaddr and not 0x3FF'u16) or rot
-  else:
-    return vaddr
-
 proc ppuPortWrite(snes: SnesBus, offset: uint32, value: uint8): bool =
   ## Handle PPU data-port writes that fill VRAM/CGRAM/OAM.
   case offset:
@@ -236,12 +214,12 @@ proc ppuPortWrite(snes: SnesBus, offset: uint32, value: uint8): bool =
     snes.vmadd = (snes.vmadd and 0x00FF) or (value.uint16 shl 8)
     true
   of 0x2118:
-    let index = translatedVramAddr(snes).int
+    let index = (snes.vmadd and 0x7FFF).int
     snes.vram[index] = (snes.vram[index] and 0xFF00) or value.uint16
     snes.vramIncrement(highWrite = false)
     true
   of 0x2119:
-    let index = translatedVramAddr(snes).int
+    let index = (snes.vmadd and 0x7FFF).int
     snes.vram[index] = (snes.vram[index] and 0x00FF) or (value.uint16 shl 8)
     snes.vramIncrement(highWrite = true)
     true
