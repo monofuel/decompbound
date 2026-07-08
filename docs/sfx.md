@@ -24,6 +24,17 @@ right; the sustained parts of complex sounds improved with PMOD.
   typically use the **noise generator (NON / LFSR)** → a strong hint the noise path is off.
 - **Spinning robo** — plays but wrong.
 - **Franklin Badge** (lightning reflect) — plays but wrong.
+- **Menu "click into" (select) sound** — wrong (deep). But the menu-cursor-**move** sound
+  (high-pitch) is **CORRECT**.
+
+**⭐ KEY CLUE (2026-07-07): high-pitch sounds are RIGHT, deep/low-pitch sounds are WRONG.**
+The menu cursor-move (high) is correct; the menu-select (deep) is wrong. This strongly
+implicates the **low-pitch reproduction path**: the **4-tap Gaussian interpolation** (which
+does heavy work at low pitch — many interpolated output samples per input sample; a
+high-pitch voice barely interpolates) and/or the **VxPITCH resample stepping / pitch
+counter** at low rates. Prime suspect for the whole systematic bug — check the Gaussian
+table indexing + the pitch-counter fraction bits against fullsnes. This is exactly what the
+PCM-diff rig should confirm (a low-pitch tone will diverge; a high one won't).
 
 **This is systematic, not N separate bugs.** With this many SFX wrong across enemies, the
 cause is a shared DSP-synthesis inaccuracy (pitch/resample rate, envelope, or noise clock).
