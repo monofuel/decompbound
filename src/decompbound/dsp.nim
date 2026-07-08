@@ -141,9 +141,18 @@ proc read*(dsp: Dsp, address: uint8): uint8 =
   ## DSP register read.
   dsp.regs[address and 0x7F]
 
+proc clampS16(v: int32): int32 =
+  ## Clamp a value to the signed 16-bit range.
+  max(-32768'i32, min(32767'i32, v))
+
 proc decodeBrrNibble(v: var Voice, ram: ref array[0x10000, uint8]): int32 =
   ## (Loop target comes from the sample directory, latched at key-on.)
   ## Decode the next 4-bit BRR sample, applying range and filter.
+  ## Math is blargg SPC_DSP.cpp decode_brr() exact: the decoded sample is
+  ## clamped to 16-bit then DOUBLED with int16 wrap (the hardware 15-bit
+  ## wrap quirk), and the filter history holds the stored (doubled) values
+  ## (p1 at stored scale, p2 halved). Samples in the interp window are thus
+  ## full 16-bit scale, matching the reference bit-for-bit.
   let byteOffset = v.brrAddr + 1 + (v.brrIndex div 2).uint16
   let raw = ram[byteOffset]
   var nibble = if v.brrIndex mod 2 == 0: (raw shr 4).int32 else: (raw and 0x0F).int32
@@ -151,18 +160,28 @@ proc decodeBrrNibble(v: var Voice, ram: ref array[0x10000, uint8]): int32 =
     nibble -= 16
   let shift = (v.brrHeader shr 4).int
   var sample = if shift <= 12: (nibble shl shift) shr 1
-               else: (if nibble < 0: -2048'i32 else: 2047'i32)
-  # BRR prediction filters (exact per fullsnes).
+               else: (if nibble < 0: -0x800'i32 else: 0'i32)
+  # BRR prediction filters (blargg-exact; history is at stored x2 scale).
+  let p1 = v.prev1
+  let p2 = v.prev2 shr 1
   case (v.brrHeader shr 2) and 3:
-  of 1: sample += v.prev1 + (-v.prev1 shr 4)
-  of 2: sample += (v.prev1 shl 1) + ((-((v.prev1 shl 1) + v.prev1)) shr 5) -
-                  v.prev2 + (v.prev2 shr 4)
-  of 3: sample += (v.prev1 shl 1) +
-                  ((-(v.prev1 + (v.prev1 shl 2) + (v.prev1 shl 3))) shr 6) -
-                  v.prev2 + (((v.prev2 shl 1) + v.prev2) shr 4)
+  of 1:  # s += p1 * 0.46875 (of stored scale) = old * 15/16
+    sample += p1 shr 1
+    sample += (-p1) shr 5
+  of 2:  # s += old * 61/32 - older * 15/16
+    sample += p1
+    sample -= p2
+    sample += p2 shr 4
+    sample += (p1 * -3) shr 6
+  of 3:  # s += old * 115/64 - older * 13/16
+    sample += p1
+    sample -= p2
+    sample += (p1 * -13) shr 7
+    sample += (p2 * 3) shr 4
   else: discard
-  # Post-filter result is 15-bit signed range for Gaussian input.
-  sample = max(-0x4000'i32, min(0x3FFF'i32, sample))
+  # CLAMP16 then double with int16 wrap (hardware 15-bit wrap behavior).
+  sample = clampS16(sample)
+  sample = cast[int16]((sample * 2) and 0xFFFF).int32
   v.prev2 = v.prev1
   v.prev1 = sample
   v.brrIndex += 1
@@ -235,15 +254,16 @@ proc stepEnvelope(dsp: Dsp, index: int) =
         v.envLevel += 0x400
       elif rateReady(v, rate):
         v.envLevel += 0x20
-      if v.envLevel >= 0x7E0:
+      # Blargg: decay begins only once the level overflows past 0x7FF.
+      if v.envLevel > 0x7FF:
         v.envLevel = 0x7FF
         v.envPhase = epDecay
     of epDecay:
       let rate = (((adsr1 shr 4) and 0x07).int shl 1) + 0x10
       if rateReady(v, rate):
         v.envLevel -= ((v.envLevel - 1) shr 8) + 1
-      let sustainLevel = (((adsr2 shr 5).int32) + 1) shl 8
-      if v.envLevel <= sustainLevel:
+      # Blargg sustain-level check: top 3 bits of the level equal SL.
+      if (v.envLevel shr 8) == ((adsr2 shr 5).int32):
         v.envPhase = epSustain
     of epSustain:
       let rate = (adsr2 and 0x1F).int
@@ -271,10 +291,6 @@ proc forceKeyOnForTest*(dsp: Dsp, voice: int, sampleAddrHint: uint16 = 0) =
   v.envLevel = 0x7FF
   dsp.voices[voice] = v
   dsp.regs[0x4C] = dsp.regs[0x4C] or (1'u8 shl voice)
-
-proc clampS16(v: int32): int32 =
-  ## Clamp a value to the signed 16-bit range.
-  max(-32768'i32, min(32767'i32, v))
 
 proc mixSample*(dsp: Dsp): tuple[left: int16, right: int16] =
   ## Produce one 32kHz stereo output sample: the dry voice mix (scaled by the
@@ -319,19 +335,21 @@ proc mixSample*(dsp: Dsp): tuple[left: int16, right: int16] =
         continue
       sample = noiseSample
     else:
-      var step = (dsp.regs[i * 0x10 + 2].uint32 or
-        ((dsp.regs[i * 0x10 + 3].uint32 and 0x3F) shl 8))
-      # Pitch modulation (PMON): if enabled for this voice and not a noise voice,
-      # scale the pitch step by prior voice's post-env output. Voice 0 never
-      # modulated (PMON bit 0 unused). prevOut from voice i-1 this tick.
+      var pitch = (dsp.regs[i * 0x10 + 2].int32 or
+        ((dsp.regs[i * 0x10 + 3].int32 and 0x3F) shl 8))
+      # Pitch modulation (PMON): if enabled for this voice, adjust the pitch by
+      # the prior voice's post-env output. Voice 0 never modulated (PMON bit 0
+      # unused). Blargg-exact: pitch += ((prevOut >> 5) * pitch) >> 10, i.e.
+      # modulation depth is +/-1.0x pitch (the old >>4 form was 2x too strong).
       if i > 0 and ((pmon shr i) and 1) != 0 and ((non shr i) and 1) == 0:
-        let factor = (prevOut shr 4) + 0x400'i32
-        let f = if factor < 0: 0'i32 else: factor
-        # Use u64 for mul to be safe; result fits u32. Matches ~1.0x..2.0x scaling.
-        step = ((step.uint64 * f.uint64) shr 10).uint32
-      v.pitchCounter += step
-      while v.pitchCounter >= 0x1000:
-        v.pitchCounter -= 0x1000
+        pitch += ((prevOut shr 5) * pitch) shr 10
+        if pitch < 0: pitch = 0
+      # Advance the pitch counter, capped like hardware so PMOD extremes can't
+      # skip ahead more than ~8 samples (blargg: interp_pos capped at 0x7FFF).
+      var pos = v.pitchCounter.int32 + pitch
+      if pos > 0x7FFF: pos = 0x7FFF
+      while pos >= 0x1000:
+        pos -= 0x1000
         # Shift the interpolation window and decode the next BRR sample.
         v.samples[0] = v.samples[1]
         v.samples[1] = v.samples[2]
@@ -339,40 +357,36 @@ proc mixSample*(dsp: Dsp): tuple[left: int16, right: int16] =
         v.samples[3] = decodeBrrNibble(v[], dsp.ram)
         if not v.active:
           break
+      v.pitchCounter = pos.uint32
       if not v.active:
         prevOut = 0'i32
         continue
       dsp.stepEnvelope(i)
-      # 4-tap Gaussian interpolation using pitch frac bits. i from counter bits
-      # 11-4 (via low12 >>4). Formula and table per fullsnes; each tap >>11
-      # then sum (equiv to fullsnes sar10+final sar1). &~1 and clamp for hw match.
-      # This is the key fix for rich/complex SFX (linear was aliasing harmonics).
+      # 4-tap Gaussian interpolation using pitch frac bits. Blargg-exact:
+      # taps run on the full 16-bit (doubled) BRR samples, each tap >>11,
+      # with a 16-bit wrap after the first three taps, then clamp and &~1.
       let frac = (v.pitchCounter and 0xFFF).uint32
       let ii = ((frac shr 4) and 0xFF).int   # 'i' is loop var; avoid shadow
       var interp = (Gaussian[0xFF - ii].int32 * v.samples[0]) shr 11
       interp += (Gaussian[0x1FF - ii].int32 * v.samples[1]) shr 11
       interp += (Gaussian[0x100 + ii].int32 * v.samples[2]) shr 11
+      interp = cast[int16](interp and 0xFFFF).int32  # hw 16-bit wrap after 3 taps
       interp += (Gaussian[0x000 + ii].int32 * v.samples[3]) shr 11
       sample = clampS16(interp) and (not 1'i32)
-    let enveloped = (sample * v.envLevel) shr 11
+    # Apply the envelope (blargg: (out * env) >> 11 & ~1). Samples are already
+    # full 16-bit scale from the doubled BRR decode / noise, so no extra shift.
+    let enveloped = ((sample * v.envLevel) shr 11) and (not 1'i32)
     prevOut = enveloped   # OUTX (post-env, pre-vol) for next voice's PMON if any.
     let volL = cast[int8](dsp.regs[i * 0x10 + 0]).int32
     let volR = cast[int8](dsp.regs[i * 0x10 + 1]).int32
-    # 15-to-16 bit conversion after per-voice VOL (add low 0 bit): recovers
-    # the bit lost by the BRR decode shr1 and scales so (brr*env>>11 * vol>>7)
-    # produces full-range 16-bit values. With voices+MVOL at max this now
-    # reaches ~full s16 (was ~half). Matches anomie/fullsnes "convert from
-    # 15- to 16-bits by adding a 0 bit on the low end" after VOL stage.
-    # Echo path uses same post-VOL values so return scales too.
-    let preL = (enveloped * volL) shr 7
-    let preR = (enveloped * volR) shr 7
-    let contribL = preL shl 1
-    let contribR = preR shl 1
-    dryL += contribL
-    dryR += contribR
+    let contribL = (enveloped * volL) shr 7
+    let contribR = (enveloped * volR) shr 7
+    # Accumulate with per-voice 16-bit clamp (blargg voice_output).
+    dryL = clampS16(dryL + contribL)
+    dryR = clampS16(dryR + contribR)
     if ((eon shr i) and 1) != 0:
-      echoInL += contribL
-      echoInR += contribR
+      echoInL = clampS16(echoInL + contribL)
+      echoInR = clampS16(echoInR + contribR)
 
   # Echo: read the delayed sample from the buffer (ESA<<8, size EDL*2KB, 4 bytes
   # per stereo sample), run the 8-tap FIR, add the return to the mix, and write

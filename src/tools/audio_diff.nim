@@ -150,10 +150,36 @@ proc windowRms(samples: seq[int16], startFrame, nframes: int, ch: int): float =
     sum += v * v
   sqrt(sum / float(nframes))
 
-proc synthesizeToneSpc(): string =
+proc bestLag(o, r: seq[int16], maxLag: int): int =
+  ## Cross-correlate L channel over the first ~1s to find the integer frame lag
+  ## (ours relative to ref) that best aligns the two renders. Positive lag means
+  ## ours leads ref by `lag` frames. Start-time offsets (warmup frames, SPC700
+  ## cycle-count differences before KON) are measurement artifacts, not DSP
+  ## divergence, so the diff is computed on aligned streams.
+  let nframes = min(o.len, r.len) div 2
+  let scan = min(nframes - maxLag - 1, SampleRate)  # up to 1s
+  if scan < 1000: return 0
+  var best = 0
+  var bestCorr = -1.0e30
+  for lag in -maxLag .. maxLag:
+    var corr = 0.0
+    for k in 0..<scan:
+      let oi = k + maxLag          # ours index (offset so lag can be negative)
+      let ri = oi - lag
+      corr += float(o[oi * 2]) * float(r[ri * 2])
+    if corr > bestCorr:
+      bestCorr = corr
+      best = lag
+  best
+
+proc synthesizeToneSpc(pitch: int = 0x0200, noise = false, sweep = false): string =
   ## Generate a portable, self-contained minimal .spc that plays a constant
-  ## LOW-pitch tone through a single voice (BRR loop + low VxPITCH + direct GAIN).
-  ## Written to bin/test_tone_low.spc (gitignored). Used as default when no --spc.
+  ## tone through a single voice (BRR loop + VxPITCH + direct GAIN).
+  ## Written to bin/test_tone_*.spc (gitignored). Used as default when no --spc.
+  ## Variants: `pitch` sets VxPITCH (low=0x0200 default, high e.g. 0x3000);
+  ## `noise` enables the NON path (voice envelopes the LFSR, FLG rate 0x1F);
+  ## `sweep` appends an SPC700 pitch-ramp loop (VxPITCH 0x0400..0x2F00 over ~1s,
+  ## the battle-swirl stressor for the pitch counter + Gaussian window).
   ## Both our DSP (via APU) and snes_spc ref will render from identical snapshot.
   ## This exercises Gaussian interp + pitch counter heavily (low pitch = many
   ## interp samples per BRR input sample).
@@ -202,7 +228,11 @@ proc synthesizeToneSpc(): string =
   # snes_spc executes from PC=entry (runs the setup pokes live to configure DSP/KON).
   # Our side uses snapshot DSP regs + force (SPC steps will also hit the KON write via hook).
   # Idle is pure "bra -2" (no further writes after setup, no opcode misalignment risk).
-  let setup = [
+  let flg: uint8 = if noise: 0x3F else: 0x20  # echo off; noise rate 0x1F if NON test
+  let non: uint8 = if noise: 0x01 else: 0x00
+  let pitchL = (pitch and 0xFF).uint8
+  let pitchH = ((pitch shr 8) and 0x3F).uint8
+  var setup = @[
     # mvolL $0C=7F
     0x8F'u8, 0x0C, 0xF2, 0x8F'u8, 0x7F, 0xF3,
     # mvolR $1C=7F
@@ -213,9 +243,9 @@ proc synthesizeToneSpc(): string =
     0x8F'u8, 0x00, 0xF2, 0x8F'u8, 0x7F, 0xF3,
     # v0 volR $01=7F
     0x8F'u8, 0x01, 0xF2, 0x8F'u8, 0x7F, 0xF3,
-    # v0 pitchL $02=00 , pitchH $03=02  => 0x0200 (LOW pitch, heavy Gaussian)
-    0x8F'u8, 0x02, 0xF2, 0x8F'u8, 0x00, 0xF3,
-    0x8F'u8, 0x03, 0xF2, 0x8F'u8, 0x02, 0xF3,
+    # v0 pitchL $02 , pitchH $03
+    0x8F'u8, 0x02, 0xF2, 0x8F'u8, pitchL, 0xF3,
+    0x8F'u8, 0x03, 0xF2, 0x8F'u8, pitchH, 0xF3,
     # srcn $04=00
     0x8F'u8, 0x04, 0xF2, 0x8F'u8, 0x00, 0xF3,
     # adsr1 $05=00 (gain mode), adsr2 $06=00
@@ -223,13 +253,42 @@ proc synthesizeToneSpc(): string =
     0x8F'u8, 0x06, 0xF2, 0x8F'u8, 0x00, 0xF3,
     # gain $07=7F direct full sustain
     0x8F'u8, 0x07, 0xF2, 0x8F'u8, 0x7F, 0xF3,
-    # flg $6C=20 (echo disabled, no reset/mute)
-    0x8F'u8, 0x6C, 0xF2, 0x8F'u8, 0x20, 0xF3,
+    # non $3D (noise voices)
+    0x8F'u8, 0x3D, 0xF2, 0x8F'u8, non, 0xF3,
+    # flg $6C (echo disabled, no reset/mute; +noise rate if NON test)
+    0x8F'u8, 0x6C, 0xF2, 0x8F'u8, flg, 0xF3,
     # KON $4C=01 voice0  -- last setup write
-    0x8F'u8, 0x4C, 0xF2, 0x8F'u8, 0x01, 0xF3,
-    # clean idle: bra *-2 (self). Once reached, no side effects, stays here.
-    0x2F'u8, 0xFE
+    0x8F'u8, 0x4C, 0xF2, 0x8F'u8, 0x01, 0xF3
   ]
+  if sweep:
+    # Pitch-ramp loop: X = pitchH 0x04..0x2F, ~24ms per step (nested delay
+    # loops), writing VxPITCH-H each step. Offsets relative to loop start S:
+    #   S+0 : CD 04       mov  x,#$04
+    #   S+2 : 8F 03 F2    mov  $F2,#$03      <- 'sweepTop'
+    #   S+5 : D8 F3       mov  $F3,x
+    #   S+7 : 8F 10 E0    mov  $E0,#$10
+    #   S+10: 8D 00       mov  y,#$00        <- 'd0'
+    #   S+12: FE FE       dbnz y,d1 (self)   <- 'd1'
+    #   S+14: 6E E0 F9    dbnz $E0,d0  (rel -7)
+    #   S+17: 3D          inc  x
+    #   S+18: C8 30       cmp  x,#$30
+    #   S+20: D0 EC       bne  sweepTop (rel -20)
+    #   S+22: 2F FE       bra  * (idle)
+    setup.add(@[
+      0xCD'u8, 0x04,
+      0x8F'u8, 0x03, 0xF2,
+      0xD8'u8, 0xF3,
+      0x8F'u8, 0x10, 0xE0,
+      0x8D'u8, 0x00,
+      0xFE'u8, 0xFE,
+      0x6E'u8, 0xE0, 0xF9,
+      0x3D'u8,
+      0xC8'u8, 0x30,
+      0xD0'u8, 0xEC,
+      0x2F'u8, 0xFE])
+  else:
+    # clean idle: bra *-2 (self). Once reached, no side effects, stays here.
+    setup.add(@[0x2F'u8, 0xFE])
   for i, b in setup:
     spcData[0x100 + 0x0600 + i] = b
 
@@ -238,8 +297,8 @@ proc synthesizeToneSpc(): string =
   # Zero everything else (FIR, echo, other voices) to prevent saturation/bleed.
   spcData[0x10100 + 0x00] = 0x7F  # v0 volL
   spcData[0x10100 + 0x01] = 0x7F  # v0 volR
-  spcData[0x10100 + 0x02] = 0x00  # v0 pitchL
-  spcData[0x10100 + 0x03] = 0x02  # v0 pitchH -> 0x0200
+  spcData[0x10100 + 0x02] = pitchL  # v0 pitchL
+  spcData[0x10100 + 0x03] = pitchH  # v0 pitchH
   spcData[0x10100 + 0x04] = 0x00  # v0 srcn
   spcData[0x10100 + 0x05] = 0x00  # v0 adsr1 (gain)
   spcData[0x10100 + 0x06] = 0x00  # v0 adsr2
@@ -248,13 +307,13 @@ proc synthesizeToneSpc(): string =
   spcData[0x10100 + 0x1C] = 0x7F  # mvolR
   spcData[0x10100 + 0x4C] = 0x01  # kon (voice0)
   spcData[0x10100 + 0x5D] = 0x02  # dir
-  spcData[0x10100 + 0x6C] = 0x20  # flg (echo off)
-  # zero echo vols, esa, edl, fir coefs (0x0F slots), koff, pmon, non, eon, other voices
+  spcData[0x10100 + 0x6C] = flg   # flg (echo off; +noise rate for NON test)
+  # zero echo vols, esa, edl, fir coefs (0x0F slots), koff, pmon, eon, other voices
   spcData[0x10100 + 0x2C] = 0
   spcData[0x10100 + 0x3C] = 0
   spcData[0x10100 + 0x4D] = 0
   spcData[0x10100 + 0x2D] = 0
-  spcData[0x10100 + 0x3D] = 0
+  spcData[0x10100 + 0x3D] = non   # NON (noise voices)
   spcData[0x10100 + 0x6D] = 0
   spcData[0x10100 + 0x7D] = 0
   for t in 0..7:
@@ -263,12 +322,17 @@ proc synthesizeToneSpc(): string =
     spcData[0x10100 + v * 0x10 + 0] = 0
     spcData[0x10100 + v * 0x10 + 1] = 0
 
-  let tonePath = "bin/test_tone_low.spc"
+  let variant =
+    if noise: "noise"
+    elif sweep: "sweep"
+    elif pitch >= 0x1000: "high"
+    else: "low"
+  let tonePath = &"bin/test_tone_{variant}.spc"
   var outStr = newString(SpcSize)
   for i, b in spcData:
     outStr[i] = b.char
   writeFile(tonePath, outStr)
-  echo &"synthesized portable low-pitch tone SPC: {tonePath} (entry=0x0600, pitch=0x0200, direct GAIN, kon=01)"
+  echo &"synthesized portable tone SPC: {tonePath} (entry=0x0600, pitch=0x{pitch:04X}, noise={noise}, sweep={sweep})"
   tonePath
 
 proc readRomFileForSong(filepath: string): seq[uint8] =
@@ -421,6 +485,9 @@ proc main() =
   var applyFilter = false
   var song = 0
   var romPath = DefaultRom
+  var tonePitch = 0x0200
+  var toneNoise = false
+  var toneSweep = false
 
   var i = 1
   while i <= paramCount():
@@ -452,11 +519,21 @@ proc main() =
       romPath = paramStr(i)
     elif a.startsWith("--rom="):
       romPath = a[6 .. ^1]
+    elif a == "--pitch" and i < paramCount():
+      inc i
+      tonePitch = parseHexInt(paramStr(i).replace("0x", "")) # hex VxPITCH
+    elif a.startsWith("--pitch="):
+      tonePitch = parseHexInt(a[8 .. ^1].replace("0x", ""))
+    elif a == "--noise":
+      toneNoise = true
+    elif a == "--sweep":
+      toneSweep = true
     elif a == "--help" or a == "-h":
       echo "Usage: nim r src/tools/audio_diff.nim [--spc <path.spc>] [--song N] [--seconds N] [--skip 0.1] [--filter] [--rom path]"
       echo "  --song N : play real song via pack upload (like sound_explore), snapshot APU to .spc, diff it"
       echo "  --filter : let ref use SPC_Filter (default: raw --no-filter for DSP-vs-DSP)"
-      echo "  Default (no --spc/--song): synthesize portable low-pitch test tone SPC in bin/"
+      echo "  Tone variants (default synthesized tone): --pitch HEX (VxPITCH, default 200),"
+      echo "  --noise (NON/LFSR voice), --sweep (SPC700 pitch ramp 0400..2F00, swirl stressor)"
       quit(0)
     else:
       if not a.startsWith("--") and spcPath.len == 0:
@@ -517,7 +594,7 @@ proc main() =
       # Snapshot the live state (driver running, voices+regs+RAM).
       spcPath = snapshotApuToSpc(apuLive, song)
     else:
-      spcPath = synthesizeToneSpc()
+      spcPath = synthesizeToneSpc(tonePitch, toneNoise, toneSweep)
   if not fileExists(spcPath):
     echo &"ERROR: SPC not found: {spcPath}"
     quit(1)
@@ -636,8 +713,16 @@ proc main() =
     echo &"ERROR: reference render failed (rc={rcRef})"
     quit(1)
 
-  let refs = readWav(refPath)
+  var refs = readWav(refPath)
   echo &"read ref WAV: {refs.len div 2} frames"
+
+  # Time-align the two renders (start offset is a harness artifact, not DSP).
+  let lag = bestLag(ours, refs, 512)
+  echo &"alignment: ours leads ref by {lag} frames (cross-correlation)"
+  if lag > 0:
+    ours = ours[lag * 2 .. ^1]
+  elif lag < 0:
+    refs = refs[(-lag) * 2 .. ^1]
 
   # Align lengths
   let n = min(ours.len, refs.len)
