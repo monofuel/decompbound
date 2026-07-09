@@ -564,32 +564,46 @@ proc overlayForegroundBg*(snes: SnesBus, image: Image) =
   ## Interleave HIGH-priority BG tiles in FRONT of the sprites they should cover,
   ## over the whole-frame sprite pass. The per-scanline composite already orders
   ## BG layers correctly, but sprites are a separate later pass, so without this
-  ## every sprite sits on top of every BG. Per the SNES mode-1 priority ladder,
-  ## high-priority BG1/BG2 tiles sit above OBJ priority 0-2 (a foreground map tile
-  ## over an NPC; the battle command/status windows over the battlers), and BG3
-  ## high-priority tiles sit above OBJ 0 — or above ALL OBJ when the BG3-priority
-  ## bit ($2105.3) is set (dialogue/HUD windows over characters).
+  ## every sprite sits on top of every BG.
+  ##
+  ## Mode 1: high-priority BG1/BG2 above OBJ 0-2 (trees over NPCs; dialogue over
+  ## characters); BG3-high above OBJ 0, or all OBJ when $2105.3 (bg3prio) is set.
+  ##
+  ## Mode 0 (Earthbound battles / Goods inventory): same interleave for high
+  ## BG1/BG2 (2bpp, palette sections 0/32). Battle enemy sprites commonly use
+  ## OBJ priority 2; without this pass they paint over the command/Goods UI.
+  ## (Strict fullsnes order puts OBJ2 above BG1.1; matching mode-1 liberality
+  ## here is what makes battle menus readable — verified on user F12 states.)
   ##
   ## Only pixels where a sprite was drawn (objSpritePrio >= 0) are touched, so the
   ## full per-scanline composite (color math, windows, force-black) is preserved
   ## everywhere else. Call AFTER renderSprites.
   if not anySpriteDrawn: return
   if (snes.ppuRegs[0x00] and 0x80) != 0: return         # force blank
-  if (snes.ppuRegs[0x05] and 0x07) != 1: return         # scoped to mode 1
+  let mode = snes.ppuRegs[0x05] and 0x07
+  if mode != 0 and mode != 1: return
   let mainMask = snes.ppuRegs[0x2C].int
   let bg3prio = (snes.ppuRegs[0x05] and 0x08) != 0
-  # High-priority BG passes, back to front: (bg, bpp, paletteBase, maxSpritePrio
-  # covered). BG1/BG2-high sit above OBJ 0-2; BG3-high above OBJ 0, or all OBJ
-  # when the BG3-priority bit moves it to the very front.
+  # High-priority BG passes, back to front: (bg, bpp, paletteBase, maxSpritePrio).
   var passes: seq[tuple[bg, bpp, pal, maxPrio: int]] = @[]
-  if (mainMask and 0x04) != 0 and not bg3prio:
-    passes.add (2, 2, 0, 0)     # BG3-high (no prio bit).
-  if (mainMask and 0x02) != 0:
-    passes.add (1, 4, 0, 2)     # BG2-high.
-  if (mainMask and 0x01) != 0:
-    passes.add (0, 4, 0, 2)     # BG1-high.
-  if (mainMask and 0x04) != 0 and bg3prio:
-    passes.add (2, 2, 0, 3)     # BG3-high (prio bit): frontmost, over all OBJ.
+  case mode:
+  of 0:
+    # Mode 0: 2bpp layers, CGRAM sections 0/32/64/96 for BG1..BG4.
+    if (mainMask and 0x02) != 0:
+      passes.add (1, 2, 32, 2)    # BG2-high over OBJ 0-2.
+    if (mainMask and 0x01) != 0:
+      passes.add (0, 2, 0, 2)     # BG1-high over OBJ 0-2 (battle UI).
+  of 1:
+    if (mainMask and 0x04) != 0 and not bg3prio:
+      passes.add (2, 2, 0, 0)     # BG3-high (no prio bit).
+    if (mainMask and 0x02) != 0:
+      passes.add (1, 4, 0, 2)     # BG2-high.
+    if (mainMask and 0x01) != 0:
+      passes.add (0, 4, 0, 2)     # BG1-high.
+    if (mainMask and 0x04) != 0 and bg3prio:
+      passes.add (2, 2, 0, 3)     # BG3-high (prio bit): frontmost, over all OBJ.
+  else:
+    discard
   let inidisp = snes.ppuRegs[0x00]
   var line: array[ScreenWidth, ColorRGBA]
   var drawn: array[ScreenWidth, bool]
