@@ -79,7 +79,7 @@ never committed. When in doubt, do not commit it.
 
 **The line: the code is ours, the data is theirs.**
 
-### Screenshots and save-states — hard ban (especially save-states)
+### Screenshots, save-states, and SRAM — hard ban (especially save-states)
 
 These are the easy, high-frequency slip. Treat them as **non-negotiable**:
 
@@ -88,6 +88,7 @@ These are the easy, high-frequency slip. Treat them as **non-negotiable**:
 | **Screenshots** | F12 / play captures, `earthbound_*.png`, any `*.png` / `*.jpg` of in-game graphics | Literal game art (tiles, sprites, UI, text rendering) |
 | **Save-states** | `bin/states/slot*.state`, `*.state`, raw serialize blobs, APU/VRAM dumps used as “fixtures” | Full machine memory — ROM-derived WRAM, VRAM, APU RAM, OAM, script state — a **partial copy of the game**, not our code |
 | **State-screenshots** | F12 PNGs with **`ebSt`** chunk | **Both**: pixels *and* an embedded save-state. Worst of both worlds |
+| **Battery SRAM** | `*.srm`, e.g. `bin/Earthbound (U) [!].srm`, `bin/sram_backups/**` | The game’s own save file — party, story flags, inventory — copyrighted game data the cart would hold |
 
 **Especially save-states:** do not commit them “for CI,” “for a bug report,” or
 “as a milestone.” Private local use and git-ignored paths only. If a test needs
@@ -95,8 +96,13 @@ a machine image, generate it at test time from the **user’s ROM** + our code,
 or use **tiny synthetic** buffers — never check in a real EB save-state. Full
 reasoning: `docs/copyright-notes.md` (savestates section).
 
-**Agents must refuse** requests to `git add` / commit screenshots or save-states.
-Record milestones with empty commits or docs text; keep the file local.
+**SRAM** is the same class of ban as save-states for repo hygiene: never commit
+real battery saves. Format docs and *empty/synthetic* test bytes are fine; a
+player’s `.srm` is not. Already gitignored as `*.srm`.
+
+**Agents must refuse** requests to `git add` / commit screenshots, save-states,
+or SRAM (`.srm`). Record milestones with empty commits or docs text; keep the
+file local.
 
 - **Committable — our own new expression / functional reproduction:**
   - Reverse-engineered **Nim source** and tooling.
