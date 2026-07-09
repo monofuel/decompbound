@@ -1,5 +1,6 @@
 ## Touch Grass milestone helpers for LLM agent: deterministic intro skill (Lua)
-## + WalkToSkillLua (reactive walkTo) + touchGrassPercent metric (REAL player world pos).
+## + WalkToSkillLua (reactive walkTo) + AdvanceDialogueSkillLua + touchGrassPercent metric
+## (REAL player world pos).
 ## GROUND TRUTH: entity world X at WRAM $0B8E,X ; Y at $0BCA,X (X = slot*2).
 ## PLAYER = SLOT 24 (idx 0x30), NOT slot 0. Verified by live instruction trace:
 ##   the per-frame projection at $C04E15/$C04E1D (STA $0B8E,X / $0BCA,X) writes the
@@ -412,6 +413,43 @@ function winBattle()
     pad.press("A")
   end
 end
+"""
+
+const AdvanceDialogueSkillLua* = """
+-- advanceDialogue(): dialogue-safe A press for story / NPC text (Pokey % and later).
+-- Uses screen.text() only. Presses A when dialogue-ish text is visible; NEVER A on blank walk.
+-- Overworld menus (Talk/Check/Goods/Equip/Status): B via escapeMenu() — never A into deeper menus.
+-- Battle command menus: leave alone (return false so winBattle can own them).
+-- Call early in update() after escapeMenu, before walkTo. Returns true if it handled the frame.
+-- Also exposed as talkOrAdvance (alias) for policy readability.
+-- TODO(magic): dialogue vs menu heuristics from observed getScreenText; refine with live captures.
+function advanceDialogue()
+  if escapeMenu() then
+    return true
+  end
+  local inBattle = mem.read(0x4DBA) ~= 0
+  local txt = screen.text() or ""
+  local low = txt:lower()
+  local trimmed = low:gsub("%s+", "")
+  if trimmed:len() < 2 then
+    return false
+  end
+  local isBatCmd = low:find("bash") or low:find("psi") or low:find("defend") or low:find("input your command")
+  if isBatCmd or inBattle then
+    return false
+  end
+  local isOwMenu = low:find("talk to") or low:find("check") or low:find("equip") or low:find("status") or low:find("goods")
+  if isOwMenu then
+    return false
+  end
+  local f = frame()
+  if (f % 4) == 0 then
+    print("advanceDialogue[f=" .. f .. "]: dialogue-ish text -> A")
+    pad.press("A")
+  end
+  return true
+end
+talkOrAdvance = advanceDialogue
 """
 
 proc currentRoomLabel*(snes: SnesBus): string =

@@ -51,8 +51,12 @@ IRL n=1: [media/IMG_20260520_201351_568.jpg](media/IMG_20260520_201351_568.jpg).
 | **Beat** | Travel to **Pokey** (neighbor / Pokey’s house visit — first social destination after grass). |
 | **Win (intent)** | Reached Pokey’s place and completed whatever interaction we define as “Pokey visited” (talk / enter / scene end — RE later). |
 | **New pressure** | NPC pathing, **A in dialogue context only**, not pure waypoint walking. |
-| **Fixture (planned)** | Start from post-tg100 / `onett_start` under `bin/states/llm/`. |
-| **Status** | Not implemented as a metric yet. |
+| **Fixture** | `bin/states/llm/onett_start.state` (post-tg100; regenerate via `llm_capture_fixture`). |
+| **Seed policy** | `PokeyVisitPolicy` (`selectMockPolicyByName("pokey")`). Indoors: NavHouse-style exit. Outside: soft `walkTo` toward neighbor. |
+| **Skill** | `advanceDialogue` / `talkOrAdvance` (`AdvanceDialogueSkillLua`): A only when `screen.text()` is dialogue-ish; B via `escapeMenu` for overworld menus; never A on blank walk. |
+| **Coords** | Outdoor Pokey-house target **TBD** (soft placeholder `walkTo(0x0A80, 0x00E0)` — unconfirmed). Player pos: slot 24 X `$0BBE/$0BBF`, Y `$0BFA/$0BFB`. |
+| **Metric (code)** | Stub `pokeyPercent` in `src/tools/story_percents.nim` (returns 0 until RE). |
+| **Status** | Skill + seed scaffold; metric stub only. |
 
 ---
 
@@ -64,7 +68,8 @@ IRL n=1: [media/IMG_20260520_201351_568.jpg](media/IMG_20260520_201351_568.jpg).
 | **Win (intent)** | Knock / invite sequence accepted; party is on the meteor path (not still idling post-Pokey-visit). |
 | **New pressure** | **Return path** + **scripted story trigger** (coords alone may not fire the beat). |
 | **Why it exists** | Easy to “finish Pokey %” and miss that the plot only continues after the knock. |
-| **Status** | Not implemented. |
+| **Metric (code)** | Stub `pokeyKnockPercent` in `src/tools/story_percents.nim` (returns 0 until RE). |
+| **Status** | Stub only. |
 
 ---
 
@@ -75,7 +80,8 @@ IRL n=1: [media/IMG_20260520_201351_568.jpg](media/IMG_20260520_201351_568.jpg).
 | **Beat** | Meteor / **Buzz Buzz** sequence. Along this arc you pick up **Picky** (Pokey’s brother). |
 | **Win (intent)** | Buzz Buzz joined the night adventure; **Picky is with the group** (however party/NPC state is represented). |
 | **New pressure** | Follow / multi-character motion, more dialogue, possible combat (bees etc.), longer scripted route. |
-| **Status** | Not implemented. |
+| **Metric (code)** | Stub `buzzBuzzPercent` in `src/tools/story_percents.nim` (returns 0 until RE). |
+| **Status** | Stub only. |
 
 ---
 
@@ -87,7 +93,8 @@ IRL n=1: [media/IMG_20260520_201351_568.jpg](media/IMG_20260520_201351_568.jpg).
 | **Win (intent)** | 1. Escort **Pokey + Picky** back to **Pokey’s house** (Minch home). 2. **Lardna Minch kills Buzz Buzz** (mandatory story beat — do not skip in framing or routing). 3. Leave the house → **the sun rises** and day-one Onett begins. |
 | **Narrative requirement** | The AI (prompt, notes, milestone report) should treat Buzz Buzz’s death as **weighty**. Feel **significant remorse** for Buzz Buzz. Then walk out into sunrise. Remorse is a **framing / reporting** goal, not a WRAM bit — but the death scene is a **mechanical** gate. |
 | **New pressure** | Escort both brothers, full Minch-house script, exit trigger for sunrise. |
-| **Status** | Not implemented. **This is the MVP wall** — harder than tg by far; much of full-game difficulty after this is longer routes on the same verbs. |
+| **Metric (code)** | Stub `sunrisePercent` in `src/tools/story_percents.nim` (returns 0 until RE). |
+| **Status** | Stub only. **This is the MVP wall** — harder than tg by far; much of full-game difficulty after this is longer routes on the same verbs. |
 
 After Sunrise, the bot is in **real game start** (cops, Frank, free(ish) Onett day). That is a **new arc**, not more prologue percents.
 
@@ -98,17 +105,19 @@ After Sunrise, the bot is in **real game start** (cops, Frank, free(ish) Onett d
 | Order | Id | One-line win | Status |
 |------:|----|--------------|--------|
 | 0 | `tg_pct` | Outside Ness’s house | **Done** |
-| 1 | `pokey_pct` | Visited Pokey | Planned |
-| 2 | `pokey_knock_pct` | Home + knock / meteor invite | Planned |
-| 3 | `buzzbuzz_pct` | Meteor arc; **Picky** acquired | Planned |
-| 4 | `sunrise_pct` | Brothers home → Lardna kills Buzz Buzz → leave → **sunrise** | Planned (MVP) |
+| 1 | `pokey_pct` | Visited Pokey | Stub (`src/tools/story_percents.nim`) |
+| 2 | `pokey_knock_pct` | Home + knock / meteor invite | Stub (`src/tools/story_percents.nim`) |
+| 3 | `buzzbuzz_pct` | Meteor arc; **Picky** acquired | Stub (`src/tools/story_percents.nim`) |
+| 4 | `sunrise_pct` | Brothers home → Lardna kills Buzz Buzz → leave → **sunrise** | Stub (MVP wall) |
 | … | (later) | Onett day-1 / police / Frank / Twoson / … | Stretch stubs only |
+
+Pure stubs (all return 0 until RE): **`src/tools/story_percents.nim`**. Surfaced in llm_ai rich state + slow-tick log next to `tg_pct`.
 
 ---
 
 ## Fixtures (planned layout)
 
-All under **`bin/states/llm/`** only (never human `slot1–4`).
+All under **`bin/states/llm/`** only (never human `slot1–4`). Never git-add `*.state` — ROM-derived, gitignored under `bin/`.
 
 ```
 bin/states/llm/
@@ -122,6 +131,16 @@ bin/states/llm/
 
 Exact names can shift; the **gate order** does not.
 
+### Regenerate `onett_start.state`
+
+Needs user ROM + `bedroom.state`. Drives seed `NavHousePolicy` until `touchGrassPercent == 100`, then serializes:
+
+```bash
+nim r src/tools/llm_capture_fixture.nim
+# default: load bin/states/llm/bedroom.state → out bin/states/llm/onett_start.state
+# optional: --load-state-path PATH --out PATH --frames N [rom]
+```
+
 Until story flags are RE’d: human or scripted clear → save state at “I know this beat finished” → next segment loads that file. Pos/scene heuristics can bootstrap metrics; flags refine later.
 
 ---
@@ -131,7 +150,7 @@ Until story flags are RE’d: human or scripted clear → save state at “I kno
 | Gate | Skills emphasis |
 |------|-----------------|
 | tg | `walkTo`, `escapeMenu` |
-| Pokey | + dialogue advance / talk-when-facing (A only in safe contexts) |
+| Pokey | + `advanceDialogue` / `talkOrAdvance` (A only when dialogue text present) |
 | Knocking | + return home; trigger/wait for story |
 | Buzz Buzz | + follow/escort; battle if needed |
 | Sunrise | + escort two NPCs home; play Minch scene through; exit for sunrise |
@@ -142,7 +161,10 @@ Prefer **stable Lua skills** + light seed policies; **qwen rewrites** for repair
 
 ## Metrics & reports (direction)
 
-When implemented, mirror the `tg_pct` idea:
+Scaffold lives at **`src/tools/story_percents.nim`** (pure stubs → 0). llm_ai already logs and
+puts the fields in rich state next to `tg_pct`; fill in heuristics when RE lands.
+
+When implemented for real, mirror the `tg_pct` idea:
 
 - Log `pokey_pct` / `pokey_knock_pct` / `buzzbuzz_pct` / `sunrise_pct` (0/100 or staged).
 - On cross: milestone report under `bin/llm_reports/` (gitignored) with frame, pos, policy snippet, notes, **git commit hash**.
@@ -166,7 +188,7 @@ Learning-speed comparisons (how fast a model clears gates) come **after** severa
 |------|------------|------------------------|--------|
 | Joypad / live policy | Primary | Experiments only | — |
 | New skills / hard seeds | Secondary | Strong | Review |
-| Capture fixtures | — | — | Primary (`make play`) |
+| Capture fixtures | — | scripted `llm_capture_fixture` / probes | Primary (`make play` + approve) |
 | Emulator bugs blocking a gate | — | Dig help | Verify |
 
 Pride condition later: **qwen still driving when sunrise fires.** MVP condition: **any harness path hits sunrise once.**
@@ -175,4 +197,7 @@ Pride condition later: **qwen still driving when sunrise fires.** MVP condition:
 
 ## Changelog
 
+- **2026-07-08:** `llm_capture_fixture` for `onett_start.state` (bedroom → NavHouse → tg=100).
+- **2026-07-08:** Pokey % skill/seed scaffold — `AdvanceDialogueSkillLua` + `PokeyVisitPolicy` + `selectMockPolicyByName`; outdoor coords TBD.
+- **2026-07-08:** Story percent stubs in `src/tools/story_percents.nim`; llm_ai surfaces `pokey_pct` / `pokey_knock_pct` / `buzzbuzz_pct` / `sunrise_pct` next to `tg_pct`.
 - **2026-07-08:** Initial campaign spine — tg done; Pokey → knock → Buzz Buzz (Picky) → Sunrise (escort home, Lardna kills Buzz Buzz, remorse, sun rises).

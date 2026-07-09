@@ -26,7 +26,7 @@ import
   pixie,
   windy,
   ../decompbound/[cpu, ppu, snesbus, lua53, policy, save_state],
-  ./[glblit, touch_grass, llm_mock_policies]
+  ./[glblit, touch_grass, llm_mock_policies, story_percents]
 
 const
   DefaultFrames = 60
@@ -525,6 +525,10 @@ proc buildStateSummary(ctx: policy.PolicyContext): string =
   let inBattle = if safeR8(BattleOff) != 0: "yes" else: "no"
   let tgPct = touch_grass.touchGrassPercent(ctx.snes)
   let roomLabel = touch_grass.currentRoomLabel(ctx.snes)
+  let pokeyPct = story_percents.pokeyPercent(ctx.snes)
+  let pokeyKnockPct = story_percents.pokeyKnockPercent(ctx.snes)
+  let buzzBuzzPct = story_percents.buzzBuzzPercent(ctx.snes)
+  let sunrisePct = story_percents.sunrisePercent(ctx.snes)
 
   # MENU DETECTION (robust for menu-blindness fix): prefer getScreenText (visible items) over old flag.
   # Detects overworld (Talk/Check/..) vs battle (Bash/..) vs submenus; sets menu_open + which_menu.
@@ -575,6 +579,10 @@ proc buildStateSummary(ctx: policy.PolicyContext): string =
 
   result = fmt"""RICH LABELED STATE:
 touch_grass_pct: {tgPct}
+pokey_pct: {pokeyPct}
+pokey_knock_pct: {pokeyKnockPct}
+buzzbuzz_pct: {buzzBuzzPct}
+sunrise_pct: {sunrisePct}
 current_room: {roomLabel}
 HP: {hpCur}/{hpMax}
 PP: {ppCur}/{ppMax}
@@ -955,6 +963,8 @@ proc main() =
     prevTg = touch_grass.touchGrassPercent(snes)
     prevRoom = touch_grass.currentRoomLabel(snes)
     prevMoney = touch_grass.readU16(snes, 0x9831)
+    # Smoke: prologue story percents (stubs until RE; see docs/llm-sequence.md).
+    echo fmt"story_pcts smoke: tg={prevTg} pokey={story_percents.pokeyPercent(snes)} pokey_knock={story_percents.pokeyKnockPercent(snes)} buzzbuzz={story_percents.buzzBuzzPercent(snes)} sunrise={story_percents.sunrisePercent(snes)} room={prevRoom}"
 
   let frameImage = newImage(ppu.ScreenWidth, ppu.ScreenHeight)
   let ctx = policy.PolicyContext(
@@ -983,9 +993,11 @@ proc main() =
     else:
       echo "SKILL_LIBRARY: WARNING: loadPolicyChunk failed for ", SkillsFile, " (continuing without)"
   else:
-    let seedSrc = touch_grass.EscapeMenuSkillLua & "\n\n" & touch_grass.WalkToSkillLua & "\n\n" & touch_grass.IntroSkillLua & "\n\n" & touch_grass.WinBattleSkillLua
+    let seedSrc = touch_grass.EscapeMenuSkillLua & "\n\n" & touch_grass.WalkToSkillLua & "\n\n" &
+      touch_grass.IntroSkillLua & "\n\n" & touch_grass.WinBattleSkillLua & "\n\n" &
+      touch_grass.AdvanceDialogueSkillLua
     writeFile(SkillsFile, seedSrc)
-    echo "SKILL_LIBRARY: absent; seeded ", SkillsFile, " (len=", seedSrc.len, ") with Escape+WalkTo+Intro+Win"
+    echo "SKILL_LIBRARY: absent; seeded ", SkillsFile, " (len=", seedSrc.len, ") with Escape+WalkTo+Intro+Win+AdvanceDialogue"
     discard loadPolicyChunk(L, seedSrc, "seeded_skills")
   # Confirm walkTo is callable (from WalkTo seed or prior skills) for verify logs.
   L.getglobal("walkTo".cstring)
@@ -1132,27 +1144,30 @@ proc main() =
     if llmInterval > 0 and (ctx.frameCount mod llmInterval == 0) and ctx.frameCount > 0:
       let tg = touch_grass.touchGrassPercent(snes)
       let room = touch_grass.currentRoomLabel(snes)
+      let pokeyPct = story_percents.pokeyPercent(snes)
+      let pokeyKnockPct = story_percents.pokeyKnockPercent(snes)
+      let buzzBuzzPct = story_percents.buzzBuzzPercent(snes)
+      let sunrisePct = story_percents.sunrisePercent(snes)
       let oldTg = prevTg
       let oldRoom = prevRoom
       if tg > maxTouchGrass:
         maxTouchGrass = tg
-      logTg(fmt"{now()} frame={ctx.frameCount} touch_grass_pct={tg} max={maxTouchGrass} room={room}")
+      logTg(fmt"{now()} frame={ctx.frameCount} touch_grass_pct={tg} max={maxTouchGrass} room={room} pokey_pct={pokeyPct} pokey_knock_pct={pokeyKnockPct} buzzbuzz_pct={buzzBuzzPct} sunrise_pct={sunrisePct}")
       if oldTg < 100 and tg >= 100:
         logTg(fmt"TOUCH GRASS ACHIEVED at frame {ctx.frameCount}")
         echo "TOUCH GRASS ACHIEVED!"
-        # Display handoff: once outside, stop idling at the door — seed explore Onett walk.
-        # Only when seed is still house-nav (or current string is the house seed). Leaves
-        # qwen-refined policies alone unless current is still the pure NavHouse seed.
+        # Campaign handoff: outside → Pokey % seed (docs/llm-sequence.md). ExploreOnett
+        # remains available via selectMockPolicyByName for display-only experiments.
         if scenarioPolicy == llm_mock_policies.NavHousePolicy or
             currentPolicy == llm_mock_policies.NavHousePolicy:
-          let explore = llm_mock_policies.ExploreOnettPolicy
-          if loadPolicyChunk(L, explore, "explore_onett_after_tg100"):
-            scenarioPolicy = explore
-            currentPolicy = explore
-            echo "POLICY: tg>=100 — switched seed to ExploreOnettPolicy (street walk cycle)"
-            status = "explore"
+          let pokey = llm_mock_policies.PokeyVisitPolicy
+          if loadPolicyChunk(L, pokey, "pokey_visit_after_tg100"):
+            scenarioPolicy = pokey
+            currentPolicy = pokey
+            echo "POLICY: tg>=100 — switched seed to PokeyVisitPolicy (Pokey % gate)"
+            status = "pokey"
           else:
-            echo "POLICY: ExploreOnettPolicy load failed; keeping prior"
+            echo "POLICY: PokeyVisitPolicy load failed; keeping prior"
       # Read live player pos for *fine-grained* progress (critical after tg plateaus at 75).
       # tg/room only flips on big milestones; inside the house we must detect "still walking toward exit".
       let pidx = touch_grass.PlayerSlot * touch_grass.SlotIndexStride
@@ -1286,8 +1301,12 @@ proc main() =
 
   let finalTg = touch_grass.touchGrassPercent(snes)
   if finalTg > maxTouchGrass: maxTouchGrass = finalTg
-  logTg(fmt"{now()} frame={ctx.frameCount} touch_grass_pct={finalTg} max={maxTouchGrass} (final)")
-  echo fmt"done: ran {ctx.frameCount} frames. final joy1=0x{snes.joy1:04x} max_touch_grass={maxTouchGrass}"
+  let finalPokey = story_percents.pokeyPercent(snes)
+  let finalPokeyKnock = story_percents.pokeyKnockPercent(snes)
+  let finalBuzz = story_percents.buzzBuzzPercent(snes)
+  let finalSunrise = story_percents.sunrisePercent(snes)
+  logTg(fmt"{now()} frame={ctx.frameCount} touch_grass_pct={finalTg} max={maxTouchGrass} pokey_pct={finalPokey} pokey_knock_pct={finalPokeyKnock} buzzbuzz_pct={finalBuzz} sunrise_pct={finalSunrise} (final)")
+  echo fmt"done: ran {ctx.frameCount} frames. final joy1=0x{snes.joy1:04x} max_touch_grass={maxTouchGrass} pokey_pct={finalPokey} sunrise_pct={finalSunrise}"
   echo fmt"frames_during_pending={framesDuringPending} (frames advanced while LLM request in-flight; async proof when >0)"
   if saveStateSlot >= 0:
     let outPath = llmSlotPath(saveStateSlot)
