@@ -8,6 +8,8 @@ mode** (`--watch-async`, default windowed) keeps the fast Lua loop stepping whil
 qwen thinks; `--sync-llm` (default headless) still pause-for-consistency.
 See [Where it actually stands](#where-it-actually-stands--what-works-whats-next)
 for the honest state of the code. Off the critical path; sanctioned fun.
+Awareness of pre-training / seed / notes leakage: [llm-contamination.md](llm-contamination.md).  
+**n=1 touch grass (IRL):** [media/IMG_20260520_201351_568.jpg](media/IMG_20260520_201351_568.jpg).
 
 Give an LLM a way to *play* the game: it authors **Lua** that can read game
 memory (read-only), see the screen, and press buttons — but never write game
