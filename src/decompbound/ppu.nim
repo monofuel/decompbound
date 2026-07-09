@@ -511,13 +511,13 @@ proc renderSprites*(snes: SnesBus, image: Image) =
     let size = if large: sizes[1] else: sizes[0]
 
     let y = snes.oam[base + 1].int
-    # Hardware: first drawn scanline is OAM Y+1 (NES-style). Range checks use
-    # linear Y+1 .. Y+size, *not* 8-bit wrap: a 32px sprite parked at Y=$E0
-    # (standard offscreen) covers lines 225..256, which are outside 0..223.
-    # Using `(y+py+1) and 0xFF` wrongly mapped line 256 → 0 and painted a garbage
-    # top scanline from every "hidden" 32px sprite (battle UI / overworld).
+    # Hardware: first drawn scanline is OAM Y+1; Y is 8-bit and wraps at 256 so
+    # sprites with Y≈240..255 enter from the top (tree monkeys, etc.).
+    # Linear Y (no wrap) only showed the lower half of a two-tile monkey
+    # (upper sprite at Y=$FC vanished). Skip pure offscreen park: Y≥224 and
+    # y+size≤256 (e.g. Y=$E0 size 32) — those only wrap a junk line onto 0.
     # See: https://snes.nesdev.org/wiki/Sprites
-    if y >= ScreenHeight and y + 1 + size <= 256:
+    if y >= ScreenHeight and y + size <= 256:
       continue
 
     var x = snes.oam[base].int or (xHigh.int shl 8)
@@ -535,10 +535,9 @@ proc renderSprites*(snes: SnesBus, image: Image) =
 
     for py in 0..<size:
       let sy = if flipY: size - 1 - py else: py
-      # +1: OAM Y is the scanline above the first visible sprite row.
-      # No 8-bit wrap into the active 224-line display (see comment above).
-      let screenY = y + py + 1
-      if screenY < 0 or screenY >= ScreenHeight:
+      # +1: OAM Y is the scanline above the first visible sprite row; wrap at 256.
+      let screenY = (y + py + 1) and 0xFF
+      if screenY >= ScreenHeight:
         continue
       for px in 0..<size:
         let sx = if flipX: size - 1 - px else: px
