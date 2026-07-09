@@ -40,6 +40,35 @@ pipeline full — when a wave lands, verify it and dispatch the next.
 
 See `docs/delegation.md` for the fuller playbook.
 
+## State-screenshots (F12) — default location
+
+**Do not look in `bin/` for play F12s.** Live-play screenshots land outside the
+repo, under monofuel's home Pictures folder.
+
+| | |
+|---|---|
+| **Dir** | `~/Pictures/Screenshots/` (absolute: `/home/monofuel/Pictures/Screenshots/`) |
+| **Names** | `earthbound_yyyyMMdd-HHmmss.png` |
+| **Payload** | PNG with an embedded compressed save-state in a private ancillary chunk **`ebSt`** (`png_state.nim` / `save_state.nim`) |
+| **Writer** | `src/tools/play.nim` → F12 → `saveScreenshot` |
+| **Restore** | drag-drop the PNG onto the play window (or load via tools that accept ebSt PNGs) |
+
+When monofuel (or human-verify) names an F12 like `earthbound_20260708-191042.png`,
+resolve it under **`~/Pictures/Screenshots/`** first. Repo `bin/` only has a few
+tool/test PNGs (round-trips, probes); that is **not** the play capture archive.
+
+- **List shots that carry state:** scan for the `ebSt` chunk (or open large
+  `earthbound_*.png` files — plain image-only PNGs are much smaller).
+- **NEVER commit F12s, and never copy them into the repo for a commit.** They
+  are user-local: game **screenshots** (graphics) **plus** a full **save-state**
+  in `ebSt`. Both halves are forbidden (see Copyright hygiene below). Keep them
+  under `~/Pictures/Screenshots/`; do not move them into `bin/`, `docs/`, or
+  any tracked path “just to attach a milestone.”
+- **Progress / milestones in git:** empty bookmark commits, text in `docs/`,
+  or chat — **not** the PNG. Reference the filename in prose if useful; leave
+  the file on disk outside the tree.
+- Design/background: `docs/state-screenshots.md`.
+
 ## Copyright hygiene — keep the repo asset-free
 
 This is a decompilation project. Like `n64decomp/sm64` and the OoT decomp, the
@@ -49,6 +78,25 @@ dumped ROM; everything copyrighted is extracted from it at build/run time and
 never committed. When in doubt, do not commit it.
 
 **The line: the code is ours, the data is theirs.**
+
+### Screenshots and save-states — hard ban (especially save-states)
+
+These are the easy, high-frequency slip. Treat them as **non-negotiable**:
+
+| Kind | Examples | Why banned |
+|------|----------|------------|
+| **Screenshots** | F12 / play captures, `earthbound_*.png`, any `*.png` / `*.jpg` of in-game graphics | Literal game art (tiles, sprites, UI, text rendering) |
+| **Save-states** | `bin/states/slot*.state`, `*.state`, raw serialize blobs, APU/VRAM dumps used as “fixtures” | Full machine memory — ROM-derived WRAM, VRAM, APU RAM, OAM, script state — a **partial copy of the game**, not our code |
+| **State-screenshots** | F12 PNGs with **`ebSt`** chunk | **Both**: pixels *and* an embedded save-state. Worst of both worlds |
+
+**Especially save-states:** do not commit them “for CI,” “for a bug report,” or
+“as a milestone.” Private local use and git-ignored paths only. If a test needs
+a machine image, generate it at test time from the **user’s ROM** + our code,
+or use **tiny synthetic** buffers — never check in a real EB save-state. Full
+reasoning: `docs/copyright-notes.md` (savestates section).
+
+**Agents must refuse** requests to `git add` / commit screenshots or save-states.
+Record milestones with empty commits or docs text; keep the file local.
 
 - **Committable — our own new expression / functional reproduction:**
   - Reverse-engineered **Nim source** and tooling.
@@ -67,6 +115,13 @@ never committed. When in doubt, do not commit it.
 
 - **NEVER commit — the copyrighted work, in whole or in part:**
   - **ROM images** — `*.smc` / `*.sfc`, or any slice of the ROM.
+  - **Screenshots of the game** — any still of rendered graphics (see table
+    above). Repo root `/*.png` is already gitignored for this reason.
+  - **Save-states and emulator memory dumps** — `*.state`, `bin/states/**`,
+    F12 **`ebSt`** payloads, savestates used as fixtures, APU RAM / VRAM /
+    CGRAM / OAM dumps that came from real play. **Especially do not commit
+    save-states** — they are wholesale copies of game-derived memory, not
+    “just debug files.”
   - **Game scripts** — dialogue text (a literary work) *and* the event/script
     data (cutscene logic, flags, sequences — creative expression). Reversing the
     script **interpreter** is fine; the **extracted script content is a
@@ -76,10 +131,9 @@ never committed. When in doubt, do not commit it.
   - **Other extracted assets** — graphics/tiles/palettes, audio (BRR samples,
     song sequences), maps, and any data-region bytes. Declare a data region's
     shape/offset in source; never check in the real asset bytes.
-  - **Memory / state dumps that embed assets** — APU RAM images, VRAM/CGRAM/OAM
-    dumps, savestates, captured `*.wav`, screenshots/`*.png` of game graphics. A
-    dump is a partial copy of the ROM — treat it like a ROM slice. Our own tools
-    generate these constantly; this is the easy slip.
+  - **Other memory / capture dumps** — captured `*.wav`, partial RAM slices.
+    A dump is a partial copy of the ROM — treat it like a ROM slice. Our own
+    tools generate these constantly; this is the easy slip.
 
 - **The build-time extraction pattern** (how real decomps stay clean): the repo
   ships the *extractor/codec*; the **user's own ROM** is the source of the bytes;
@@ -91,8 +145,10 @@ never committed. When in doubt, do not commit it.
   never bundled. Users must own the original.
 
 - **Before every commit, confirm nothing slipped in** — `git status` for ROMs,
-  extracted scripts/assets, dumps, `*.wav`, `*.png`, savestates. If you add a
-  tool that writes extracted data, point its output at a git-ignored path first.
+  `*.state` / `bin/states/`, F12 / `earthbound_*.png`, extracted scripts/assets,
+  dumps, `*.wav`, other `*.png`. If you add a tool that writes screenshots,
+  save-states, or extracted data, point its output at a **git-ignored** path
+  first (and never stage those paths).
 
 - Full reasoning + precedents (Sega v. Accolade, Sony v. Connectix, § 117, plus
   the asm-disassembly and script-extraction specifics) live in
