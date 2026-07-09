@@ -176,6 +176,13 @@ Without changing the stream constants:
 - “Fix” half-speed with `AL_PITCH`, fake sample rates, or doubling `SamplesPerFrame` without measuring timer0 vs wall clock.
 - Concurrent-edit `apu` / `snesbus` / `dsp` / `play` across agents (see `0b1af45` lesson).
 
+## Safe hang fix (landed after known-good bookmark)
+
+Save-state **v2** stores timer0..2 + `dspAddr`. **v1** loads still call
+`recoverTimersAfterLoad` (enable T0 from `$53`/`$10`) — **only on deserialize**,
+never on live `$FD` polls. Tests: `tests/test_save_state.nim`,
+`tests/test_audio_tempo.nim`.
+
 ## One-line summary
 
 **Half-speed music (with full-speed video) was SPC timer0 tempo getting reset or wrong — not a broken 32 kHz slappy setup on the good commit.** Stay on `0bdad72`-class audio path; re-land hang fixes only as load-time / serialized timers, never live `$FD` accum resets.

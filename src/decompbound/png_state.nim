@@ -145,7 +145,9 @@ proc extractState*(png: seq[uint8]): Option[seq[uint8]] =
       if d.len < 14 or d[0..3] != EbSsMagic:
         return none(seq[uint8])
       let ver = readU16le(d, 4)
-      if ver != StateVersion.uint16:
+      # Accept state versions the deserializer understands (v1 hang-prone
+      # blobs still load; recoverTimers runs inside readState for v1).
+      if ver.uint32 < StateVersionMin or ver.uint32 > StateVersion:
         return none(seq[uint8])
       # romHash at 6, we ignore for extract (caller verifies if wanted)
       let rawLen = readU32le(d, 10)
