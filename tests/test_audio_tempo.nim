@@ -109,3 +109,39 @@ block timer0ReenableViaF1RestoresRate:
   let expected = Window div 64
   doAssert ticks >= expected - 3 and ticks <= expected + 3,
     &"after F1 re-enable got {ticks} want~{expected}"
+
+block timer0TargetZeroMeans256:
+  ## Hardware: FA=0 means period 256, not "never tick". stage1 every 4 samples
+  ## → counter++ every 256*4 = 1024 samples. 4096 samples → ~4 overflows.
+  const
+    Samples = 4096
+    Expected = Samples div (256 * (128 div CyclesPerSample))  # 4096/1024 = 4
+  doAssert Expected == 4
+  let apu = newApu()
+  enableTimer0(apu, 0x00)
+  let ticks = countFdTicks(apu, Samples)
+  doAssert ticks >= 3 and ticks <= 5,
+    &"FA=0 period wrong: got {ticks} want~{Expected} (target-0 must be 256)"
+
+block timer2FasterThanTimer0:
+  ## T2 stage1 every 16 SPC cycles (64kHz) vs T0 every 128 (8kHz). target=$10
+  ## → T2 overflows every 16*(16/32)? Wait: stage1 every 16 cycles = every
+  ## 16/32 = 0.5 samples — in practice every other sample path accumulates.
+  ## Period samples ≈ target * (16 / CyclesPerSample) = 16 * 0.5 = 8 samples.
+  ## So T2 >> T0 rate (~8 samples/tick vs 64). Locks divisor wiring.
+  let apu = newApu()
+  discard apu.spc.writeHook(0x00FC, 0x10)  # T2 target
+  discard apu.spc.writeHook(0x00F1, 0x04)  # enable T2 only (bit 2)
+  var ticks = 0
+  const Window = 640
+  for _ in 0 ..< Window:
+    discard apu.runSample()
+    let v = apu.spc.readHook(0x00FF)  # T2 counter
+    if v > 0:
+      ticks += v
+  # Expect roughly Window/8 = 80; allow wide band but must beat T0-at-same-window
+  # (~Window/64 = 10) by a clear margin.
+  doAssert ticks >= 40,
+    &"T2 too slow: {ticks} $FF ticks in {Window} samples (divisor 16 wiring?)"
+  doAssert ticks <= 120,
+    &"T2 too fast: {ticks} $FF ticks in {Window} samples"
