@@ -12,7 +12,10 @@ import
 const
   StateMagic* = "DBST"  ## TODO: placeholder magic bytes for decompbound state files.
                         ## Will be refined with proper RE-derived format once needed.
-  StateVersion* = 1'u32
+  # v1: no APU timer regs (load left T0 disabled → music driver hang on $FD).
+  # v2: append timer0..2 + dspAddr after DSP regs.
+  StateVersion* = 2'u32
+  StateVersionMin* = 1'u32
   WramBase = 0x7E0000
   WramSize = 0x20000
 
@@ -167,6 +170,16 @@ proc writeState(s: Stream, snes: SnesBus, cpu: Cpu) =
   writeI32le(s, dsp.writes.int32)
   s.writeData(unsafeAddr(dsp.regs[0]), dsp.regs.len)
 
+  # v2: APU timers + DSP address register (needed for music after load-state).
+  for i in 0 .. 2:
+    let t = apu.getTimerSnapshot(i)
+    writeU8(s, if t.enabled: 1'u8 else: 0'u8)
+    writeU8(s, t.target)
+    writeU8(s, t.internal)
+    writeU8(s, t.counter)
+    writeI32le(s, t.accum.int32)
+  writeU8(s, apu.dspAddr)
+
 proc readState(s: Stream, snes: SnesBus, cpu: var Cpu) =
   ## Read the full emulator state from the stream in canonical order
   ## and restore in-place. Shared by deserializeState and loadState.
@@ -174,7 +187,7 @@ proc readState(s: Stream, snes: SnesBus, cpu: var Cpu) =
   if magic != StateMagic:
     raise newException(ValueError, &"bad state magic (got {magic})")
   let ver = readU32le(s)
-  if ver != StateVersion:
+  if ver < StateVersionMin or ver > StateVersion:
     raise newException(ValueError, &"unsupported state version {ver}")
 
   cpu.a = readU16le(s)
@@ -262,6 +275,29 @@ proc readState(s: Stream, snes: SnesBus, cpu: var Cpu) =
   var dspRegsBuf: array[128, uint8]
   discard s.readData(addr dspRegsBuf[0], 128)
   copyMem(addr snes.apu.dsp.regs[0], addr dspRegsBuf[0], 128)
+
+  if ver >= 2:
+    for i in 0 .. 2:
+      let enabled = readU8(s) != 0
+      let target = readU8(s)
+      let internal = readU8(s)
+      let counter = readU8(s)
+      let accum = readI32le(s).int
+      snes.apu.setTimerSnapshot(i, TimerSnapshot(
+        enabled: enabled,
+        target: target,
+        internal: internal,
+        counter: counter,
+        accum: accum
+      ))
+    snes.apu.dspAddr = readU8(s)
+  else:
+    # v1 blobs never stored $F1/$FA–$FC; without T0 the driver hangs on $FD.
+    snes.apu.recoverTimersAfterLoad()
+
+  # Mid-upload waits at $C0AB8x: A holds the $2140 byte, CMP waits for echo.
+  if cpu.pbr == 0xC0'u8 and cpu.pc >= 0xAB80'u16 and cpu.pc <= 0xAB95'u16:
+    snes.apu.resyncPortEchoAfterLoad((cpu.a and 0xFF).uint8)
 
 proc saveState*(snes: SnesBus, cpu: Cpu, slot: int) =
   ## Snapshot current SnesBus public state + Cpu + live APU to the slot file.

@@ -16,10 +16,18 @@ type
     counter: uint8  ## 4-bit up-counter, cleared on read.
     accum: int      ## Cycle accumulator toward the next divisor tick.
 
+  TimerSnapshot* = object
+    ## Public timer state for save/load (private Timer fields are not exported).
+    enabled*: bool
+    target*: uint8
+    internal*: uint8
+    counter*: uint8
+    accum*: int
+
   Apu* = ref object
     spc*: Spc
     dsp*: Dsp
-    dspAddr: uint8
+    dspAddr*: uint8
     timers: array[3, Timer]
     portsIn*: array[4, uint8]   ## What the S-CPU wrote ($2140-$2143).
     portsOut*: array[4, uint8]  ## What the SPC700 wrote back.
@@ -122,3 +130,51 @@ proc runSample*(apu: Apu): tuple[left: int16, right: int16] =
     apu.spc.cycles += CyclesPerSample
   apu.tickTimers(CyclesPerSample)
   result = apu.dsp.mixSample()
+
+proc getTimerSnapshot*(apu: Apu, index: int): TimerSnapshot =
+  ## Copy one hardware timer's state for serialization.
+  let t = apu.timers[index]
+  TimerSnapshot(
+    enabled: t.enabled,
+    target: t.target,
+    internal: t.internal,
+    counter: t.counter,
+    accum: t.accum
+  )
+
+proc setTimerSnapshot*(apu: Apu, index: int, snap: TimerSnapshot) =
+  ## Restore one hardware timer from a snapshot.
+  apu.timers[index].enabled = snap.enabled
+  apu.timers[index].target = snap.target
+  apu.timers[index].internal = snap.internal
+  apu.timers[index].counter = snap.counter and 0x0F
+  apu.timers[index].accum = snap.accum
+
+proc recoverTimersAfterLoad*(apu: Apu) =
+  ## Best-effort timer restore for save-states that omitted $F1/$FA–$FC (v1).
+  ## Without T0 the music driver spins on `MOV A,$FD` / `BEQ` forever after
+  ## load (port $2140 never acks → force-blank hang on door/battle music).
+  ## EB driver init uses FA=$10, F1=$01; $53 is the FA shadow in driver RAM.
+  ## Load-time only — never re-arm on every $FD poll (that kills music tempo;
+  ## see docs/half-speed-music.md).
+  var target = apu.spc.ram[][0x53]
+  if target == 0:
+    target = 0x10
+  apu.timers[0].target = target
+  apu.timers[0].enabled = true
+  apu.timers[0].internal = 0
+  apu.timers[0].counter = 0
+  apu.timers[0].accum = 0
+
+proc resyncPortEchoAfterLoad*(apu: Apu, written: uint8) =
+  ## Complete a mid-handshake save: CPU already wrote `written` to $2140 and is
+  ## spinning on CMP $2140, but ports were snapshotted empty so the SPC never
+  ## echoes. Republish in+out so the wait exits. No-op if written is 0.
+  if written == 0:
+    return
+  apu.portsIn[0] = written
+  apu.portsOut[0] = written
+
+proc timer0Enabled*(apu: Apu): bool =
+  ## True when hardware timer 0 is enabled (music driver tempo source).
+  apu.timers[0].enabled
