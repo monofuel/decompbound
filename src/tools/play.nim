@@ -742,10 +742,8 @@ void main() {
           # NMI fires at vblank start (line 224), AFTER the visible scanlines are
           # drawn — so the game's vblank handler updates scroll/CGRAM/HDMA for the
           # NEXT frame, not mid-render (which flickered the top lines + the iris).
-          snes.setScanline(l)
           if l == 224 and (snes.nmitimen and 0x80) != 0:
             cpu.nmiPending = true
-            snes.raiseNmi()
           for i in 0 ..< InstrPerLine:
             cpu.step(snes.bus)
             if cpu.stopped:

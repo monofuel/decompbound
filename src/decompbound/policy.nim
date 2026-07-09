@@ -363,10 +363,8 @@ proc stepOneFrame*(snes: SnesBus, cpu: var Cpu, image: Image) =
     image.fill(backdrop)
   var l = 0
   while l < 262:
-    snes.setScanline(l)
     if l == 224 and (snes.nmitimen and 0x80) != 0:
       cpu.nmiPending = true
-      snes.raiseNmi()
     for i in 0 ..< InstrPerLine:
       cpu.step(snes.bus)
       if cpu.stopped:

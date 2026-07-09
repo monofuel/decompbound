@@ -47,9 +47,7 @@ type
     apuUploadBytes*: int
     apuPostBoot*: seq[(uint32, uint8)]  ## Port writes after the driver ran.
     apuJumps*: seq[(uint8, uint8, uint16)]  ## (counter, flag, target) pairs for block starts.
-    vblankToggle: bool           ## Legacy RDNMI toggle; prefer nmiFlag + scanline.
-    nmiFlag: bool                ## $4210 bit 7: set at vblank NMI, cleared on read.
-    scanline*: int               ## Current scanline 0..261; drivers update each line.
+    vblankToggle: bool
     mmioReads*: seq[uint32]   ## Trace of MMIO reads (debug aid).
     mmioWrites*: seq[(uint32, uint8)]  ## Trace of MMIO writes.
     ## PPU memory.
@@ -78,15 +76,6 @@ type
     fixedColorR*: uint8  ## 0-31 from COLDATA $2132.
     fixedColorG*: uint8
     fixedColorB*: uint8
-    ## Mode 7 matrix / general-purpose signed multiply ($211B/$211C → $2134-$2136).
-    ## EarthBound fills battle-BG / Giygas HDMA distortion tables via
-    ## M7A (16-bit) * last M7B byte (signed 8-bit) → 24-bit MPY. Without this
-    ## the distortion buffer stays zero and the intro "red snow" looks like a
-    ## coherent Giygas face instead of warped TV static.
-    m7a: uint16
-    m7b: uint16
-    m7MulLatch: uint8   ## Write-twice latch for M7A/M7B (mode7_latch).
-    mpy: uint32         ## 24-bit signed product in low 24 bits.
     hdmaWrites*: seq[(uint32, uint8)]  ## Trace of B-bus writes performed by HDMA (for debug).
     joy1*: uint16  ## Auto-read joypad 1 state ($4218/19). Bit layout:
                    ## high byte B,Y,Sel,Start,U,D,L,R; low byte A,X,L,R.
@@ -130,11 +119,9 @@ proc mmioRead(snes: SnesBus, offset: uint32): uint8 =
     of ahsRunning:
       0x00'u8
   of 0x4210:
-    # RDNMI: bit 7 = NMI flag (set when vblank NMI fires, cleared on read).
-    # Bit 6 = CPU version (always 1 on production chips). Open-bus low nibble.
-    let flag = snes.nmiFlag
-    snes.nmiFlag = false
-    if flag: 0xC2'u8 else: 0x42'u8
+    # RDNMI: NMI flag toggles so vblank wait loops make progress.
+    snes.vblankToggle = not snes.vblankToggle
+    if snes.vblankToggle: 0xC2'u8 else: 0x42'u8
   of 0x4211:
     0x00  # TIMEUP: no IRQ pending.
   of 0x4214:
@@ -150,26 +137,9 @@ proc mmioRead(snes: SnesBus, offset: uint32): uint8 =
   of 0x4219:
     (snes.joy1 shr 8).uint8
   of 0x4212:
-    # HVBJOY from real scanline position (not a shared toggle with RDNMI).
-    # bit 7 = vblank (lines 224..261), bit 6 = hblank (approx: not used tightly),
-    # bit 0 = auto-joypad busy (we report idle). Wait-frame ($C08756) polls this
-    # when $1E lacks the NMI-path bits; thrash fades need correct edges.
-    var v: uint8 = 0
-    if snes.scanline >= 224:
-      v = v or 0x80'u8
-    # Crude hblank: treat "between lines" as not-hblank so BMI/BPL wait loops
-    # that edge-detect vblank still progress once per frame when drivers update
-    # scanline once per line.
-    v
-  of 0x2134:
-    # MPYL: low 8 bits of signed M7A * (int8)M7B product.
-    (snes.mpy and 0xFF).uint8
-  of 0x2135:
-    # MPYM: middle 8 bits.
-    ((snes.mpy shr 8) and 0xFF).uint8
-  of 0x2136:
-    # MPYH: high 8 bits (sign-extended into bit 23 of the 24-bit product).
-    ((snes.mpy shr 16) and 0xFF).uint8
+    # HVBJOY: toggle vblank/hblank bits so polls terminate.
+    snes.vblankToggle = not snes.vblankToggle
+    if snes.vblankToggle: 0x81'u8 else: 0x00'u8
   else:
     0x00
 
@@ -227,21 +197,6 @@ proc ppuPortWrite(snes: SnesBus, offset: uint32, value: uint8): bool =
     true
   of 0x2117:
     snes.vmadd = (snes.vmadd and 0x00FF) or (value.uint16 shl 8)
-    true
-  of 0x211B:
-    # M7A write-twice: M7A = (value << 8) | latch; latch = value.
-    snes.m7a = (value.uint16 shl 8) or snes.m7MulLatch.uint16
-    snes.m7MulLatch = value
-    true
-  of 0x211C:
-    # M7B write-twice + signed multiply trigger.
-    # product = (int16)M7A * (int8)value  (last byte written), 24-bit result.
-    snes.m7b = (value.uint16 shl 8) or snes.m7MulLatch.uint16
-    snes.m7MulLatch = value
-    let a = cast[int16](snes.m7a).int32
-    let b = cast[int8](value).int32
-    let prod = a * b
-    snes.mpy = (cast[uint32](prod)) and 0x00FF_FFFF'u32
     true
   of 0x2118:
     let index = (snes.vmadd and 0x7FFF).int
@@ -607,14 +562,6 @@ proc mmioWrite(snes: SnesBus, offset: uint32, value: uint8) =
     snes.nmitimen = value
   else:
     discard
-
-proc setScanline*(snes: SnesBus, line: int) =
-  ## Drivers call this once per scanline so HVBJOY reflects real vblank.
-  snes.scanline = line
-
-proc raiseNmi*(snes: SnesBus) =
-  ## Mark the RDNMI flag when the system raises vblank NMI.
-  snes.nmiFlag = true
 
 proc detectLoRom(rom: seq[uint8]): bool =
   ## Detect the cartridge map mode from the internal header. The header sits at
