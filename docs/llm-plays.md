@@ -9,6 +9,7 @@ qwen thinks; `--sync-llm` (default headless) still pause-for-consistency.
 See [Where it actually stands](#where-it-actually-stands--what-works-whats-next)
 for the honest state of the code. Off the critical path; sanctioned fun.
 Awareness of pre-training / seed / notes leakage: [llm-contamination.md](llm-contamination.md).  
+**Campaign / story percents (tg → Pokey → knock → Buzz Buzz → Sunrise MVP):** [llm-sequence.md](llm-sequence.md).  
 **n=1 touch grass (IRL):** [media/IMG_20260520_201351_568.jpg](media/IMG_20260520_201351_568.jpg).
 
 Give an LLM a way to *play* the game: it authors **Lua** that can read game
@@ -332,7 +333,8 @@ as of the last update. Keep this section current — it's the first thing to rea
   reloaded into every prompt) + isolated `--save-srm` battery save (never the
   user's real `.srm`).
 - **Milestone metric**: `tg_pct` (see the section above) — 25 → 75 → 100 proven
-  end-to-end with a scripted walk.
+  end-to-end with a scripted walk. Next story gates (Pokey → knock → Buzz Buzz →
+  Sunrise MVP): [llm-sequence.md](llm-sequence.md).
 - **Menu-blindness fix** (commit `8865a94`): rich state reports
   `menu_open`/`which_menu`; the prompt + skills forbid pressing A while walking
   (A opens the command ring and freezes movement — the single biggest thing that
