@@ -64,6 +64,12 @@ Copy this template when adding a row (agents: always use it):
 
 ### Overworld / menus
 
+- [ ] **Auto-screenshots now ON by default** · 2026-07-09 · `play.nim autoShot=true`
+  - **Run:** `make play` → play for ~20s, then check `bin/autoshots/`
+  - **Pass if:** `shot_NNNN.png` files appear every ~5s and the periodic stutter is tolerable
+  - **Fail if:** no shots appear, or the ~5s write-stutter is too disruptive (F11 turns it off)
+  - **Notes:**
+
 - [ ] **No garbage / rainbow 1px line at top of screen** · 2026-07-08 · sprite Y wrap fix
   - **Run:** `make play` → overworld or battle (status windows visible)
   - **Pass if:** top scanline is clean (no multi-colored sparkle row)
