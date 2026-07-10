@@ -160,12 +160,16 @@ Store states privately in `decompbound_secret/states/` (see
 ## 7. TODO (handoff checklist for Fable 5)
 
 **Navigation subsystem (the real work):**
-- [ ] **Give Lua full-bus read access** — read-only `snes.read(addr)` +
-      `snes.readRange(addr, len)` over `cpu.read8` (ROM/WRAM/VRAM). Prereq to
-      everything below. Writes stay `pad`-only.
-- [ ] **Pin the passability bit** → `isWalkable(snes, tx, ty)`. Empirical:
-      walls vs. open ground, diff the tile word. Start from `map_explore.nim` +
-      `docs/decompilation.md` map RE. **(keystone — unblocks everything)**
+- [x] **Give Lua full-bus read access** — DONE 2026-07-09: `snes.read(addr)` +
+      `snes.readRange(addr, len)` in `policy.nim` (side-effect-free peek; MMIO
+      ports return 0). Writes stay `pad`-only.
+- [x] **Pin the passability bit** → DONE 2026-07-09, and better than expected:
+      collision is a **live WRAM page at `$7EE000`**, blocked iff
+      `(byte & 0xD0) != 0`, probed by `$C05F33` / gated at file `0x0029CC`.
+      Verified vs live movement 4/4 directions (`probe_walkable.nim`). Full
+      formula in `docs/memory-map.md` + `docs/decompilation.md`. Caveat: the
+      page wraps mod 64 tiles and its loader is unpinned → plan locally,
+      re-plan while moving.
 - [ ] **A\* pathfinder** over `isWalkable` to a goal tile.
 - [ ] **Reactive path→input** translation; re-plan on block; **no glitching**.
 - [ ] **Map/sector transition** model for multi-screen routes (doors/warps).
@@ -174,7 +178,10 @@ Store states privately in `decompbound_secret/states/` (see
 **Pokey milestone (uses the subsystem):**
 - [ ] Remove `hillClimbNorth` glitch + Minch/Picky grading.
 - [ ] Capture ground truth (monofuel): play house → Pokey, drop savestates +
-      input log to `decompbound_secret/states/`.
+      input log to `decompbound_secret/states/`. **Queued in
+      `docs/human-verify.md` 2026-07-09** — audit of all 365 existing secret
+      states found no house→meteor trail (closest: a west yard corridor at
+      `py≈0x16xx`). Nav work proceeds on emulator-discovered route meanwhile.
 - [ ] Validate A\* route against the breadcrumb corridor; pin Pokey's real coords.
 - [ ] Regrade `pokeyPercent` on the real outdoor meteor target, gated on a real
       map/area byte; RE a "talked to Pokey" flag (fallback: adjacency + window).

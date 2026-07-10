@@ -42,7 +42,8 @@ unconfirmed) · `❓ unpinned` (known to exist, address/bit not nailed down).
 | `$8650` | byte | **First text/window slot header** — `0xFF` = free (no window open) | 🟡 | `advanceDialogue` gate. `$8958` = focus (unreliable alone). Message/dialog *buffer* still to pin (see "dialog reading" above). |
 | `$988B..` | block | **Event flags** | 🟡 | Enter-only doesn't flip these; a "talked to Pokey" bit not yet found here. |
 | `$4DBA` | byte | **in_battle** flag (`!=0` during battle) | 🟡 | `battleFixtureOk` in `touch_grass.nim`. |
-| `~$2640` | word | **Live tilemap tile word**; the per-tile **passability ("pass") bit** lives here | ❓ | **Keystone for pathfinding — bit UNPINNED.** Pin empirically (walls vs. open ground). |
+| `$E000` | 64×64 bytes | **Live collision page** — one byte per 8px coarse tile; **blocked iff `(byte & 0xD0) != 0`** | ✅ | Read by `$C05F33` (`LDA $E000,X`, DBR=`$7E`); walk gate `AND #$00D0; BNE` at file `0x0029CC` before the `$0B8E,X` pos write. Index `((cy&0x3F)<<6)\|(cx&0x3F)`, `cx=(xAdj>>3)`, `cy=(yAdj>>3)`; adj offsets from ROM tables below. Page **wraps mod 64 tiles** (512×512px window); loader that fills it from ROM not yet pinned. Verified vs live movement 4/4 dirs (`probe_walkable.nim`, 2026-07-09). Onett bytes: `0x00` open, `0x80` solid, `0x01/0x03` pass. |
+| `$2B6E` | word × slots | Entity **collision type** (stride 2; player outdoor = 5) | ✅ | Indexes the `$C42A1F/...` offset + hitbox tables in `$C05F33`. |
 | `$0180/$0280/$02A0` | — | Battle-menu **font bases** (for on-screen text decode) | 🟡 | `screen.text()` path. |
 | `$53` (SPC RAM) | byte | APU **timer0 target** shadow (FA shadow) | ✅ | Used by `recoverTimersAfterLoad`. Note: SPC address space, not S-CPU WRAM. |
 
@@ -53,6 +54,8 @@ unconfirmed) · `❓ unpinned` (known to exist, address/bit not nailed down).
 | `0x100000` | **Tilemap pointer table** (4-byte entries → bank `$CF`) | ✅ | Byte-exact per `docs/decompilation.md`. |
 | `0x101800` | **Tilemap data** (2-byte words) | ✅ | The map tiles A\* reads. |
 | `0x043573` | **Sector setter** (writes `$89CA`) | ✅ | Takes pre-computed sector ID in `A`. |
+| `0x005F33` | **Collision probe `$C05F33`** (A=world X px, X=world Y px, Y=slot → OR of hitbox collision bytes in `$5DA4`) | ✅ | Disasm-audited 2026-07-09. `xAdj -= u16($C42A1F+type*2)`; `yAdj -= u16($C42A41+type*2) += u16($C42AEB+type*2)`; hitbox w/h counts at `$C42AA7`/`$C42AC9`. Left/right column scans `JSR $5639`/`$56D0`. |
+| `0x0029CC` | **Walk gate** — `JSL $C05F33; AND #$00D0; BNE blocked` | ✅ | Nonzero blocks the `STA $0B8E,X` pos update at `0x0029F9`. |
 | `$C3E012` | **Object-ID records** (8-byte) | 🟡 | `docs/decompilation.md`. |
 | `0x03ED00` | Map / graphics load path | 🟡 | `docs/graphics.md`. |
 

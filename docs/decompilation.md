@@ -115,13 +115,23 @@ tile+attr words, standard SNES BG format), and **tileset graphics** at file
   $0B8E,X` near file `0x9390`; screen-relative = minus scroll `$0031/$0033`). The
   **tile+attr reader** is at file `0x2640` (SNES `$C02640`): `LDA $D01880,X` returns
   the 2-byte tilemap word (data `0x101800`, ptr table `0x100000`) for a target tile.
-  Walkability uses a **separate collision table at ~`$E000`** (bank E0, file
-  ~`0x200000`): a byte per coarse tile indexed `((cy>>3 & 0x3F)<<6) | (cx>>3 & 0x3F)`,
-  read by the movement/pos-write gate at file `0x0029F9` (`JSL $C05F33; AND #$00D0;
-  BNE skip` — a nonzero flag blocks the `STA $0B8E,X` update). The `0x2640` reader
-  also feeds a tile-attr scan at `0x002A6B`. Anchors byte-verified (`9d8e0b` gate,
-  `bf8018d0` reader); the exact blocked-value/mask still wants a clean open-vs-wall
-  trace to fully confirm. These give a future `walkTo` real A* over walkable tiles.
+  Walkability uses a **live collision page in WRAM `$7EE000`** (2026-07-09,
+  disasm + empirical — the earlier "ROM bank E0" guess was wrong: `LDA $E000,X`
+  runs with DBR=`$7E`): a byte per 8px coarse tile indexed
+  `((cy & 0x3F)<<6) | (cx & 0x3F)` with `cx=(xAdj>>3)`, `cy=(yAdj>>3)`;
+  `xAdj/yAdj` are world pixels minus per-entity-type offsets from ROM tables
+  `$C42A1F`/`$C42A41`/`$C42AEB` (type = `$2B6E + slot*2`; player outdoor = 5;
+  hitbox w/h counts at `$C42AA7`/`$C42AC9`). The collision probe is `$C05F33`
+  (file `0x005F33`; A=X px, X=Y px, Y=slot; returns OR of hitbox bytes via
+  `$5DA4`), consumed by the movement gate at file `0x0029CC`
+  (`JSL $C05F33; AND #$00D0; BNE skip` — nonzero blocks the `STA $0B8E,X`
+  update at `0x0029F9`). **Blocked mask confirmed `0x00D0`** by a 4-direction
+  live-movement cross-check (`probe_walkable.nim`); Onett page bytes: `0x00`
+  open, `0x80` solid, `0x01/0x03` pass under the mask. The `0x2640` reader
+  also feeds a tile-attr scan at `0x002A6B`. The page **wraps mod 64 tiles**
+  (512×512px window); the loader that fills `$7EE000` on area change is still
+  unpinned. This powers the real A\* `navTo` skill (docs/pokey-percent.md §3);
+  address registry: `docs/memory-map.md`.
 
 ### 📊 Game data (track, not yet its own doc)
 
