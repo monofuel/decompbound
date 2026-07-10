@@ -353,6 +353,32 @@ proc navOrFootprint(snes: SnesBus, xAdj, yAdj, hCnt, wCnt: int): int =
     inc i
   acc
 
+proc navNearbyEntities(snes: SnesBus, sx, sy: int): seq[(int, int)] =
+  ## World-pixel centers of active NON-player entities within the plan window.
+  ## The collision page ($7EE000) is static terrain only — NPCs (the meteor-site
+  ## cop, townsfolk) are dynamic and block the player without appearing there.
+  ## Injecting them as obstacles is nav layer 3 ("route around a moving NPC").
+  ## Player = slot 24; skip it and empty/0xFFFF slots.
+  result = @[]
+  for slot in 0 ..< 30:
+    if slot == NavPlayerSlotIdx div 2:  # NavPlayerSlotIdx is slot*2; recover slot 24.
+      continue
+    let ex = snesPeekU16Le(snes, WramMirrorBase or (0x0B8E + slot * 2))
+    let ey = snesPeekU16Le(snes, WramMirrorBase or (0x0BCA + slot * 2))
+    if (ex == 0 and ey == 0) or ex == 0xFFFF:
+      continue
+    if abs(ex - sx) <= NavPlanRadiusPx and abs(ey - sy) <= NavPlanRadiusPx:
+      result.add (ex, ey)
+
+proc navEntityBlocks(ents: seq[(int, int)], px, py: int): bool {.inline.} =
+  ## True if (px,py) falls inside any entity's soft footprint (an NPC body).
+  ## Radius ~ one tile so A* steps around without carving huge no-go zones.
+  const EntHalf = 8
+  for (ex, ey) in ents:
+    if abs(px - ex) <= EntHalf and abs(py - ey) <= EntHalf:
+      return true
+  false
+
 proc navWalkableHp(snes: SnesBus,
     hp: tuple[xOff, yOff, yExt, hCnt, wCnt: int], px, py: int): bool {.inline.} =
   ## navWalkablePx with hitbox params hoisted (BFS inner loop).
@@ -387,6 +413,10 @@ proc navFindPath*(snes: SnesBus, sx, sy, tx, ty: int): seq[(int, int)] =
   let minY = sy - NavPlanRadiusPx
   let maxY = sy + NavPlanRadiusPx
   let targetInWindow = tx >= minX and tx <= maxX and ty >= minY and ty <= maxY
+  # Dynamic NPC obstacles (the cop etc). Never block the immediate start pixel
+  # (the player already overlaps its own tolerance) or the goal tile — you may
+  # be trying to walk UP TO an NPC to talk.
+  let ents = navNearbyEntities(snes, sx, sy)
 
   var visited = newSeq[bool](NavWinCells)
   var parent = newSeq[int32](NavWinCells)
@@ -421,6 +451,10 @@ proc navFindPath*(snes: SnesBus, sx, sy, tx, ty: int): seq[(int, int)] =
       visited[ni] = true
       # Start is enterable by definition; every other pixel needs the gate clear.
       if not navWalkableHp(snes, hp, nx, ny):
+        continue
+      # Route around NPCs — unless this pixel is essentially the goal (walking
+      # up to the NPC to talk to it is allowed).
+      if abs(nx - tx) + abs(ny - ty) > NavGoalSlack and navEntityBlocks(ents, nx, ny):
         continue
       parent[ni] = int32(navWinIndex(x, y, minX, minY))
       q.add (nx, ny)
