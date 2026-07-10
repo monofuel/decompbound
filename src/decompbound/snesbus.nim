@@ -175,7 +175,8 @@ proc translatedVramAddr*(snes: SnesBus): uint16 =
   ##
   ## Without this, event/dialogue DMA (inn sleep/wake, Mr. Saturn talk, sanctuary
   ## visions, etc.) that programs a non-zero translation deposits tiles at the
-  ## raw VMADD and trashes graphics. trans=0 is identity (boot/overworld OK).
+  ## raw VMADD and trashes graphics (garbage tiles / hung black screens).
+  ## trans=0 is identity (boot/title/overworld paths unchanged).
   ##
   ## Mapping per fullsnes: rotate the low 8/9/10 address bits left by 3.
   let trans = (snes.vmain shr 2) and 3
