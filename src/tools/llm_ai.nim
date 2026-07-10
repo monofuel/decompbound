@@ -1075,6 +1075,8 @@ proc main() =
     echo "  headless mode (no window)"
 
   var maxTouchGrass = 0
+  var maxPokey = 0
+  var pokeyAchievedFrame = -1
   let logPath = "bin/llm_ai_log.txt"
   createDir("bin")
   proc logTg(msg: string) =
@@ -1179,6 +1181,15 @@ proc main() =
       let oldRoom = prevRoom
       if tg > maxTouchGrass:
         maxTouchGrass = tg
+      if pokeyPct > maxPokey:
+        maxPokey = pokeyPct
+      # Latch the Pokey achievement: reaching Pokey and talking is a milestone;
+      # the post-talk scene moves the player so pokey_pct falls back — don't let
+      # that read as regression / trigger a rollback that undoes the win.
+      if pokeyPct >= 100 and pokeyAchievedFrame < 0:
+        pokeyAchievedFrame = ctx.frameCount
+        logTg(fmt"POKEY ACHIEVED at frame {ctx.frameCount} (talked to Pokey at the meteor)")
+        echo "POKEY ACHIEVED!"
       # Only log when progress actually changed, or every ~300 frames as a heartbeat.
       let logSig = fmt"{tg}|{room}|{pokeyPct}|{pokeyKnockPct}|{buzzBuzzPct}|{sunrisePct}"
       if logSig != lastLogSig or (ctx.frameCount mod 300 == 0):
@@ -1256,7 +1267,12 @@ proc main() =
       let curMoney = touch_grass.readU16(snes, 0x9831)
       let moneyProg = curMoney != prevMoney
       let madeAnyProgress = madeTgRoomProgress or madePosProgress or moneyProg or madePokeyProgress
-      if not madeAnyProgress:
+      # At the goal (adjacent to Pokey, pokey_pct>=90) the bot deliberately
+      # stands still mashing Up+A to trigger the talk — "not moving" there is
+      # success in progress, not a stall. Don't let rollback yank it away
+      # before the scene fires.
+      let atGoal = pokeyPct >= 90
+      if not madeAnyProgress and not atGoal:
         stuckCounter += 1
       else:
         stuckCounter = 0
@@ -1348,11 +1364,13 @@ proc main() =
   let finalTg = touch_grass.touchGrassPercent(snes)
   if finalTg > maxTouchGrass: maxTouchGrass = finalTg
   let finalPokey = story_percents.pokeyPercent(snes)
+  if finalPokey > maxPokey: maxPokey = finalPokey
   let finalPokeyKnock = story_percents.pokeyKnockPercent(snes)
   let finalBuzz = story_percents.buzzBuzzPercent(snes)
   let finalSunrise = story_percents.sunrisePercent(snes)
-  logTg(fmt"{now()} frame={ctx.frameCount} touch_grass_pct={finalTg} max={maxTouchGrass} pokey_pct={finalPokey} pokey_knock_pct={finalPokeyKnock} buzzbuzz_pct={finalBuzz} sunrise_pct={finalSunrise} (final)")
-  echo fmt"done: ran {ctx.frameCount} frames. final joy1=0x{snes.joy1:04x} max_touch_grass={maxTouchGrass} pokey_pct={finalPokey} sunrise_pct={finalSunrise}"
+  logTg(fmt"{now()} frame={ctx.frameCount} touch_grass_pct={finalTg} max={maxTouchGrass} pokey_pct={finalPokey} max_pokey={maxPokey} pokey_knock_pct={finalPokeyKnock} buzzbuzz_pct={finalBuzz} sunrise_pct={finalSunrise} (final)")
+  echo fmt"done: ran {ctx.frameCount} frames. final joy1=0x{snes.joy1:04x} max_touch_grass={maxTouchGrass} pokey_pct={finalPokey} max_pokey={maxPokey}" &
+    (if pokeyAchievedFrame >= 0: fmt" POKEY_ACHIEVED@{pokeyAchievedFrame}" else: "") & fmt" sunrise_pct={finalSunrise}"
   echo fmt"frames_during_pending={framesDuringPending} (frames advanced while LLM request in-flight; async proof when >0)"
   if saveStateSlot >= 0:
     let outPath = llmSlotPath(saveStateSlot)

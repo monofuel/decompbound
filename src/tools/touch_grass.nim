@@ -756,6 +756,193 @@ function navTo(tx, ty)
 end
 """
 
+const FollowTrailSkillLua* = """
+-- followTrail(points): track a dense mutually-reachable point chain as a
+-- *reachability trail*, not greedy nav. Each adjacent point is close (~20-60px)
+-- and was walked by a human, so direct d-pad drive reaches it without navTo's
+-- out-of-window frontier steering (which local-mins on detours that increase
+-- euclidean-to-goal, e.g. the Pokey SW→west→climb loop).
+--
+-- Invariants:
+--   * Never skip ahead of the player's real position — index advances only on
+--     genuine arrival (manhattan <= ARRIVE).
+--   * Drive DIRECTLY toward the current trail point. Dominant-axis first
+--     (diagonals into a solid axis cancel ALL movement in EB — verified on the
+--     Onett western climb at (0x0608,0x018A): Left+Up stuck, pure Up free).
+--     After brief stuck, add the secondary axis (slopes) then slope-wiggle.
+--   * If wall-stuck for RECOVER_N: navTo the SAME trail point. If still no
+--     progress for RETREAT_N frames of recovery, step the index back one
+--     (re-anchor on the previous human sample) and resume. No glitch/clip.
+--
+-- points = {{x=, y=}, ...} in order. Pass a stable table (store in a global
+-- once) so the follower keeps its index across frames.
+-- Returns true while following; false when arrived at the last point.
+-- Requires: escapeMenu, navTo (recovery), pad, mem, frame.
+-- TODO(magic): ARRIVE/RECOVER_N/RETREAT_N tuned on TAS 20260709-225653;
+--   climb freeze (0x0608,0x018A) is the calibration case.
+
+local TRAIL_ARRIVE = 8
+local TRAIL_RECOVER_N = 40
+local TRAIL_RETREAT_N = 90
+local TRAIL_DUAL_N = 10
+local TRAIL_WIGGLE_N = 20
+local TRAIL_ROOM_JUMP = 0x80
+
+local _trail = {
+  key = nil,
+  i = 1,
+  lx = nil,
+  ly = nil,
+  stuck = 0,
+  recovering = false,
+  rec_frames = 0,
+  rec_best = nil,
+}
+
+function followTrail(points)
+  if escapeMenu() then
+    return true
+  end
+  if points == nil or #points == 0 then
+    return false
+  end
+
+  -- Bind to table identity so a stable global trail keeps its index; a new
+  -- table restarts from point 1 (caller should cache the trail once).
+  if _trail.key ~= points then
+    _trail.key = points
+    _trail.i = 1
+    _trail.lx = nil
+    _trail.ly = nil
+    _trail.stuck = 0
+    _trail.recovering = false
+    _trail.rec_frames = 0
+    _trail.rec_best = nil
+  end
+
+  local f = frame()
+  local px = mem.read(0x0BBE) + 256 * mem.read(0x0BBF)
+  local py = mem.read(0x0BFA) + 256 * mem.read(0x0BFB)
+
+  if _trail.lx and (math.abs(px - _trail.lx) > TRAIL_ROOM_JUMP or
+      math.abs(py - _trail.ly) > TRAIL_ROOM_JUMP) then
+    _trail.lx = px
+    _trail.ly = py
+    _trail.stuck = 0
+    _trail.recovering = false
+    _trail.rec_frames = 0
+    _trail.rec_best = nil
+  end
+
+  -- Advance only on genuine arrival; never jump past unreached detour points.
+  while _trail.i <= #points do
+    local wp = points[_trail.i]
+    local d = math.abs(px - wp.x) + math.abs(py - wp.y)
+    if d <= TRAIL_ARRIVE then
+      if _trail.i >= #points then
+        _trail.lx = px
+        _trail.ly = py
+        return false
+      end
+      _trail.i = _trail.i + 1
+      _trail.stuck = 0
+      _trail.recovering = false
+      _trail.rec_frames = 0
+      _trail.rec_best = nil
+    else
+      break
+    end
+  end
+
+  if _trail.i > #points then
+    return false
+  end
+
+  local wp = points[_trail.i]
+  local dist = math.abs(px - wp.x) + math.abs(py - wp.y)
+
+  if _trail.lx == px and _trail.ly == py then
+    _trail.stuck = _trail.stuck + 1
+  else
+    _trail.stuck = 0
+  end
+  _trail.lx = px
+  _trail.ly = py
+
+  if _trail.stuck >= TRAIL_RECOVER_N then
+    _trail.recovering = true
+  end
+
+  -- Recovery: local pixel BFS to the SAME trail index; retreat if no progress.
+  if _trail.recovering then
+    if _trail.rec_best == nil or dist < _trail.rec_best then
+      _trail.rec_best = dist
+      _trail.rec_frames = 0
+    else
+      _trail.rec_frames = _trail.rec_frames + 1
+    end
+    if _trail.rec_frames >= TRAIL_RETREAT_N and _trail.i > 1 then
+      -- Same-point recovery is a dead pocket; re-anchor on previous sample.
+      _trail.i = _trail.i - 1
+      _trail.recovering = false
+      _trail.stuck = 0
+      _trail.rec_frames = 0
+      _trail.rec_best = nil
+      wp = points[_trail.i]
+    else
+      local still = navTo(wp.x, wp.y)
+      if still then
+        return true
+      end
+      -- navTo arrived or blocked this frame.
+      _trail.recovering = false
+      _trail.stuck = 0
+      _trail.rec_frames = 0
+      _trail.rec_best = nil
+      return true
+    end
+  end
+
+  -- Direct drive (no path, no frontier). Dominant-axis first so a blocked
+  -- secondary axis cannot cancel movement (EB diagonal-into-wall trap).
+  local dx = wp.x - px
+  local dy = wp.y - py
+  local adx = math.abs(dx)
+  local ady = math.abs(dy)
+  if _trail.stuck < TRAIL_DUAL_N then
+    if adx >= ady then
+      if dx ~= 0 then
+        pad.press((dx > 0) and "Right" or "Left")
+      elseif dy ~= 0 then
+        pad.press((dy > 0) and "Down" or "Up")
+      end
+    else
+      if dy ~= 0 then
+        pad.press((dy > 0) and "Down" or "Up")
+      elseif dx ~= 0 then
+        pad.press((dx > 0) and "Right" or "Left")
+      end
+    end
+  else
+    -- Stuck briefly: dual-axis for 01/03 slopes, then perpendicular wiggle.
+    if dx ~= 0 then
+      pad.press((dx > 0) and "Right" or "Left")
+    end
+    if dy ~= 0 then
+      pad.press((dy > 0) and "Down" or "Up")
+    end
+    if _trail.stuck >= TRAIL_WIGGLE_N then
+      if dy ~= 0 and dx == 0 then
+        pad.press(((f // 8) % 2 == 0) and "Left" or "Right")
+      elseif dx ~= 0 and dy == 0 then
+        pad.press(((f // 8) % 2 == 0) and "Up" or "Down")
+      end
+    end
+  end
+  return true
+end
+"""
+
 proc currentRoomLabel*(snes: SnesBus): string =
   ## Human label for the LLM summary (bedroom / outside / title etc).
   let pct = touchGrassPercent(snes)

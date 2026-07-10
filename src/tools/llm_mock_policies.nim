@@ -99,18 +99,16 @@ function update()
 end
 """
 
-  ## Pokey % seed: exit Ness house if needed, then real-pathfind up the hill.
-  ## Pokey is outdoors at the meteor crash site (NOT Picky indoors at Minch).
-  ## Route (verified 2026-07-09, probe_meteor_route via navTo): door (0x0A60,
-  ## 0x0158) -> slight south -> west lower path -> winding slope corridor
-  ## north -> crest (0x0A18,0x00CC) -> plateau north edge ~Y=0x00B8.
-  ## navTo threads the whole thing in ~450 frames (pixel-space A* over the
-  ## live collision page + diagonal slope input). Hard wall at Y=0x00B8 from
-  ## onett_start; meteor/Pokey coords beyond it TBD (collision-map RE ticket).
-  ## Never doorEnter. Needs: escapeMenu, walkTo, navTo, advanceDialogue, winBattle.
-  PokeyVisitPolicy* = """-- NOTE: Pokey % seed — outdoor meteor hill via navTo, NOT Minch house / Picky.
--- Indoors Ness: NavHouse exit (walkTo waypoints). Outside: navTo crest then plateau.
--- navTo = real A* over the live collision page; no stuck-wiggle, no glitching.
+  ## Pokey % seed: exit Ness house if needed, then followTrail the human TAS
+  ## breadcrumb chain to Pokey at the outdoor meteor site (NOT Minch / Picky).
+  ## Trail = dense positions from TAS 20260709-225653 (every ~30f, mutually
+  ## reachable). followTrail drives dual-axis direct to each point; navTo only
+  ## as same-point recovery if wall-stuck. No frontier steering, no glitch.
+  ## Never doorEnter. Needs: escapeMenu, walkTo, followTrail, navTo,
+  ## advanceDialogue, winBattle.
+  PokeyVisitPolicy* = """-- NOTE: Pokey % seed — outdoor meteor via followTrail, NOT Minch / Picky.
+-- Indoors Ness: NavHouse exit (walkTo waypoints). Outside: dense human trail.
+-- followTrail = reachability chain (direct d-pad); navTo only for recovery.
 function update()
   if escapeMenu() then return end
   if mem.read(0x4DBA) ~= 0 then winBattle(); return end
@@ -148,60 +146,77 @@ function update()
   end
   -- outdoors: dialogue only when a window is open (never A-spam walk)
   if advanceDialogue() then return end
-  -- Human-verified route ladder (TAS 20260709-225653): SW descent -> west
-  -- road -> western climb -> ridge east -> meteor site. navTo threads each
-  -- leg; advance to the next waypoint when close. Persistent index survives
-  -- unchanged-policy ticks (mock never rewrites this chunk).
-  _pokeyWp = _pokeyWp or 1
-  local W = {
+  -- Dense human trail (TAS 20260709-225653, unique sequential samples).
+  -- Cached once so followTrail keeps its index across frames / reloads.
+  _pokeyTrail = _pokeyTrail or {
     {x=0x0A60, y=0x0158},
+    {x=0x0A4B, y=0x0169},
     {x=0x0A4A, y=0x0192},
+    {x=0x0A2F, y=0x01AF},
     {x=0x0A09, y=0x01BA},
+    {x=0x09EC, y=0x01D7},
     {x=0x09EA, y=0x01FE},
+    {x=0x09EA, y=0x0229},
     {x=0x09E0, y=0x024E},
+    {x=0x09C3, y=0x026B},
     {x=0x099A, y=0x026D},
+    {x=0x0971, y=0x026D},
     {x=0x0948, y=0x026D},
+    {x=0x0920, y=0x026D},
     {x=0x08FB, y=0x0260},
+    {x=0x08D4, y=0x025B},
     {x=0x08B3, y=0x0246},
+    {x=0x0896, y=0x0228},
     {x=0x0871, y=0x0220},
+    {x=0x0850, y=0x020F},
     {x=0x0831, y=0x01F1},
+    {x=0x0814, y=0x01D4},
     {x=0x07F0, y=0x01C8},
+    {x=0x07D4, y=0x01DA},
     {x=0x07B5, y=0x01F1},
+    {x=0x0793, y=0x0203},
     {x=0x076C, y=0x0208},
+    {x=0x0742, y=0x0208},
     {x=0x071E, y=0x01FC},
+    {x=0x06F8, y=0x01F8},
     {x=0x06CD, y=0x01F8},
+    {x=0x06A4, y=0x01F8},
     {x=0x067A, y=0x01F8},
+    {x=0x0658, y=0x01EB},
     {x=0x063A, y=0x01CD},
+    {x=0x061D, y=0x01B0},
     {x=0x0613, y=0x018B},
+    {x=0x0600, y=0x016B},
     {x=0x05F3, y=0x0146},
+    {x=0x060B, y=0x0131},
     {x=0x0631, y=0x013A},
+    {x=0x0659, y=0x0138},
     {x=0x0677, y=0x0150},
+    {x=0x0695, y=0x016E},
     {x=0x06BC, y=0x0175},
+    {x=0x06D8, y=0x0168},
     {x=0x06D8, y=0x013E},
+    {x=0x06D8, y=0x0114},
     {x=0x06DC, y=0x00ED},
+    {x=0x06F9, y=0x00D0},
     {x=0x0716, y=0x00B2},
+    {x=0x073F, y=0x00B0},
     {x=0x0766, y=0x00B0},
+    {x=0x078F, y=0x00B1},
     {x=0x07A4, y=0x00D4},
+    {x=0x07A4, y=0x00FD},
     {x=0x07B6, y=0x0116},
+    {x=0x07DF, y=0x0116},
     {x=0x0807, y=0x0116},
+    {x=0x082F, y=0x0112},
     {x=0x0854, y=0x0105},
-    {x=0x0858, y=0x0102}, -- meteor site, Pokey just north
+    {x=0x0858, y=0x00FA},
   }
-  local wp = W[math.min(_pokeyWp, #W)]
-  local adx = math.abs(px - wp.x) + math.abs(py - wp.y)
-  if adx <= 0x18 and _pokeyWp < #W then
-    _pokeyWp = _pokeyWp + 1
-    return
-  end
-  -- At the final spot: face Pokey (up) and talk; the scene may auto-trigger.
-  if _pokeyWp >= #W and adx <= 0x18 then
-    if (frame() % 16) < 8 then pad.press("Up") end
-    if (frame() % 16) == 8 then pad.press("A") end
-    return
-  end
-  if navTo(wp.x, wp.y) then return end
-  -- navTo gave up (blocked/local-minimum): retreat one waypoint and retry.
-  if _pokeyWp > 1 then _pokeyWp = _pokeyWp - 1 end
+  if followTrail(_pokeyTrail) then return end
+  -- At talk spot (0x0858,0x00FA): face Pokey (up) and press A; advanceDialogue
+  -- (above) drains window slot1 $8654 once the scene fires.
+  if (frame() % 16) < 8 then pad.press("Up") end
+  if (frame() % 16) == 8 then pad.press("A") end
 end
 """
 
