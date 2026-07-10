@@ -70,6 +70,13 @@ Copy this template when adding a row (agents: always use it):
   - **Fail if:** 1px garbage across the top (was Y=$E0 32px sprites wrapping)
   - **Notes:**
 
+### Captures wanted (not pass/fail — data the agents need)
+
+- [ ] **F12 breadcrumb trail: house → Pokey at the meteor** · 2026-07-09 · pokey_pct ground truth
+  - **Run:** `make play` → walk the real route: front door → south to the path → west → the winding climb up to the meteorite → stand beside Pokey. Hit **F12 at the door, at each bend/turn, at the crest, beside Pokey, and after talking to him.**
+  - **Pass if:** the trail lands in `~/Pictures/Screenshots` (then synced to `decompbound_secret/states/`); mention the date/time range so the agents know which files are the trail
+  - **Notes:** audited all 365 existing secret states 2026-07-09 — no house→meteor trail exists (`bin/breadcrumb_positions.txt`). This is the §4 oracle in `docs/pokey-percent.md`: it validates the A* corridor and pins Pokey's real outdoor coords. The nav work proceeds without it (emulator-discovered route), but this confirms it.
+
 ### Battle
 
 - [x] **Mini Barf / normal battle BG + UI** · 2026-07-08 · mode-0 priority ladder
