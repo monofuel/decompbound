@@ -91,11 +91,11 @@ Copy this template when adding a row (agents: always use it):
   - **Fail if:** diamond/pattern looks painted over the dialogue or status boxes
   - **Notes:** F12 `earthbound_20260708-191042.png` was the fail case.
 
-- [ ] **Battle swirl color** · open
-  - **Run:** enter a battle; watch the swirl transition
-  - **Pass if:** swirl colors look right (not red-where-green / obviously wrong hue)
-  - **Fail if:** clearly wrong colors vs memory of real hardware / reference
-  - **Notes:** same COLDATA/CGADSUB stack as stage lighting; packing was R/B-swapped in fixed-color pack (try after rebuild).
+- [ ] **Battle swirl color** · 2026-07-09 · COLDATA hardware mapping restored
+  - **Run:** enter a normal battle; watch the swirl transition
+  - **Pass if:** normal swirl is grey again (and boss/special swirls their usual colors)
+  - **Fail if:** red-where-grey or otherwise wrong hue
+  - **Notes:** monofuel caught the morning "R/B-swap fix" turning the grey swirl red — the old code was a double swap that was net-correct. Now hardware-truth ($2132 bit5=R/bit6=G/bit7=B, BGR555 pack) with `tests/test_coldata.nim` locking it. OBJ spotlight gating (Runaway Five row above) is separate and kept.
 
 - [ ] **Runaway Five / stage spotlight dim** · 2026-07-09 · OBJ math window gate
   - **Run:** `make play` → Chaos Theater Runaway Five intro (or any advantage-win spotlight)

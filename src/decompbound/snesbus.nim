@@ -283,14 +283,16 @@ proc ppuPortWrite(snes: SnesBus, offset: uint32, value: uint8): bool =
       snes.cgLatch = -1
     true
   of 0x2132:
-    # COLDATA fixed color: bits 7/6/5 select which channel(s) to write (R/G/B),
-    # bits 0-4 are the 5-bit intensity. Hardware order; ppu packs as R|(G<<5)|(B<<10)
-    # into BGR555. Handled here so DMA/HDMA writes update fixed color too —
-    # gradients ramp COLDATA per scanline via HDMA, and the HDMA path reaches
-    # the PPU ports only through this proc, not mmioWrite.
-    if (value and 0x80) != 0: snes.fixedColorR = value and 0x1F
+    # COLDATA fixed color: bits 5/6/7 select which channel(s) to write (R/G/B
+    # per fullsnes — bit5=R, bit7=B; human-verified 2026-07-09: the reversed
+    # mapping made the grey battle swirl red), bits 0-4 are the 5-bit
+    # intensity. ppu packs as R|(G<<5)|(B<<10) into BGR555. Handled here so
+    # DMA/HDMA writes update the fixed color too — gradients ramp COLDATA per
+    # scanline via HDMA, and the HDMA path reaches the PPU ports only through
+    # this proc, not mmioWrite.
+    if (value and 0x20) != 0: snes.fixedColorR = value and 0x1F
     if (value and 0x40) != 0: snes.fixedColorG = value and 0x1F
-    if (value and 0x20) != 0: snes.fixedColorB = value and 0x1F
+    if (value and 0x80) != 0: snes.fixedColorB = value and 0x1F
     true
   else:
     false
@@ -536,12 +538,13 @@ proc mmioWrite(snes: SnesBus, offset: uint32, value: uint8) =
       snes.rdmpy = snes.divDividend mod value.uint16
     return
   if offset == 0x2132:
-    # COLDATA: accumulate components as per hardware (bits 7/6/5 select R/G/B).
-    if (value and 0x80) != 0:
+    # COLDATA hardware channel-select: bit5=R, bit6=G, bit7=B (fullsnes).
+    # Human-verified 2026-07-09: bit7→R made the normal grey battle swirl red.
+    if (value and 0x20) != 0:
       snes.fixedColorR = value and 0x1F
     if (value and 0x40) != 0:
       snes.fixedColorG = value and 0x1F
-    if (value and 0x20) != 0:
+    if (value and 0x80) != 0:
       snes.fixedColorB = value and 0x1F
   # Live APU: forward S-CPU port writes straight to the SPC700 input ports and
   # skip the legacy HLE capture. The real driver + IPL handle the protocol.
