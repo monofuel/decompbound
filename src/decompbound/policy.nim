@@ -5,13 +5,16 @@
 ## The harness + API is our code; ROM and any dumps are user-supplied at runtime.
 
 import
-  std/strutils,
+  std/[strutils, math],
   pixie,
   ./[cpu, ppu, snesbus, lua53]
 
 const
   InstrPerLine* = 150  # match play.nim's frame budget; at 40 the game is CPU-starved
                        # and never boots past force-blank (black frames in llm_ai/play).
+
+  # A* re-plan over a 64×64 collision page needs headroom; still bounded against runaway policies.
+  PolicyInstrBudget* = 200_000
 
   # SNES joypad bitmasks (match play.nim layout for compatibility).
   BtnB* = 0x8000'u16
@@ -51,6 +54,34 @@ const
   SramBankMin = 0x20
   WramMirrorBase = 0x7E0000
   SnesReadRangeMax = 8192
+
+  # Collision / nav (disasm $C05F33 file 0x005F33; walk gate file 0x0029CC AND #$00D0).
+  # Page at WRAM $7EE000 (DBR=$7E → absolute $E000). Index formula file 0x00565A..0x005670.
+  NavCollWram = 0x7EE000
+  NavBlockMask = 0x00D0
+  # Hitbox tables HiROM $C4 (file 0x042A1F..). Indexed by entity type * 2.
+  NavTblXOff = 0xC42A1F
+  NavTblYOff = 0xC42A41
+  NavTblYExt = 0xC42AEB
+  NavTblWCnt = 0xC42AA7
+  NavTblHCnt = 0xC42AC9
+  # Entity hitbox type array $2B6E,X; player slot 24 → index 0x30 (type 5 outdoor).
+  NavHitboxTypeBase = 0x2B6E
+  NavPlayerSlotIdx = 0x30
+  # Player world pos: WorldXBase 0x0B8E + 0x30, WorldYBase 0x0BCA + 0x30.
+  NavPlayerXOff = 0x0BBE
+  NavPlayerYOff = 0x0BFA
+  # Page wraps mod 64 tiles (512×512 px); plan only within this pixel radius of
+  # the start so wrapped rows never alias. Planning is PIXEL-space (1px BFS):
+  # tile-center sampling forbids the narrow 01/03 corridors the game threads at
+  # specific alignments (the old "stuck-wiggle" corridors, e.g. Onett crest).
+  NavPlanRadiusPx = 192
+  NavWinSide = NavPlanRadiusPx * 2 + 1
+  NavWinCells = NavWinSide * NavWinSide
+  # Emit a waypoint at every direction change or this many px along a straight run.
+  NavWaypointStride = 8
+  # Goal counts as reached within this manhattan distance of the target pixel.
+  NavGoalSlack = 6
 
 # lua_seti is not wrapped in lua53.nim; bind locally so snes.readRange can fill
 # 1-based integer keys without touching the shared binding module.
@@ -274,6 +305,204 @@ proc snesPeekByte*(snes: SnesBus, address: int): int =
     return 0
   return snes.bus.mem[a].int
 
+proc snesPeekU16Le(snes: SnesBus, address: int): int {.inline.} =
+  ## Little-endian u16 via side-effect-free peek.
+  snesPeekByte(snes, address) or (snesPeekByte(snes, address + 1) shl 8)
+
+proc navCollByte(snes: SnesBus, cx, cy: int): int =
+  ## One collision page byte: WRAM $7EE000 + ((cy&0x3F)<<6)|(cx&0x3F).
+  ## Index formula file 0x00565A..0x005670.
+  let
+    x = cx and 0x3F
+    y = cy and 0x3F
+    idx = (y shl 6) or x
+  snesPeekByte(snes, NavCollWram + idx)
+
+proc navHitboxParams(snes: SnesBus): tuple[xOff, yOff, yExt, hCnt, wCnt: int] =
+  ## Live player hitbox table entries for outdoor/entity type at slot 24.
+  let
+    typ = snesPeekU16Le(snes, WramMirrorBase or (NavHitboxTypeBase + NavPlayerSlotIdx))
+    t2 = typ * 2
+  result.xOff = snesPeekU16Le(snes, NavTblXOff + t2)
+  result.yOff = snesPeekU16Le(snes, NavTblYOff + t2)
+  result.yExt = snesPeekU16Le(snes, NavTblYExt + t2)
+  result.hCnt = snesPeekU16Le(snes, NavTblHCnt + t2)
+  result.wCnt = snesPeekU16Le(snes, NavTblWCnt + t2)
+  if result.wCnt < 1:
+    result.wCnt = 1
+  if result.hCnt < 1:
+    result.hCnt = 1
+
+proc navOrFootprint(snes: SnesBus, xAdj, yAdj, hCnt, wCnt: int): int =
+  ## OR collision bytes over the hitbox footprint ($C05639 + $C056D0).
+  ## Left col from xAdj; right col from xAdj+(wCnt<<3)-1; rows yAdj>>3 and hCnt from (yAdj+7)>>3.
+  var acc = 0
+  let leftCx = (xAdj shr 3) and 0x3F
+  let rightPx = xAdj + (wCnt shl 3) - 1
+  let rightCx = (rightPx shr 3) and 0x3F
+  let firstCy = (yAdj shr 3) and 0x3F
+  acc = acc or navCollByte(snes, leftCx, firstCy)
+  acc = acc or navCollByte(snes, rightCx, firstCy)
+  var row = (yAdj + 7) shr 3
+  var i = 0
+  while i < hCnt:
+    let cy = row and 0x3F
+    acc = acc or navCollByte(snes, leftCx, cy)
+    acc = acc or navCollByte(snes, rightCx, cy)
+    inc row
+    inc i
+  acc
+
+proc navWalkableHp(snes: SnesBus,
+    hp: tuple[xOff, yOff, yExt, hCnt, wCnt: int], px, py: int): bool {.inline.} =
+  ## navWalkablePx with hitbox params hoisted (BFS inner loop).
+  let xAdj = px - hp.xOff
+  let yAdj = py - hp.yOff + hp.yExt
+  let flags = navOrFootprint(snes, xAdj, yAdj, hp.hCnt, hp.wCnt)
+  (flags and NavBlockMask) == 0
+
+proc navWalkablePx*(snes: SnesBus, px, py: int): bool =
+  ## Full-hitbox walkability at world pixel (px, py). True iff ($C05F33 flags & 0xD0) == 0.
+  ## Exact port of probe_walkable: type from $2B6E+slot*2; xAdj/yAdj from ROM tables;
+  ## blocked gate file 0x0029CC AND #$00D0.
+  navWalkableHp(snes, navHitboxParams(snes), px, py)
+
+proc navWinIndex(x, y, minX, minY: int): int {.inline.} =
+  ## Flat index into the ±NavPlanRadiusPx pixel planning window.
+  (y - minY) * NavWinSide + (x - minX)
+
+proc navFindPath*(snes: SnesBus, sx, sy, tx, ty: int): seq[(int, int)] =
+  ## Pixel-space BFS (1px steps, 4-neighbor) within ±NavPlanRadiusPx of (sx,sy).
+  ## A pixel is enterable iff navWalkablePx — the EXACT game gate ($C05F33 flags
+  ## & 0xD0, full hitbox), so narrow 01/03 corridors that only pass at specific
+  ## alignments are found without wiggle heuristics. Goal = any pixel within
+  ## NavGoalSlack manhattan of (tx,ty) when in-window; else the reachable pixel
+  ## minimizing euclidean distance to the target (frontier steering).
+  ## Returns world-pixel waypoints at direction changes / every NavWaypointStride
+  ## px (skips the start). Empty = no path.
+  result = @[]
+  let hp = navHitboxParams(snes)
+  let minX = sx - NavPlanRadiusPx
+  let maxX = sx + NavPlanRadiusPx
+  let minY = sy - NavPlanRadiusPx
+  let maxY = sy + NavPlanRadiusPx
+  let targetInWindow = tx >= minX and tx <= maxX and ty >= minY and ty <= maxY
+
+  var visited = newSeq[bool](NavWinCells)
+  var parent = newSeq[int32](NavWinCells)
+  for i in 0 ..< NavWinCells:
+    parent[i] = -1
+
+  var q = newSeqOfCap[(int, int)](NavWinCells div 4)
+  q.add (sx, sy)
+  visited[navWinIndex(sx, sy, minX, minY)] = true
+  var head = 0
+  var foundGoal = false
+  var goalX = sx
+  var goalY = sy
+  const Dirs = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+
+  while head < q.len:
+    let (x, y) = q[head]
+    inc head
+    if targetInWindow and abs(x - tx) + abs(y - ty) <= NavGoalSlack:
+      foundGoal = true
+      goalX = x
+      goalY = y
+      break
+    for (dx, dy) in Dirs:
+      let nx = x + dx
+      let ny = y + dy
+      if nx < minX or nx > maxX or ny < minY or ny > maxY:
+        continue
+      let ni = navWinIndex(nx, ny, minX, minY)
+      if visited[ni]:
+        continue
+      visited[ni] = true
+      # Start is enterable by definition; every other pixel needs the gate clear.
+      if not navWalkableHp(snes, hp, nx, ny):
+        continue
+      parent[ni] = int32(navWinIndex(x, y, minX, minY))
+      q.add (nx, ny)
+
+  if targetInWindow:
+    if not foundGoal:
+      return @[]
+  else:
+    # Frontier steering: among reached pixels, minimize euclidean to the target.
+    var bestD = high(float)
+    var any = false
+    for i in 0 ..< q.len:
+      let (x, y) = q[i]
+      if x == sx and y == sy:
+        continue
+      let d = hypot(float(x - tx), float(y - ty))
+      if d < bestD:
+        bestD = d
+        goalX = x
+        goalY = y
+        any = true
+    if not any:
+      return @[]
+
+  # Reconstruct pixel path start → goal.
+  var pixels: seq[(int, int)] = @[]
+  var ci = navWinIndex(goalX, goalY, minX, minY)
+  while ci >= 0:
+    pixels.add (minX + (ci mod NavWinSide), minY + (ci div NavWinSide))
+    ci = parent[ci]
+  var i = 0
+  var j = pixels.len - 1
+  while i < j:
+    swap(pixels[i], pixels[j])
+    inc i
+    dec j
+  if pixels.len <= 1:
+    return @[]
+
+  # Compress to waypoints: direction changes + every NavWaypointStride px.
+  var run = 0
+  for k in 1 ..< pixels.len:
+    let last = k == pixels.len - 1
+    var turn = false
+    if k + 1 < pixels.len:
+      let dx0 = pixels[k][0] - pixels[k-1][0]
+      let dy0 = pixels[k][1] - pixels[k-1][1]
+      let dx1 = pixels[k+1][0] - pixels[k][0]
+      let dy1 = pixels[k+1][1] - pixels[k][1]
+      turn = dx0 != dx1 or dy0 != dy1
+    inc run
+    if last or turn or run >= NavWaypointStride:
+      result.add pixels[k]
+      run = 0
+
+proc navWalkableLua*(L: lua53.PState): cint {.cdecl.} =
+  ## Lua: nav.walkable(px, py) -> bool. Full-hitbox walkability at world pixels.
+  let ctx = getPolicyCtx(L)
+  let px = L.toInteger(1).int
+  let py = L.toInteger(2).int
+  L.pushboolean(if navWalkablePx(ctx.snes, px, py): 1 else: 0)
+  return 1
+
+proc navFindPathLua*(L: lua53.PState): cint {.cdecl.} =
+  ## Lua: nav.findPath(tx, ty) -> 1-based table of {x=, y=} world-pixel waypoints.
+  ## Start is live player slot-24 pos; empty table means no path this plan window.
+  let ctx = getPolicyCtx(L)
+  let tx = L.toInteger(1).int
+  let ty = L.toInteger(2).int
+  let sx = snesPeekU16Le(ctx.snes, WramMirrorBase or NavPlayerXOff)
+  let sy = snesPeekU16Le(ctx.snes, WramMirrorBase or NavPlayerYOff)
+  let path = navFindPath(ctx.snes, sx, sy, tx, ty)
+  L.createtable(path.len.cint, 0)
+  for i, wp in path:
+    L.newtable()
+    L.pushinteger(lua53.Integer(wp[0]))
+    L.setfield(-2, "x".cstring)
+    L.pushinteger(lua53.Integer(wp[1]))
+    L.setfield(-2, "y".cstring)
+    L.luaSeti(-2, lua53.Integer(i + 1))
+  return 1
+
 proc snesRead*(L: lua53.PState): cint {.cdecl.} =
   ## Lua binding: snes.read(addr) -> int.
   ## Full-bus read-only peek; MMIO/APU/PPU ports and SRAM return 0 (no side effects).
@@ -380,10 +609,12 @@ proc simNormal*(L: lua53.PState): cint {.cdecl.} =
 proc setupPolicyApi*(L: lua53.PState, ctx: PolicyContext) =
   ## Expose the read-only + input-only sandboxed surface to Lua.
   ## mem.read (WRAM-only, unchanged), snes.read / snes.readRange (full-bus, side-effect-free),
+  ## nav.walkable / nav.findPath (native hitbox collision + BFS pathfinding),
   ## screen.{width,height,pixel,text}, pad.{set,press}, frame, sim.{setSpeed,fast,normal}.
   ## screen.text() returns decoded BG tilemap on-screen text (menus, dialogue, battle commands).
   ## snes.* peeks ROM/WRAM mirrors without touching MMIO (ports return 0). Writes stay pad-only.
-  ## sim.* controls targetFps in ctx (read by llm_ai loop; additive only, llm_play unaffected).
+  ## nav.* plans over WRAM $7EE000 via $C05F33 (file 0x005F33 / gate 0x0029CC); findPath starts
+  ## from live player slot-24 pos. sim.* controls targetFps in ctx (llm_ai loop; llm_play unaffected).
   # Store ctx in Lua registry under string key so callbacks can retrieve without upvalues.
   L.pushlightuserdata(cast[pointer](ctx))
   L.setfield(lua53.RegistryIndex.cint, CtxRegKey.cstring)
@@ -399,6 +630,13 @@ proc setupPolicyApi*(L: lua53.PState, ctx: PolicyContext) =
   L.pushcfunction(snesReadRange)
   L.setfield(-2, "readRange".cstring)
   L.setglobal("snes".cstring)
+  # nav (native pathfinding; Lua only follows waypoints)
+  L.newtable()
+  L.pushcfunction(navWalkableLua)
+  L.setfield(-2, "walkable".cstring)
+  L.pushcfunction(navFindPathLua)
+  L.setfield(-2, "findPath".cstring)
+  L.setglobal("nav".cstring)
   # screen
   L.newtable()
   L.pushinteger(ppu.ScreenWidth)
@@ -463,7 +701,7 @@ proc runPolicyFrame*(L: lua53.PState, ctx: PolicyContext): string =
   ## the instruction limit hook, return "" on success or the error message.
   ## The caller applies ctx.joy1 to snes.joy1 after this (even on error path).
   ctx.joy1 = 0'u16
-  L.sethook(countHook, lua53.MASKCOUNT, 20000.cint)
+  L.sethook(countHook, lua53.MASKCOUNT, PolicyInstrBudget.cint)
   L.getglobal("update".cstring)
   if L.getType(-1) != lua53.TFUNCTION:
     L.pop(1)

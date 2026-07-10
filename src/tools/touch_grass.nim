@@ -598,6 +598,186 @@ function doorEnter(tx, ty)
 end
 """
 
+const NavSkillLua* = """
+-- navTo(tx, ty): follow native nav.findPath waypoints over live collision ($7EE000).
+-- Pathfinding is Nim-side (policy.nav); this skill only steers the d-pad.
+-- Collision formula (disasm file 0x005F33 + page index 0x00565A..0x005670; gate 0x0029CC):
+--   type = WRAM[$2B6E + slot*2]  (player slot 24)
+--   xAdj = px - u16(ROM $C42A1F + type*2)
+--   yAdj = py - u16(ROM $C42A41 + type*2) + u16(ROM $C42AEB + type*2)
+--   wCnt = u16(ROM $C42AA7 + type*2); hCnt = u16(ROM $C42AC9 + type*2)
+--   coll byte = page[((cy&0x3F)<<6)|(cx&0x3F)] with cx/cy from xAdj/yAdj >> 3
+--   blocked iff (byte & 0xD0) != 0 over full hitbox columns/rows.
+-- nav.findPath plans within ±24 coarse tiles (page wraps mod 64); far targets use frontier
+-- steering and re-plan while moving. NO GLITCH FALLBACK: empty path × MAX_FAIL with no
+-- net progress → print BLOCKED and return false. Never wiggle through solids.
+-- Returns true while navigating; false when arrived (manhattan <= THRESH) or blocked.
+-- Requires nav.walkable / nav.findPath (policy.nim) + escapeMenu.
+-- TODO(magic): REPLAN_N/STUCK_N/THRESH/ARRIVE_WP tuned for Onett outdoor; cite 0x005F33 / 0x0029CC.
+
+local THRESH = 12
+local REPLAN_N = 120
+local STUCK_N = 30
+-- Waypoints are pixel-resolution (turns + every 8px); arrive tight so corners
+-- in narrow 01/03 corridors are not cut into walls.
+local ARRIVE_WP = 3
+local OFF_PATH = 16
+local MAX_FAIL = 8
+local ROOM_JUMP = 0x80
+
+local _nav = {
+  path = nil,
+  pi = 1,
+  tx = nil, ty = nil,
+  lx = nil, ly = nil,
+  last_plan_f = -9999,
+  stuck = 0,
+  fails = 0,
+  best_d = nil,
+  blocked = false,
+  blocked_printed = false,
+}
+
+function navWalkable(px, py)
+  return nav.walkable(px, py)
+end
+
+local function needReplan(px, py, f)
+  if not _nav.path or #_nav.path == 0 then
+    return true
+  end
+  if f - _nav.last_plan_f >= REPLAN_N then
+    return true
+  end
+  if _nav.lx and (math.abs(px - _nav.lx) > ROOM_JUMP or math.abs(py - _nav.ly) > ROOM_JUMP) then
+    return true
+  end
+  if _nav.stuck >= STUCK_N then
+    return true
+  end
+  local wp = _nav.path[_nav.pi]
+  if wp then
+    local d = math.abs(px - wp.x) + math.abs(py - wp.y)
+    if d > OFF_PATH then
+      return true
+    end
+  end
+  return false
+end
+
+function navTo(tx, ty)
+  if escapeMenu() then
+    return true
+  end
+  local f = frame()
+  local px = mem.read(0x0BBE) + 256 * mem.read(0x0BBF)
+  local py = mem.read(0x0BFA) + 256 * mem.read(0x0BFB)
+  local adx = math.abs(tx - px)
+  local ady = math.abs(ty - py)
+  local dist = adx + ady
+
+  if _nav.tx ~= tx or _nav.ty ~= ty then
+    _nav.tx = tx
+    _nav.ty = ty
+    _nav.path = nil
+    _nav.pi = 1
+    _nav.fails = 0
+    _nav.stuck = 0
+    _nav.best_d = dist
+    _nav.blocked = false
+    _nav.blocked_printed = false
+    _nav.last_plan_f = -9999
+    _nav.lx = nil
+    _nav.ly = nil
+  end
+
+  if _nav.blocked then
+    return false
+  end
+
+  if dist <= THRESH then
+    _nav.path = nil
+    _nav.tx = nil
+    _nav.ty = nil
+    return false
+  end
+
+  if _nav.best_d == nil or dist < _nav.best_d then
+    _nav.best_d = dist
+    _nav.fails = 0
+  end
+
+  if _nav.lx == px and _nav.ly == py then
+    _nav.stuck = _nav.stuck + 1
+  else
+    _nav.stuck = 0
+  end
+
+  if needReplan(px, py, f) then
+    local path = nav.findPath(tx, ty)
+    _nav.last_plan_f = f
+    _nav.stuck = 0
+    if path == nil or #path == 0 then
+      _nav.path = nil
+      _nav.pi = 1
+      _nav.fails = _nav.fails + 1
+      if _nav.fails >= MAX_FAIL then
+        if not _nav.blocked_printed then
+          print(string.format("navTo: BLOCKED no path to (%d,%d)", tx, ty))
+          _nav.blocked_printed = true
+        end
+        _nav.blocked = true
+        return false
+      end
+    else
+      _nav.path = path
+      _nav.pi = 1
+      if dist < (_nav.best_d or dist) + 4 then
+        _nav.fails = 0
+      end
+    end
+  end
+
+  if _nav.blocked then
+    return false
+  end
+
+  if _nav.path and #_nav.path > 0 then
+    while _nav.pi <= #_nav.path do
+      local wp = _nav.path[_nav.pi]
+      if math.abs(px - wp.x) + math.abs(py - wp.y) <= ARRIVE_WP then
+        _nav.pi = _nav.pi + 1
+      else
+        break
+      end
+    end
+    local aimX, aimY
+    if _nav.pi > #_nav.path then
+      aimX, aimY = tx, ty
+    else
+      local wp = _nav.path[_nav.pi]
+      aimX, aimY = wp.x, wp.y
+    end
+    -- Hold BOTH axes when both deltas are nonzero: the 01/03 slope/stair tiles
+    -- on hillsides (Onett crest corridor) only move the player on DIAGONAL
+    -- input (why the old probes needed "stuck-wiggle"). Walls make diagonal
+    -- presses slide along them, so this is safe on straight corridors too.
+    local dx = aimX - px
+    local dy = aimY - py
+    if dx ~= 0 then
+      pad.press((dx > 0) and "Right" or "Left")
+    end
+    if dy ~= 0 then
+      pad.press((dy > 0) and "Down" or "Up")
+    end
+  end
+
+  _nav.lx = px
+  _nav.ly = py
+  return true
+end
+"""
+
 proc currentRoomLabel*(snes: SnesBus): string =
   ## Human label for the LLM summary (bedroom / outside / title etc).
   let pct = touchGrassPercent(snes)

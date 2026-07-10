@@ -10,10 +10,10 @@ proc main() =
   createDir("bin/states")
   let seed = EscapeMenuSkillLua & "\n\n" & WalkToSkillLua & "\n\n" & IntroSkillLua &
     "\n\n" & WinBattleSkillLua & "\n\n" & AdvanceDialogueSkillLua & "\n\n" &
-    HillClimbNorthSkillLua & "\n\n" & DoorEnterSkillLua
+    HillClimbNorthSkillLua & "\n\n" & DoorEnterSkillLua & "\n\n" & NavSkillLua
   writeFile("bin/states/llm_skills.lua", seed)
   echo "wrote bin/states/llm_skills.lua len=", seed.len
-  if "8650" notin seed or "window open" notin seed:
+  if "8650" notin seed or "open-window" notin seed:
     raise newException(ValueError, "skills seed missing window gate")
   if "dialogue-ish text" in seed:
     raise newException(ValueError, "skills seed still has old advanceDialogue string")
@@ -21,6 +21,8 @@ proc main() =
     raise newException(ValueError, "skills seed missing doorEnter")
   if "hillClimbNorth" notin seed:
     raise newException(ValueError, "skills seed missing hillClimbNorth")
+  if "navTo" notin seed:
+    raise newException(ValueError, "skills seed missing navTo")
 
 when isMainModule:
   main()
