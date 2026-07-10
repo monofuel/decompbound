@@ -137,6 +137,11 @@ Copy this template when adding a row (agents: always use it):
 
 ### LLM-play (optional)
 
+- [x] **Bot walks to Pokey at the meteor and talks to him** · 2026-07-10 · `9861803` pokey_pct 0→100
+  - **Run:** `make llm-ai` (pokey scenario) → watch the bot leave Ness's house and climb to the meteor
+  - **Pass if:** it legitimately walks the route (south → west → climb → ridge) and opens the Pokey dialogue — pokey_pct reaches 100
+  - **Notes:** ✅ **CONFIRMED LIVE by monofuel 2026-07-10** — bot reaches Pokey and talks to him. Validates the headless 0→100 (POKEY_ACHIEVED@2920) in the real windowed harness.
+
 - [ ] **LLM watch mode doesn't freeze the window** · 2026-07-08 · `--watch-async`
   - **Run:** `make llm-ai` (or rebuild after pull) → watch ~30s of bedroom/house nav with qwen live
   - **Pass if:** game keeps animating while the model "thinks" (no multi-second hard freeze every tick); policy may still be dumb
