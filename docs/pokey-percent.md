@@ -170,9 +170,16 @@ Store states privately in `decompbound_secret/states/` (see
       formula in `docs/memory-map.md` + `docs/decompilation.md`. Caveat: the
       page wraps mod 64 tiles and its loader is unpinned → plan locally,
       re-plan while moving.
-- [ ] **A\* pathfinder** over `isWalkable` to a goal tile.
-- [ ] **Reactive path→input** translation; re-plan on block; **no glitching**.
-- [ ] **Map/sector transition** model for multi-screen routes (doors/warps).
+- [x] **A\* pathfinder** — DONE 2026-07-09: `navFindPath` in `policy.nim`,
+      **pixel-space** BFS (1px steps) gated per-pixel by the exact game walk
+      test. Pixel planning is load-bearing: tile-center sampling cannot thread
+      the narrow `01/03` slope corridors. Lua: `nav.findPath` / `nav.walkable`.
+- [x] **Reactive path→input** — DONE 2026-07-09: `NavSkillLua` → `navTo(tx,ty)`
+      follows waypoints, re-plans on stuck/off-path/timer/room-jump, holds BOTH
+      d-pad axes (slope tiles only move on diagonal input), honest BLOCKED
+      report, no glitch fallback. Verified door→crest 445 frames (probe_navto).
+- [ ] **Map/sector transition** model for multi-screen routes (doors/warps) —
+      only if route discovery shows the meteor route needs one.
 - [ ] Graduate the subsystem into `docs/navigation.md` once it works.
 
 **Pokey milestone (uses the subsystem):**
