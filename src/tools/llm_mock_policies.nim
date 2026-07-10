@@ -148,13 +148,60 @@ function update()
   end
   -- outdoors: dialogue only when a window is open (never A-spam walk)
   if advanceDialogue() then return end
-  -- climb to the crest first (navTo threads the winding slope corridor)
-  if py > 0x00D8 then
-    if navTo(0x0A18, 0x00C0) then return end
+  -- Human-verified route ladder (TAS 20260709-225653): SW descent -> west
+  -- road -> western climb -> ridge east -> meteor site. navTo threads each
+  -- leg; advance to the next waypoint when close. Persistent index survives
+  -- unchanged-policy ticks (mock never rewrites this chunk).
+  _pokeyWp = _pokeyWp or 1
+  local W = {
+    {x=0x0A60, y=0x0158},
+    {x=0x0A4A, y=0x0192},
+    {x=0x0A09, y=0x01BA},
+    {x=0x09EA, y=0x01FE},
+    {x=0x09E0, y=0x024E},
+    {x=0x099A, y=0x026D},
+    {x=0x0948, y=0x026D},
+    {x=0x08FB, y=0x0260},
+    {x=0x08B3, y=0x0246},
+    {x=0x0871, y=0x0220},
+    {x=0x0831, y=0x01F1},
+    {x=0x07F0, y=0x01C8},
+    {x=0x07B5, y=0x01F1},
+    {x=0x076C, y=0x0208},
+    {x=0x071E, y=0x01FC},
+    {x=0x06CD, y=0x01F8},
+    {x=0x067A, y=0x01F8},
+    {x=0x063A, y=0x01CD},
+    {x=0x0613, y=0x018B},
+    {x=0x05F3, y=0x0146},
+    {x=0x0631, y=0x013A},
+    {x=0x0677, y=0x0150},
+    {x=0x06BC, y=0x0175},
+    {x=0x06D8, y=0x013E},
+    {x=0x06DC, y=0x00ED},
+    {x=0x0716, y=0x00B2},
+    {x=0x0766, y=0x00B0},
+    {x=0x07A4, y=0x00D4},
+    {x=0x07B6, y=0x0116},
+    {x=0x0807, y=0x0116},
+    {x=0x0854, y=0x0105},
+    {x=0x0858, y=0x0102}, -- meteor site, Pokey just north
+  }
+  local wp = W[math.min(_pokeyWp, #W)]
+  local adx = math.abs(px - wp.x) + math.abs(py - wp.y)
+  if adx <= 0x18 and _pokeyWp < #W then
+    _pokeyWp = _pokeyWp + 1
+    return
   end
-  -- crest reached: push the north plateau edge (hard wall Y=0x00B8; meteor
-  -- coords beyond TBD — update when the collision-map RE lands)
-  if navTo(0x0A88, 0x00B8) then return end
+  -- At the final spot: face Pokey (up) and talk; the scene may auto-trigger.
+  if _pokeyWp >= #W and adx <= 0x18 then
+    if (frame() % 16) < 8 then pad.press("Up") end
+    if (frame() % 16) == 8 then pad.press("A") end
+    return
+  end
+  if navTo(wp.x, wp.y) then return end
+  -- navTo gave up (blocked/local-minimum): retreat one waypoint and retry.
+  if _pokeyWp > 1 then _pokeyWp = _pokeyWp - 1 end
 end
 """
 

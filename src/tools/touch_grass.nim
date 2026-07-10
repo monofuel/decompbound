@@ -452,11 +452,14 @@ function advanceDialogue()
   if inBattle then
     return false
   end
-  -- REAL text-window gate: first window slot allocated ($8650 != 0xFF).
-  -- Verified outdoor idle $8650=0xFF; A-menu $8650=0x01. Do NOT use $8958 alone —
-  -- focus can stick at non-FF with $8650 free (doorstep false-positive, blocks Up+A enter).
+  -- REAL text-window gate: ANY window slot allocated (header != 0xFF).
+  -- Slot0 $8650 = overworld command menu; slot1 $8654 = NPC/scene dialogue
+  -- (meteor-site talk allocates slot1 — found via replayed-TAS WRAM diff
+  -- 2026-07-09; gating on $8650 alone missed it). Do NOT use $8958 alone —
+  -- focus can stick at non-FF with slots free (doorstep false-positive).
   local win0 = mem.read(0x8650)
-  if win0 == 0xFF then
+  local win1 = mem.read(0x8654)
+  if win0 == 0xFF and win1 == 0xFF then
     return false
   end
   local txt = screen.text() or ""
@@ -578,6 +581,12 @@ local STUCK_N = 30
 local ARRIVE_WP = 3
 local OFF_PATH = 16
 local MAX_FAIL = 8
+-- After an empty plan, wait before re-planning: the live collision page
+-- streams during area transitions and can read momentarily solid — 8
+-- back-to-back empty plans in 8 frames was a false BLOCKED (2026-07-09).
+local EMPTY_COOLDOWN = 30
+-- BLOCKED also requires no net progress for this many frames.
+local NO_PROGRESS_N = 600
 local ROOM_JUMP = 0x80
 
 local _nav = {
@@ -642,6 +651,7 @@ function navTo(tx, ty)
     _nav.blocked = false
     _nav.blocked_printed = false
     _nav.last_plan_f = -9999
+    _nav.last_prog_f = f
     _nav.lx = nil
     _nav.ly = nil
   end
@@ -660,6 +670,7 @@ function navTo(tx, ty)
   if _nav.best_d == nil or dist < _nav.best_d then
     _nav.best_d = dist
     _nav.fails = 0
+    _nav.last_prog_f = f
   end
 
   if _nav.lx == px and _nav.ly == py then
@@ -676,7 +687,9 @@ function navTo(tx, ty)
       _nav.path = nil
       _nav.pi = 1
       _nav.fails = _nav.fails + 1
-      if _nav.fails >= MAX_FAIL then
+      -- Back off before the next plan (page may be mid-stream).
+      _nav.last_plan_f = f + EMPTY_COOLDOWN - REPLAN_N
+      if _nav.fails >= MAX_FAIL and f - (_nav.last_prog_f or f) >= NO_PROGRESS_N then
         if not _nav.blocked_printed then
           print(string.format("navTo: BLOCKED no path to (%d,%d)", tx, ty))
           _nav.blocked_printed = true
@@ -724,6 +737,16 @@ function navTo(tx, ty)
     end
     if dy ~= 0 then
       pad.press((dy > 0) and "Down" or "Up")
+    end
+    -- Axis-pure aim frozen on a slope tile: slopes only move on DIAGONAL
+    -- input, so alternate a perpendicular press while still pushing the main
+    -- axis (normal d-pad input, not glitching). Cleared as soon as we move.
+    if _nav.stuck > 8 then
+      if dy ~= 0 and dx == 0 then
+        pad.press(((f // 8) % 2 == 0) and "Left" or "Right")
+      elseif dx ~= 0 and dy == 0 then
+        pad.press(((f // 8) % 2 == 0) and "Up" or "Down")
+      end
     end
   end
 

@@ -6,50 +6,54 @@ import
   ./touch_grass
 
 const
-  # Outdoor meteor / north-hill objective (slot-24 world pos).
-  # Verified from onett_start (probe_pokey_north / probe_pokey_grid / probe_pokey_approach):
-  #   House exit (0x0A60,0x0158). Pure Up re-enters Ness house.
-  #   Left clear to X~0x0A48, then north corridor along X~0x0A38 to crest (0x0A18,0x00C0).
-  #   Northernmost outdoor from this fixture: Y~0x00B8 (X~0x0A28..0x0AE8). Hard wall —
-  #   cannot go further north; no outdoor Pokey entity in this band.
-  # TODO(magic): pin real meteor-site screen box + Pokey outdoor coords once story
-  # opens the hill (likely post knock) or a deeper route is found. Do NOT use Minch
-  # indoor 0x1C00..0x1D00 — that is Picky inside Pokey's house, wrong objective.
+  # === Pokey % ground truth (2026-07-09, replayed human TAS 20260709-225653 +
+  # 225559; probe_replay_trail / probe_replay_flagdiff). ===
+  # Route: door (0x0A60,0x0158) -> SW descent -> WEST road (Y~0x01F8..0x0290,
+  # X down to ~0x0600) -> north climb at X~0x05F3..0x0631 -> ridge east along
+  # Y~0x00B0..0x0130 -> meteor site. NOT story-gated: reachable from game start.
   OutdoorMaxX* = 0x1C00
-  # Widened 2026-07-09: the REAL route (probe_meteor_route, navTo) dips slightly
-  # south then takes the WEST lower path (X~0x09B8..0x09E9) before winding
-  # north — the old 0x0A00 floor zeroed pokey_pct mid-climb.
-  HillBandMinX* = 0x0980
-  HillBandMaxX* = 0x0B10
-  # On the approach/climb: west lower path sits at Y~0x018E; climb entry
-  # 0x0145; anything at/below this in the band counts as "heading to the hill".
-  NorthHillMaxY* = 0x01A0
-  # Crest / north plateau reachable from onett_start (NOT confirmed meteor site).
-  # probe_pokey_approach: free roam minY=0x00B8; crest stop ~0x00C0.
-  # Graded as 60 only as "north hill crest" interim — meteor is further and gated.
-  # TODO(magic): replace with true meteor screen when coords known.
-  CrestMaxY* = 0x00C8
-  CrestMinY* = 0x00A8
-  # Pokey outdoor approach — UNKNOWN until meteor is reachable.
-  # Placeholder far north so 90 never fires on house/Minch coords.
-  # TODO(magic): real Pokey slot coords at meteor crash site.
-  PokeyOutdoorX* = 0x0000
-  PokeyOutdoorY* = 0x0000
-  PokeyOutdoorRadius* = 0x28
-  WindowHeader0* = 0x8650  ## First text/window slot; 0xFF = free (probe_pokey_dlgflag).
-  EventFlagsBase* = 0x988B
-  # TODO(magic): sticky "talked to Pokey at meteor" event bit — none found yet;
-  # previous indoor pre/post talk (wrong NPC) also had no clean flag flip.
+  # Pokey NPC at the meteorite site (entity slot 0 in both human runs; the
+  # player talked from (0x0858..0x0862, 0x00FA), facing up).
+  PokeySpotX* = 0x0858
+  PokeySpotY* = 0x00F2
+  PokeyAdjRadius* = 0x30
+  # Meteor-scene flag $9885 (mirror $4DD4): 0x00 at game start, ARMS to 0x01
+  # en route (before the site), CONSUMED back to 0x00 by the Pokey/cop talk.
+  # Adjacent + 0x00 therefore means "talked" (the site is unreachable without
+  # passing the arm line). From replayed-run WRAM diffs, not guessed.
+  MeteorArmFlag* = 0x9885
+  # Text/dialogue window slot headers: slot0 $8650 (overworld command menu),
+  # slot1 $8654 (NPC/scene dialogue at the meteor site). 0xFF = free.
+  WindowHeader0* = 0x8650
+  WindowHeader1* = 0x8654
+  # Route bands (world px), from the replayed trail. Monotonic ladder.
+  WestRoadMaxX = 0x0900
+  WestRoadMinY = 0x0180
+  WestRoadMaxY = 0x0290
+  ClimbMaxX = 0x0680
+  ClimbMaxY = 0x0180
+  # Climb-exit pocket (traverse between climb top and the ridge; human trail
+  # passes (0x0695,0x016E)..(0x06D8,0x013E)).
+  PocketMaxX = 0x0720
+  PocketMaxY = 0x0180
+  RidgeMinX = 0x0680
+  RidgeMaxX = 0x0910
+  RidgeMaxY = 0x0130
+  SiteMinX = 0x0800
+  SiteMaxX = 0x08D0
+  SiteMinY = 0x00C0
+  SiteMaxY = 0x0130
 
 proc pokeyPercent*(snes: SnesBus): int =
-  ## Pokey %: walk north from Ness house to outdoor meteor and talk to Pokey.
-  ## Story win: reach Pokey at the meteorite crash site (outdoors, north of house).
-  ## Graded (outdoor only; Minch-indoor grading removed):
-  ##   30 = heading north up the hill (Y below door band, hill X band)
-  ##   60 = north hill crest / furthest outdoor north from onett_start (Y~0x00B8..0x00C8)
-  ##       — interim; true meteor screen TBD (story-gated or unmapped from fixture)
-  ##   90 = adjacent to outdoor Pokey (coords TBD — currently never)
-  ##   100 = talked to Pokey: adjacent + $8650 != 0xFF (no sticky flag yet)
+  ## Pokey %: legit walk from Ness's house to Pokey at the meteorite site and
+  ## talk to him. Graded along the HUMAN-verified route (TAS ground truth):
+  ##   10 = outside (tg 100), on/near the home yard
+  ##   30 = the west road leg (south of the hill, heading west)
+  ##   50 = the western climb (X<=0x0680, Y<0x0180)
+  ##   70 = ridge / north band approaching the site
+  ##   80 = inside the meteor site box
+  ##   90 = adjacent to Pokey, scene armed ($9885=01) but not yet talked
+  ##  100 = adjacent + scene flag consumed ($9885=00) -> talked to Pokey
   let tg = touchGrassPercent(snes)
   let idx = PlayerSlot * SlotIndexStride
   let px = readU16(snes, WorldXBase + idx)
@@ -61,30 +65,23 @@ proc pokeyPercent*(snes: SnesBus): int =
   if tg < 100:
     return 0
 
-  # Hill / crest X band only (avoid grading random Onett streets west of Minch road).
-  let inHillBand = px >= HillBandMinX and px < HillBandMaxX
-  if not inHillBand:
-    return 0
-
-  # 90/100: outdoor Pokey adjacency (disabled until RE pins coords != 0).
-  if PokeyOutdoorX != 0 or PokeyOutdoorY != 0:
-    let pdx = abs(px - PokeyOutdoorX)
-    let pdy = abs(py - PokeyOutdoorY)
-    if pdx + pdy <= PokeyOutdoorRadius:
-      # TODO(magic): sticky met-Pokey flag when script RE finds one.
-      if readU8(snes, WindowHeader0) != 0xFF:
-        return 100
-      return 90
-
-  # 60: north crest plateau (reachable end of hill from onett_start).
-  if py >= CrestMinY and py <= CrestMaxY:
+  let adj = abs(px - PokeySpotX) + abs(py - PokeySpotY)
+  let armed = readU8(snes, MeteorArmFlag)
+  if adj <= PokeyAdjRadius:
+    if armed == 0x00:
+      return 100
+    return 90
+  if px >= SiteMinX and px <= SiteMaxX and py >= SiteMinY and py <= SiteMaxY:
+    return 80
+  if px >= RidgeMinX and px <= RidgeMaxX and py <= RidgeMaxY:
+    return 70
+  if px >= ClimbMaxX and px <= PocketMaxX and py <= PocketMaxY:
     return 60
-
-  # 30: on the northward hill approach (north of door step, still outdoor).
-  if py <= NorthHillMaxY:
+  if px <= ClimbMaxX and py <= ClimbMaxY:
+    return 50
+  if px <= WestRoadMaxX and py >= WestRoadMinY and py <= WestRoadMaxY:
     return 30
-
-  0
+  10
 
 proc pokeyKnockPercent*(snes: SnesBus): int =
   ## Pokey-knocking %: return home; knock / meteor invite chain accepted.

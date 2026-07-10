@@ -425,12 +425,16 @@ proc navFindPath*(snes: SnesBus, sx, sy, tx, ty: int): seq[(int, int)] =
       parent[ni] = int32(navWinIndex(x, y, minX, minY))
       q.add (nx, ny)
 
-  if targetInWindow:
-    if not foundGoal:
-      return @[]
-  else:
-    # Frontier steering: among reached pixels, minimize euclidean to the target.
-    var bestD = high(float)
+  if not foundGoal:
+    # Frontier steering: among reached pixels, minimize euclidean to the
+    # target. Used both for out-of-window targets AND for in-window targets
+    # whose corridor detours outside the window (e.g. the Onett west road —
+    # returning empty there was a false BLOCKED). To keep BLOCKED honest at
+    # true walls, require the best frontier pixel to IMPROVE on the start by
+    # a margin; "cannot get meaningfully closer" → empty → caller's fail path.
+    const MinImprovePx = 8.0
+    let startD = hypot(float(sx - tx), float(sy - ty))
+    var bestD = startD - MinImprovePx
     var any = false
     for i in 0 ..< q.len:
       let (x, y) = q[i]
