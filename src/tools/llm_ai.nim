@@ -187,6 +187,7 @@ proc realProvider(summary: string, currentLua: string): string =
   const SystemPrompt = """You are an expert at writing compact Lua policies that play EarthBound (SNES decomp harness).
 
 GOAL: Touch grass — walk bedroom → stairs → sitting room (south first) → east front door → outside Onett (tg 25→75→100). No battle on this path.
+NEXT GOAL once outside (tg=100): pokey_pct — climb the hill NORTH of the house toward the meteor. One call does the whole climb: navTo(0x0A18, 0x00C0) (crest, pokey_pct 60), then navTo(0x0A88, 0x00B8) (north plateau edge). Talk to anyone met up there via advanceDialogue(). Do not enter the Minch house (px>=0x1C00 indoors scores 0).
 WAYPOINTS (pick next from live px/py; call walkTo every frame):
 - bedroom (tg25 / x>=0x1F00 upstairs): walkTo(0x1F00,0x0450) then hall (0x1D40,0x03E8) then stair (0x1CC0,0x03E8)
 - after stairs (downstairs): SOUTH first walkTo(0x1D30,0x0178) — do NOT pure-east along y=0x0140 (furniture)
@@ -204,6 +205,8 @@ SANDBOX API (globals always available in update()):
 AVAILABLE LIBRARY SKILLS (preloaded from bin/states/llm_skills.lua into Lua globals; call them from your update()):
 - escapeMenu(): detects overworld menus via screen.text() (Talk/Check/Equip/Status/Goods without battle keywords) and presses B to cancel. Auto-called by walkTo. Call early in update() for safety.
 - walkTo(tx, ty): reactive navigation skill. Reads live player pos, presses d-pad ONLY to move toward target. Auto-detects stuck and wiggles; auto-escapes menus first. Stops when manhattan <=~12. NEVER presses A. Example: walkTo(0x1E00, 0x05C0) to head for stairs/door. Call repeatedly each frame from update().
+- navTo(tx, ty): REAL pathfinding navigation (preferred outdoors / winding terrain). Native A* over the game's live collision map; threads narrow slope corridors walkTo jams on; presses d-pad only (diagonals on slopes); returns false when arrived (manhattan <=12) or honestly BLOCKED (prints 'navTo: BLOCKED'; no path exists — pick a different/intermediate target, NEVER try to clip through). Call every frame like walkTo. Example: navTo(0x0A18, 0x00C0) climbs from Ness's door to the hill crest.
+- nav.walkable(px, py) -> bool and nav.findPath(tx, ty) -> {{x=,y=}} waypoint list: raw primitives behind navTo for custom logic.
 - winBattle(): read-driven battle clearer. Uses screen.text() to detect command menu ("Bash"/"INPUT YOUR COMMAND"), targets, damage text, victory ("won"/"EXP"). Presses A appropriately. Exits on victory or pos out of battle box. Call winBattle() when in_battle=yes.
 (Etc. More skills can be added to llm_skills.lua over runs; always safe to try calling known ones. If undefined the call is no-op.)
 
@@ -321,6 +324,7 @@ proc realProviderSnap(summary: string, currentLua: string, notes: string): strin
   const SystemPrompt = """You are an expert at writing compact Lua policies that play EarthBound (SNES decomp harness).
 
 GOAL: Touch grass — walk bedroom → stairs → sitting room (south first) → east front door → outside Onett (tg 25→75→100). No battle on this path.
+NEXT GOAL once outside (tg=100): pokey_pct — climb the hill NORTH of the house toward the meteor. One call does the whole climb: navTo(0x0A18, 0x00C0) (crest, pokey_pct 60), then navTo(0x0A88, 0x00B8) (north plateau edge). Talk to anyone met up there via advanceDialogue(). Do not enter the Minch house (px>=0x1C00 indoors scores 0).
 WAYPOINTS (pick next from live px/py; call walkTo every frame):
 - bedroom (tg25 / x>=0x1F00 upstairs): walkTo(0x1F00,0x0450) then hall (0x1D40,0x03E8) then stair (0x1CC0,0x03E8)
 - after stairs (downstairs): SOUTH first walkTo(0x1D30,0x0178) — do NOT pure-east along y=0x0140 (furniture)
@@ -338,6 +342,8 @@ SANDBOX API (globals always available in update()):
 AVAILABLE LIBRARY SKILLS (preloaded from bin/states/llm_skills.lua into Lua globals; call them from your update()):
 - escapeMenu(): detects overworld menus via screen.text() (Talk/Check/Equip/Status/Goods without battle keywords) and presses B to cancel. Auto-called by walkTo. Call early in update() for safety.
 - walkTo(tx, ty): reactive navigation skill. Reads live player pos, presses d-pad ONLY to move toward target. Auto-detects stuck and wiggles; auto-escapes menus first. Stops when manhattan <=~12. NEVER presses A. Example: walkTo(0x1E00, 0x05C0) to head for stairs/door. Call repeatedly each frame from update().
+- navTo(tx, ty): REAL pathfinding navigation (preferred outdoors / winding terrain). Native A* over the game's live collision map; threads narrow slope corridors walkTo jams on; presses d-pad only (diagonals on slopes); returns false when arrived (manhattan <=12) or honestly BLOCKED (prints 'navTo: BLOCKED'; no path exists — pick a different/intermediate target, NEVER try to clip through). Call every frame like walkTo. Example: navTo(0x0A18, 0x00C0) climbs from Ness's door to the hill crest.
+- nav.walkable(px, py) -> bool and nav.findPath(tx, ty) -> {{x=,y=}} waypoint list: raw primitives behind navTo for custom logic.
 - winBattle(): read-driven battle clearer. Uses screen.text() to detect command menu ("Bash"/"INPUT YOUR COMMAND"), targets, damage text, victory ("won"/"EXP"). Presses A appropriately. Exits on victory or pos out of battle box. Call winBattle() when in_battle=yes.
 (Etc. More skills can be added to llm_skills.lua over runs; always safe to try calling known ones. If undefined the call is no-op.)
 

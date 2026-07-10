@@ -16,11 +16,14 @@ const
   # opens the hill (likely post knock) or a deeper route is found. Do NOT use Minch
   # indoor 0x1C00..0x1D00 — that is Picky inside Pokey's house, wrong objective.
   OutdoorMaxX* = 0x1C00
-  HillBandMinX* = 0x0A00  ## West of east yard clutter; hill corridor lives here.
+  # Widened 2026-07-09: the REAL route (probe_meteor_route, navTo) dips slightly
+  # south then takes the WEST lower path (X~0x09B8..0x09E9) before winding
+  # north — the old 0x0A00 floor zeroed pokey_pct mid-climb.
+  HillBandMinX* = 0x0980
   HillBandMaxX* = 0x0B10
-  # Heading north up the hill: Y dropped below door-step band (exit Y=0x0158).
-  # TODO(magic): 0x0148 is just north of door Y; refine with map collision RE.
-  NorthHillMaxY* = 0x0148
+  # On the approach/climb: west lower path sits at Y~0x018E; climb entry
+  # 0x0145; anything at/below this in the band counts as "heading to the hill".
+  NorthHillMaxY* = 0x01A0
   # Crest / north plateau reachable from onett_start (NOT confirmed meteor site).
   # probe_pokey_approach: free roam minY=0x00B8; crest stop ~0x00C0.
   # Graded as 60 only as "north hill crest" interim — meteor is further and gated.

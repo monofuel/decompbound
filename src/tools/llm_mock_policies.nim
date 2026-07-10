@@ -99,17 +99,18 @@ function update()
 end
 """
 
-  ## Pokey % seed: exit Ness house if needed, then NORTH up the hill toward the meteor.
+  ## Pokey % seed: exit Ness house if needed, then real-pathfind up the hill.
   ## Pokey is outdoors at the meteor crash site (NOT Picky indoors at Minch).
-  ## Verified outdoor path from onett_start (probe_pokey_grid / probe_pokey_approach):
-  ##   (0x0A60,0x0158) exit -> Left clear to ~0x0A48 -> north corridor X~0x0A38
-  ##   -> crest (0x0A18,0x00C0) -> north plateau ~Y=0x00B8. Hard wall further north;
-  ##   outdoor Pokey not present from this fixture (story-gated / unmapped).
-  ## Never doorEnter. Needs: escapeMenu, walkTo, advanceDialogue, winBattle.
-  PokeyVisitPolicy* = """-- NOTE: Pokey % seed — outdoor meteor hill, NOT Minch house / Picky.
--- Indoors Ness: NavHouse exit. Outside: hillClimbNorth (skill) then crest walkTo.
--- Pure Up at door X re-enters Ness house; hillClimbNorth left-clears first. No doorEnter.
--- hillClimbNorth state is in the skill chunk (loaded once) so policy reloads are safe.
+  ## Route (verified 2026-07-09, probe_meteor_route via navTo): door (0x0A60,
+  ## 0x0158) -> slight south -> west lower path -> winding slope corridor
+  ## north -> crest (0x0A18,0x00CC) -> plateau north edge ~Y=0x00B8.
+  ## navTo threads the whole thing in ~450 frames (pixel-space A* over the
+  ## live collision page + diagonal slope input). Hard wall at Y=0x00B8 from
+  ## onett_start; meteor/Pokey coords beyond it TBD (collision-map RE ticket).
+  ## Never doorEnter. Needs: escapeMenu, walkTo, navTo, advanceDialogue, winBattle.
+  PokeyVisitPolicy* = """-- NOTE: Pokey % seed — outdoor meteor hill via navTo, NOT Minch house / Picky.
+-- Indoors Ness: NavHouse exit (walkTo waypoints). Outside: navTo crest then plateau.
+-- navTo = real A* over the live collision page; no stuck-wiggle, no glitching.
 function update()
   if escapeMenu() then return end
   if mem.read(0x4DBA) ~= 0 then winBattle(); return end
@@ -147,10 +148,13 @@ function update()
   end
   -- outdoors: dialogue only when a window is open (never A-spam walk)
   if advanceDialogue() then return end
-  -- left-clear + north corridor climb (persistent stuck-wiggle in skill)
-  if hillClimbNorth(0x00C0) then return end
-  -- northernmost outdoor band (~Y=0x00B8); meteor/Pokey beyond hard wall TBD
-  walkTo(0x0A70, 0x00B8)
+  -- climb to the crest first (navTo threads the winding slope corridor)
+  if py > 0x00D8 then
+    if navTo(0x0A18, 0x00C0) then return end
+  end
+  -- crest reached: push the north plateau edge (hard wall Y=0x00B8; meteor
+  -- coords beyond TBD — update when the collision-map RE lands)
+  if navTo(0x0A88, 0x00B8) then return end
 end
 """
 
