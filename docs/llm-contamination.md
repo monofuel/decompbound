@@ -13,7 +13,8 @@ envelope so claims about “what the agent learned” stay honest.
 
 **Related:** [llm-plays.md](llm-plays.md) (harness design + what works),
 [llm-sequence.md](llm-sequence.md) (story percent ladder / Sunrise MVP),
-[goal.md](goal.md) / project milestones.
+[llm-benchmarks.md](llm-benchmarks.md) (refusal + capability horizon
+benchmarks born from §1a/§2a), [goal.md](goal.md) / project milestones.
 
 ---
 
