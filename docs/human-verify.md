@@ -79,9 +79,15 @@ Copy this template when adding a row (agents: always use it):
 ### Captures wanted (not pass/fail — data the agents need)
 
 - [ ] **Breadcrumb trail: house → Pokey at the meteor** · 2026-07-09 · pokey_pct ground truth
-  - **Run:** `make play` → at the front door press **F7 (input recording ON)** → walk the real route (south to the path → west → winding climb → stand beside Pokey → talk to him) → **F7 off**. F12s at bends still welcome as bonus.
-  - **Pass if:** a `.tas` + `start.state` land in `bin/replays/`; mention the timestamp
-  - **Notes:** F7 TAS recording is the ideal oracle — replayable headlessly to pin the exact corridor + Pokey's coords. Audited all 365 secret states 2026-07-09: no house→meteor trail exists. Nav work proceeds meanwhile (emulator-discovered route reached the crest; hard wall at Y=0x00B8 — if your route passes it, the recording shows us exactly how).
+  - **Run:** **`make play-pokey`** → you spawn at Ness's front door on the meteor night (bot fixture, your personal slots untouched). Just walk the real route (south → west along the paths → the winding climb) to Pokey and **talk to him**, then close the window. Recording is automatic now — no keys to remember.
+  - **Pass if:** a fresh `.tas` + `_start.state` pair lands in `bin/replays/`; say roughly when you did it
+  - **Notes:** replayable headlessly to pin the exact corridor + Pokey's coords. Audited all 365 secret states: no house→meteor trail exists. Static map decode found a door→north corridor via the WESTERN hill (exit at ~(0x06C0,0x00B0)) — your run confirms/corrects it.
+
+- [ ] **Always-on input recording doesn't hurt play feel** · 2026-07-09 · play.nim recording default
+  - **Run:** `make play` normally for a few minutes; load a slot mid-session
+  - **Pass if:** no new stutter/lag; terminal shows a RECORDING line at boot and after each state load; `.tas` files appear in `bin/replays/`
+  - **Fail if:** any hitch that wasn't there before, or recording spam interferes
+  - **Notes:** sparse joy1 deltas + one small state snapshot per segment; F7 toggles off.
 
 ### Battle
 

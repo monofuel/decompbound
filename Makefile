@@ -1,4 +1,4 @@
-.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai llm-ai-display llm-ai-display-loop testrom script-dump gfx-roundtrip battle-bg trace inspect audio-check audio-diff jukebox-app
+.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-pokey play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai llm-ai-display llm-ai-display-loop testrom script-dump gfx-roundtrip battle-bg trace inspect audio-check audio-diff jukebox-app
 
 # bash + pipefail: the test loop pipes nim through sed, and without
 # pipefail the pipeline's exit status is sed's (always 0), which turns
@@ -71,6 +71,14 @@ play: nim.cfg
 	@mkdir -p bin
 	@printf '%s  commit %s%s  ROM=%s\n' "$$(date '+%Y-%m-%d %H:%M:%S')" "$$(git rev-parse --short HEAD 2>/dev/null || echo unknown)" "$$(git diff --quiet HEAD 2>/dev/null || echo ' +dirty')" "$(ROM)" | tee -a bin/play_sessions.log
 	nim r -d:release src/tools/play.nim "$(ROM)"
+	@echo "player exited"
+
+# Pokey breadcrumb run: start at Ness's front door on the meteor night (llm
+# fixture, NOT your personal slots). Input recording is on by default — just
+# walk to Pokey, talk to him, and close the window; the .tas lands in bin/replays/.
+play-pokey: nim.cfg
+	@mkdir -p bin
+	nim r -d:release src/tools/play.nim --load-state-path bin/states/llm/onett_start.state "$(ROM)"
 	@echo "player exited"
 
 # Same as play, but prints which paddy gamepad buttons/axes fire — use this to

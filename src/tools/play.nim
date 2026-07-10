@@ -126,10 +126,17 @@ proc main() =
   ## Pass --verbose to print input state changes to stdout.
   var verbose = false
   var romPath = ""
+  var startStatePath = ""
   for i in 1..paramCount():
     let arg = paramStr(i)
     if arg == "--verbose" or arg == "-v":
       verbose = true
+    elif arg == "--load-state-path" and i < paramCount():
+      discard  # value consumed next iteration via startStatePath check below
+    elif arg.startsWith("--load-state-path="):
+      startStatePath = arg[18..^1]
+    elif startStatePath.len == 0 and i > 1 and paramStr(i - 1) == "--load-state-path":
+      startStatePath = arg
     elif romPath.len == 0:
       romPath = arg
     else:
@@ -137,7 +144,7 @@ proc main() =
       quit(1)
 
   if romPath.len == 0:
-    echo "Usage: nim r src/tools/play.nim [--verbose|-v] <rom>"
+    echo "Usage: nim r src/tools/play.nim [--verbose|-v] [--load-state-path PATH(.state|.png)] <rom>"
     quit(1)
 
   const
@@ -177,7 +184,10 @@ Controls:
   F10         Dump per-scanline TM/TS band profile only (bin/autoshots/scanline_trace.txt)
   F11         Toggle auto-screenshots (bin/autoshots/ every 5s; ON by default — press to turn OFF if the ~5s stutter bugs you)
   F12         Screenshot (raw 256x224 frame to ~/Pictures/Screenshots/earthbound_yyyyMMdd-HHmmss.png)
-  F7          Toggle INPUT RECORDING (TAS): snaps bin/replays/start.state + writes deltas to bin/replays/<ts>.tas on joy1 changes. Echoes state.
+  F7          Toggle INPUT RECORDING (TAS). ALWAYS ON by default: every boot and
+              every state load starts a fresh bin/replays/<ts>.tas + <ts>_start.state
+              segment (sparse joy1 deltas — replayable + great bug reports). F7 turns
+              it off/on if you want a session unrecorded.
   1-4         Load state from slot 1-4 (bin/states/slotN.state)
   Ctrl+1-4    Save state to slot 1-4
   (close the window or Ctrl+C to quit — no Esc-to-quit, too easy to fat-finger)
@@ -393,6 +403,37 @@ void main() {
   var prevMousePos = window.mousePos
   var mouseIdleFrames = 0
 
+  # Replay recording is ALWAYS ON by default (sparse joy1 deltas + one start
+  # state per segment — pennies of disk, and every session/bug becomes
+  # replayable). A fresh segment starts at boot and after every state load so
+  # each .tas is self-contained against its own _start.state. F7 toggles off.
+  proc stopRecording() =
+    ## Close the current replay segment (if any).
+    if replayLogOpen:
+      replayLog.close()
+      replayLogOpen = false
+    recording = false
+    recordFrame = 0
+
+  proc startRecording(tag: string) =
+    ## Begin a fresh replay segment: per-segment start state + .tas log.
+    stopRecording()
+    createDir("bin/replays")
+    let ts = now().format("yyyyMMdd-HHmmss")
+    let startP = "bin/replays" / &"{ts}_start.state"
+    writeFile(startP, cast[string](serializeState(snes, cpu)))
+    replayLogPath = "bin/replays" / &"{ts}.tas"
+    replayLogOpen = open(replayLog, replayLogPath, fmWrite)
+    if replayLogOpen:
+      replay.writeReplayHeader(replayLog, romHashOf(rom), startP)
+      recording = true
+      recordFrame = 0
+      lastRecordJoy = 0xFFFF'u16  # impossible joy1 → force a delta on frame 0
+      echo &"RECORDING ({tag}) -> {replayLogPath} (+ {startP})"
+      writeLog(&"RECORD ON {tag} {replayLogPath}")
+    else:
+      echo "ERROR: failed to open record log ", replayLogPath
+
   # Windy file drop: set the callback (fires via pollEvents). Only F12 screenshots
   # embed state; plain PNGs or wrong-ROM shots are rejected with a message (no crash).
   # Live drag-drop restore requires the actual window running (headless can't deliver drops).
@@ -439,9 +480,31 @@ void main() {
       deserializeState(stateData, snes, cpu)
       echo "restored state from ", fileName
       writeLog(&"restored state from drop: {fileName}")
+      startRecording("drop")
     except CatchableError as e:
       echo "drop restore failed (deserialize): ", e.msg
       # never crash the live game
+
+  # Optional start state from the CLI (make play-pokey etc): .state blob or
+  # ebSt .png both work. Applied once before the loop; recording then starts
+  # its first segment from exactly this state.
+  if startStatePath.len > 0:
+    try:
+      if startStatePath.endsWith(".png") or startStatePath.endsWith(".PNG"):
+        let pngBytes = cast[seq[uint8]](readFile(startStatePath))
+        let ex = extractState(pngBytes)
+        if ex.isNone:
+          echo "start-state png has no ebSt chunk: ", startStatePath
+          quit(1)
+        deserializeState(ex.get, snes, cpu)
+      else:
+        deserializeState(cast[seq[byte]](readFile(startStatePath)), snes, cpu)
+      echo "start state loaded: ", startStatePath
+      writeLog(&"start state loaded: {startStatePath}")
+    except CatchableError as e:
+      echo "start-state load failed: ", e.msg
+      quit(1)
+  startRecording("boot")
 
   while not window.closeRequested:
     pollEvents()
@@ -630,29 +693,9 @@ void main() {
         &"{snes.ppuRegs[0x28]:02X}/{snes.ppuRegs[0x29]:02X} TMW={snes.ppuRegs[0x2E]:02X} TSW={snes.ppuRegs[0x2F]:02X}"
     if window.buttonPressed[KeyF7]:
       if not recording:
-        createDir("bin/replays")
-        let startP = "bin/replays/start.state"
-        let stateB = serializeState(snes, cpu)
-        writeFile(startP, cast[string](stateB))
-        let ts = now().format("yyyyMMdd-HHmmss")
-        replayLogPath = "bin/replays" / &"{ts}.tas"
-        replayLogOpen = open(replayLog, replayLogPath, fmWrite)
-        if replayLogOpen:
-          let rh = romHashOf(rom)
-          replay.writeReplayHeader(replayLog, rh, "bin/replays/start.state")
-          recording = true
-          recordFrame = 0
-          lastRecordJoy = joy1 xor 0xFFFF'u16  # force delta on first post-toggle frame
-          echo &"RECORDING ON -> {replayLogPath} (start.state snapped)"
-          writeLog(&"RECORD ON {replayLogPath}")
-        else:
-          echo "ERROR: failed to open record log ", replayLogPath
+        startRecording("F7")
       else:
-        if replayLogOpen:
-          replayLog.close()
-          replayLogOpen = false
-        recording = false
-        recordFrame = 0
+        stopRecording()
         echo "RECORDING OFF"
         writeLog("RECORD OFF")
     # State save/load (Ctrl+1..4 = save slot N, 1..4 = load slot N; documented in
@@ -676,6 +719,7 @@ void main() {
             loadState(snes, cpu, slot)
             echo &"loaded slot {slot} <- {p}"
             writeLog(&"loaded slot {slot}")
+            startRecording("slot" & $slot)
           else:
             echo &"no state for slot {slot}"
             writeLog(&"load failed for slot {slot} (no file)")
