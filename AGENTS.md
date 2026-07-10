@@ -79,6 +79,17 @@ never committed. When in doubt, do not commit it.
 
 **The line: the code is ours, the data is theirs.**
 
+### By hand, from scratch — community docs are references, not sources
+
+We are NOT using CoilSnake or any other external tool/codebase — no imported
+code, no imported data, no generated assets from third-party tooling.
+Everything here is reverse-engineered by hand in Nim against the user's own
+ROM and our own emulator. Community documentation (CoilSnake's format notes,
+fullsnes, romhacking wikis) is fine as a **reference or hypothesis source**,
+but nothing ships until it is independently derived and verified with our own
+evidence: disasm at named file offsets, live-WRAM cross-checks, byte-exact
+round trips. Cite our offsets and probes in docs — not external tools.
+
 ### Screenshots, save-states, and SRAM — hard ban (especially save-states)
 
 These are the easy, high-frequency slip. Treat them as **non-negotiable**:
