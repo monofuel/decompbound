@@ -976,7 +976,12 @@ void main() {
     # gitignored bin/autoshots/ so scenes can be reviewed/diagnosed later.
     if autoShot and (getMonoTime() - lastShotTime).inSeconds >= 5:
       frameImage.writeFile(&"bin/autoshots/shot_{shotCount:04}.png")
-      let regLine = &"shot_{shotCount:04}  frame={frameCount} fps={fpsShown:.0f}  " &
+      # Timeline pointer: with always-on recording every autoshot maps to an
+      # exact replayable moment — reconstruct it via
+      #   nim r src/tools/replay_seek.nim <seg>.tas --frame <segframe>
+      let segTag = if recording: &" seg={replayLogPath.extractFilename} segframe={recordFrame}"
+        else: " seg=off"
+      let regLine = &"shot_{shotCount:04}  frame={frameCount}{segTag} fps={fpsShown:.0f}  " &
         &"BGMODE={snes.ppuRegs[0x05] and 7} bg3prio={(snes.ppuRegs[0x05] and 8) != 0} " &
         &"TM={snes.ppuRegs[0x2C]:02X} TS={snes.ppuRegs[0x2D]:02X} INIDISP={snes.ppuRegs[0x00]:02X} " &
         &"CGADSUB={snes.ppuRegs[0x31]:02X} CGWSEL={snes.ppuRegs[0x30]:02X} " &
