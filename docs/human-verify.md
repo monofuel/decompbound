@@ -28,7 +28,7 @@ it needed a human look, it must also land as a row below.
 | Key | What |
 |-----|------|
 | `make play` | Run the game |
-| F12 | Screenshot + state bundle (best bug report) |
+| F12 | State-screenshot → `~/Pictures/Screenshots/earthbound_yyyyMMdd-HHmmss.png` (embeds save-state; best bug report) |
 | F10 | Per-scanline trace (when agents ask) |
 
 ROM path: `bin/Earthbound (U) [!].smc` (your dump).
@@ -88,7 +88,13 @@ Copy this template when adding a row (agents: always use it):
   - **Run:** enter a battle; watch the swirl transition
   - **Pass if:** swirl colors look right (not red-where-green / obviously wrong hue)
   - **Fail if:** clearly wrong colors vs memory of real hardware / reference
-  - **Notes:**
+  - **Notes:** same COLDATA/CGADSUB stack as stage lighting; packing was R/B-swapped in fixed-color pack (try after rebuild).
+
+- [ ] **Runaway Five / stage spotlight dim** · 2026-07-09 · OBJ math window gate
+  - **Run:** `make play` → Chaos Theater Runaway Five intro (or any advantage-win spotlight)
+  - **Pass if:** band under the two blue beams is full palette (not crushed purple); outside beams + party dim; contrast looks like stage lighting
+  - **Fail if:** whole scene / all sprites uniformly too dark (math applied inside the color window)
+  - **Notes:** F12 `earthbound_20260709-005030.png` was the fail (ungated OBJ subtract). CGWSEL=$20 math-outside + CGADSUB=$B3 + HDMA WH beams.
 
 - [ ] **Battle HP/PP status band** · open
   - **Run:** any battle; look at the HP/PP strip

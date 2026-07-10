@@ -179,6 +179,12 @@ var
     ## whole-frame sprite pass can clip sprites inside the transition iris.
   objSuppressActive: array[ScreenHeight, bool]
     ## Whether objSuppressLine[y] has any suppressing pixel (fast skip when not).
+  objColorMathLine: array[ScreenHeight, WindowLine]
+    ## Per-scanline mask: pixels where color math is *allowed* by CGWSEL bits 5-4
+    ## (always / inside / outside / never the color window). renderSprites must
+    ## honor this — applying fixed-color subtract everywhere dims spotlighted
+    ## sprites (Runaway Five, advantage win) that sit *inside* a math-outside
+    ## window. Filled by renderScanline with live HDMA window edges.
   objSpritePrio: array[ScreenHeight, array[ScreenWidth, int8]]
     ## OBJ priority (0-3) of the sprite drawn at each pixel this frame, or -1 if
     ## none. Recorded by renderSprites; read by overlayForegroundBg to interleave
@@ -337,8 +343,9 @@ proc renderScanline*(snes: SnesBus, image: Image, py: int) =
   let useSubScreen = (cgwsel and 0x02) != 0
 
   let main = snes.compositeScreen(py, mainMask, snes.ppuRegs[0x2E], backdrop)  # TMW.
-  let fixedColor = bgr555ToColor(snes.fixedColorB.uint16 or
-    (snes.fixedColorG.uint16 shl 5) or (snes.fixedColorR.uint16 shl 10))
+  # SNES CGRAM/COLDATA pack is R in bits 0-4, G in 5-9, B in 10-14.
+  let fixedColor = bgr555ToColor(snes.fixedColorR.uint16 or
+    (snes.fixedColorG.uint16 shl 5) or (snes.fixedColorB.uint16 shl 10))
   var mathBuf: array[ScreenWidth, ColorRGBA]
   var subDrawn: array[ScreenWidth, bool]
   if mathLayers != 0:
@@ -383,6 +390,14 @@ proc renderScanline*(snes: SnesBus, image: Image, py: int) =
 
   let inidisp = snes.ppuRegs[0x00]
   for px in 0..<ScreenWidth:
+    # CGWSEL bits 5-4 only (not layer enable): sprite pass reuses this so OBJ
+    # fixed-color math is skipped inside spotlight windows (math-outside mode).
+    let windowAllowsMath = case mathEnableMode
+      of 1: colorWin[px]
+      of 2: not colorWin[px]
+      of 3: false
+      else: true
+    objColorMathLine[py][px] = windowAllowsMath
     var m: ColorRGBA
     let showSubscreenDirect = (mainMask == 0'u8) and useSubScreen and (mathLayers != 0) and (snes.ppuRegs[0x2D] != 0'u8)
     if showSubscreenDirect:
@@ -407,11 +422,7 @@ proc renderScanline*(snes: SnesBus, image: Image, py: int) =
       # Also require the *topmost main layer* to be in CGADSUB (hardware): UI on
       # BG1 must stay opaque when only BG3 has math enabled (borderless battles).
       let layerMath = (mathLayers and main.srcBit[px]) != 0
-      let mathHere = layerMath and (case mathEnableMode
-        of 1: colorWin[px]
-        of 2: not colorWin[px]
-        of 3: false
-        else: true)
+      let mathHere = layerMath and windowAllowsMath
       if mathHere:
         let s = mathBuf[px]
         # Half only when the subscreen actually contributed a pixel (or when
@@ -483,8 +494,8 @@ proc renderSprites*(snes: SnesBus, image: Image) =
   let objSub = (cgadsub and 0x80) != 0
   let objHalf = (cgadsub and 0x40) != 0
   let objUseFixed = (snes.ppuRegs[0x30] and 0x02) == 0
-  let objFixed = bgr555ToColor(snes.fixedColorB.uint16 or
-    (snes.fixedColorG.uint16 shl 5) or (snes.fixedColorR.uint16 shl 10))
+  let objFixed = bgr555ToColor(snes.fixedColorR.uint16 or
+    (snes.fixedColorG.uint16 shl 5) or (snes.fixedColorB.uint16 shl 10))
   let obsel = snes.ppuRegs[0x01]
   let chrBase = ((obsel.int and 0x07) shl 13) and 0x7FFF
   let sizeSelect = (obsel.int shr 5) and 0x07
@@ -553,7 +564,12 @@ proc renderSprites*(snes: SnesBus, image: Image) =
         if index == 0:
           continue
         var color = bgr555ToColor(snes.cgram[128 + paletteGroup * 16 + index])
-        if objMath and objUseFixed and paletteGroup >= 4:
+        # Gate on CGWSEL math window (objColorMathLine from renderScanline).
+        # Without this, subtract-dim (swirl / stage lighting / advantage) applies
+        # to every sprite pixel, including those inside a "math outside window"
+        # spotlight — Runaway Five and similar look far too dark.
+        if objMath and objUseFixed and paletteGroup >= 4 and
+            objColorMathLine[screenY][screenX]:
           color = colorMathBlend(color, objFixed, objSub, objHalf)
         image[screenX, screenY] = applyMasterBrightness(color, inidisp)
         objSpritePrio[screenY][screenX] = prio.int8
@@ -631,14 +647,25 @@ proc renderFrame*(snes: SnesBus): Image =
   let backdrop = bgr555ToColor(snes.cgram[0])
   result.fill(backdrop)
 
-  # The whole-frame path does not populate the per-scanline OBJ suppression mask
-  # (that comes from renderScanline); clear it so renderSprites here never
-  # suppresses sprites based on stale window state from another render path.
+  # Whole-frame path has no HDMA-per-line history; clear OBJ suppress and fill
+  # the color-math window mask from the *final* WH/CGWSEL so renderSprites still
+  # gates fixed-color OBJ math (spotlight / dim) instead of reading stale lines.
   anySpriteDrawn = false
+  let cgwselFrame = snes.ppuRegs[0x30]
+  let mathEnableModeFrame = (cgwselFrame.int shr 4) and 0x03
+  var colorWinFrame: WindowLine
+  if mathEnableModeFrame != 0:
+    let combine = (snes.ppuRegs[0x2B].int shr 2) and 0x03
+    snes.windowAreaLine(snes.ppuRegs[0x25], 4, combine, colorWinFrame)
   for py in 0..<ScreenHeight:
     objSuppressActive[py] = false
     for px in 0..<ScreenWidth:
       objSpritePrio[py][px] = -1
+      objColorMathLine[py][px] = case mathEnableModeFrame
+        of 1: colorWinFrame[px]
+        of 2: not colorWinFrame[px]
+        of 3: false
+        else: true
 
   let mode = snes.ppuRegs[0x05] and 0x07
   let mainScreen = snes.ppuRegs[0x2C]  # TM: enabled main screen layers.
@@ -674,8 +701,8 @@ proc renderFrame*(snes: SnesBus): Image =
   let cgwsel = snes.ppuRegs[0x30]
   # CGWSEL bit 1: 0 = fixed color operand, 1 = subscreen operand (matches renderScanline).
   let useSubScreen = (cgwsel and 0x02) != 0
-  let fixedPx = bgr555ToColor(snes.fixedColorB.uint16 or
-    (snes.fixedColorG.uint16 shl 5) or (snes.fixedColorR.uint16 shl 10))
+  let fixedPx = bgr555ToColor(snes.fixedColorR.uint16 or
+    (snes.fixedColorG.uint16 shl 5) or (snes.fixedColorB.uint16 shl 10))
   var subImg: Image = nil
   if (cgadsub and 0x3F) != 0 and (subMask != 0 or not useSubScreen):
     subImg = newImage(ScreenWidth, ScreenHeight)
