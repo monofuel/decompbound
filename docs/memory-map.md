@@ -45,7 +45,7 @@ unconfirmed) · `❓ unpinned` (known to exist, address/bit not nailed down).
 | `$E000` | 64×64 bytes | **Live collision page** — one byte per 8px coarse tile; **blocked iff `(byte & 0xD0) != 0`** | ✅ | Read by `$C05F33` (`LDA $E000,X`, DBR=`$7E`); walk gate `AND #$00D0; BNE` at file `0x0029CC` before the `$0B8E,X` pos write. Index `((cy&0x3F)<<6)\|(cx&0x3F)`, `cx=(xAdj>>3)`, `cy=(yAdj>>3)`; adj offsets from ROM tables below. Page **wraps mod 64 tiles** (512×512px window); loader that fills it from ROM not yet pinned. Verified vs live movement 4/4 dirs (`probe_walkable.nim`, 2026-07-09). Onett bytes: `0x00` open, `0x80` solid, `0x01/0x03` pass. |
 | `$2B6E` | word × slots | Entity **collision type** (stride 2; player outdoor = 5) | ✅ | Indexes the `$C42A1F/...` offset + hitbox tables in `$C05F33`. |
 | `$0180/$0280/$02A0` | — | Battle-menu **font bases** (for on-screen text decode) | 🟡 | `screen.text()` path. |
-| `$53` (SPC RAM) | byte | APU **timer0 target** shadow (FA shadow) | ✅ | Used by `recoverTimersAfterLoad`. Note: SPC address space, not S-CPU WRAM. |
+| `$53` (SPC RAM) | byte | ⚠️ **NOT an FA shadow** — drifting driver variable (`0x10→0x24` over one song) | ✅ | Restoring T0 target from it halved music tempo on v1 loads (2026-07-09). The EB driver's real T0 target is a **constant `$10`**; `recoverTimersAfterLoad` uses that. SPC address space, not S-CPU WRAM. |
 
 ## ROM (file offsets)
 

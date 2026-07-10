@@ -154,13 +154,14 @@ proc recoverTimersAfterLoad*(apu: Apu) =
   ## Best-effort timer restore for save-states that omitted $F1/$FA–$FC (v1).
   ## Without T0 the music driver spins on `MOV A,$FD` / `BEQ` forever after
   ## load (port $2140 never acks → force-blank hang on door/battle music).
-  ## EB driver init uses FA=$10, F1=$01; $53 is the FA shadow in driver RAM.
+  ## The EB driver programs FA=$10 once at init and NEVER changes it — tempo
+  ## differences live in the sequence engine, not the timer divisor. Do NOT
+  ## read RAM $53 here: it is a drifting driver variable (measured 0x10→0x24
+  ## over one cold-boot song), not an FA shadow; restoring it as the target
+  ## halved music tempo after every v1 state load (2026-07-09 regression).
   ## Load-time only — never re-arm on every $FD poll (that kills music tempo;
   ## see docs/half-speed-music.md).
-  var target = apu.spc.ram[][0x53]
-  if target == 0:
-    target = 0x10
-  apu.timers[0].target = target
+  apu.timers[0].target = 0x10
   apu.timers[0].enabled = true
   apu.timers[0].internal = 0
   apu.timers[0].counter = 0

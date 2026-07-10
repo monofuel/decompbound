@@ -72,13 +72,20 @@ bits**. Sequence:
 
 Checkout of **`0bdad72`** (no live `$FD` re-arm) restored normal music speed.
 
-### Secondary (load-state only)
+### Secondary (load-state only) — CONFIRMED as the 2026-07-09 episode
 
 Save blobs historically **omit** APU timer regs (`$F1`, `$FA`–`$FC`). After load,
-T0 stays disabled → hang (not half-speed). `recoverTimersAfterLoad` re-enables T0
-using APU RAM `$53` (FA shadow) or `$10`. That unsticks handshakes but can
-**skew tempo after a load** if `$53` is wrong for that state. It does **not**
-explain a clean cold boot with no state load.
+T0 stays disabled → hang (not half-speed). `recoverTimersAfterLoad` re-enables T0.
+
+**⚠️ The "`$53` is the FA shadow" belief was WRONG and caused half-speed on
+every v1 state load (2026-07-09).** Measured on a cold boot: the real T0 target
+stays a constant **`$10`** the whole time the driver runs, while `$53` drifts
+`0x10→0x15→0x19→0x24` (it's some other driver variable). Restoring `target :=
+$53` gave e.g. `0x1F` → 8000/31 ≈ 258 Hz vs the correct 8000/16 = 500 Hz ≈
+**half tempo**, varying per state. Fix: recovery always uses the driver
+constant `$10`; locked by `v1RecoveryIgnoresRam53` in
+`tests/test_audio_tempo.nim`. Note v2 states saved *while* tempo was skewed
+faithfully carry the wrong target — re-save those states after the fix.
 
 ### Earlier (already reverted) — different bug, same words
 

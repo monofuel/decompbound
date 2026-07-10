@@ -145,3 +145,17 @@ block timer2FasterThanTimer0:
     &"T2 too slow: {ticks} $FF ticks in {Window} samples (divisor 16 wiring?)"
   doAssert ticks <= 120,
     &"T2 too fast: {ticks} $FF ticks in {Window} samples"
+
+block v1RecoveryIgnoresRam53:
+  ## Regression lock (2026-07-09): recoverTimersAfterLoad must use the EB
+  ## driver constant FA=$10, NOT RAM $53. $53 is a drifting driver variable
+  ## (0x10→0x24 over one cold-boot song); restoring it as the T0 target made
+  ## every v1 state load play music at ~half tempo (e.g. $53=0x1F → 258Hz
+  ## instead of 500Hz). See docs/half-speed-music.md.
+  let apu = newApu()
+  apu.spc.ram[][0x53] = 0x1F  # poisoned drifting value from a real F12 state
+  apu.recoverTimersAfterLoad()
+  let t0 = apu.getTimerSnapshot(0)
+  doAssert t0.enabled, "v1 recovery must enable T0"
+  doAssert t0.target == 0x10,
+    &"v1 recovery used $53 (target=0x{t0.target:02X}); must be driver constant 0x10"
