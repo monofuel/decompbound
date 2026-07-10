@@ -786,6 +786,8 @@ proc main() =
   var loadStateSlot = -1
   var loadStatePath = ""
   var policyFile = ""
+  var scenarioName = ""
+    ## Named seed scenario (--scenario nav|battle|explore|pokey); overrides slot mapping.
   var saveStateSlot = -1
   var targetSpeed = DefaultSpeed
     ## emulation fps target: 0=unlimited (headless default), 60=realtime, 120=2x etc.
@@ -853,6 +855,11 @@ proc main() =
       policyFile = paramStr(i)
     elif a.startsWith("--policy-file="):
       policyFile = a[14..^1]
+    elif a == "--scenario" and i < paramCount():
+      inc i
+      scenarioName = paramStr(i)
+    elif a.startsWith("--scenario="):
+      scenarioName = a[11..^1]
     elif a == "--save-state-slot" and i < paramCount():
       inc i
       saveStateSlot = parseInt(paramStr(i))
@@ -924,6 +931,10 @@ proc main() =
   echo fmt"llm_ai: ROM={romPath} frames={maxFrames} llmInterval={llmInterval} pngEvery={pngEvery} (set={pngEverySet}) speed={targetSpeed} mock={useMock} headless={useHeadless} clock={clockStr} verbose={gVerbose} loadState={loadStr} saveSram={saveStr}"
   echo fmt"llm_ai: state namespace = {LlmStateDir}/ (human play slots bin/states/slotN.state never written by default)"
   scenarioPolicy = llm_mock_policies.selectMockPolicy(loadStateSlot)
+  if scenarioName.len > 0:
+    # Named scenario seed (nav/battle/explore/pokey) — overrides slot mapping.
+    scenarioPolicy = llm_mock_policies.selectMockPolicyByName(scenarioName)
+    echo "POLICY: scenario=", scenarioName, " seed selected (len=", scenarioPolicy.len, ")"
   if policyFile.len > 0:
     scenarioPolicy = readFile(policyFile)
     echo "POLICY: initial policy from ", policyFile, " (len=", scenarioPolicy.len, ") — overrides mock/nav default"
