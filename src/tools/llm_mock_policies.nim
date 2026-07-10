@@ -99,21 +99,25 @@ function update()
 end
 """
 
-  ## Pokey % seed: finish Ness house if still inside, else soft walk toward neighbor Pokey house.
-  ## Needs skills: escapeMenu, walkTo, advanceDialogue (AdvanceDialogueSkillLua). No A while blank.
-  ## TODO(coords): outdoor Pokey-house waypoint is a soft placeholder near Ness exit north/east band;
-  ##   replace with verified slot-24 world pos once a live capture / onett_start fixture exists.
-  PokeyVisitPolicy* = """-- NOTE: Pokey % seed; escapeMenu + advanceDialogue + walkTo; A only via advanceDialogue
--- Indoors: same house exit route as NavHouse. Outside: soft walkTo toward Pokey neighbor.
--- TODO(coords): Pokey house outdoor target TBD (placeholder below); RE + capture before metric.
+  ## Pokey % seed: exit Ness house if needed, then NORTH up the hill toward the meteor.
+  ## Pokey is outdoors at the meteor crash site (NOT Picky indoors at Minch).
+  ## Verified outdoor path from onett_start (probe_pokey_grid / probe_pokey_approach):
+  ##   (0x0A60,0x0158) exit -> Left clear to ~0x0A48 -> north corridor X~0x0A38
+  ##   -> crest (0x0A18,0x00C0) -> north plateau ~Y=0x00B8. Hard wall further north;
+  ##   outdoor Pokey not present from this fixture (story-gated / unmapped).
+  ## Never doorEnter. Needs: escapeMenu, walkTo, advanceDialogue, winBattle.
+  PokeyVisitPolicy* = """-- NOTE: Pokey % seed — outdoor meteor hill, NOT Minch house / Picky.
+-- Indoors Ness: NavHouse exit. Outside: hillClimbNorth (skill) then crest walkTo.
+-- Pure Up at door X re-enters Ness house; hillClimbNorth left-clears first. No doorEnter.
+-- hillClimbNorth state is in the skill chunk (loaded once) so policy reloads are safe.
 function update()
   if escapeMenu() then return end
-  if advanceDialogue() then return end
   if mem.read(0x4DBA) ~= 0 then winBattle(); return end
   local px = mem.read(0x0BBE) + 256 * mem.read(0x0BBF)
   local py = mem.read(0x0BFA) + 256 * mem.read(0x0BFB)
-  -- still indoors (Ness house band): finish house like NavHouse
+  -- still indoors Ness house: NavHouse exit (do not treat Minch as goal)
   if px >= 0x1C00 then
+    if advanceDialogue() then return end
     if py >= 0x0300 and px >= 0x1F00 then
       walkTo(0x1F00, 0x0450)
       return
@@ -141,9 +145,12 @@ function update()
     walkTo(0x1F40, 0x0148)
     return
   end
-  -- outside: soft placeholder toward Pokey (neighbor house, north of Ness).
-  -- TODO(coords): verify with live pos log; 0x0A80/0x00E0 is unconfirmed soft aim.
-  walkTo(0x0A80, 0x00E0)
+  -- outdoors: dialogue only when a window is open (never A-spam walk)
+  if advanceDialogue() then return end
+  -- left-clear + north corridor climb (persistent stuck-wiggle in skill)
+  if hillClimbNorth(0x00C0) then return end
+  -- northernmost outdoor band (~Y=0x00B8); meteor/Pokey beyond hard wall TBD
+  walkTo(0x0A70, 0x00B8)
 end
 """
 

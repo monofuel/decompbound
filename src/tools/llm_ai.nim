@@ -127,8 +127,15 @@ var
   prevMoney = 0
   prevPlayerX = 0
   prevPlayerY = 0
+  prevPokey = 0
+  lastLogSig = ""
+    ## Last logged progress signature (tg/room/story-pcts). The per-tick status line only
+    ## prints when this changes or on a periodic heartbeat — otherwise a 10k-frame run emits
+    ## hundreds of identical lines.
     ## For higher-level stuck + auto rollback. We now also track live player world pos delta
-    ## (tg/room plateaus at 75 inside house even while successfully walking toward the door).
+    ## (tg/room plateaus at 75 inside house even while successfully walking toward the door)
+    ## and story-percent gains (pokey_pct climbs while tg is pinned at 100 outside — without
+    ## this the door-approach reads as "stuck" and rolls back to 0 forever).
   scenarioPolicy = llm_mock_policies.NavHousePolicy
     ## Selected by --load-state at startup (slot1 = battle per doc + strategy). Used by mock providers.
 
@@ -452,6 +459,10 @@ proc appendNote(text: string) =
   ## Append a recorded fact to the persistent notes file (and in-memory copy).
   ## Creates bin/states/ if needed. Safe to call from main loop.
   if text.len == 0: return
+  # Dedup: mock/seed policies carry the same -- NOTE: every tick. Skip re-recording
+  # (and re-echoing) a note we already hold — kills the per-tick "NOTE recorded" spam
+  # and stops the notes file bloating with identical lines.
+  if text in persistentNotes: return
   let ts = now().format("yyyy-MM-dd'T'HH:mm:ss")
   let entry = fmt"[{ts}] {text}"
   createDir("bin/states")
@@ -617,14 +628,13 @@ proc pollAndApplyResult(L: lua53.PState, currentPolicy: var string, status: var 
   let (got, res) = resultChan.tryRecv()
   if got:
     let (newP, lat) = res
-    echo fmt"BACKGROUND: received policy (latency_ms={lat}) at frame {frame}"
     extractAndAppendNotes(newP)
     if newP.len <= 10 or newP == currentPolicy:
-      echo fmt"  policy applied (bg, kept prior) at frame {frame}"
+      # Unchanged (the common case for mock/seed every tick) — stay silent to cut spam.
       status = "running"
     elif loadPolicyChunk(L, newP, fmt"frame_{frame}"):
       currentPolicy = newP
-      echo fmt"  policy applied (bg) at frame {frame}"
+      echo fmt"BACKGROUND: policy reloaded (latency_ms={lat}) at frame {frame}"
       status = "reloaded"
     else:
       echo fmt"  policy load FAILED; kept prior working policy at frame {frame}"
@@ -1152,7 +1162,11 @@ proc main() =
       let oldRoom = prevRoom
       if tg > maxTouchGrass:
         maxTouchGrass = tg
-      logTg(fmt"{now()} frame={ctx.frameCount} touch_grass_pct={tg} max={maxTouchGrass} room={room} pokey_pct={pokeyPct} pokey_knock_pct={pokeyKnockPct} buzzbuzz_pct={buzzBuzzPct} sunrise_pct={sunrisePct}")
+      # Only log when progress actually changed, or every ~300 frames as a heartbeat.
+      let logSig = fmt"{tg}|{room}|{pokeyPct}|{pokeyKnockPct}|{buzzBuzzPct}|{sunrisePct}"
+      if logSig != lastLogSig or (ctx.frameCount mod 300 == 0):
+        logTg(fmt"{now()} frame={ctx.frameCount} touch_grass_pct={tg} max={maxTouchGrass} room={room} pokey_pct={pokeyPct} pokey_knock_pct={pokeyKnockPct} buzzbuzz_pct={buzzBuzzPct} sunrise_pct={sunrisePct}")
+        lastLogSig = logSig
       if oldTg < 100 and tg >= 100:
         logTg(fmt"TOUCH GRASS ACHIEVED at frame {ctx.frameCount}")
         echo "TOUCH GRASS ACHIEVED!"
@@ -1178,7 +1192,8 @@ proc main() =
 
       # Record recent history (last few actions + did tg%/room change since prior LLM tick?)
       # This lets qwen course-correct when stuck (no progress = try different skill/approach).
-      let madeTgRoomProgress = (tg > oldTg) or (room != oldRoom)
+      let madePokeyProgress = pokeyPct > prevPokey
+      let madeTgRoomProgress = (tg > oldTg) or (room != oldRoom) or madePokeyProgress
       let madeProgressForHist = madeTgRoomProgress or madePosProgress
       let progStr = if madeProgressForHist: "PROGRESS" else: "NO_CHANGE"
       let histEntry = fmt"[{ctx.frameCount}] tg {oldTg}->{tg} room {oldRoom}->{room} ({progStr})"
@@ -1206,12 +1221,24 @@ proc main() =
           except CatchableError as e:
             echo "  save milestone failed: ", e.msg
 
+      # Story-percent milestone: pokey_pct climbs while tg is pinned at 100 outside, so the
+      # tg-gated save above never fires on the hill. Snapshot here so a later rollback lands at
+      # the doorstep (60/90), not back at outside-start (0).
+      if madePokeyProgress:
+        try:
+          writeStateFile(LlmRollbackState, snes, cpu)
+          lastMilestonePath = LlmRollbackState
+          stuckCounter = 0
+          echo fmt"  SAVED pokey milestone (pokey_pct {prevPokey}->{pokeyPct}) -> {LlmRollbackState}"
+        except CatchableError as e:
+          echo "  save pokey milestone failed: ", e.msg
+
       # higher-level stuck detection + rollback using save/load (beyond per-skill wiggle)
       # Use *coarse* (tg/room) + *fine* (live pos delta) + money. This prevents false "stuck" while
       # the agent is successfully walking across house_interior (tg stays 75 until the door).
       let curMoney = touch_grass.readU16(snes, 0x9831)
       let moneyProg = curMoney != prevMoney
-      let madeAnyProgress = madeTgRoomProgress or madePosProgress or moneyProg
+      let madeAnyProgress = madeTgRoomProgress or madePosProgress or moneyProg or madePokeyProgress
       if not madeAnyProgress:
         stuckCounter += 1
       else:
@@ -1222,6 +1249,7 @@ proc main() =
         stuckCounter = stuckCounter + 3
         echo "  REGRESSION detected (tg " & $oldTg & "->" & $tg & "); boosting stuck counter"
       prevMoney = curMoney
+      prevPokey = pokeyPct
       prevPlayerX = px
       prevPlayerY = py
       if stuckCounter > 18 and lastMilestonePath.len > 0:
@@ -1234,6 +1262,7 @@ proc main() =
           prevTg = touch_grass.touchGrassPercent(snes)
           prevRoom = touch_grass.currentRoomLabel(snes)
           prevMoney = touch_grass.readU16(snes, 0x9831)
+          prevPokey = story_percents.pokeyPercent(snes)
           let pidxR = touch_grass.PlayerSlot * touch_grass.SlotIndexStride
           prevPlayerX = touch_grass.readU16(snes, touch_grass.WorldXBase + pidxR)
           prevPlayerY = touch_grass.readU16(snes, touch_grass.WorldYBase + pidxR)

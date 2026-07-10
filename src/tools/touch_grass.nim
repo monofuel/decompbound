@@ -215,19 +215,36 @@ end
 
 const EscapeMenuSkillLua* = """
 -- escapeMenu(): robust escape for overworld menus (Talk/Check/Goods/Equip/Status etc).
--- Detects via screen.text() (getScreenText) + excludes battle command menus (Bash/PSI use A).
+-- Detects via screen.text() + WRAM window slot ($8650 != 0xFF means a window is allocated).
 -- Presses B to cancel (never A to select deeper). Safe no-op if no menu.
 -- Call at top of update() or inside walkTo before d-pad nav. A opens menus on overworld; B is the cancel.
 -- Only for nav; winBattle handles its own A on battle menus.
--- TODO(magic): menu strings from observed command menus; in_battle flag at 0x4DBA for safety.
+-- TODO(magic): menu strings from observed command menus; $8650 window header from probe_pokey_dlgflag.
 function escapeMenu()
   local inBattle = mem.read(0x4DBA) ~= 0
+  if inBattle then
+    return false
+  end
   local txt = (screen.text() or ""):lower()
   local isOwMenu = txt:find("talk to") or txt:find("check") or txt:find("equip") or txt:find("status")
   local isGoods = txt:find("goods")
   local isBatCmd = txt:find("bash") or txt:find("psi") or txt:find("defend") or txt:find("input your command")
-  if (isOwMenu or (isGoods and not isBatCmd)) and not inBattle then
+  if isBatCmd then
+    return false
+  end
+  if isOwMenu or isGoods then
     print("escapeMenu: overworld menu detected via screen.text -> press B to cancel")
+    pad.press("B")
+    return true
+  end
+  -- WRAM fallback: overworld command menu leaves first window header at 0x01 (probe_pokey_dlgflag:
+  -- idle $8650=0xFF, after A menu $8650=0x01). B so walkTo can resume when text decode fails.
+  -- Do not B every non-FF window outdoors — that would cancel real NPC dialogue windows.
+  local win0 = mem.read(0x8650)
+  local px = mem.read(0x0BBE) + 256 * mem.read(0x0BBF)
+  local outdoor = px < 0x1C00
+  if outdoor and win0 == 0x01 then
+    print("escapeMenu: outdoor command menu (8650=01) -> B")
     pad.press("B")
     return true
   end
@@ -417,25 +434,35 @@ end
 
 const AdvanceDialogueSkillLua* = """
 -- advanceDialogue(): dialogue-safe A press for story / NPC text (Pokey % and later).
--- Uses screen.text() only. Presses A when dialogue-ish text is visible; NEVER A on blank walk.
--- Overworld menus (Talk/Check/Goods/Equip/Status): B via escapeMenu() — never A into deeper menus.
+-- HARD GATE on real open-window WRAM (not screen.text): outdoor BG tiles decode to
+-- garbage "II IIII" and previously caused every-frame A spam that blocked walkTo.
+-- Verified (probe_pokey_dlgflag): outdoor idle $8650=0xFF and $8958=0xFF;
+-- after A opens overworld menu $8650=0x01 and $8958=0x00 (focused window).
+-- $8650 = first window-slot header (0xFF = free). $8958 = current focus window (0xFF = none).
+-- Overworld menus: B via escapeMenu() first — never A deeper into Talk/Check/Goods.
 -- Battle command menus: leave alone (return false so winBattle can own them).
 -- Call early in update() after escapeMenu, before walkTo. Returns true if it handled the frame.
 -- Also exposed as talkOrAdvance (alias) for policy readability.
--- TODO(magic): dialogue vs menu heuristics from observed getScreenText; refine with live captures.
+-- TODO(magic): window struct layout at $8650 / focus at $8958 from live RE; refine if multi-window races.
 function advanceDialogue()
   if escapeMenu() then
     return true
   end
   local inBattle = mem.read(0x4DBA) ~= 0
-  local txt = screen.text() or ""
-  local low = txt:lower()
-  local trimmed = low:gsub("%s+", "")
-  if trimmed:len() < 2 then
+  if inBattle then
     return false
   end
+  -- REAL text-window gate: first window slot allocated ($8650 != 0xFF).
+  -- Verified outdoor idle $8650=0xFF; A-menu $8650=0x01. Do NOT use $8958 alone —
+  -- focus can stick at non-FF with $8650 free (doorstep false-positive, blocks Up+A enter).
+  local win0 = mem.read(0x8650)
+  if win0 == 0xFF then
+    return false
+  end
+  local txt = screen.text() or ""
+  local low = txt:lower()
   local isBatCmd = low:find("bash") or low:find("psi") or low:find("defend") or low:find("input your command")
-  if isBatCmd or inBattle then
+  if isBatCmd then
     return false
   end
   local isOwMenu = low:find("talk to") or low:find("check") or low:find("equip") or low:find("status") or low:find("goods")
@@ -444,12 +471,131 @@ function advanceDialogue()
   end
   local f = frame()
   if (f % 4) == 0 then
-    print("advanceDialogue[f=" .. f .. "]: dialogue-ish text -> A")
     pad.press("A")
   end
   return true
 end
 talkOrAdvance = advanceDialogue
+"""
+
+const HillClimbNorthSkillLua* = """
+-- hillClimbNorth(crestY): outdoor north hill corridor to meteor approach (Pokey %).
+-- Verified (probe_pokey_grid): from house exit, Left to X~0x0A48, then stuck-wiggle
+-- corridor reaches (0x0A18,0x00C0). Pure Up at door X re-enters Ness house.
+-- State lives in skill globals so llm_ai policy reloads do not reset stuck counters.
+-- Returns true if handled this frame; false if already at/ past crest (caller walkTo).
+-- TODO(magic): crestY / corridor X when true meteor screen is RE'd past Y~0x00B8 wall.
+local _hill = {stuck = 0, lx = nil, ly = nil}
+function hillClimbNorth(crestY)
+  crestY = crestY or 0x00C0
+  if escapeMenu() then
+    return true
+  end
+  local px = mem.read(0x0BBE) + 256 * mem.read(0x0BBF)
+  local py = mem.read(0x0BFA) + 256 * mem.read(0x0BFB)
+  if px >= 0x1C00 then
+    return false
+  end
+  -- Left-clear west of Ness door before any north
+  if px > 0x0A48 and py >= 0x0148 then
+    pad.press("Left")
+    return true
+  end
+  if py <= crestY then
+    return false
+  end
+  if _hill.lx == px and _hill.ly == py then
+    _hill.stuck = _hill.stuck + 1
+  else
+    _hill.stuck = 0
+  end
+  _hill.lx = px
+  _hill.ly = py
+  if _hill.stuck > 25 then
+    if (_hill.stuck // 12) % 2 == 0 then pad.press("Left") else pad.press("Right") end
+  elseif _hill.stuck > 12 then
+    if (frame() // 8) % 2 == 0 then pad.press("Left") else pad.press("Right") end
+    pad.press("Up")
+  else
+    pad.press("Up")
+  end
+  return true
+end
+"""
+
+const DoorEnterSkillLua* = """
+-- doorEnter(tx, ty): Minch-style door enter (persistent _door state).
+-- Verified (probe_pokey_upcmp): from EXACT door, policy pad.press Up x90 then A x4
+-- enters Minch (same as direct snes.joy1 hold). Continuous simultaneous Up+A fails.
+-- Align to exact pixel first; once seated, commit Up90+A10 without re-checking pos
+-- mid-hold (zone-exit mid-Up was aborting and thrashing).
+-- Returns true if handled; false if far from door.
+-- TODO(magic): door tile / facing RE.
+local _door = {n = 0, seated = false, tx = nil, ty = nil}
+function doorEnter(tx, ty)
+  if escapeMenu() then
+    return true
+  end
+  local px = mem.read(0x0BBE) + 256 * mem.read(0x0BBF)
+  local py = mem.read(0x0BFA) + 256 * mem.read(0x0BFB)
+  local adx = math.abs(px - tx)
+  local ady = math.abs(py - ty)
+  if _door.tx ~= tx or _door.ty ~= ty then
+    _door.tx = tx
+    _door.ty = ty
+    _door.n = 0
+    _door.seated = false
+  end
+  -- Far: cancel and let caller walkTo
+  if (not _door.seated) and (adx + ady > 48) then
+    _door.n = 0
+    return false
+  end
+  -- Already indoor (Minch/Ness band): cancel seat so we never Up+A indoors
+  if px >= 0x1C00 then
+    _door.n = 0
+    _door.seated = false
+    return false
+  end
+  -- Committed recipe (matches probe_pokey_upcmp B): Up x90, A x10, retry
+  if _door.seated then
+    _door.n = _door.n + 1
+    if _door.n <= 90 then
+      pad.press("Up")
+    elseif _door.n <= 100 then
+      pad.press("A")
+    else
+      _door.n = 0
+      _door.seated = false
+    end
+    return true
+  end
+  -- Align to EXACT door pixel only (ady==0 and adx==0)
+  if adx > 0 then
+    if adx <= 10 and (frame() % 50) < 12 then
+      pad.press("Down")
+    elseif px > tx then
+      pad.press("Left")
+    else
+      pad.press("Right")
+    end
+    return true
+  end
+  if ady > 0 then
+    if py < ty then
+      pad.press("Down")
+    else
+      pad.press("Up")
+    end
+    return true
+  end
+  -- Exact (tx, ty): commit enter recipe immediately (no idle — upcmp C idle also works,
+  -- but idle is unnecessary; start Up on first seated frame).
+  _door.seated = true
+  _door.n = 1
+  pad.press("Up")
+  return true
+end
 """
 
 proc currentRoomLabel*(snes: SnesBus): string =
