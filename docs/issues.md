@@ -12,6 +12,11 @@ Live-play captures come from F12 (preserved `f12_NNN` bundles) per the debug wor
 durable status board (FIXED / IN PROGRESS / OPEN); human-verify is the active
 checklist monofuel ticks while playing.
 
+**Known-good play baseline + the 2026-07-08 audio/visual incident** (room-entry
+hang, Saturn Valley corruption, half-speed music) are tracked together in
+[`docs/play-regressions.md`](play-regressions.md), including the fallback commit
+`0bdad72` and the salvage path for the orphaned fixes.
+
 **Updated:** 2026-07-05 — restructured as a scannable status board (fixed vs. in-progress vs. open). Grouped from live-play verification this session, cross-checked against recent git log.
 
 ## FIXED (verified in live play)

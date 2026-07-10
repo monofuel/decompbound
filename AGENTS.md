@@ -128,6 +128,9 @@ file local.
     CGRAM / OAM dumps that came from real play. **Especially do not commit
     save-states** — they are wholesale copies of game-derived memory, not
     “just debug files.”
+  - **Battery SRAM** — `*.srm`, play battery saves next to the ROM, rotating
+    backups under `bin/sram_backups/`. Real player progress / story data; never
+    commit. (Format documentation of the SRAM layout is fine; the *bytes* are not.)
   - **Game scripts** — dialogue text (a literary work) *and* the event/script
     data (cutscene logic, flags, sequences — creative expression). Reversing the
     script **interpreter** is fine; the **extracted script content is a
@@ -151,10 +154,11 @@ file local.
   never bundled. Users must own the original.
 
 - **Before every commit, confirm nothing slipped in** — `git status` for ROMs,
-  `*.state` / `bin/states/`, F12 / `earthbound_*.png`, extracted scripts/assets,
-  dumps, `*.wav`, other `*.png`. If you add a tool that writes screenshots,
-  save-states, or extracted data, point its output at a **git-ignored** path
-  first (and never stage those paths).
+  `*.state` / `bin/states/`, `*.srm` / `bin/sram_backups/`, F12 /
+  `earthbound_*.png`, extracted scripts/assets, dumps, `*.wav`, other `*.png`.
+  If you add a tool that writes screenshots, save-states, SRAM, or extracted
+  data, point its output at a **git-ignored** path first (and never stage those
+  paths).
 
 - Full reasoning + precedents (Sega v. Accolade, Sony v. Connectix, § 117, plus
   the asm-disassembly and script-extraction specifics) live in
