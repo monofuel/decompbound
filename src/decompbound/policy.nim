@@ -37,6 +37,25 @@ const
   DialogueRows = [18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]
   MinTextRun = 3
 
+  # Full-bus sandbox peek (snes.read / snes.readRange). Hardware-port window in
+  # system banks must never go through bus.read8 — MMIO reads latch state.
+  SnesAddrMask = 0xFFFFFF
+  SystemBankMax = 0x3F
+  SystemBankHiMin = 0x80
+  SystemBankHiMax = 0xBF
+  LowRamSize = 0x2000
+  MmioWindowLo = 0x2000
+  MmioWindowHi = 0x5FFF
+  SramWindowLo = 0x6000
+  SramWindowHi = 0x7FFF
+  SramBankMin = 0x20
+  WramMirrorBase = 0x7E0000
+  SnesReadRangeMax = 8192
+
+# lua_seti is not wrapped in lua53.nim; bind locally so snes.readRange can fill
+# 1-based integer keys without touching the shared binding module.
+proc luaSeti(L: lua53.PState, idx: cint, n: lua53.Integer) {.cdecl, importc: "lua_seti".}
+
 proc readRomFile*(filepath: string): seq[uint8] =
   ## Read ROM file and return bytes, stripping a 512-byte copier header if present.
   let data = readFile(filepath)
@@ -231,6 +250,54 @@ proc memRead*(L: lua53.PState): cint {.cdecl.} =
   L.pushinteger(ctx.snes.bus.mem[eff].int)
   return 1
 
+proc isSystemBank(bank: int): bool {.inline.} =
+  ## True for banks that host low-RAM mirrors + the $2000-$5FFF port window.
+  (bank <= SystemBankMax) or (bank >= SystemBankHiMin and bank <= SystemBankHiMax)
+
+proc snesPeekByte*(snes: SnesBus, address: int): int =
+  ## Side-effect-free byte peek of the 24-bit SNES address space.
+  ## Resolves WRAM (and low-RAM mirrors) and ROM mirrors the same way the bus
+  ## maps them, but never calls bus.read8 / mmioRead (hardware ports latch).
+  ## MMIO window ($2000-$5FFF in system banks) and cart SRAM return 0.
+  let a = address and SnesAddrMask
+  let bank = a shr 16
+  let offset = a and 0xFFFF
+  if isSystemBank(bank):
+    if offset < LowRamSize:
+      return snes.bus.mem[WramMirrorBase or offset].int
+    if offset >= MmioWindowLo and offset <= MmioWindowHi:
+      return 0
+    if offset >= SramWindowLo and offset <= SramWindowHi and
+        (bank and SystemBankMax) >= SramBankMin:
+      return 0
+  if a < 0 or a >= snes.bus.mem.len:
+    return 0
+  return snes.bus.mem[a].int
+
+proc snesRead*(L: lua53.PState): cint {.cdecl.} =
+  ## Lua binding: snes.read(addr) -> int.
+  ## Full-bus read-only peek; MMIO/APU/PPU ports and SRAM return 0 (no side effects).
+  let ctx = getPolicyCtx(L)
+  let a = L.toInteger(1).int
+  L.pushinteger(snesPeekByte(ctx.snes, a))
+  return 1
+
+proc snesReadRange*(L: lua53.PState): cint {.cdecl.} =
+  ## Lua binding: snes.readRange(addr, len) -> 1-based table of ints.
+  ## Same address rules as snes.read. len is clamped to [0, SnesReadRangeMax].
+  let ctx = getPolicyCtx(L)
+  let a = L.toInteger(1).int
+  var n = L.toInteger(2).int
+  if n < 0:
+    n = 0
+  if n > SnesReadRangeMax:
+    n = SnesReadRangeMax
+  L.createtable(n.cint, 0)
+  for i in 0 ..< n:
+    L.pushinteger(snesPeekByte(ctx.snes, a + i))
+    L.luaSeti(-2, lua53.Integer(i + 1))
+  return 1
+
 proc screenPixel*(L: lua53.PState): cint {.cdecl.} =
   ## Lua binding: screen.pixel(x, y) -> {r,g,b} table from current framebuffer.
   ## screen.width / screen.height are numbers on the table.
@@ -312,8 +379,10 @@ proc simNormal*(L: lua53.PState): cint {.cdecl.} =
 
 proc setupPolicyApi*(L: lua53.PState, ctx: PolicyContext) =
   ## Expose the read-only + input-only sandboxed surface to Lua.
-  ## mem.read, screen.{width,height,pixel,text}, pad.{set,press}, frame, sim.{setSpeed,fast,normal}.
+  ## mem.read (WRAM-only, unchanged), snes.read / snes.readRange (full-bus, side-effect-free),
+  ## screen.{width,height,pixel,text}, pad.{set,press}, frame, sim.{setSpeed,fast,normal}.
   ## screen.text() returns decoded BG tilemap on-screen text (menus, dialogue, battle commands).
+  ## snes.* peeks ROM/WRAM mirrors without touching MMIO (ports return 0). Writes stay pad-only.
   ## sim.* controls targetFps in ctx (read by llm_ai loop; additive only, llm_play unaffected).
   # Store ctx in Lua registry under string key so callbacks can retrieve without upvalues.
   L.pushlightuserdata(cast[pointer](ctx))
@@ -323,6 +392,13 @@ proc setupPolicyApi*(L: lua53.PState, ctx: PolicyContext) =
   L.pushcfunction(memRead)
   L.setfield(-2, "read".cstring)
   L.setglobal("mem".cstring)
+  # snes (full-bus read-only; prerequisite for Lua map/collision navigation)
+  L.newtable()
+  L.pushcfunction(snesRead)
+  L.setfield(-2, "read".cstring)
+  L.pushcfunction(snesReadRange)
+  L.setfield(-2, "readRange".cstring)
+  L.setglobal("snes".cstring)
   # screen
   L.newtable()
   L.pushinteger(ppu.ScreenWidth)
