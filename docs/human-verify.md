@@ -83,6 +83,12 @@ Copy this template when adding a row (agents: always use it):
   - **Pass if:** a fresh `.tas` + `_start.state` pair lands in `bin/replays/`; say roughly when you did it
   - **Notes:** replayable headlessly to pin the exact corridor + Pokey's coords. Audited all 365 secret states: no house→meteor trail exists. Static map decode found a door→north corridor via the WESTERN hill (exit at ~(0x06C0,0x00B0)) — your run confirms/corrects it.
 
+- [ ] **In-game text echoes to the console** · 2026-07-10 · play.nim text echo
+  - **Run:** `make play` → talk to an NPC / open a menu / read a sign; watch the terminal
+  - **Pass if:** the dialogue/menu text prints between `── text ──` delimiters, once per change (no spam), copy-pasteable; no new stutter
+  - **Fail if:** garbage outdoor runs print with no window open, repeats every poll, or launch/perf regresses
+  - **Notes:** VRAM decoder (`getScreenText`) gated on window slots $8650/$8654; polls every 20 frames.
+
 - [ ] **Always-on input recording doesn't hurt play feel** · 2026-07-09 · play.nim recording default
   - **Run:** `make play` normally for a few minutes; load a slot mid-session
   - **Pass if:** no new stutter/lag; terminal shows a RECORDING line at boot and after each state load; `.tas` files appear in `bin/replays/`

@@ -11,7 +11,7 @@ import
   windy,
   paddy,
   slappy,
-  ../decompbound/[apu, cpu, ppu, replay, save_state, snesbus, png_state]
+  ../decompbound/[apu, cpu, ppu, policy, replay, save_state, snesbus, png_state]
 
 proc readRomFile(filepath: string): seq[uint8] =
   ## Read ROM file and return bytes, stripping a 512-byte copier header.
@@ -212,6 +212,11 @@ Controls:
   var paused = false
   var frameAdvance = false
   var framesPerTick = 1
+  # In-game text -> console for easy copy-paste: while a text/menu window is
+  # open (slot headers $8650/$8654 != 0xFF), decode the on-screen text from
+  # VRAM (policy.getScreenText — same decoder the LLM reads) and echo it when
+  # it changes. Reset on window close so re-opened identical text reprints.
+  var lastScreenText = ""
   # Live FPS measurement for the title bar (diagnoses perceived slowness).
   var fpsAccum = 0
   var fpsClock = getMonoTime()
@@ -971,6 +976,20 @@ void main() {
     let newTitle = &"decompbound player - {fpsShown:.0f} fps - frame {frameCount}{pausedStr} x{framesPerTick}{inputTitlePart}"
     if window.title != newTitle:
       window.title = newTitle
+
+    # In-game text echo (dialogue / menus / signs) — every 20 frames while a
+    # window is open. Cheap: two WRAM byte reads unless a window exists.
+    if frameCount mod 20 == 0:
+      let winOpen = snes.bus.mem[0x7E8650] != 0xFF or snes.bus.mem[0x7E8654] != 0xFF
+      if winOpen:
+        let txt = getScreenText(snes)
+        if txt.len > 0 and txt != lastScreenText:
+          echo "── text ──────────────────────────"
+          echo txt
+          echo "──────────────────────────────────"
+          lastScreenText = txt
+      elif lastScreenText.len > 0:
+        lastScreenText = ""
 
     # Auto-capture: every ~5s dump the frame + a PPU-register line to the
     # gitignored bin/autoshots/ so scenes can be reviewed/diagnosed later.
