@@ -341,9 +341,20 @@ function update()
     {x=0x0A4B, y=0x0169},
     {x=0x0A60, y=0x0158},
   }
+  -- At the front door post-meteor a police officer stands ON the door tile
+  -- ("[redacted dialogue]"). That tile
+  -- is therefore unreachable, so followTrail's last waypoint never "arrives"
+  -- and doorEnter's exact-pixel Up+A recipe can never seat. The real entry is
+  -- to TALK to the cop: once near the door, face it (Up) and press A;
+  -- advanceDialogue (above) drains the line, which warps Ness inside to the
+  -- bedroom. Check proximity BEFORE followTrail so we stop trailing into the
+  -- blocked tile. Verified end-to-end from pokey_free (probe_knock reaches 80).
+  local ddx = math.abs(px - 0x0A60) + math.abs(py - 0x0158)
+  if ddx <= 0x20 then
+    if (frame() % 20) < 4 then pad.press("A") else pad.press("Up") end
+    return
+  end
   if followTrail(_knockTrail) then return end
-  -- At door outdoor tile: doorEnter (Up commit + A) into Ness house.
-  if doorEnter(0x0A60, 0x0158) then return end
   -- Far from door somehow: re-nav to door.
   navTo(0x0A60, 0x0158)
 end
