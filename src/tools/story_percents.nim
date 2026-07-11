@@ -83,12 +83,66 @@ proc pokeyPercent*(snes: SnesBus): int =
     return 30
   10
 
+const
+  # === Pokey-knock % (walk home + bed + knock). Route = reverse of pokey
+  # outdoor corridor (TAS 20260709-225653) then Ness house reverse of NavHouse.
+  # Knock flag address filled after WRAM flagdiff (see bin/knock_re_notes.txt).
+  # TODO(magic): KnockFlag* pending live RE; ladder uses pos until flag pinned.
+  KnockDoorX* = 0x0A60
+  KnockDoorY* = 0x0158
+  KnockDoorRadius* = 0x28
+  # Outdoor reverse bands (mirror of pokeyPercent, inverted progress).
+  KnockRidgeMaxY = 0x0130
+  KnockClimbMaxX = 0x0680
+  KnockWestRoadMaxX = 0x0900
+  KnockWestRoadMinY = 0x0180
+  KnockWestRoadMaxY = 0x0290
+  # ⚠️ The real knock flag is NOT yet RE'd. Bot-driven attempts to trigger the
+  # knock from the (verified post-meteor) bedroom were inconclusive — the beat
+  # is scripted, so it will replay faithfully from a HUMAN capture (queued in
+  # human-verify: prologue-night breadcrumb), which we then flag-diff exactly
+  # like the meteor flag $9885. Until then this metric caps at 80 (reaching the
+  # bedroom, which IS position-verifiable) rather than grade 100 on a GUESSED
+  # flag — no magic without verification (docs/llm-contamination.md doctrine).
+  # Candidates from the pokey_free→home_indoor story diff: $9A05/$9A06/$9A0F/
+  # $9A10 (00→FF post-meteor) — but those are post-METEOR, not post-KNOCK; do
+  # not grade on them until a clean before/after-knock diff confirms the bit.
+
 proc pokeyKnockPercent*(snes: SnesBus): int =
-  ## Pokey-knocking %: return home; knock / meteor invite chain accepted.
-  ## Story win: party is on the meteor path (not still idling post-Pokey-visit).
-  ## TODO: RE knock/script trigger state; coords alone may not fire the beat.
-  discard snes
-  0
+  ## Pokey-knocking %: walk home from meteor, enter house, reach bed; Pokey
+  ## knocks. Monotonic POSITION ladder (verifiable); the 100 knock tier awaits
+  ## the ground-truth flag (see note above — capped at 80 for now, not guessed):
+  ##   10 = outdoor post-Pokey, still on/near meteor / ridge
+  ##   30 = west-road reverse leg (heading east toward house)
+  ##   50 = at outdoor door tile (~0x0A60,0x0158)
+  ##   70 = indoors house (not yet bedroom)
+  ##   80 = bedroom reached (post-meteor bedroom, tg-25 box)
+  ## All magic + TODO per AGENTS; positions from the verified pokey corridor.
+  let idx = PlayerSlot * SlotIndexStride
+  let px = readU16(snes, WorldXBase + idx)
+  let py = readU16(snes, WorldYBase + idx)
+
+  # Indoor bands (Ness house uses 0x1C00+ world X).
+  if px >= OutdoorMaxX:
+    # Bedroom (game_start / tg 25 box).
+    if (px >= 0x1F00 and px < 0x2000 and py <= 0x0600) or
+       (abs(px - 0x1F40) <= 0x80 and abs(py - 0x05C0) <= 0x80):
+      return 80
+    return 70
+
+  # Outdoor door approach.
+  if abs(px - KnockDoorX) + abs(py - KnockDoorY) <= KnockDoorRadius:
+    return 50
+
+  # West road reverse (south corridor, X climbing toward house).
+  if px <= KnockWestRoadMaxX and py >= KnockWestRoadMinY and py <= KnockWestRoadMaxY:
+    return 30
+
+  # Still on climb / ridge / site (early reverse).
+  if py <= KnockRidgeMaxY or px <= KnockClimbMaxX:
+    return 10
+
+  10
 
 proc buzzBuzzPercent*(snes: SnesBus): int =
   ## Buzz Buzz %: meteor / Buzz Buzz sequence; Picky is with the group.
