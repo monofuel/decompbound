@@ -105,10 +105,11 @@ proc checkLink(program: GLuint) =
     echo "Program link error: ", log
     quit(1)
 
-proc saveScreenshot(frameImage: Image, dir: string, state: seq[byte], romHash: uint32) =
+proc saveScreenshot(frameImage: Image, dir: string, state: seq[byte], romHash: uint32): string =
   ## Save the raw game frame (256x224) as a timestamped PNG under the given dir,
   ## embedding the current state via ebSt chunk (for drag-drop restore).
-  ## Creates a name of the form earthbound_yyyyMMdd-HHmmss.png. Echoes full path.
+  ## Creates a name of the form earthbound_yyyyMMdd-HHmmss.png. Echoes and
+  ## returns the full path (so callers can mirror the file elsewhere).
   let ts = now().format("yyyyMMdd-HHmmss")
   let path = dir / &"earthbound_{ts}.png"
   let pngStr = frameImage.encodeImage(PngFormat)
@@ -118,6 +119,7 @@ proc saveScreenshot(frameImage: Image, dir: string, state: seq[byte], romHash: u
   let embedded = embedState(pngBytes, state, romHash)
   writeFile(path, cast[string](embedded))
   echo "screenshot: ", path
+  path
 
 proc main() =
   ## Open a windowed player, run the emulator at ~60 fps, accept input,
@@ -183,11 +185,13 @@ Controls:
               bundle whenever an HDMA screen-split starts (a battle/iris) — no keypress needed.
   F10         Dump per-scanline TM/TS band profile only (bin/autoshots/scanline_trace.txt)
   F11         Toggle auto-screenshots (bin/autoshots/ every 5s; ON by default — press to turn OFF if the ~5s stutter bugs you)
-  F12         Screenshot (raw 256x224 frame to ~/Pictures/Screenshots/earthbound_yyyyMMdd-HHmmss.png)
+  F12         Screenshot with embedded save-state -> bin/sessions/<session>/f12/
+              (canonical, auto-archived) + a mirror copy in ~/Pictures/Screenshots
   F7          Toggle INPUT RECORDING (TAS). ALWAYS ON by default: every boot and
-              every state load starts a fresh bin/replays/<ts>.tas + <ts>_start.state
-              segment (sparse joy1 deltas — replayable + great bug reports). F7 turns
-              it off/on if you want a session unrecorded.
+              every state load starts a fresh <ts>.tas + <ts>_start.state segment in
+              bin/sessions/<session>/ (sparse joy1 deltas — replayable + great bug
+              reports). F7 turns it off/on. On clean exit the session's replay pairs
+              + F12s auto-archive to ../decompbound_secret/sessions/ (if present).
   1-4         Load state from slot 1-4 (bin/states/slotN.state)
   Ctrl+1-4    Save state to slot 1-4
   (close the window or Ctrl+C to quit — no Esc-to-quit, too easy to fat-finger)
@@ -239,6 +243,14 @@ Controls:
   createDir("bin/states")
   let screenshotsDir = getHomeDir() / "Pictures" / "Screenshots"
   createDir(screenshotsDir)
+  # Per-session capture home: the durable artifacts of ONE play session live
+  # together — replay segments (.tas + _start.state) + F12 bookmarks (f12/).
+  # Autoshots stay in bin/autoshots (disposable diagnostics; replay_seek can
+  # regenerate any moment from the session's replays anyway). On clean exit
+  # the durable bits auto-archive to ../decompbound_secret/sessions/.
+  let sessionStamp = now().format("yyyyMMdd-HHmmss")
+  let sessionDir = "bin/sessions" / sessionStamp
+  createDir(sessionDir / "f12")
 
   var logOpened = false
   var logFile: File
@@ -421,13 +433,14 @@ void main() {
     recordFrame = 0
 
   proc startRecording(tag: string) =
-    ## Begin a fresh replay segment: per-segment start state + .tas log.
+    ## Begin a fresh replay segment (per-segment start state + .tas log) in
+    ## this session's directory.
     stopRecording()
-    createDir("bin/replays")
+    createDir(sessionDir)
     let ts = now().format("yyyyMMdd-HHmmss")
-    let startP = "bin/replays" / &"{ts}_start.state"
+    let startP = sessionDir / &"{ts}_start.state"
     writeFile(startP, cast[string](serializeState(snes, cpu)))
-    replayLogPath = "bin/replays" / &"{ts}.tas"
+    replayLogPath = sessionDir / &"{ts}.tas"
     replayLogOpen = open(replayLog, replayLogPath, fmWrite)
     if replayLogOpen:
       replay.writeReplayHeader(replayLog, romHashOf(rom), startP)
@@ -685,10 +698,17 @@ void main() {
       writeLog(&"F11: auto-screenshots {(if autoShot: \"ON\" else: \"OFF\")}")
     if window.buttonPressed[KeyF12]:
       # F12 = screenshot, matching Steam's screenshot-key convention (Steam
-      # intercepts F12, so aligning ours avoids the surprise).
+      # intercepts F12, so aligning ours avoids the surprise). Primary copy
+      # lives in the session dir (archived with the replays); a mirror goes
+      # to ~/Pictures/Screenshots for desktop browsing muscle memory.
       let stateBytes = serializeState(snes, cpu)
       let rhash = romHashOf(rom)
-      saveScreenshot(frameImage, screenshotsDir, stateBytes, rhash)
+      createDir(sessionDir / "f12")
+      let shotPath = saveScreenshot(frameImage, sessionDir / "f12", stateBytes, rhash)
+      try:
+        copyFile(shotPath, screenshotsDir / shotPath.extractFilename)
+      except CatchableError:
+        discard  # Pictures mirror is best-effort; the session copy is canonical.
       writeLog("screenshot (F12)")
       echo &"  BGMODE={snes.ppuRegs[0x05] and 7} bg3prio={(snes.ppuRegs[0x05] and 8) != 0} " &
         &"TM(main)={snes.ppuRegs[0x2C]:02X} TS(sub)={snes.ppuRegs[0x2D]:02X} INIDISP={snes.ppuRegs[0x00]:02X}"
@@ -1023,6 +1043,31 @@ void main() {
   if recording and replayLogOpen:
     replayLog.close()
     replayLogOpen = false
+  # Auto-archive this session's durable captures (replay pairs + F12
+  # bookmarks) to the private secret repo, if present. Best-effort: never
+  # block or fail the exit path. Autoshots are deliberately NOT archived
+  # (regenerable via replay_seek).
+  try:
+    const SecretSessions = "../decompbound_secret/sessions"
+    if dirExists("../decompbound_secret") and dirExists(sessionDir):
+      var archived = 0
+      let dest = SecretSessions / sessionStamp
+      for kind, path in walkDir(sessionDir):
+        if kind == pcFile and (path.endsWith(".tas") or path.endsWith(".state")):
+          createDir(dest)
+          copyFile(path, dest / path.extractFilename)
+          inc archived
+      if dirExists(sessionDir / "f12"):
+        for kind, path in walkDir(sessionDir / "f12"):
+          if kind == pcFile and path.endsWith(".png"):
+            createDir(dest / "f12")
+            copyFile(path, dest / "f12" / path.extractFilename)
+            inc archived
+      if archived > 0:
+        echo &"session archived: {archived} file(s) -> {dest}"
+        writeLog(&"session archived: {archived} file(s) -> {dest}")
+  except CatchableError as e:
+    echo "session archive skipped: ", e.msg
   ss.close()
   slappyClose()
   if logOpened:

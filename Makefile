@@ -1,4 +1,4 @@
-.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-pokey archive-replays play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai llm-ai-display llm-ai-display-loop testrom script-dump gfx-roundtrip battle-bg trace inspect audio-check audio-diff jukebox-app
+.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-pokey archive archive-replays play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai llm-ai-display llm-ai-display-loop testrom script-dump gfx-roundtrip battle-bg trace inspect audio-check audio-diff jukebox-app
 
 # bash + pipefail: the test loop pipes nim through sed, and without
 # pipefail the pipeline's exit status is sed's (always 0), which turns
@@ -73,13 +73,17 @@ play: nim.cfg
 	nim r -d:release src/tools/play.nim "$(ROM)"
 	@echo "player exited"
 
-# Archive input recordings (breadcrumbs) to the private secret repo: .tas
-# input logs + their paired _start.state snapshots. States are game-derived
-# memory -> never in this repo; pairs stay together in ../decompbound_secret.
-archive-replays:
-	@mkdir -p ../decompbound_secret/replays
-	@cp -nv bin/replays/* ../decompbound_secret/replays/ 2>/dev/null || true
-	@echo "replays archived to ../decompbound_secret/replays/"
+# Archive capture sessions (replay pairs + F12 bookmarks) to the private
+# secret repo. play.nim auto-archives on clean exit; this sweeps everything
+# (crashed sessions, legacy bin/replays). Game-derived states never go in
+# THIS repo; pairs stay together in ../decompbound_secret.
+archive:
+	@mkdir -p ../decompbound_secret/sessions
+	@if [ -d bin/sessions ]; then cp -rn bin/sessions/* ../decompbound_secret/sessions/ 2>/dev/null || true; fi
+	@if [ -d bin/replays ]; then mkdir -p ../decompbound_secret/replays && cp -n bin/replays/* ../decompbound_secret/replays/ 2>/dev/null || true; fi
+	@echo "captures archived to ../decompbound_secret/{sessions,replays}/"
+
+archive-replays: archive
 
 # Pokey breadcrumb run: start at Ness's front door on the meteor night (llm
 # fixture, NOT your personal slots). Input recording is on by default — just

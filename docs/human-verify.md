@@ -80,7 +80,7 @@ Copy this template when adding a row (agents: always use it):
 
 - [ ] **Breadcrumb trail: house → Pokey at the meteor** · 2026-07-09 · pokey_pct ground truth
   - **Run:** **`make play-pokey`** → you spawn at Ness's front door on the meteor night (bot fixture, your personal slots untouched). Just walk the real route (south → west along the paths → the winding climb) to Pokey and **talk to him**, then close the window. Recording is automatic now — no keys to remember.
-  - **Pass if:** a fresh `.tas` + `_start.state` pair lands in `bin/replays/`; say roughly when you did it
+  - **Pass if:** a fresh `.tas` + `_start.state` pair lands in `bin/sessions/<session>/` (auto-archived to the secret repo on exit); say roughly when you did it
   - **Notes:** replayable headlessly to pin the exact corridor + Pokey's coords. Audited all 365 secret states: no house→meteor trail exists. Static map decode found a door→north corridor via the WESTERN hill (exit at ~(0x06C0,0x00B0)) — your run confirms/corrects it.
 
 - [ ] **In-game text echoes to the console** · 2026-07-10 · play.nim text echo
@@ -88,6 +88,12 @@ Copy this template when adding a row (agents: always use it):
   - **Pass if:** the dialogue/menu text prints between `── text ──` delimiters, once per change (no spam), copy-pasteable; no new stutter
   - **Fail if:** garbage outdoor runs print with no window open, repeats every poll, or launch/perf regresses
   - **Notes:** VRAM decoder (`getScreenText`) gated on window slots $8650/$8654; polls every 20 frames.
+
+- [ ] **Session capture dirs + auto-archive** · 2026-07-10 · play.nim sessions
+  - **Run:** `make play` → take an F12, walk a bit, close the window; check `bin/sessions/<ts>/` and `../decompbound_secret/sessions/<ts>/`
+  - **Pass if:** the session dir holds the `.tas`+`_start.state` pair and `f12/` PNG; the F12 also mirrored to `~/Pictures/Screenshots`; on exit the terminal prints "session archived: N file(s)" and the secret copy exists
+  - **Fail if:** captures land in old paths, no archive line on exit, or launch/exit regresses
+  - **Notes:** autoshots stay in `bin/autoshots` (scratch, not archived — replay_seek regenerates moments).
 
 - [ ] **Always-on input recording doesn't hurt play feel** · 2026-07-09 · play.nim recording default
   - **Run:** `make play` normally for a few minutes; load a slot mid-session
