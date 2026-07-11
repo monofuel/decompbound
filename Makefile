@@ -1,4 +1,4 @@
-.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-pokey play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai llm-ai-display llm-ai-display-loop testrom script-dump gfx-roundtrip battle-bg trace inspect audio-check audio-diff jukebox-app
+.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-pokey archive-replays play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai llm-ai-display llm-ai-display-loop testrom script-dump gfx-roundtrip battle-bg trace inspect audio-check audio-diff jukebox-app
 
 # bash + pipefail: the test loop pipes nim through sed, and without
 # pipefail the pipeline's exit status is sed's (always 0), which turns
@@ -72,6 +72,14 @@ play: nim.cfg
 	@printf '%s  commit %s%s  ROM=%s\n' "$$(date '+%Y-%m-%d %H:%M:%S')" "$$(git rev-parse --short HEAD 2>/dev/null || echo unknown)" "$$(git diff --quiet HEAD 2>/dev/null || echo ' +dirty')" "$(ROM)" | tee -a bin/play_sessions.log
 	nim r -d:release src/tools/play.nim "$(ROM)"
 	@echo "player exited"
+
+# Archive input recordings (breadcrumbs) to the private secret repo: .tas
+# input logs + their paired _start.state snapshots. States are game-derived
+# memory -> never in this repo; pairs stay together in ../decompbound_secret.
+archive-replays:
+	@mkdir -p ../decompbound_secret/replays
+	@cp -nv bin/replays/* ../decompbound_secret/replays/ 2>/dev/null || true
+	@echo "replays archived to ../decompbound_secret/replays/"
 
 # Pokey breadcrumb run: start at Ness's front door on the meteor night (llm
 # fixture, NOT your personal slots). Input recording is on by default — just
