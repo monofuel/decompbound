@@ -145,16 +145,41 @@ proc pokeyKnockPercent*(snes: SnesBus): int =
   10
 
 proc buzzBuzzPercent*(snes: SnesBus): int =
-  ## Buzz Buzz %: meteor / Buzz Buzz sequence; Picky is with the group.
-  ## Story win: Buzz Buzz joined the night adventure; party/NPC state includes Picky.
-  ## TODO: RE party roster / companion flags for Buzz Buzz + Picky.
+  ## Buzz Buzz % — the beats between the Pokey knock and Buzz Buzz joining.
+  ## Guide ground truth (Travel Guide p19 "TRAVEL STEPS", verified 2026-07-11):
+  ##   Go home + go to bed (=pokeyKnockPercent) -> Get the Cracked Bat from
+  ##   Tracy's room -> Enlist King's Help -> Find Picky (back up toward the
+  ##   meteor) -> Talk to Buzz Buzz. Buzz Buzz joins; party/NPC state gains Picky.
+  ##
+  ## This is STORY-GATED behind the knock, whose flag is not yet RE'd (see
+  ## pokeyKnockPercent + bin/knock_re_notes.txt: the knock beat needs a human
+  ## prologue-night capture to flag-diff). The "return to the meteor" leg reuses
+  ## the verified pokey corridor, but grading position there would false-fire
+  ## during the pokey walk itself unless gated on a real post-knock bit. So this
+  ## honestly returns 0 until the ground-truth flags land — no pos-only cheese,
+  ## no guessed flags (docs/llm-contamination.md doctrine). RE targets to fill
+  ## the ladder once the capture exists (mirror the $9885 flag-diff method):
+  ##   - cracked-bat "have item" bit (Tracy's-room event) -> tier 25
+  ##   - King-joined companion flag                       -> tier 40
+  ##   - Picky-found event flag                           -> tier 60
+  ##   - Buzz Buzz talk / party-roster-includes-Picky bit -> tier 100
   discard snes
   0
 
 proc sunrisePercent*(snes: SnesBus): int =
-  ## Sunrise % (prologue MVP): escort brothers home, Lardna kills Buzz Buzz, leave → sunrise.
-  ## Story win: (1) Pokey + Picky back at Minch home, (2) Buzz Buzz death scene played,
-  ## (3) exit house and day-one Onett begins. Remorse is framing, not a WRAM bit.
-  ## TODO: RE sunrise/day flag + Minch-house exit; do not cheese with pos alone.
+  ## Sunrise % — the prologue MVP wall (escort brothers home -> Buzz Buzz dies
+  ## -> leave -> sunrise / day-one Onett). Guide-sourced beats:
+  ##   (1) Pokey + Picky escorted back to the Minch house,
+  ##   (2) Buzz Buzz death scene played (Lardna mistakes him for a bug),
+  ##   (3) exit the Minch house and day-one Onett begins (the sunrise).
+  ##
+  ## Story-gated behind buzzBuzzPercent (which is gated behind the knock flag).
+  ## Returns 0 until the ground-truth flags are RE'd from the human prologue-night
+  ## capture — the Minch-house arrival, the death-scene event, and the day/phase
+  ## transition are all WRAM bits, but none is pinned yet. No pos-only cheese
+  ## (remorse is framing, not a bit). RE targets for the ladder once unblocked:
+  ##   - at Minch house with both brothers          -> tier 40
+  ##   - Buzz Buzz death-scene event flag            -> tier 70
+  ##   - day/phase flag flips to Onett day-one       -> tier 100
   discard snes
   0
