@@ -185,8 +185,9 @@ Controls:
               bundle whenever an HDMA screen-split starts (a battle/iris) — no keypress needed.
   F10         Dump per-scanline TM/TS band profile only (bin/autoshots/scanline_trace.txt)
   F11         Toggle auto-screenshots (bin/autoshots/ every 5s; ON by default — press to turn OFF if the ~5s stutter bugs you)
-  F12         Screenshot with embedded save-state -> bin/sessions/<session>/f12/
-              (canonical, auto-archived) + a mirror copy in ~/Pictures/Screenshots
+  F12         SCREENSTATE (screenshot + embedded save-state, drag-drop restorable)
+              -> bin/sessions/<session>/f12/ (canonical) + ~/Pictures/Screenshots
+              mirror; archived flat into ../decompbound_secret/screenstates/ on exit
   F7          Toggle INPUT RECORDING (TAS). ALWAYS ON by default: every boot and
               every state load starts a fresh <ts>.tas + <ts>_start.state segment in
               bin/sessions/<session>/ (sparse joy1 deltas — replayable + great bug
@@ -1043,15 +1044,17 @@ void main() {
   if recording and replayLogOpen:
     replayLog.close()
     replayLogOpen = false
-  # Auto-archive this session's durable captures (replay pairs + F12
-  # bookmarks) to the private secret repo, if present. Best-effort: never
-  # block or fail the exit path. Autoshots are deliberately NOT archived
-  # (regenerable via replay_seek).
+  # Auto-archive this session's durable captures to the private secret repo,
+  # if present. Replay pairs -> sessions/<ts>/ (session context); screenstates
+  # (F12 screenshot+savestate PNGs) -> the FLAT screenstates/ collection so
+  # they browse in one place across all sessions (successor of states/).
+  # Best-effort: never block or fail the exit path. Autoshots are deliberately
+  # NOT archived (regenerable via replay_seek).
   try:
-    const SecretSessions = "../decompbound_secret/sessions"
-    if dirExists("../decompbound_secret") and dirExists(sessionDir):
+    const SecretRoot = "../decompbound_secret"
+    if dirExists(SecretRoot) and dirExists(sessionDir):
       var archived = 0
-      let dest = SecretSessions / sessionStamp
+      let dest = SecretRoot / "sessions" / sessionStamp
       for kind, path in walkDir(sessionDir):
         if kind == pcFile and (path.endsWith(".tas") or path.endsWith(".state")):
           createDir(dest)
@@ -1060,11 +1063,11 @@ void main() {
       if dirExists(sessionDir / "f12"):
         for kind, path in walkDir(sessionDir / "f12"):
           if kind == pcFile and path.endsWith(".png"):
-            createDir(dest / "f12")
-            copyFile(path, dest / "f12" / path.extractFilename)
+            createDir(SecretRoot / "screenstates")
+            copyFile(path, SecretRoot / "screenstates" / path.extractFilename)
             inc archived
       if archived > 0:
-        echo &"session archived: {archived} file(s) -> {dest}"
+        echo &"session archived: {archived} file(s) -> {dest} (+ screenstates/)"
         writeLog(&"session archived: {archived} file(s) -> {dest}")
   except CatchableError as e:
     echo "session archive skipped: ", e.msg

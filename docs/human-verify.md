@@ -28,7 +28,7 @@ it needed a human look, it must also land as a row below.
 | Key | What |
 |-----|------|
 | `make play` | Run the game |
-| F12 | State-screenshot → `~/Pictures/Screenshots/earthbound_yyyyMMdd-HHmmss.png` (embeds save-state; best bug report) |
+| F12 | **Screenstate** (screenshot + embedded save-state; best bug report) → session `f12/` + `~/Pictures` mirror; archived to `secret/screenstates/` on exit |
 | F10 | Per-scanline trace (when agents ask) |
 
 ROM path: `bin/Earthbound (U) [!].smc` (your dump).
@@ -91,7 +91,7 @@ Copy this template when adding a row (agents: always use it):
 
 - [ ] **Session capture dirs + auto-archive** · 2026-07-10 · play.nim sessions
   - **Run:** `make play` → take an F12, walk a bit, close the window; check `bin/sessions/<ts>/` and `../decompbound_secret/sessions/<ts>/`
-  - **Pass if:** the session dir holds the `.tas`+`_start.state` pair and `f12/` PNG; the F12 also mirrored to `~/Pictures/Screenshots`; on exit the terminal prints "session archived: N file(s)" and the secret copy exists
+  - **Pass if:** the session dir holds the `.tas`+`_start.state` pair and `f12/` screenstate; the F12 also mirrored to `~/Pictures/Screenshots`; on exit the terminal prints "session archived: N file(s)" with replay pairs in `secret/sessions/<ts>/` and the screenstate in `secret/screenstates/` (flat)
   - **Fail if:** captures land in old paths, no archive line on exit, or launch/exit regresses
   - **Notes:** autoshots stay in `bin/autoshots` (scratch, not archived — replay_seek regenerates moments).
 

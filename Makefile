@@ -78,10 +78,16 @@ play: nim.cfg
 # (crashed sessions, legacy bin/replays). Game-derived states never go in
 # THIS repo; pairs stay together in ../decompbound_secret.
 archive:
-	@mkdir -p ../decompbound_secret/sessions
-	@if [ -d bin/sessions ]; then cp -rn bin/sessions/* ../decompbound_secret/sessions/ 2>/dev/null || true; fi
+	@mkdir -p ../decompbound_secret/sessions ../decompbound_secret/screenstates
+	@if [ -d bin/sessions ]; then \
+	  for d in bin/sessions/*/; do \
+	    [ -d "$$d" ] || continue; \
+	    dest=../decompbound_secret/sessions/$$(basename $$d); mkdir -p $$dest; \
+	    cp -n $$d*.tas $$d*.state $$dest/ 2>/dev/null || true; \
+	    cp -n $$d/f12/*.png ../decompbound_secret/screenstates/ 2>/dev/null || true; \
+	  done; fi
 	@if [ -d bin/replays ]; then mkdir -p ../decompbound_secret/replays && cp -n bin/replays/* ../decompbound_secret/replays/ 2>/dev/null || true; fi
-	@echo "captures archived to ../decompbound_secret/{sessions,replays}/"
+	@echo "archived: replay pairs -> secret/sessions/, screenstates -> secret/screenstates/"
 
 archive-replays: archive
 
