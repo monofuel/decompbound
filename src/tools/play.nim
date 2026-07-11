@@ -1029,20 +1029,29 @@ void main() {
       window.title = newTitle
 
     # In-game text echo (dialogue / menus / signs) — every 20 frames while a
-    # window is open. The window-slot gate ($8650/$8654) can still pass over
-    # scenery that decodes to repeated-glyph garbage, so also require the text
-    # to look like real language (looksLikeRealText).
-    if frameCount mod 20 == 0:
-      let winOpen = snes.bus.mem[0x7E8650] != 0xFF or snes.bus.mem[0x7E8654] != 0xFF
-      if winOpen:
-        let txt = getScreenText(snes)
-        if txt.len > 0 and txt != lastScreenText and looksLikeRealText(txt):
-          echo "── text ──────────────────────────"
-          echo txt
-          echo "──────────────────────────────────"
-          lastScreenText = txt
-      elif lastScreenText.len > 0:
-        lastScreenText = ""
+    # window is open.
+    # DISABLED 2026-07-10: getScreenText reverse-maps VRAM tile indices to
+    # chars, but EarthBound renders dialogue with a VARIABLE-WIDTH FONT — text
+    # is drawn as pixels into a VWF scratch buffer, so the on-screen tiles
+    # carry no character encoding. Confirmed: on a known "[redacted]
+    # [redacted]" state, getScreenText returns garbage ("pqqppqq…").
+    # No filter salvages a fundamentally wrong decode. Re-enable once the real
+    # text source is RE'd (RAM message buffer / print-routine hook — see
+    # docs/text-log.md and the screen-text-decode task). Kept behind this flag
+    # so the console stays clean meanwhile.
+    const ConsoleTextEcho = false
+    when ConsoleTextEcho:
+      if frameCount mod 20 == 0:
+        let winOpen = snes.bus.mem[0x7E8650] != 0xFF or snes.bus.mem[0x7E8654] != 0xFF
+        if winOpen:
+          let txt = getScreenText(snes)
+          if txt.len > 0 and txt != lastScreenText and looksLikeRealText(txt):
+            echo "── text ──────────────────────────"
+            echo txt
+            echo "──────────────────────────────────"
+            lastScreenText = txt
+        elif lastScreenText.len > 0:
+          lastScreenText = ""
 
     # Auto-capture: every ~5s dump the frame + a PPU-register line to the
     # gitignored bin/autoshots/ so scenes can be reviewed/diagnosed later.
