@@ -138,3 +138,33 @@ can't come back. Cherry-pick to install the guard.
 
 Both orphan commits (`157e8e6`, `2bf4e0d`) are reachable via reflog, not GC'd,
 as of 2026-07-09.
+
+---
+
+## D — APU sound-handshake CPU derail (inn-sleep lock) — FIXED 2026-07-10
+
+**Symptom.** Sleep at an inn → wrong SFX (the ghost "ooohh") → hard lock. Hit
+3× (inn ghost, battle-start, inn again). monofuel's always-on replay of the
+session (`20260710-222525.tas`) reproduces it **deterministically**.
+
+**Autopsy (deterministic repro).** At frame ~1666 the CPU derails: an `RTI`
+in the vblank handler pulls a corrupt return (→ bank `$20`, `20:1936`), then
+executes garbage and floods the stack (`20 22 20 22…`). Root: the inn-sleep
+sound change makes the CPU poll `$2140` in a tight burst waiting for the SPC;
+our coarse per-scanline APU interleave (2 ticks/line) leaves the SPC too far
+behind, so the game reads a stale port value and computes a bad DMA/jump that
+overwrites the stack. **Confirmed APU-timing:** ticking the APU finer removes
+the derail; correct-*rate* finer interleave does not — it's burst latency, not
+average rate (matches worker H's `$214x` catch-up RE, task #10).
+
+**Fix.** `snesbus.mmioRead` does **APU catch-up on `$214x` polls**: advance the
+SPC one sample per poll, bounded by `ApuPortCatchupMax` (512/frame, reset in
+`initHdma`). Self-limiting — polls only burst *while the CPU waits* for the SPC,
+so no ticks during steady music (measured: 50/3017 frames used any catch-up;
+steady tempo unchanged → no half-speed regression). Locks the fix with
+`tests/test_apu_handshake_derail.nim` (replays the repro, asserts no derail;
+skips without ROM/repro). Repro archived at
+`decompbound_secret/repros/inn_lock_20260710/`.
+
+**Verify (human).** `make play` → sleep at an inn; battle-start; check tempo of
+steady music is unchanged and the transition SFX are correct.

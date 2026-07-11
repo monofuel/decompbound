@@ -30,6 +30,10 @@ type
     rddiv: uint16        ## $4214/$4215: divide quotient.
     rdmpy: uint16        ## $4216/$4217: multiply product / divide remainder.
     apuState: ApuHandshakeState
+    apuPortCatchup*: int  ## Per-frame count of APU catch-up ticks done on $214x
+                          ## polls (bounded by ApuPortCatchupMax; reset each
+                          ## frame in initHdma). Fixes the sound-upload handshake
+                          ## derail without distorting steady-state tempo.
     apuPort0: uint8   ## Last value the CPU wrote to $2140.
     apuPort1: uint8
     apuReadStreak: int  ## Consecutive $2140 reads with no write: the
@@ -95,6 +99,16 @@ type
     sramDirty*: bool             ## Set on any SRAM write so the player can
                                  ## flush the battery save to a .srm file.
 
+const
+  ApuPortCatchupMax = 512
+    ## Per-frame cap on APU catch-up ticks from $214x polling. A handshake
+    ## burst services in well under this; the cap keeps a pathological poll
+    ## loop from running the SPC unboundedly (and bounds worst-case tempo
+    ## deviation on a transition frame). Reset each frame in initHdma.
+
+proc tickApu*(snes: SnesBus): tuple[left, right: int16]
+  ## Forward decl: mmioRead does APU catch-up on $214x polls (defined below).
+
 proc isMmio(offset: uint32): bool =
   ## System-area registers: $2100-$21FF (PPU/APU), $4000-$44FF (CPU/DMA).
   (offset >= 0x2100 and offset <= 0x21FF) or
@@ -114,6 +128,18 @@ proc mmioRead(snes: SnesBus, offset: uint32): uint8 =
     # protocol + observed EB upload behavior; document the real IPL if
     # we move beyond HLE.
     if snes.apu != nil:
+      # APU catch-up on port poll: the CPU polls $214x in a tight burst while
+      # WAITING for the SPC to respond (sound-driver upload / handshake). Our
+      # coarse per-scanline APU interleave leaves the SPC too far behind during
+      # that burst, so the game reads a stale value and can compute a bad
+      # DMA/jump — corrupting the stack → CPU derail / lock (inn-sleep + wrong
+      # SFX; verified deterministic repro 2026-07-10). Advancing the SPC one
+      # sample per poll gives it time exactly when the CPU is spin-waiting; it
+      # is SELF-LIMITING (no polls during steady music, so no tempo drift there)
+      # and bounded per frame. See docs/play-regressions.md.
+      inc snes.apuPortCatchup
+      if snes.apuPortCatchup <= ApuPortCatchupMax:
+        discard snes.tickApu()
       return snes.apu.portsOut[(offset - 0x2140).int]
     case snes.apuState:
     of ahsIdle:
@@ -359,6 +385,8 @@ proc runDma(snes: SnesBus, channels: uint8) =
 proc initHdma*(snes: SnesBus) =
   ## Initialize HDMA channels at the start of a frame for currently enabled ones.
   ## Resets per-channel done flags so active channels can run until their terminator.
+  ## Also the per-frame boundary: reset the APU port-catchup budget here.
+  snes.apuPortCatchup = 0
   let en = snes.hdmaen
   for ch in 0..7:
     if (en and (1'u8 shl ch)) == 0:
