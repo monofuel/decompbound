@@ -87,6 +87,7 @@ Copy this template when adding a row (agents: always use it):
   - **Run:** `make play-pokey` (starts at the door) → walk the WHOLE prologue night: up to Pokey, back **home + sleep** (Pokey knocks), back up to the **meteor / Buzz Buzz**, pick up **Picky**, escort to the **Minch house**, watch the **Buzz Buzz death scene**, exit → **sunrise**. Recording is automatic; F12 at each major beat is a bonus.
   - **Pass if:** the session `.tas` covers the run; mention the time range
   - **Notes:** this is the §4-style ground truth for pokey_knock/buzzbuzz/sunrise metrics + seeds — same playbook that cracked pokey (I mine the trail + WRAM flag diffs from the replay). Story flags can't be RE'd reliably without it (models confabulate EB beats).
+  - **Update 2026-07-11:** the bot now drives the whole route UP TO the bedroom on its own (walk home → talk the door cop → enter → reach the bed spot; probe_knock grades knock 0→80). The one beat it can't do is **sleeping in the bed to trigger the Pokey knock** — from the cop-warp bedroom the bed is inert to the bot (walking into it just opens the overworld menu; no "sleep?" prompt). So the single highest-value thing in your run is **actually going to sleep and letting Pokey knock** — that gives me the before/after WRAM pair to pin the knock flag (100 tier). Everything after (Buzz Buzz, Picky, sunrise) is bonus ground truth for the next milestones.
 
 
 - [ ] **Breadcrumb trail: house → Pokey at the meteor** · 2026-07-09 · pokey_pct ground truth
