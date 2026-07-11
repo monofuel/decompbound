@@ -122,14 +122,14 @@ proc looksLikeRealText(txt: string): bool =
     elif c == ' ':
       inc spaces
   if letters < 6: return false
-  var distinct = 0
+  var distinctLetters = 0
   var topCount = 0
   for n in counts:
-    if n > 0: inc distinct
+    if n > 0: inc distinctLetters
     if n > topCount: topCount = n
   # >=5 distinct letters, no single glyph dominating >70%, some vowels, and at
   # least one space (real sentences) unless it's a short one-word menu label.
-  if distinct < 5: return false
+  if distinctLetters < 5: return false
   if topCount * 10 > letters * 7: return false
   if vowels * 5 < letters: return false  # <20% vowels ~ not language
   if spaces == 0 and letters > 12: return false
