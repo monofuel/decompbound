@@ -684,8 +684,18 @@ function navTo(tx, ty)
     _nav.last_plan_f = f
     _nav.stuck = 0
     if path == nil or #path == 0 then
+      -- Blocked. Distinguish a MOVER (a patrolling NPC — the meteor cops) from
+      -- a terrain wall: nav.blockedByMover is true when routing around NPCs
+      -- fails but the terrain-only path exists. Movers pass on their own, so
+      -- WAIT (hold still, re-plan soon, don't accrue fails) instead of the
+      -- false BLOCKED that shut prior runs down (docs/llm-benchmarks MC-1).
       _nav.path = nil
       _nav.pi = 1
+      if nav.blockedByMover(tx, ty) then
+        _nav.last_plan_f = f - REPLAN_N + 8   -- re-plan again in ~8 frames
+        _nav.last_prog_f = f                   -- waiting IS progress, not a stall
+        return true                            -- hold position; let the NPC move
+      end
       _nav.fails = _nav.fails + 1
       -- Back off before the next plan (page may be mid-stream).
       _nav.last_plan_f = f + EMPTY_COOLDOWN - REPLAN_N

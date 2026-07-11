@@ -534,15 +534,17 @@ proc navWinIndex(x, y, minX, minY: int): int {.inline.} =
   ## Flat index into the ±NavPlanRadiusPx pixel planning window.
   (y - minY) * NavWinSide + (x - minX)
 
-proc navFindPath*(snes: SnesBus, sx, sy, tx, ty: int): seq[(int, int)] =
+proc navFindPathEnt*(snes: SnesBus, sx, sy, tx, ty: int,
+    avoidEntities: bool): seq[(int, int)] =
   ## Pixel-space BFS (1px steps, 4-neighbor) within ±NavPlanRadiusPx of (sx,sy).
   ## A pixel is enterable iff navWalkablePx — the EXACT game gate ($C05F33 flags
   ## & 0xD0, full hitbox), so narrow 01/03 corridors that only pass at specific
   ## alignments are found without wiggle heuristics. Goal = any pixel within
   ## NavGoalSlack manhattan of (tx,ty) when in-window; else the reachable pixel
   ## minimizing euclidean distance to the target (frontier steering).
-  ## Returns world-pixel waypoints at direction changes / every NavWaypointStride
-  ## px (skips the start). Empty = no path.
+  ## avoidEntities routes around NPCs; false ignores them (terrain-only) — the
+  ## caller compares the two to tell a MOVER block (wait) from a terrain wall
+  ## (report). Returns world-pixel waypoints; empty = no path.
   result = @[]
   let hp = navHitboxParams(snes)
   let minX = sx - NavPlanRadiusPx
@@ -553,7 +555,7 @@ proc navFindPath*(snes: SnesBus, sx, sy, tx, ty: int): seq[(int, int)] =
   # Dynamic NPC obstacles (the cop etc). Never block the immediate start pixel
   # (the player already overlaps its own tolerance) or the goal tile — you may
   # be trying to walk UP TO an NPC to talk.
-  let ents = navNearbyEntities(snes, sx, sy)
+  let ents = if avoidEntities: navNearbyEntities(snes, sx, sy) else: @[]
 
   var visited = newSeq[bool](NavWinCells)
   var parent = newSeq[int32](NavWinCells)
@@ -651,6 +653,28 @@ proc navFindPath*(snes: SnesBus, sx, sy, tx, ty: int): seq[(int, int)] =
       result.add pixels[k]
       run = 0
 
+proc navFindPath*(snes: SnesBus, sx, sy, tx, ty: int): seq[(int, int)] =
+  ## Entity-aware path (routes around NPCs). Backward-compatible entry point.
+  navFindPathEnt(snes, sx, sy, tx, ty, avoidEntities = true)
+
+proc navBlockedByMover*(snes: SnesBus, sx, sy, tx, ty: int): bool =
+  ## True when a NON-player entity (a patroller) is the only thing blocking:
+  ## the entity-aware path is empty but the terrain-only path exists. The
+  ## follower waits in this case (the mover will pass) instead of reporting
+  ## a false BLOCKED. Terrain walls give false here → real BLOCKED.
+  navFindPathEnt(snes, sx, sy, tx, ty, avoidEntities = true).len == 0 and
+    navFindPathEnt(snes, sx, sy, tx, ty, avoidEntities = false).len > 0
+
+proc navBlockedByMoverLua*(L: lua53.PState): cint {.cdecl.} =
+  ## Lua: nav.blockedByMover(tx, ty) -> bool. Start = live player slot-24 pos.
+  let ctx = getPolicyCtx(L)
+  let tx = L.toInteger(1).int
+  let ty = L.toInteger(2).int
+  let sx = snesPeekU16Le(ctx.snes, WramMirrorBase or NavPlayerXOff)
+  let sy = snesPeekU16Le(ctx.snes, WramMirrorBase or NavPlayerYOff)
+  L.pushboolean(if navBlockedByMover(ctx.snes, sx, sy, tx, ty): 1 else: 0)
+  return 1
+
 proc navWalkableLua*(L: lua53.PState): cint {.cdecl.} =
   ## Lua: nav.walkable(px, py) -> bool. Full-hitbox walkability at world pixels.
   let ctx = getPolicyCtx(L)
@@ -667,7 +691,7 @@ proc navFindPathLua*(L: lua53.PState): cint {.cdecl.} =
   let ty = L.toInteger(2).int
   let sx = snesPeekU16Le(ctx.snes, WramMirrorBase or NavPlayerXOff)
   let sy = snesPeekU16Le(ctx.snes, WramMirrorBase or NavPlayerYOff)
-  let path = navFindPath(ctx.snes, sx, sy, tx, ty)
+  let path = navFindPathEnt(ctx.snes, sx, sy, tx, ty, avoidEntities = true)
   L.createtable(path.len.cint, 0)
   for i, wp in path:
     L.newtable()
@@ -822,6 +846,8 @@ proc setupPolicyApi*(L: lua53.PState, ctx: PolicyContext) =
   L.setfield(-2, "walkable".cstring)
   L.pushcfunction(navFindPathLua)
   L.setfield(-2, "findPath".cstring)
+  L.pushcfunction(navBlockedByMoverLua)
+  L.setfield(-2, "blockedByMover".cstring)
   L.setglobal("nav".cstring)
   # screen
   L.newtable()
