@@ -7,7 +7,7 @@
 import
   std/[strutils, math],
   pixie,
-  ./[cpu, ppu, snesbus, lua53]
+  ./[cpu, ppu, snesbus, lua53, text_decode]
 
 const
   InstrPerLine* = 150  # match play.nim's frame budget; at 40 the game is CPU-starved
@@ -39,6 +39,19 @@ const
   FontTileBases = [0, 0x080, 0x0A0, 0x0A1, 0x0B0, 0x0C0, 0x0CF, 0x0E0, 0x100, 0x180, 0x200, 0x280, 0x2A0, 0x300]
   DialogueRows = [18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]
   MinTextRun = 3
+
+  # Dialogue stream reader (getDialogueText). Verified 2026-07-10 against
+  # ebSt "[redacted]" + pokey TAS: far ptr at $7E96C5 is the live script
+  # cursor; window slots $8650/$8654 gate "is a window open" (0xFF = free).
+  # TODO(magic): $96C5 stream cursor — confirm writer in text interpreter;
+  # party name block $99CE is first PC name (ASCII+0x30, 5 chars) from WRAM dump.
+  TextStreamPtrWram = 0x96C5
+  WindowHeader0 = 0x8650
+  WindowHeader1 = 0x8654
+  PartyName0Wram = 0x99CE
+  PartyNameMaxLen = 5
+  TextMsgWalkBackMax = 256
+  TextDecodeSafetyMax = 4096
 
   # Full-bus sandbox peek (snes.read / snes.readRange). Hardware-port window in
   # system banks must never go through bus.read8 — MMIO reads latch state.
@@ -240,6 +253,130 @@ proc getScreenText*(snes: SnesBus): string =
     if c.len > 0:
       return c.join("\n")
   return ""
+
+proc wramU8(snes: SnesBus, off: int): uint8 {.inline.} =
+  ## Read one WRAM byte at $7E0000+off (off may already include bank bits).
+  snes.bus.mem[0x7E0000 + (off and 0x1FFFF)]
+
+proc dialogueWindowOpen(snes: SnesBus): bool =
+  ## True when slot0 ($8650) or slot1 ($8654) holds an allocated window.
+  wramU8(snes, WindowHeader0) != 0xFF'u8 or wramU8(snes, WindowHeader1) != 0xFF'u8
+
+proc textStreamFileOffset(snes: SnesBus): int =
+  ## Live dialogue stream far pointer at $96C5 → HiROM file offset, or -1.
+  let lo = wramU8(snes, TextStreamPtrWram).int
+  let mi = wramU8(snes, TextStreamPtrWram + 1).int
+  let bk = wramU8(snes, TextStreamPtrWram + 2).int
+  if bk < 0xC0 or bk > 0xCF:
+    return -1
+  ((bk and 0x3F) shl 16) or (mi shl 8) or lo
+
+proc findDialogueMsgStart(rom: openArray[uint8], cur: int): int =
+  ## Walk back from the stream cursor to the byte after the previous block 0x00.
+  if cur <= 0 or cur > rom.len:
+    return 0
+  var i = cur - 1
+  var steps = 0
+  while i >= 0 and steps < TextMsgWalkBackMax:
+    if rom[i] == 0 and i + 1 < cur:
+      var s = i + 1
+      while s < cur and rom[s] == 0x01:
+        inc s
+      return s
+    dec i
+    inc steps
+  max(0, cur - 64)
+
+proc partyName0(snes: SnesBus): string =
+  ## First party member display name (EB storage ASCII+0x30 at $99CE).
+  result = ""
+  for i in 0 ..< PartyNameMaxLen:
+    let b = wramU8(snes, PartyName0Wram + i)
+    if b == 0:
+      break
+    let chVal = int(b) - TextEncodingOffset
+    if chVal >= 0x20 and chVal <= 0x7E:
+      result.add char(chVal)
+
+proc decodeDialogueStream(snes: SnesBus, rom: openArray[uint8], start, curLimit: int): string =
+  ## Expand call-compressed dialogue from start up to curLimit (main stream only).
+  ## Handles 0x15/16/17 calls, 0x01 newlines, 0x02/0x03 prompt/pause stops,
+  ## and 0x1C:02 name-insert via party name WRAM. Other controls are skipped.
+  result = ""
+  var pos = start
+  var safety = 0
+  var stack: seq[int] = @[]
+  while pos < rom.len and safety < TextDecodeSafetyMax:
+    if curLimit >= 0 and stack.len == 0 and pos >= curLimit:
+      break
+    let b = rom[pos]
+    inc pos
+    inc safety
+    if b == 0:
+      if stack.len > 0:
+        pos = stack.pop()
+        continue
+      break
+    if b < ControlThreshold.uint8:
+      case b
+      of 0x01:
+        if result.len > 0 and result[^1] != '\n':
+          result.add '\n'
+      of 0x02, 0x03:
+        if stack.len > 0:
+          pos = stack.pop()
+          continue
+        break
+      of 0x15, 0x16, 0x17:
+        if pos >= rom.len:
+          break
+        let idx = rom[pos].int
+        inc pos
+        let table = int(b) - 0x15
+        let foff = resolveDialogueBlock(rom, idx, table)
+        if foff >= 0:
+          stack.add pos
+          pos = foff
+      of 0x1C:
+        if pos >= rom.len:
+          break
+        let sub = rom[pos]
+        inc pos
+        # TODO(magic): full 0x1C sub-op set; 0x02 inserts a name string (Ness line).
+        if sub == 0x02:
+          let nm = partyName0(snes)
+          if nm.len > 0:
+            result.add nm
+          else:
+            result.add "[name]"
+      of 0x18:
+        if pos < rom.len:
+          inc pos
+      else:
+        discard
+      continue
+    let chVal = int(b) - TextEncodingOffset
+    if chVal >= 0x20 and chVal <= 0x7E:
+      let ch = char(chVal)
+      # Leading @ is a dialogue face/glyph marker, not spoken text.
+      if ch == '@' and (result.len == 0 or result[^1] == '\n'):
+        discard
+      else:
+        result.add ch
+  result = result.strip()
+
+proc getDialogueText*(snes: SnesBus): string =
+  ## Return the active window's dialogue as clean text, or "" if no window is open.
+  ## Prefers the live script stream at WRAM $96C5 (call-expanded, ASCII+0x30) over
+  ## VRAM tile reverse-mapping — EB dialogue is VWF so tilemap indices are not glyphs.
+  ## READ-ONLY on WRAM + ROM. Leaves getScreenText untouched for callers that want it.
+  if not dialogueWindowOpen(snes):
+    return ""
+  let cur = textStreamFileOffset(snes)
+  if cur < 0 or cur >= snes.rom.len:
+    return ""
+  let start = findDialogueMsgStart(snes.rom, cur)
+  decodeDialogueStream(snes, snes.rom, start, cur)
 
 type
   PolicyContext* = ref object
@@ -586,13 +723,24 @@ proc screenPixel*(L: lua53.PState): cint {.cdecl.} =
 
 proc screenText*(L: lua53.PState): cint {.cdecl.} =
   ## Lua binding: screen.text() -> string.
-  ## Returns the current on-screen decoded text (from BG tilemap scan + EB glyph reverse).
-  ## Multi-line (lines separated by \n). Lets policies read menus/dialogue/battle commands
-  ## ("INPUT YOUR COMMAND.", "Bash", "PSI", etc) instead of blind input.
-  ## READ-ONLY + safe (no host FS/ROM access; same boundary as screen.pixel/mem.read).
+  ## Prefer getDialogueText (decodes the real EB dialogue script stream via the
+  ## $96C5 cursor + dictionary tokens — verified to read actual dialogue where
+  ## the old VRAM tile scan returned garbage, because EB uses a variable-width
+  ## font). Falls back to the tilemap scan (getScreenText) for menus / battle
+  ## command windows that are not driven by the dialogue script stream.
+  ## READ-ONLY + safe (no host FS/ROM access; same boundary as screen.pixel).
   let ctx = getPolicyCtx(L)
-  let txt = getScreenText(ctx.snes)
+  var txt = getDialogueText(ctx.snes)
+  if txt.len == 0:
+    txt = getScreenText(ctx.snes)
   L.pushstring(txt.cstring)
+  return 1
+
+proc screenDialogue*(L: lua53.PState): cint {.cdecl.} =
+  ## Lua binding: screen.dialogue() -> string. ONLY the decoded dialogue script
+  ## stream (empty when no message window is open); no menu/tilemap fallback.
+  let ctx = getPolicyCtx(L)
+  L.pushstring(getDialogueText(ctx.snes).cstring)
   return 1
 
 proc padSet*(L: lua53.PState): cint {.cdecl.} =
@@ -685,6 +833,8 @@ proc setupPolicyApi*(L: lua53.PState, ctx: PolicyContext) =
   L.setfield(-2, "pixel".cstring)
   L.pushcfunction(screenText)
   L.setfield(-2, "text".cstring)
+  L.pushcfunction(screenDialogue)
+  L.setfield(-2, "dialogue".cstring)
   L.setglobal("screen".cstring)
   # pad
   L.newtable()
