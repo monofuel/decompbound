@@ -44,19 +44,18 @@ IRL n=1: [media/IMG_20260520_201351_568.jpg](media/IMG_20260520_201351_568.jpg).
 
 ---
 
-### 2. Pokey % (`pokey_pct`)
+### 2. Pokey % (`pokey_pct`) — **DONE (n=2, 2026-07-10)**
 
 | | |
 |--|--|
-| **Beat** | Travel to **Pokey** (neighbor / Pokey’s house visit — first social destination after grass). |
-| **Win (intent)** | Reached Pokey’s place and completed whatever interaction we define as “Pokey visited” (talk / enter / scene end — RE later). |
-| **New pressure** | NPC pathing, **A in dialogue context only**, not pure waypoint walking. |
-| **Fixture** | `bin/states/llm/onett_start.state` (post-tg100; regenerate via `llm_capture_fixture`). |
-| **Seed policy** | `PokeyVisitPolicy` (`selectMockPolicyByName("pokey")`). Indoors: NavHouse-style exit. Outside: soft `walkTo` toward neighbor. |
-| **Skill** | `advanceDialogue` / `talkOrAdvance` (`AdvanceDialogueSkillLua`): A only when `screen.text()` is dialogue-ish; B via `escapeMenu` for overworld menus; never A on blank walk. |
-| **Coords** | Outdoor Pokey-house target **TBD** (soft placeholder `walkTo(0x0A80, 0x00E0)` — unconfirmed). Player pos: slot 24 X `$0BBE/$0BBF`, Y `$0BFA/$0BFB`. |
-| **Metric (code)** | Stub `pokeyPercent` in `src/tools/story_percents.nim` (returns 0 until RE). |
-| **Status** | Skill + seed scaffold; metric stub only. |
+| **Beat** | Walk to **Pokey at the meteorite crash site** (hill north-west of the house; NOT the Minch house / Picky — that was an early confabulation, see [llm-contamination.md](llm-contamination.md) §1a) and talk to him. |
+| **Route (ground truth)** | Door → SW off the yard → **west road** (Y~0x01F8–0x0270) → climb north at X~0x0600 → ridge east → meteor site. From monofuel's recorded TAS play, replayed + verified. Not story-gated. |
+| **Win** | Adjacent to Pokey (`(0x0858,0x00F2)`, talk spot `~(0x0858–0x0862,0x00FA)`) with the meteor-scene flag `$9885` consumed (arms 01 en route, → 00 by the talk). Dialogue uses window slot 1 `$8654`. |
+| **Fixture** | `bin/states/llm/onett_start.state`; human capture via `make play-pokey`. |
+| **Seed policy** | `PokeyVisitPolicy` — `followTrail` on the recorded corridor + Up/A at the talk spot. |
+| **Skills gained** | `navTo` (pixel-space A* over live collision, entity-aware), `followTrail`, `advanceDialogue` gating on both window slots, `nav.walkable`/`nav.findPath`. |
+| **Metric (code)** | `pokeyPercent` in `src/tools/story_percents.nim` — 10→100 ladder along the real corridor; referee-checked (both human runs score 0→100). |
+| **Status** | **Done**: headless mock e2e 10→100 (`POKEY_ACHIEVED@2920`), human-confirmed live in `make llm-ai`. |
 
 ---
 
@@ -105,8 +104,8 @@ After Sunrise, the bot is in **real game start** (cops, Frank, free(ish) Onett d
 | Order | Id | One-line win | Status |
 |------:|----|--------------|--------|
 | 0 | `tg_pct` | Outside Ness’s house | **Done** |
-| 1 | `pokey_pct` | Visited Pokey | Stub (`src/tools/story_percents.nim`) |
-| 2 | `pokey_knock_pct` | Home + knock / meteor invite | Stub (`src/tools/story_percents.nim`) |
+| 1 | `pokey_pct` | Talked to Pokey at the meteor | **Done** (2026-07-10; human-confirmed) |
+| 2 | `pokey_knock_pct` | Home + knock / meteor invite | Stub — **next** (see [roadmap.md](roadmap.md)) |
 | 3 | `buzzbuzz_pct` | Meteor arc; **Picky** acquired | Stub (`src/tools/story_percents.nim`) |
 | 4 | `sunrise_pct` | Brothers home → Lardna kills Buzz Buzz → leave → **sunrise** | Stub (MVP wall) |
 | … | (later) | Onett day-1 / police / Frank / Twoson / … | Stretch stubs only |
