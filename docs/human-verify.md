@@ -78,6 +78,17 @@ Copy this template when adding a row (agents: always use it):
 
 ### Captures wanted (not pass/fail — data the agents need)
 
+- [ ] **Battle command-menu screenstate** · 2026-07-11 · battle skill RE
+  - **Run:** `make play` → enter any battle → at the **command menu (Bash/Goods/PSI/Defend visible)**, press **F12**. One more F12 mid-attack + one at the victory "you won / EXP" screen if easy.
+  - **Pass if:** the screenstate(s) land in the session `f12/` (auto-mirrored to `~/Pictures`); note the time
+  - **Notes:** the only existing battle fixtures are dead (flag set but not mode-0, no reachable menu). A real command-menu state unblocks the reusable `winBattle` skill — foundational for every fight. Addresses already found: $4DBA in-battle, $5D60 result, party $4DC8.
+
+- [ ] **Prologue-night breadcrumb: Pokey talk → home → knock → Buzz Buzz → sunrise** · 2026-07-11 · knock/buzz/sunrise ground truth
+  - **Run:** `make play-pokey` (starts at the door) → walk the WHOLE prologue night: up to Pokey, back **home + sleep** (Pokey knocks), back up to the **meteor / Buzz Buzz**, pick up **Picky**, escort to the **Minch house**, watch the **Buzz Buzz death scene**, exit → **sunrise**. Recording is automatic; F12 at each major beat is a bonus.
+  - **Pass if:** the session `.tas` covers the run; mention the time range
+  - **Notes:** this is the §4-style ground truth for pokey_knock/buzzbuzz/sunrise metrics + seeds — same playbook that cracked pokey (I mine the trail + WRAM flag diffs from the replay). Story flags can't be RE'd reliably without it (models confabulate EB beats).
+
+
 - [ ] **Breadcrumb trail: house → Pokey at the meteor** · 2026-07-09 · pokey_pct ground truth
   - **Run:** **`make play-pokey`** → you spawn at Ness's front door on the meteor night (bot fixture, your personal slots untouched). Just walk the real route (south → west along the paths → the winding climb) to Pokey and **talk to him**, then close the window. Recording is automatic now — no keys to remember.
   - **Pass if:** a fresh `.tas` + `_start.state` pair lands in `bin/sessions/<session>/` (auto-archived to the secret repo on exit); say roughly when you did it

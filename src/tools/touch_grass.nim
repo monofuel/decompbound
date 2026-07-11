@@ -980,4 +980,12 @@ proc battleFixtureOk*(snes: SnesBus): (bool, string) =
   if not inBox:
     return (false, "pos not in battle box (got " & $px & "," & $py & ")")
 
+  # Reject DEAD battle fixtures (2026-07-11, grok battle RE): $4DBA==1 but the
+  # PPU is not in the battle's rendering mode, so no command menu is reachable
+  # and A does nothing. A real EarthBound battle renders in BG mode 0
+  # ($2105 low 3 bits). The old gate passed these glitched states.
+  let bgMode = snes.ppuRegs[0x05].int and 0x07
+  if bgMode != 0:
+    return (false, "BGMODE=" & $bgMode & " (dead fixture — real battle is mode 0)")
+
   return (true, "battle fixture OK")
