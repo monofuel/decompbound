@@ -105,6 +105,36 @@ proc checkLink(program: GLuint) =
     echo "Program link error: ", log
     quit(1)
 
+proc looksLikeRealText(txt: string): bool =
+  ## Reject decoder garbage: outdoor/menu scenery tiles decode to runs of one
+  ## repeated glyph ("kkkkk…"). Real dialogue has several distinct letters, a
+  ## reasonable vowel share, and word-like spacing — require all three so the
+  ## console only prints actual on-screen text.
+  var letters = 0
+  var vowels = 0
+  var spaces = 0
+  var counts: array[128, int]
+  for c in txt:
+    if c in {'A'..'Z', 'a'..'z'}:
+      inc letters
+      if c.toLowerAscii in {'a', 'e', 'i', 'o', 'u'}: inc vowels
+      counts[c.ord and 0x7F] += 1
+    elif c == ' ':
+      inc spaces
+  if letters < 6: return false
+  var distinct = 0
+  var topCount = 0
+  for n in counts:
+    if n > 0: inc distinct
+    if n > topCount: topCount = n
+  # >=5 distinct letters, no single glyph dominating >70%, some vowels, and at
+  # least one space (real sentences) unless it's a short one-word menu label.
+  if distinct < 5: return false
+  if topCount * 10 > letters * 7: return false
+  if vowels * 5 < letters: return false  # <20% vowels ~ not language
+  if spaces == 0 and letters > 12: return false
+  true
+
 proc saveScreenshot(frameImage: Image, dir: string, state: seq[byte], romHash: uint32): string =
   ## Save the raw game frame (256x224) as a timestamped PNG under the given dir,
   ## embedding the current state via ebSt chunk (for drag-drop restore).
@@ -999,12 +1029,14 @@ void main() {
       window.title = newTitle
 
     # In-game text echo (dialogue / menus / signs) — every 20 frames while a
-    # window is open. Cheap: two WRAM byte reads unless a window exists.
+    # window is open. The window-slot gate ($8650/$8654) can still pass over
+    # scenery that decodes to repeated-glyph garbage, so also require the text
+    # to look like real language (looksLikeRealText).
     if frameCount mod 20 == 0:
       let winOpen = snes.bus.mem[0x7E8650] != 0xFF or snes.bus.mem[0x7E8654] != 0xFF
       if winOpen:
         let txt = getScreenText(snes)
-        if txt.len > 0 and txt != lastScreenText:
+        if txt.len > 0 and txt != lastScreenText and looksLikeRealText(txt):
           echo "── text ──────────────────────────"
           echo txt
           echo "──────────────────────────────────"
