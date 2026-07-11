@@ -19,6 +19,7 @@ type
     magic*: string
     romHash*: uint32
     startStateRef*: string
+    buildCommit*: string  ## Build provenance of the recorder ("" if absent).
 
   ReplayDelta* = object
     ## A (frame, joy1) entry. joy1 applies from this frame until the next delta.
@@ -54,17 +55,22 @@ proc serializeReplay*(header: ReplayHeader, deltas: seq[ReplayDelta]): string =
   lines.add(magic)
   lines.add(&"rom_hash 0x{header.romHash:08X}")
   lines.add(&"start_state {header.startStateRef}")
+  if header.buildCommit.len > 0:
+    lines.add(&"build {header.buildCommit}")
   lines.add(ReplayHeaderComment)
   for d in deltas:
     lines.add(formatDeltaLine(d.frame, d.joy1))
   result = lines.join("\n") & "\n"
 
-proc writeReplayHeader*(f: File, romHash: uint32, startStateRef: string) =
-  ## Write header block (once) when starting a recording.
+proc writeReplayHeader*(f: File, romHash: uint32, startStateRef: string,
+    buildCommit = "") =
+  ## Write header block (once) when starting a recording. buildCommit stamps
+  ## the recorder's build provenance (pass build_info.buildLabel()).
   let header = ReplayHeader(
     magic: ReplayMagic,
     romHash: romHash,
-    startStateRef: startStateRef
+    startStateRef: startStateRef,
+    buildCommit: buildCommit
   )
   f.write(serializeReplay(header, @[]))
   f.flushFile()
@@ -109,6 +115,9 @@ proc parseReplayString*(content: string): tuple[header: ReplayHeader, deltas: se
             continue
           elif key in ["start_state", "startstate", "start"]:
             header.startStateRef = val
+            continue
+          elif key in ["build", "build_commit"]:
+            header.buildCommit = val
             continue
         continue  # still in header, skip
     # delta line

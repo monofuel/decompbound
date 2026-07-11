@@ -11,7 +11,7 @@ import
   windy,
   paddy,
   slappy,
-  ../decompbound/[apu, cpu, ppu, policy, replay, save_state, snesbus, png_state]
+  ../decompbound/[apu, build_info, cpu, ppu, policy, replay, save_state, snesbus, png_state]
 
 proc readRomFile(filepath: string): seq[uint8] =
   ## Read ROM file and return bytes, stripping a 512-byte copier header.
@@ -252,23 +252,26 @@ Controls:
   let sessionStamp = now().format("yyyyMMdd-HHmmss")
   let sessionDir = "bin/sessions" / sessionStamp
   createDir(sessionDir / "f12")
+  # Session provenance manifest: the build that produced everything in this
+  # session dir (screenstates, replays). Answers "what version was this?".
+  block:
+    let binPath = try: getAppFilename() except CatchableError: "?"
+    let manifest = "build " & buildLabel() & "\n" &
+      "build_date " & BuildDate & "\n" &
+      "rom_hash 0x" & &"{romHashOf(rom):08X}" & "\n" &
+      "binary " & binPath & "\n" &
+      "session_start " & now().format("yyyy-MM-dd'T'HH:mm:ss") & "\n"
+    writeFile(sessionDir / "session.txt", manifest)
+  echo "BUILD: ", buildLabel(), " (", BuildDate, ")  session=", sessionDir
 
   var logOpened = false
   var logFile: File
   logOpened = open(logFile, "bin/play_log.txt", fmAppend)
   if logOpened:
     let ts0 = now().format("yyyy-MM-dd HH:mm:ss")
-    var commitInfo = ""
-    try:
-      let (headOut, _) = execCmdEx("git rev-parse --short HEAD")
-      let h = headOut.strip()
-      let (statOut, _) = execCmdEx("git status --porcelain")
-      let isDirty = statOut.strip().len > 0
-      if h.len > 0:
-        commitInfo = " commit " & h & (if isDirty: " +dirty" else: "")
-    except CatchableError:
-      commitInfo = ""
-    logFile.writeLine(&"{ts0}  PLAY SESSION START{commitInfo}  ROM={romPath}")
+    # Build provenance from the BINARY itself (compile-time), not a runtime git
+    # query — the running binary may be older than the current tree.
+    logFile.writeLine(&"{ts0}  PLAY SESSION START build {buildLabel()} ({BuildDate})  ROM={romPath}")
     logFile.flushFile()
 
   proc writeLog(msg: string) =
@@ -444,7 +447,7 @@ void main() {
     replayLogPath = sessionDir / &"{ts}.tas"
     replayLogOpen = open(replayLog, replayLogPath, fmWrite)
     if replayLogOpen:
-      replay.writeReplayHeader(replayLog, romHashOf(rom), startP)
+      replay.writeReplayHeader(replayLog, romHashOf(rom), startP, buildLabel())
       recording = true
       recordFrame = 0
       lastRecordJoy = 0xFFFF'u16  # impossible joy1 → force a delta on frame 0
@@ -710,7 +713,8 @@ void main() {
         copyFile(shotPath, screenshotsDir / shotPath.extractFilename)
       except CatchableError:
         discard  # Pictures mirror is best-effort; the session copy is canonical.
-      writeLog("screenshot (F12)")
+      echo "  build=", buildLabel(), " (session.txt in ", sessionDir, ")"
+      writeLog("screenshot (F12) build=" & buildLabel())
       echo &"  BGMODE={snes.ppuRegs[0x05] and 7} bg3prio={(snes.ppuRegs[0x05] and 8) != 0} " &
         &"TM(main)={snes.ppuRegs[0x2C]:02X} TS(sub)={snes.ppuRegs[0x2D]:02X} INIDISP={snes.ppuRegs[0x00]:02X}"
       echo &"  CGADSUB={snes.ppuRegs[0x31]:02X} CGWSEL={snes.ppuRegs[0x30]:02X} HDMAEN={snes.hdmaen:02X}"
