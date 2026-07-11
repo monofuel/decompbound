@@ -804,6 +804,7 @@ local _trail = {
   lx = nil,
   ly = nil,
   stuck = 0,
+  wp_best = nil,
   recovering = false,
   rec_frames = 0,
   rec_best = nil,
@@ -825,6 +826,7 @@ function followTrail(points)
     _trail.lx = nil
     _trail.ly = nil
     _trail.stuck = 0
+    _trail.wp_best = nil
     _trail.recovering = false
     _trail.rec_frames = 0
     _trail.rec_best = nil
@@ -839,6 +841,7 @@ function followTrail(points)
     _trail.lx = px
     _trail.ly = py
     _trail.stuck = 0
+    _trail.wp_best = nil
     _trail.recovering = false
     _trail.rec_frames = 0
     _trail.rec_best = nil
@@ -856,6 +859,7 @@ function followTrail(points)
       end
       _trail.i = _trail.i + 1
       _trail.stuck = 0
+      _trail.wp_best = nil
       _trail.recovering = false
       _trail.rec_frames = 0
       _trail.rec_best = nil
@@ -871,10 +875,18 @@ function followTrail(points)
   local wp = points[_trail.i]
   local dist = math.abs(px - wp.x) + math.abs(py - wp.y)
 
-  if _trail.lx == px and _trail.ly == py then
-    _trail.stuck = _trail.stuck + 1
-  else
+  -- Progress-based stuck detection. Exact-position freeze misses the common
+  -- case of grinding into a wall with 1px sub-pixel jitter (the reverse
+  -- western-hill climb at (0x06D3,0x015E): pos wobbles by 1px but makes zero
+  -- real progress toward the waypoint, so exact-match reset stuck forever and
+  -- recovery never fired). Instead: stuck climbs whenever the manhattan
+  -- distance to the current waypoint fails to improve. This lets the dual-axis
+  -- (X-align to clear the wall) and navTo recovery below actually trigger.
+  if _trail.wp_best == nil or dist < _trail.wp_best then
+    _trail.wp_best = dist
     _trail.stuck = 0
+  else
+    _trail.stuck = _trail.stuck + 1
   end
   _trail.lx = px
   _trail.ly = py
@@ -896,6 +908,7 @@ function followTrail(points)
       _trail.i = _trail.i - 1
       _trail.recovering = false
       _trail.stuck = 0
+      _trail.wp_best = nil
       _trail.rec_frames = 0
       _trail.rec_best = nil
       wp = points[_trail.i]
