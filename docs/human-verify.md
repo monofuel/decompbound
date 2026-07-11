@@ -135,6 +135,14 @@ Copy this template when adding a row (agents: always use it):
 
 ### Audio
 
+- [ ] **Inn sleep / battle start no longer locks; tempo unchanged** · 2026-07-10 · `347ab9d` APU $214x catch-up
+  - **Run:** `make play` → sleep at an inn; enter a couple of battles; listen to steady overworld/battle music
+  - **Pass if:** no lockup on inn-sleep or battle-start; transition SFX correct; steady music tempo sounds normal (NOT half-speed or sped-up)
+  - **Fail if:** any lock, wrong/ghost SFX on sleep, or music tempo drifts
+  - **Notes:** fix ticks the SPC extra only during the sound-handshake burst (self-limiting); deterministic repro locked by test_apu_handshake_derail.
+
+
+
 - [ ] **SFX "feel"** · open
   - **Run:** `make play` → menu blip, battle swirl whoosh, enemy defeated
   - **Pass if:** recognizable and not obviously wrong pitch/body
