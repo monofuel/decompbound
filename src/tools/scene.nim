@@ -59,8 +59,15 @@ const
   # touch_grass.currentRoomLabel.
   AreaLandmarks = {
     "outside_onett": @[
-      ("meteor_crater", 0x0858, 0x00F2),
+      # Named waypoints a player would use — "the road", "the hill", "the ridge"
+      # — from the verified prologue route. A policy chains goToward() through
+      # them (road -> hill -> ridge -> crater) since one far navTo can't find the
+      # SW->west->climb detour (see probe_gotoward finding, commit 7fec079).
       ("ness_home_door", 0x0A60, 0x0158),
+      ("onett_road",     0x0680, 0x01F8),  # down on the road, SW of the house
+      ("hill_climb",     0x05F8, 0x0148),  # west, base of the climb north
+      ("crater_ridge",   0x078F, 0x00B1),  # the ridge just before the crater
+      ("meteor_crater",  0x0858, 0x00F2),  # Pokey + the cops are here
     ],
   }.toTable
 

@@ -236,5 +236,7 @@ can start any time and continuously enriches D.
 - [x] **E: dialogue harvester** → `knowledge/dialogue_log.md` (`probe_dialogue_harvest.nim`, grok, verified)
 - [x] **D: `-- LEARN` write-router + relevant-KB injection** live in `llm_ai.nim` (`probe_memory_router.nim`, grok, verified — Mom KB block injects when she's nearby). ⚠️ import refactor to `when isMainModule` → live `make llm-ai` smoke test wanted.
 - [x] **A: landmarks** in the scene (`scene.nim` `AreaLandmarks`; door shows "meteor_crater NW")
-- [ ] F: rewrite objectives as intent+perception (drop coord ladders — NOW unblocked: scene names + landmarks + intent verbs all exist)
+- [x] **F: objectives rewritten to intent+perception** — outdoor travel is now `goToward(landmark)` chains + `talk('mom')`/`talk(slot)`; the hex crater ladder is GONE from the prompt. Route landmarks (`onett_road`/`hill_climb`/`crater_ridge`) added so the chain threads the hill. Indoor `walkTo` waypoints remain (labeled INDOOR-ONLY) — honest gap until indoor landmarks/pathfinding exist.
+- [ ] nav: verify the goToward landmark-CHAIN reaches the crater coord-free (single-target jammed at pokey 70; chain untested live) → grok probe
+- [ ] nav: indoor landmarks + walkTo-based goToward (kill the last coord waypoints)
 - [ ] A: vision plumbing into `realProvider` (image_url; `max_tokens>=2000`; live smoke test)
