@@ -238,6 +238,6 @@ can start any time and continuously enriches D.
 - [x] **A: landmarks** in the scene (`scene.nim` `AreaLandmarks`; door shows "meteor_crater NW")
 - [x] **F: objectives rewritten to intent+perception** — hex crater ladder GONE from the prompt; travel by named landmark + `talk('mom')`/`talk(slot)`. Indoor `walkTo` waypoints remain (labeled INDOOR-ONLY).
 - [x] nav CHAIN verified (`probe_gotoward_chain.nim`, grok) — **NEGATIVE**: chain jams at leg 1 (`onett_road`), pokey% stuck 10. navTo/A* can't thread this terrain; sparse landmark hops fail. F prompt corrected to an honest NAV CAVEAT (don't instruct a route that stalls).
-- [ ] **nav (the real blocker): coordinate-free outdoor travel needs a DENSE named route via followTrail**, not sparse navTo landmarks. The seed pokey policy reaches 100 only via FollowTrailSkillLua's dense trail — expose that as an engine-held named route so `goToward`/`followRoute` executes it coord-free. THIS is what unblocks the live crater journey.
+- [x] **nav SOLVED: `followRoute(name)` dense named route** (`onett_to_crater`, engine-held) — a coord-free-from-policy `followRoute("onett_to_crater")` reaches **pokey=100** (verified: 30→100 ladder, ends adjacent to Pokey). F prompt now instructs followRoute (the working method). Sparse goToward stays for short hops/approach; the dense route is how you cross the hill.
 - [ ] nav: indoor landmarks + walkTo-based goToward (kill the last coord waypoints)
 - [ ] A: vision plumbing into `realProvider` (image_url; `max_tokens>=2000`; live smoke test)
