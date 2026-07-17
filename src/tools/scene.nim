@@ -39,11 +39,30 @@ type
     kind*: string       # "npc"
     name*: string       # identity name from $2CD6/$29CA, "" if unknown
 
+  SceneLandmark* = object
+    name*: string
+    dir*: string        # compass from player
+    distTiles*: int
+
   Scene* = object
     px*, py*: int
     room*: string
     ents*: seq[SceneEntity]
+    landmarks*: seq[SceneLandmark]  # named places in this area, relative to player
     text*: string       # on-screen dialogue, if any
+
+const
+  # Known named places per area (engine-held map knowledge — like the collision
+  # layer — so the bot heads "toward the crater" by NAME, never a hex coord in
+  # the prompt). Seeded from the verified prologue route; migrate to
+  # knowledge/places/ as the bot explores and discovers more. Room label from
+  # touch_grass.currentRoomLabel.
+  AreaLandmarks = {
+    "outside_onett": @[
+      ("meteor_crater", 0x0858, 0x00F2),
+      ("ness_home_door", 0x0A60, 0x0158),
+    ],
+  }.toTable
 
 proc compass(dx, dy: int): string =
   ## EB world coords: +x = east (right), +y = south (down). 8-way with a small
@@ -84,6 +103,12 @@ proc buildScene*(snes: SnesBus): Scene =
   result.ents.sort(proc(a, b: SceneEntity): int = cmp(a.distTiles, b.distTiles))
   if result.ents.len > MaxNearby: result.ents.setLen(MaxNearby)
   result.room = touch_grass.currentRoomLabel(snes)
+  if AreaLandmarks.hasKey(result.room):
+    for (nm, lx, ly) in AreaLandmarks[result.room]:
+      result.landmarks.add SceneLandmark(
+        name: nm,
+        dir: compass(lx - result.px, ly - result.py),
+        distTiles: (abs(lx - result.px) + abs(ly - result.py)) div 8)
   result.text = policy.getDialogueText(snes).strip()
 
 proc sceneJson*(snes: SnesBus): string =
@@ -93,6 +118,10 @@ proc sceneJson*(snes: SnesBus): string =
   for e in sc.ents:
     let nameField = if e.name.len > 0: &""","name":"{e.name}"""" else: ""
     parts.add &"""{{"slot":{e.slot},"kind":"{e.kind}"{nameField},"dir":"{e.dir}","dist_tiles":{e.distTiles}}}"""
+  var lmParts: seq[string]
+  for l in sc.landmarks:
+    lmParts.add &"""{{"name":"{l.name}","dir":"{l.dir}","dist_tiles":{l.distTiles}}}"""
   let textEsc = sc.text.replace("\"", "'").replace("\n", " ").strip()
   &"""{{"player":{{"x":"0x{sc.px:04X}","y":"0x{sc.py:04X}","room":"{sc.room}"}},""" &
-    &""""nearby_entities":[{parts.join(",")}],"on_screen_text":"{textEsc}"}}"""
+    &""""nearby_entities":[{parts.join(",")}],"landmarks":[{lmParts.join(",")}],""" &
+    &""""on_screen_text":"{textEsc}"}}"""

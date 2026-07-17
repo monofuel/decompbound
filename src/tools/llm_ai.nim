@@ -24,9 +24,15 @@
 import
   std/[os, strutils, strformat, times, algorithm, options, monotimes, httpclient, json, osproc],
   pixie,
-  windy,
   ../decompbound/[cpu, ppu, snesbus, lua53, policy, save_state],
-  ./[glblit, touch_grass, llm_mock_policies, story_percents, scene]
+  ./[touch_grass, llm_mock_policies, story_percents, scene]
+
+# windy/glblit only needed for the windowed main loop. Library importers
+# (probe_memory_router etc.) skip them so they do not require libGL at load.
+when isMainModule:
+  import
+    windy,
+    ./glblit
 
 const
   DefaultFrames = 60
@@ -45,6 +51,14 @@ const
     ## Persistent skill library (walkTo etc). Loaded at boot into Lua BEFORE policy. Gitignored.
   NotesFile = "bin/states/llm_notes.txt"
     ## Persistent notes (agent knowledge). Loaded into prompt; -- NOTE: appends here. Gitignored.
+  KnowledgeDir = "knowledge"
+    ## Markdown KB (npcs/enemies/places/mechanics). -- LEARN routes here; scene names inject reads.
+  KnowledgeBulletCharCap = 800
+    ## Max chars of bullet facts injected per named entity KB file.
+  KnowledgeMaxFiles = 3
+    ## Cap how many named-entity KB files we inject into one summary.
+  LearnSectionHeader = "## Learned (bot)"
+    ## Section under which -- LEARN [bot] bullets are appended.
   LlmStateDir = "bin/states/llm"
     ## LLM-only savestates. NEVER bin/states/slotN.state (human make-play slots).
   LlmBedroomState = "bin/states/llm/bedroom.state"
@@ -235,10 +249,13 @@ PERSISTENT BRAIN:
 - Every time you return a policy, you can emit (anywhere):
   -- NOTE: <one concise fact e.g. "bedroom exit door approx (1E00,05C0)", "A opens command menu on overworld - use B to cancel", "sector FFFF indoors">
   The harness parses -- NOTE: and appends to bin/states/llm_notes.txt (full file reloaded into prompt every slow tick).
+  -- LEARN <cat>:<slug> <fact text>  (cat = npc|enemy|place|mechanic)
+  Routes into knowledge/<cat>s/<slug>.md as a [bot] bullet (typed KB; e.g. -- LEARN npc:pokey he takes credit for your work).
 - Full llm_notes.txt is always included below so you remember discoveries across frames/runs.
+- Nearby named NPCs inject their knowledge/npcs/<name>.md facts into STATE (KNOWLEDGE block).
 - Recent history tells you if prior policy made tg%/room progress.
 
-OUTPUT: Return ONLY valid Lua: starts exactly with 'function update()' , ends with 'end'. No markdown fences, no prose, no extra text outside the function. You may add -- NOTE: lines inside or before/after the function.
+OUTPUT: Return ONLY valid Lua: starts exactly with 'function update()' , ends with 'end'. No markdown fences, no prose, no extra text outside the function. You may add -- NOTE: / -- LEARN lines inside or before/after the function.
 
 Use /no_think at end if supported.
 """
@@ -375,10 +392,13 @@ PERSISTENT BRAIN:
 - Every time you return a policy, you can emit (anywhere):
   -- NOTE: <one concise fact e.g. "bedroom exit door approx (1E00,05C0)", "A opens command menu on overworld - use B to cancel", "sector FFFF indoors">
   The harness parses -- NOTE: and appends to bin/states/llm_notes.txt (full file reloaded into prompt every slow tick).
+  -- LEARN <cat>:<slug> <fact text>  (cat = npc|enemy|place|mechanic)
+  Routes into knowledge/<cat>s/<slug>.md as a [bot] bullet (typed KB; e.g. -- LEARN npc:pokey he takes credit for your work).
 - Full llm_notes.txt is always included below so you remember discoveries across frames/runs.
+- Nearby named NPCs inject their knowledge/npcs/<name>.md facts into STATE (KNOWLEDGE block).
 - Recent history tells you if prior policy made tg%/room progress.
 
-OUTPUT: Return ONLY valid Lua: starts exactly with 'function update()' , ends with 'end'. No markdown fences, no prose, no extra text outside the function. You may add -- NOTE: lines inside or before/after the function.
+OUTPUT: Return ONLY valid Lua: starts exactly with 'function update()' , ends with 'end'. No markdown fences, no prose, no extra text outside the function. You may add -- NOTE: / -- LEARN lines inside or before/after the function.
 
 Use /no_think at end if supported.
 """
@@ -522,6 +542,86 @@ proc extractAndAppendNotes(src: string) =
   if count > 0:
     echo "  extracted ", count, " -- NOTE: record(s) from returned policy"
 
+proc learnCatDir(cat: string): string =
+  ## Map LEARN category tokens to knowledge/ subdirs (npc→npcs, …). Empty if unknown.
+  case cat.toLowerAscii()
+  of "npc": "npcs"
+  of "enemy": "enemies"
+  of "place": "places"
+  of "mechanic": "mechanics"
+  else: ""
+
+proc appendLearnFact*(cat, slug, fact: string): bool =
+  ## Append one [bot] fact under knowledge/<cat>s/<slug>.md (## Learned (bot)).
+  ## Creates a minimal frontmatter file when missing. Skips identical [bot] bullets.
+  ## Returns true when a new bullet was written.
+  result = false
+  let dir = learnCatDir(cat)
+  if dir.len == 0 or slug.len == 0 or fact.len == 0: return
+  let safeSlug = slug.toLowerAscii().strip()
+  let kind = cat.toLowerAscii()
+  let path = KnowledgeDir / dir / (safeSlug & ".md")
+  let bullet = "- " & fact & " [bot]"
+  createDir(KnowledgeDir / dir)
+  if fileExists(path):
+    let existing = readFile(path)
+    # De-dup: identical [bot] bullet already present.
+    for raw in existing.splitLines():
+      if raw.strip() == bullet: return
+    var body = existing
+    if not body.endsWith("\n"):
+      body.add("\n")
+    if LearnSectionHeader notin body:
+      body.add("\n" & LearnSectionHeader & "\n")
+    body.add(bullet & "\n")
+    writeFile(path, body)
+  else:
+    let content = &"""---
+name: {safeSlug}
+kind: {kind}
+---
+# {safeSlug}
+
+{LearnSectionHeader}
+{bullet}
+"""
+    writeFile(path, content)
+  echo "  LEARN recorded: ", cat, ":", safeSlug, " → ", path, " :: ", fact
+  result = true
+
+proc extractAndAppendLearns*(src: string) =
+  ## Parse `-- LEARN <cat>:<slug> <fact text>` lines and route into knowledge/.
+  ## Categories: npc, enemy, place, mechanic. Called alongside extractAndAppendNotes.
+  if src.len == 0: return
+  var count = 0
+  for raw in src.splitLines():
+    let line = raw.strip()
+    # Accept "-- LEARN " or "--LEARN " (space after LEARN required before cat:slug).
+    var rest = ""
+    if line.startsWith("-- LEARN "):
+      rest = line["-- LEARN ".len .. ^1].strip()
+    elif line.startsWith("--LEARN "):
+      rest = line["--LEARN ".len .. ^1].strip()
+    else:
+      continue
+    # rest = "<cat>:<slug> <fact text>"
+    let colon = rest.find(':')
+    if colon <= 0: continue
+    let cat = rest[0 ..< colon].strip()
+    let after = rest[colon+1 .. ^1].strip()
+    if after.len == 0: continue
+    let sp = after.find(' ')
+    if sp <= 0:
+      continue
+    let slug = after[0 ..< sp].strip()
+    let fact = after[sp+1 .. ^1].strip()
+    if slug.len == 0 or fact.len == 0: continue
+    if learnCatDir(cat).len == 0: continue
+    if appendLearnFact(cat, slug, fact):
+      inc count
+  if count > 0:
+    echo "  extracted ", count, " -- LEARN record(s) into knowledge/"
+
 proc extractNotes(src: string): string =
   ## Extract -- NOTE: lines without appending (for reports and snapshots).
   if src.len == 0: return ""
@@ -535,7 +635,54 @@ proc extractNotes(src: string): string =
         if text.len > 0: collected.add(text)
   collected.join("\n")
 
-proc buildStateSummary(ctx: policy.PolicyContext): string =
+proc kbBulletLines(path: string, maxChars: int): string =
+  ## Collect markdown bullet facts from a KB file (with wrapped continuations), capped.
+  if not fileExists(path): return ""
+  var bullets: seq[string] = @[]
+  var cur = ""
+  for raw in readFile(path).splitLines():
+    if raw.startsWith("- "):
+      if cur.len > 0: bullets.add(cur)
+      cur = raw.strip()
+    elif cur.len > 0 and (raw.startsWith("  ") or raw.startsWith("\t")):
+      # Continuation of a wrapped bullet — fold into one fact line.
+      cur.add(" " & raw.strip())
+    else:
+      if cur.len > 0:
+        bullets.add(cur)
+        cur = ""
+  if cur.len > 0: bullets.add(cur)
+  var acc = ""
+  for b in bullets:
+    let next = if acc.len == 0: b else: acc & "\n" & b
+    if next.len > maxChars:
+      if acc.len == 0:
+        # Single long bullet: hard-cap so one file cannot blow the budget.
+        acc = b[0 ..< min(b.len, maxChars)]
+      break
+    acc = next
+  acc
+
+proc knowledgeInjection*(snes: SnesBus): string =
+  ## Build the KNOWLEDGE prompt block for named entities currently in the scene.
+  ## Looks up knowledge/npcs/<name>.md for each non-empty entity name (cap files + chars).
+  let sc = scene.buildScene(snes)
+  var seen: seq[string] = @[]
+  var chunks: seq[string] = @[]
+  for e in sc.ents:
+    if e.name.len == 0: continue
+    let key = e.name.toLowerAscii()
+    if key in seen: continue
+    seen.add(key)
+    if chunks.len >= KnowledgeMaxFiles: break
+    let path = KnowledgeDir / "npcs" / (key & ".md")
+    let bullets = kbBulletLines(path, KnowledgeBulletCharCap)
+    if bullets.len == 0: continue
+    chunks.add(&"[{key}]\n{bullets}")
+  if chunks.len == 0: return ""
+  "KNOWLEDGE (what you know about who's nearby):\n" & chunks.join("\n\n") & "\n"
+
+proc buildStateSummary*(ctx: policy.PolicyContext): string =
   ## Rich FULL LABELED state for qwen 256K context (do NOT trim). Restores + expands all detail:
   ## touch_grass_pct, current_room, HP/PP, money, party_roster (from SRAM/WRAM), player pos,
   ## sector, in_battle, menu_open + which_menu + frame.
@@ -637,10 +784,13 @@ proc buildStateSummary(ctx: policy.PolicyContext): string =
   # Structured scene (perception channel #2) — what's around Ness in RELATIVE
   # terms (direction + tiles), so the bot navigates by intent, not coordinates.
   let sceneStr = scene.sceneJson(ctx.snes)
+  # Relevant KB entries for named entities currently nearby (read half of memory).
+  let kbBlock = knowledgeInjection(ctx.snes)
+  let kbLine = if kbBlock.len > 0: "\n" & kbBlock else: ""
 
   result = fmt"""RICH LABELED STATE:
 >>> CURRENT_OBJECTIVE: {objective}
-SCENE (nearby entities are relative to you — head toward/away by direction, not raw coords): {sceneStr}
+SCENE (nearby entities are relative to you — head toward/away by direction, not raw coords): {sceneStr}{kbLine}
 touch_grass_pct: {tgPct}
 pokey_pct: {pokeyPct}
 pokey_knock_pct: {pokeyKnockPct}
@@ -681,6 +831,7 @@ proc pollAndApplyResult(L: lua53.PState, currentPolicy: var string, status: var 
   if got:
     let (newP, lat) = res
     extractAndAppendNotes(newP)
+    extractAndAppendLearns(newP)
     if newP.len <= 10 or newP == currentPolicy:
       # Unchanged (the common case for mock/seed every tick) — stay silent to cut spam.
       status = "running"
@@ -816,620 +967,620 @@ proc saveSram(snes: SnesBus, path: string) =
     for i in 0 ..< max(0, files.len - MaxBackups):
       removeFile(files[i])
 
-proc main() =
-  ## Boot emulator, obtain initial policy string from provider (mock or LLM),
-  ## load it into sandbox, run fast per-frame loop calling update(), periodically
-  ## rebuild summary and re-query provider on slow clock, hot-reload new Lua.
-  var maxFrames = DefaultFrames
-  var llmInterval = DefaultLlmInterval
-  var pngEvery = DefaultPngEvery
-  var romPath = ""
-  var useMock = true
-  var useHeadless = false
-  var pngEverySet = false
-  var saveSramPath = ""
-  var saveSramEnabled = false
-  var loadStateSlot = -1
-  var loadStatePath = ""
-  var policyFile = ""
-  var scenarioName = ""
-    ## Named seed scenario (--scenario nav|battle|explore|pokey); overrides slot mapping.
-  var saveStateSlot = -1
-  var targetSpeed = DefaultSpeed
-    ## emulation fps target: 0=unlimited (headless default), 60=realtime, 120=2x etc.
-    ## wired for pacing; LLM tick (interval) remains on frameCount, decoupled.
-  var watchAsync = false
-    ## true: keep stepping while LLM in-flight (true two-clock). false: pause-for-consistency.
-  var clockModeSet = false
-    ## true if user passed --watch-async / --sync-llm / --pause-llm (else default by headless).
-  var i = 1
-  while i <= paramCount():
-    let a = paramStr(i)
-    if a == "--frames" and i < paramCount():
+when isMainModule:
+  proc main() =
+    ## Boot emulator, obtain initial policy string from provider (mock or LLM),
+    ## load it into sandbox, run fast per-frame loop calling update(), periodically
+    ## rebuild summary and re-query provider on slow clock, hot-reload new Lua.
+    var maxFrames = DefaultFrames
+    var llmInterval = DefaultLlmInterval
+    var pngEvery = DefaultPngEvery
+    var romPath = ""
+    var useMock = true
+    var useHeadless = false
+    var pngEverySet = false
+    var saveSramPath = ""
+    var saveSramEnabled = false
+    var loadStateSlot = -1
+    var loadStatePath = ""
+    var policyFile = ""
+    var scenarioName = ""
+      ## Named seed scenario (--scenario nav|battle|explore|pokey); overrides slot mapping.
+    var saveStateSlot = -1
+    var targetSpeed = DefaultSpeed
+      ## emulation fps target: 0=unlimited (headless default), 60=realtime, 120=2x etc.
+      ## wired for pacing; LLM tick (interval) remains on frameCount, decoupled.
+    var watchAsync = false
+      ## true: keep stepping while LLM in-flight (true two-clock). false: pause-for-consistency.
+    var clockModeSet = false
+      ## true if user passed --watch-async / --sync-llm / --pause-llm (else default by headless).
+    var i = 1
+    while i <= paramCount():
+      let a = paramStr(i)
+      if a == "--frames" and i < paramCount():
+        inc i
+        maxFrames = parseInt(paramStr(i))
+      elif a.startsWith("--frames="):
+        maxFrames = parseInt(a[9..^1])
+      elif a == "--llm-interval" and i < paramCount():
+        inc i
+        llmInterval = parseInt(paramStr(i))
+      elif a.startsWith("--llm-interval="):
+        llmInterval = parseInt(a[15..^1])
+      elif a == "--png-every" and i < paramCount():
+        inc i
+        pngEvery = parseInt(paramStr(i))
+        pngEverySet = true
+      elif a.startsWith("--png-every="):
+        pngEvery = parseInt(a[12..^1])
+        pngEverySet = true
+      elif a == "--headless":
+        useHeadless = true
+      elif a == "--no-mock":
+        useMock = false
+      elif a == "--mock":
+        useMock = true
+      elif a == "--watch-async":
+        watchAsync = true
+        clockModeSet = true
+      elif a == "--sync-llm" or a == "--pause-llm":
+        watchAsync = false
+        clockModeSet = true
+      elif a == "--verbose" or a == "-v":
+        gVerbose = true
+      elif a == "--save-srm":
+        saveSramEnabled = true
+        if i < paramCount():
+          let next = paramStr(i + 1)
+          if not next.startsWith("--"):
+            saveSramPath = next
+            inc i
+      elif a.startsWith("--save-srm="):
+        saveSramEnabled = true
+        saveSramPath = a[11 .. ^1]
+      elif a == "--load-state" and i < paramCount():
+        inc i
+        loadStateSlot = parseInt(paramStr(i))
+      elif a.startsWith("--load-state="):
+        loadStateSlot = parseInt(a[13..^1])
+      elif a == "--load-state-path" and i < paramCount():
+        inc i
+        loadStatePath = paramStr(i)
+      elif a.startsWith("--load-state-path="):
+        loadStatePath = a[18..^1]
+      elif a == "--policy-file" and i < paramCount():
+        inc i
+        policyFile = paramStr(i)
+      elif a.startsWith("--policy-file="):
+        policyFile = a[14..^1]
+      elif a == "--scenario" and i < paramCount():
+        inc i
+        scenarioName = paramStr(i)
+      elif a.startsWith("--scenario="):
+        scenarioName = a[11..^1]
+      elif a == "--save-state-slot" and i < paramCount():
+        inc i
+        saveStateSlot = parseInt(paramStr(i))
+      elif a == "--speed" and i < paramCount():
+        inc i
+        targetSpeed = parseInt(paramStr(i))
+      elif a.startsWith("--speed="):
+        targetSpeed = parseInt(a[8..^1])
+      elif a == "--help" or a == "-h":
+        echo "usage: nim r src/tools/llm_ai.nim -- [--frames N] [--llm-interval K] [--png-every M] [--speed N] [--watch-async|--sync-llm|--pause-llm] [--verbose] [--headless] [--mock|--no-mock] [--save-srm | --save-srm=PATH] [--load-state N | --load-state=N] [--load-state-path PATH] [rom]"
+        echo "  defaults: --frames 60 --llm-interval 20 --speed 0 ROM=bin/Earthbound (U) [!].smc"
+        echo "  windowed by default (opens GL window titled 'EarthBound - LLM (qwen)' for watching)"
+        echo "  --headless: no window (for CI / batch); --png-every only dumps when flag is passed"
+        echo "  --speed N: pace emulated frames to N fps (0=unlimited/as-fast, 60=realtime)"
+        echo "  --watch-async: keep stepping frames while LLM is in-flight (current policy at --speed);"
+        echo "                 poll + hot-swap when result lands. DEFAULT for windowed/watch mode."
+        echo "  --sync-llm / --pause-llm: pause frame advance until policy applies (deterministic"
+        echo "                 apply-at-snapshot). DEFAULT for --headless milestone/CI runs."
+        echo "  Tradeoff: async = smooth 60fps watch, policy may land after game state has moved;"
+        echo "            sync = freeze while qwen thinks, policy applies at the summary snapshot."
+        echo "  --verbose / -v: dump full multi-KB LLM prompts + request JSON (quiet by default)"
+        echo "  --mock (default): use canned policy string, no key needed (near-instant)"
+        echo "  --no-mock: call real LLM (qwen on azem)"
+        echo "  --save-srm: enable OPTIONAL isolated SRAM for LLM's own progress (never user's)"
+        echo "  --save-srm=PATH: override default path bin/states/llm_ai.srm (MUST differ from ROM .srm)"
+        echo "  Absent --save-srm (default): NO SRAM I/O, fully ephemeral (for auto LLM tests)"
+        echo "  --load-state N: after newSnesBus+resetCpu, call loadState to restore bin/states/slotN.state as start (IN-PLACE, audio-safe)"
+        echo "  --load-state=N: alternate form. Skips IntroSkillLua seed (loaded state IS the start, e.g. bedroom at 25% from play Ctrl+1)"
+        echo "  Without flag: unchanged (fresh boot + IntroSkillLua). Errors clearly if slot file missing."
+        echo "  Persistent brain (default-on, per llm-plays.md Evolution):"
+        echo "    bin/states/llm_skills.lua (seeded with walkTo+Intro if absent; loaded into Lua sandbox before policy)"
+        echo "    bin/states/llm_notes.txt (loaded into prompt; -- NOTE: lines in policy output are appended)"
+        echo "    Both live under bin/states/ (gitignored, user-local; never committed). Skills make walkTo() etc available to policies."
+        echo "  sim.setSpeed / sim.fast / sim.normal available in policies (from PolicyContext) to let AI control fps at runtime."
+        echo "  To run live: nim r src/tools/llm_ai.nim -- --no-mock --frames 120 --speed 60"
+        quit(0)
+      elif romPath.len == 0 and not a.startsWith("--"):
+        romPath = a
       inc i
-      maxFrames = parseInt(paramStr(i))
-    elif a.startsWith("--frames="):
-      maxFrames = parseInt(a[9..^1])
-    elif a == "--llm-interval" and i < paramCount():
-      inc i
-      llmInterval = parseInt(paramStr(i))
-    elif a.startsWith("--llm-interval="):
-      llmInterval = parseInt(a[15..^1])
-    elif a == "--png-every" and i < paramCount():
-      inc i
-      pngEvery = parseInt(paramStr(i))
-      pngEverySet = true
-    elif a.startsWith("--png-every="):
-      pngEvery = parseInt(a[12..^1])
-      pngEverySet = true
-    elif a == "--headless":
-      useHeadless = true
-    elif a == "--no-mock":
-      useMock = false
-    elif a == "--mock":
-      useMock = true
-    elif a == "--watch-async":
-      watchAsync = true
-      clockModeSet = true
-    elif a == "--sync-llm" or a == "--pause-llm":
-      watchAsync = false
-      clockModeSet = true
-    elif a == "--verbose" or a == "-v":
-      gVerbose = true
-    elif a == "--save-srm":
-      saveSramEnabled = true
-      if i < paramCount():
-        let next = paramStr(i + 1)
-        if not next.startsWith("--"):
-          saveSramPath = next
-          inc i
-    elif a.startsWith("--save-srm="):
-      saveSramEnabled = true
-      saveSramPath = a[11 .. ^1]
-    elif a == "--load-state" and i < paramCount():
-      inc i
-      loadStateSlot = parseInt(paramStr(i))
-    elif a.startsWith("--load-state="):
-      loadStateSlot = parseInt(a[13..^1])
-    elif a == "--load-state-path" and i < paramCount():
-      inc i
-      loadStatePath = paramStr(i)
-    elif a.startsWith("--load-state-path="):
-      loadStatePath = a[18..^1]
-    elif a == "--policy-file" and i < paramCount():
-      inc i
-      policyFile = paramStr(i)
-    elif a.startsWith("--policy-file="):
-      policyFile = a[14..^1]
-    elif a == "--scenario" and i < paramCount():
-      inc i
-      scenarioName = paramStr(i)
-    elif a.startsWith("--scenario="):
-      scenarioName = a[11..^1]
-    elif a == "--save-state-slot" and i < paramCount():
-      inc i
-      saveStateSlot = parseInt(paramStr(i))
-    elif a == "--speed" and i < paramCount():
-      inc i
-      targetSpeed = parseInt(paramStr(i))
-    elif a.startsWith("--speed="):
-      targetSpeed = parseInt(a[8..^1])
-    elif a == "--help" or a == "-h":
-      echo "usage: nim r src/tools/llm_ai.nim -- [--frames N] [--llm-interval K] [--png-every M] [--speed N] [--watch-async|--sync-llm|--pause-llm] [--verbose] [--headless] [--mock|--no-mock] [--save-srm | --save-srm=PATH] [--load-state N | --load-state=N] [--load-state-path PATH] [rom]"
-      echo "  defaults: --frames 60 --llm-interval 20 --speed 0 ROM=bin/Earthbound (U) [!].smc"
-      echo "  windowed by default (opens GL window titled 'EarthBound - LLM (qwen)' for watching)"
-      echo "  --headless: no window (for CI / batch); --png-every only dumps when flag is passed"
-      echo "  --speed N: pace emulated frames to N fps (0=unlimited/as-fast, 60=realtime)"
-      echo "  --watch-async: keep stepping frames while LLM is in-flight (current policy at --speed);"
-      echo "                 poll + hot-swap when result lands. DEFAULT for windowed/watch mode."
-      echo "  --sync-llm / --pause-llm: pause frame advance until policy applies (deterministic"
-      echo "                 apply-at-snapshot). DEFAULT for --headless milestone/CI runs."
-      echo "  Tradeoff: async = smooth 60fps watch, policy may land after game state has moved;"
-      echo "            sync = freeze while qwen thinks, policy applies at the summary snapshot."
-      echo "  --verbose / -v: dump full multi-KB LLM prompts + request JSON (quiet by default)"
-      echo "  --mock (default): use canned policy string, no key needed (near-instant)"
-      echo "  --no-mock: call real LLM (qwen on azem)"
-      echo "  --save-srm: enable OPTIONAL isolated SRAM for LLM's own progress (never user's)"
-      echo "  --save-srm=PATH: override default path bin/states/llm_ai.srm (MUST differ from ROM .srm)"
-      echo "  Absent --save-srm (default): NO SRAM I/O, fully ephemeral (for auto LLM tests)"
-      echo "  --load-state N: after newSnesBus+resetCpu, call loadState to restore bin/states/slotN.state as start (IN-PLACE, audio-safe)"
-      echo "  --load-state=N: alternate form. Skips IntroSkillLua seed (loaded state IS the start, e.g. bedroom at 25% from play Ctrl+1)"
-      echo "  Without flag: unchanged (fresh boot + IntroSkillLua). Errors clearly if slot file missing."
-      echo "  Persistent brain (default-on, per llm-plays.md Evolution):"
-      echo "    bin/states/llm_skills.lua (seeded with walkTo+Intro if absent; loaded into Lua sandbox before policy)"
-      echo "    bin/states/llm_notes.txt (loaded into prompt; -- NOTE: lines in policy output are appended)"
-      echo "    Both live under bin/states/ (gitignored, user-local; never committed). Skills make walkTo() etc available to policies."
-      echo "  sim.setSpeed / sim.fast / sim.normal available in policies (from PolicyContext) to let AI control fps at runtime."
-      echo "  To run live: nim r src/tools/llm_ai.nim -- --no-mock --frames 120 --speed 60"
-      quit(0)
-    elif romPath.len == 0 and not a.startsWith("--"):
-      romPath = a
-    inc i
-  if romPath.len == 0:
-    romPath = "bin/Earthbound (U) [!].smc"
+    if romPath.len == 0:
+      romPath = "bin/Earthbound (U) [!].smc"
 
-  # Default clock mode: windowed/watch -> async (smooth 60fps); headless -> pause-for-consistency.
-  if not clockModeSet:
-    watchAsync = not useHeadless
+    # Default clock mode: windowed/watch -> async (smooth 60fps); headless -> pause-for-consistency.
+    if not clockModeSet:
+      watchAsync = not useHeadless
 
-  if saveSramEnabled:
-    if saveSramPath.len == 0:
-      saveSramPath = LlmDefaultSram
-    let romSrm = romPath.changeFileExt("srm")
-    if saveSramPath == romSrm:
-      echo fmt"ERROR: --save-srm path must never resolve to the ROM's .srm: {romSrm} (would touch the user's real save). Refusing."
-      quit(1)
-    let sdir = saveSramPath.splitFile.dir
-    if sdir.len > 0:
-      createDir(sdir)
-    else:
-      createDir("bin")
-
-  ensureLlmStateDir()
-  seedLlmBedroomIfMissing()
-
-  let saveStr = if saveSramEnabled: saveSramPath else: "(ephemeral)"
-  let loadStr =
-    if loadStatePath.len > 0: loadStatePath
-    elif loadStateSlot >= 0: llmSlotPath(loadStateSlot)
-    else: "none"
-  let clockStr = if watchAsync: "watch-async" else: "sync-llm"
-  echo fmt"llm_ai: ROM={romPath} frames={maxFrames} llmInterval={llmInterval} pngEvery={pngEvery} (set={pngEverySet}) speed={targetSpeed} mock={useMock} headless={useHeadless} clock={clockStr} verbose={gVerbose} loadState={loadStr} saveSram={saveStr}"
-  echo fmt"llm_ai: state namespace = {LlmStateDir}/ (human play slots bin/states/slotN.state never written by default)"
-  scenarioPolicy = llm_mock_policies.selectMockPolicy(loadStateSlot)
-  if scenarioName.len > 0:
-    # Named scenario seed (nav/battle/explore/pokey) — overrides slot mapping.
-    scenarioPolicy = llm_mock_policies.selectMockPolicyByName(scenarioName)
-    echo "POLICY: scenario=", scenarioName, " seed selected (len=", scenarioPolicy.len, ")"
-  if policyFile.len > 0:
-    scenarioPolicy = readFile(policyFile)
-    echo "POLICY: initial policy from ", policyFile, " (len=", scenarioPolicy.len, ") — overrides mock/nav default"
-  createDir("bin")
-  createDir("bin/states")
-  ensureLlmStateDir()
-  persistentNotes = if fileExists(NotesFile): readFile(NotesFile) else: ""
-  if persistentNotes.len > 0:
-    echo fmt"NOTES: loaded {NotesFile} ({persistentNotes.len} bytes) — will include in LLM prompt"
-  else:
-    echo fmt"NOTES: {NotesFile} absent (empty brain start; first -- NOTE: will create+append)"
-
-  let rom = policy.readRomFile(romPath)
-  let snes = newSnesBus(rom)
-  if saveSramEnabled:
-    loadSram(snes, saveSramPath)
-  var cpu = snes.resetCpu()
-  if loadStatePath.len > 0:
-    if isHumanPlaySlotPath(loadStatePath):
-      echo fmt"ERROR: refusing human play slot path {loadStatePath}. Use {LlmStateDir}/ fixtures only."
-      quit(1)
-    if not fileExists(loadStatePath):
-      echo fmt"ERROR: --load-state-path {loadStatePath} not found"
-      quit(1)
-    readStateFile(loadStatePath, snes, cpu)
-    echo "loaded start state from path ", loadStatePath
-    if "battle" in loadStatePath.toLowerAscii:
-      scenarioPolicy = llm_mock_policies.BattlePolicy
-    if scenarioPolicy == llm_mock_policies.BattlePolicy:
-      let (ok, d) = touch_grass.battleFixtureOk(snes)
-      if not ok:
-        echo "BATTLE FIXTURE INVALID: ", d
+    if saveSramEnabled:
+      if saveSramPath.len == 0:
+        saveSramPath = LlmDefaultSram
+      let romSrm = romPath.changeFileExt("srm")
+      if saveSramPath == romSrm:
+        echo fmt"ERROR: --save-srm path must never resolve to the ROM's .srm: {romSrm} (would touch the user's real save). Refusing."
         quit(1)
-  elif loadStateSlot >= 0:
-    let path = llmSlotPath(loadStateSlot)
-    if not fileExists(path):
-      echo fmt"ERROR: --load-state {loadStateSlot} is LLM namespace only: missing {path}"
-      echo fmt"  Human play: bin/states/slotN.state | LLM: {LlmStateDir}/"
-      quit(1)
-    readStateFile(path, snes, cpu)
-    echo "loaded start state from LLM slot ", loadStateSlot, " <- ", path
-    if loadStateSlot == 1:
-      scenarioPolicy = llm_mock_policies.BattlePolicy
-  else:
-    snes.initHdma()
-
-  # Initialize progress trackers from whatever start state we have (fresh boot or loaded).
-  # This gives the first slow-tick a sane baseline for pos-delta and tg checks.
-  block:
-    let pidx = touch_grass.PlayerSlot * touch_grass.SlotIndexStride
-    prevPlayerX = touch_grass.readU16(snes, touch_grass.WorldXBase + pidx)
-    prevPlayerY = touch_grass.readU16(snes, touch_grass.WorldYBase + pidx)
-    prevTg = touch_grass.touchGrassPercent(snes)
-    prevRoom = touch_grass.currentRoomLabel(snes)
-    prevMoney = touch_grass.readU16(snes, 0x9831)
-    # Smoke: prologue story percents (stubs until RE; see docs/llm-sequence.md).
-    echo fmt"story_pcts smoke: tg={prevTg} pokey={story_percents.pokeyPercent(snes)} pokey_knock={story_percents.pokeyKnockPercent(snes)} buzzbuzz={story_percents.buzzBuzzPercent(snes)} sunrise={story_percents.sunrisePercent(snes)} room={prevRoom}"
-
-  let frameImage = newImage(ppu.ScreenWidth, ppu.ScreenHeight)
-  let ctx = policy.PolicyContext(
-    snes: snes,
-    frameImage: frameImage,
-    frameCount: 0,
-    joy1: 0'u16,
-    targetFps: targetSpeed
-  )
-
-  let L = lua53.newstate()
-  if L == nil:
-    echo "ERROR: lua newstate nil"
-    quit(1)
-  L.openSandbox()
-  policy.setupPolicyApi(L, ctx)
-  # scene() — structured perception (nearby entities relative to Ness). Bound at
-  # app level because scene.nim (tools) imports policy; see sceneLua above.
-  L.pushcfunction(sceneLua)
-  L.setglobal("scene".cstring)
-
-  # SKILL LIBRARY (persistent brain part 1): load bin/states/llm_skills.lua BEFORE any policy.
-  # If absent, SEED by writing Escape+WalkTo+Intro+Win (so escapeMenu/walkTo/winBattle etc in scope).
-  # This happens once at boot; skills become globals callable from update().
-  # (touch_grass provides the strings; only edit allowed files.)
-  if fileExists(SkillsFile):
-    let skillSrc = readFile(SkillsFile)
-    if loadPolicyChunk(L, skillSrc, "persistent_skills"):
-      echo "SKILL_LIBRARY: loaded ", SkillsFile, " (len=", skillSrc.len, ") into sandbox BEFORE policy"
-    else:
-      echo "SKILL_LIBRARY: WARNING: loadPolicyChunk failed for ", SkillsFile, " (continuing without)"
-  else:
-    let seedSrc = touch_grass.EscapeMenuSkillLua & "\n\n" & touch_grass.WalkToSkillLua & "\n\n" &
-      touch_grass.IntroSkillLua & "\n\n" & touch_grass.WinBattleSkillLua & "\n\n" &
-      touch_grass.AdvanceDialogueSkillLua
-    writeFile(SkillsFile, seedSrc)
-    echo "SKILL_LIBRARY: absent; seeded ", SkillsFile, " (len=", seedSrc.len, ") with Escape+WalkTo+Intro+Win+AdvanceDialogue"
-    discard loadPolicyChunk(L, seedSrc, "seeded_skills")
-  # Confirm walkTo is callable (from WalkTo seed or prior skills) for verify logs.
-  L.getglobal("walkTo".cstring)
-  let walkIsFn = (L.getType(-1) == lua53.TFUNCTION)
-  L.pop(1)
-  if walkIsFn:
-    echo "SKILL_LIBRARY: walkTo is callable in the Lua sandbox (confirmed)"
-  else:
-    echo "SKILL_LIBRARY: walkTo not present as function (policy may still define later)"
-
-  discard getProvider(useMock)  # provider selection now via gUseMock for thread dispatch
-  gUseMock = useMock
-  workChan.open()
-  resultChan.open()
-  createThread(workerThread, llmWorkerProc)
-  if watchAsync:
-    echo "BACKGROUND: worker thread started; --watch-async: frames keep stepping while LLM in-flight; hot-swap on result"
-  else:
-    echo "BACKGROUND: worker thread started; --sync-llm: pause frames until policy applies (apply-at-snapshot)"
-
-  var currentPolicy: string
-  if loadStateSlot >= 0 or loadStatePath.len > 0:
-    # loaded state IS the start. Use scenarioPolicy set above (battle for fixture/slot1, nav otherwise).
-    # Replaced at first slow tick if needed. Decouples battle win verif from nav.
-    currentPolicy = scenarioPolicy
-    let kind = if scenarioPolicy == llm_mock_policies.BattlePolicy: "battle" else: "nav"
-    echo "initial policy seeded from scenarioPolicy (", kind, ", len=", currentPolicy.len, ")"
-  else:
-    # Seed INITIAL policy with IntroSkillLua (deterministic title->naming->bedroom).
-    # Always start here for both mock and real so multi-step intro actually runs.
-    # LLM handoff only after tg>=25 (bedroom reached); see slow-clock guard below.
-    currentPolicy = touch_grass.IntroSkillLua
-    echo "initial policy seeded with IntroSkillLua (len=", currentPolicy.len, ")"
-  if not loadPolicyChunk(L, currentPolicy, "initial"):
-    echo "failed to load initial policy; abort"
-    quit(1)
-  # Extract notes from the initial policy string too (captures the -- NOTE: we put in mock for verify).
-  extractAndAppendNotes(currentPolicy)
-
-  let clockDesc = if watchAsync:
-    "async: keep stepping current policy while LLM thinks"
-  else:
-    "sync: pause frames until policy applies"
-  echo "starting two-clock loop (fast: per-frame update; slow: LLM every ", llmInterval, " frames; ", clockDesc, ")"
-  if not useHeadless:
-    echo "  windowed mode: a separate GL window will show the LLM-driven play (no keyboard input; policy controls joy1)"
-  else:
-    echo "  headless mode (no window)"
-
-  var maxTouchGrass = 0
-  var maxPokey = 0
-  var pokeyAchievedFrame = -1
-  let logPath = "bin/llm_ai_log.txt"
-  createDir("bin")
-  proc logTg(msg: string) =
-    let f = open(logPath, fmAppend)
-    f.writeLine(msg)
-    f.close()
-    echo msg
-
-  var blit: GlBlit
-  if not useHeadless:
-    blit = initGlBlit("EarthBound - LLM (qwen)", ppu.ScreenWidth, ppu.ScreenHeight, 3)
-
-  var status = "running"
-
-  # Pacing state for --speed wiring (and AI-controlled via ctx.targetFps / sim.setSpeed).
-  # Use deadline schedule: after each frame, advance deadline by 1/fps, sleep remainder if early.
-  # Clamp using MaxPacingBacklogFrames: if far behind, reset deadline (prevents weird future over-sleep after stall).
-  # 0 = unlimited. --speed paces running segments. --sync-llm pauses while pending; --watch-async does not.
-  var nextDeadline = getMonoTime()
-
-  # Main loop: policy + step + (optional) GL present. Emulation paced by --speed during run segments.
-  # --watch-async: keep stepping with current policy while LLM in-flight; poll+hot-swap each frame.
-  # --sync-llm: pause frame advance until policy applies (apply-at-snapshot).
-  while ctx.frameCount < maxFrames:
-    if (not useHeadless) and blit.window.closeRequested:
-      break
-    if not useHeadless:
-      pollEvents()
-
-    let wasPending = pendingLlm
-
-    let err = policy.runPolicyFrame(L, ctx)
-    if err.len > 0:
-      echo fmt"policy runtime error frame {ctx.frameCount}: {err}"
-      status = "err"
-
-    snes.joy1 = ctx.joy1
-    if (ctx.joy1 and policy.BtnRight) != 0:
-      echo fmt"  joy1 has RIGHT bit (0x{ctx.joy1:04x}) frame {ctx.frameCount}"
-
-    policy.stepOneFrame(snes, cpu, frameImage)
-    ctx.frameCount += 1
-    if wasPending:
-      framesDuringPending += 1
-
-    # Poll background result every frame (non-blocking). Hot-swap when ready.
-    # Async watch path relies on this every-frame poll; sync path also uses it inside pause-wait.
-    discard pollAndApplyResult(L, currentPolicy, status, ctx.frameCount)
-
-    # WIRE --speed / AI fps control: pace to target (only when we do advance a frame).
-    # After frame, compute next deadline = prev + (1s/fps), sleep remainder to it.
-    # If behind by >4 frames worth, reset deadline (clamp backlog, resume without catchup burst/sleep debt).
-    # fps=0: skip, run full speed (near-instant for --speed 0).
-    # ctx.targetFps read after policy run, so sim.setSpeed(fps) in update() takes effect immediately for next iter.
-    # --sync-llm pause-wait bypasses this; --watch-async keeps pacing while thinking.
-    let fps = ctx.targetFps
-    if fps > 0:
-      let frameNs = 1_000_000_000'i64 div fps.int64
-      nextDeadline = nextDeadline + initDuration(nanoseconds = frameNs)
-      let now = getMonoTime()
-      if now < nextDeadline:
-        let ns = (nextDeadline - now).inNanoseconds
-        let ms = (ns div 1_000_000).int
-        if ms > 0:
-          sleep(ms)
+      let sdir = saveSramPath.splitFile.dir
+      if sdir.len > 0:
+        createDir(sdir)
       else:
-        let behind = (now - nextDeadline).inNanoseconds
-        if behind > frameNs * MaxPacingBacklogFrames:
-          nextDeadline = now
+        createDir("bin")
 
-    if not useHeadless:
-      blit.blit(frameImage)
-      let t = fmt"EarthBound - LLM (qwen) - frame {ctx.frameCount} [{status}]"
-      if blit.window.title != t:
-        blit.window.title = t
+    ensureLlmStateDir()
+    seedLlmBedroomIfMissing()
 
-    # Periodic SRAM flush for isolated save (throttled like play.nim to coalesce writes).
-    if saveSramEnabled and snes.sramDirty and (ctx.frameCount mod 60 == 0):
-      saveSram(snes, saveSramPath)
+    let saveStr = if saveSramEnabled: saveSramPath else: "(ephemeral)"
+    let loadStr =
+      if loadStatePath.len > 0: loadStatePath
+      elif loadStateSlot >= 0: llmSlotPath(loadStateSlot)
+      else: "none"
+    let clockStr = if watchAsync: "watch-async" else: "sync-llm"
+    echo fmt"llm_ai: ROM={romPath} frames={maxFrames} llmInterval={llmInterval} pngEvery={pngEvery} (set={pngEverySet}) speed={targetSpeed} mock={useMock} headless={useHeadless} clock={clockStr} verbose={gVerbose} loadState={loadStr} saveSram={saveStr}"
+    echo fmt"llm_ai: state namespace = {LlmStateDir}/ (human play slots bin/states/slotN.state never written by default)"
+    scenarioPolicy = llm_mock_policies.selectMockPolicy(loadStateSlot)
+    if scenarioName.len > 0:
+      # Named scenario seed (nav/battle/explore/pokey) — overrides slot mapping.
+      scenarioPolicy = llm_mock_policies.selectMockPolicyByName(scenarioName)
+      echo "POLICY: scenario=", scenarioName, " seed selected (len=", scenarioPolicy.len, ")"
+    if policyFile.len > 0:
+      scenarioPolicy = readFile(policyFile)
+      echo "POLICY: initial policy from ", policyFile, " (len=", scenarioPolicy.len, ") — overrides mock/nav default"
+    createDir("bin")
+    createDir("bin/states")
+    ensureLlmStateDir()
+    persistentNotes = if fileExists(NotesFile): readFile(NotesFile) else: ""
+    if persistentNotes.len > 0:
+      echo fmt"NOTES: loaded {NotesFile} ({persistentNotes.len} bytes) — will include in LLM prompt"
+    else:
+      echo fmt"NOTES: {NotesFile} absent (empty brain start; first -- NOTE: will create+append)"
 
-    # PNG dumps only when --png-every explicitly provided by user; target subdir
-    # (prevents bin/ root spam from default or previous runs).
-    if pngEverySet and pngEvery > 0 and (ctx.frameCount mod pngEvery == 0):
-      createDir("bin/llm_frames")
-      let p = fmt"bin/llm_frames/llm_ai_frame_{ctx.frameCount:04d}.png"
-      frameImage.writeFile(p)
-      echo fmt"  wrote {p}"
+    let rom = policy.readRomFile(romPath)
+    let snes = newSnesBus(rom)
+    if saveSramEnabled:
+      loadSram(snes, saveSramPath)
+    var cpu = snes.resetCpu()
+    if loadStatePath.len > 0:
+      if isHumanPlaySlotPath(loadStatePath):
+        echo fmt"ERROR: refusing human play slot path {loadStatePath}. Use {LlmStateDir}/ fixtures only."
+        quit(1)
+      if not fileExists(loadStatePath):
+        echo fmt"ERROR: --load-state-path {loadStatePath} not found"
+        quit(1)
+      readStateFile(loadStatePath, snes, cpu)
+      echo "loaded start state from path ", loadStatePath
+      if "battle" in loadStatePath.toLowerAscii:
+        scenarioPolicy = llm_mock_policies.BattlePolicy
+      if scenarioPolicy == llm_mock_policies.BattlePolicy:
+        let (ok, d) = touch_grass.battleFixtureOk(snes)
+        if not ok:
+          echo "BATTLE FIXTURE INVALID: ", d
+          quit(1)
+    elif loadStateSlot >= 0:
+      let path = llmSlotPath(loadStateSlot)
+      if not fileExists(path):
+        echo fmt"ERROR: --load-state {loadStateSlot} is LLM namespace only: missing {path}"
+        echo fmt"  Human play: bin/states/slotN.state | LLM: {LlmStateDir}/"
+        quit(1)
+      readStateFile(path, snes, cpu)
+      echo "loaded start state from LLM slot ", loadStateSlot, " <- ", path
+      if loadStateSlot == 1:
+        scenarioPolicy = llm_mock_policies.BattlePolicy
+    else:
+      snes.initHdma()
 
-    # Slow clock: re-query provider with fresh summary, hot-reload if changed.
-    # Never blocks the fast per-frame path; only runs every llmInterval.
-    # INTRO SEED: for real LLM, do NOT query/replace until tg>=25 (bedroom).
-    # This lets IntroSkillLua drive the full title->naming->bedroom sequence.
-    # Then handoff to qwen from bedroom state. For mock, query early (canned).
-    if llmInterval > 0 and (ctx.frameCount mod llmInterval == 0) and ctx.frameCount > 0:
-      let tg = touch_grass.touchGrassPercent(snes)
-      let room = touch_grass.currentRoomLabel(snes)
-      let pokeyPct = story_percents.pokeyPercent(snes)
-      let pokeyKnockPct = story_percents.pokeyKnockPercent(snes)
-      let buzzBuzzPct = story_percents.buzzBuzzPercent(snes)
-      let sunrisePct = story_percents.sunrisePercent(snes)
-      let oldTg = prevTg
-      let oldRoom = prevRoom
-      if tg > maxTouchGrass:
-        maxTouchGrass = tg
-      if pokeyPct > maxPokey:
-        maxPokey = pokeyPct
-      # Latch the Pokey achievement: reaching Pokey and talking is a milestone;
-      # the post-talk scene moves the player so pokey_pct falls back — don't let
-      # that read as regression / trigger a rollback that undoes the win.
-      if pokeyPct >= 100 and pokeyAchievedFrame < 0:
-        pokeyAchievedFrame = ctx.frameCount
-        logTg(fmt"POKEY ACHIEVED at frame {ctx.frameCount} (talked to Pokey at the meteor)")
-        echo "POKEY ACHIEVED!"
-      # Only log when progress actually changed, or every ~300 frames as a heartbeat.
-      let logSig = fmt"{tg}|{room}|{pokeyPct}|{pokeyKnockPct}|{buzzBuzzPct}|{sunrisePct}"
-      if logSig != lastLogSig or (ctx.frameCount mod 300 == 0):
-        logTg(fmt"{now()} frame={ctx.frameCount} touch_grass_pct={tg} max={maxTouchGrass} room={room} pokey_pct={pokeyPct} pokey_knock_pct={pokeyKnockPct} buzzbuzz_pct={buzzBuzzPct} sunrise_pct={sunrisePct}")
-        lastLogSig = logSig
-      if oldTg < 100 and tg >= 100:
-        logTg(fmt"TOUCH GRASS ACHIEVED at frame {ctx.frameCount}")
-        echo "TOUCH GRASS ACHIEVED!"
-        # Campaign handoff: outside → Pokey % seed (docs/llm-sequence.md). ExploreOnett
-        # remains available via selectMockPolicyByName for display-only experiments.
-        if scenarioPolicy == llm_mock_policies.NavHousePolicy or
-            currentPolicy == llm_mock_policies.NavHousePolicy:
-          let pokey = llm_mock_policies.PokeyVisitPolicy
-          if loadPolicyChunk(L, pokey, "pokey_visit_after_tg100"):
-            scenarioPolicy = pokey
-            currentPolicy = pokey
-            echo "POLICY: tg>=100 — switched seed to PokeyVisitPolicy (Pokey % gate)"
-            status = "pokey"
-          else:
-            echo "POLICY: PokeyVisitPolicy load failed; keeping prior"
-      # Read live player pos for *fine-grained* progress (critical after tg plateaus at 75).
-      # tg/room only flips on big milestones; inside the house we must detect "still walking toward exit".
+    # Initialize progress trackers from whatever start state we have (fresh boot or loaded).
+    # This gives the first slow-tick a sane baseline for pos-delta and tg checks.
+    block:
       let pidx = touch_grass.PlayerSlot * touch_grass.SlotIndexStride
-      let px = touch_grass.readU16(snes, touch_grass.WorldXBase + pidx)
-      let py = touch_grass.readU16(snes, touch_grass.WorldYBase + pidx)
-      let posDelta = abs(px - prevPlayerX) + abs(py - prevPlayerY)
-      let madePosProgress = posDelta > 12   # meaningful world movement since last slow tick
+      prevPlayerX = touch_grass.readU16(snes, touch_grass.WorldXBase + pidx)
+      prevPlayerY = touch_grass.readU16(snes, touch_grass.WorldYBase + pidx)
+      prevTg = touch_grass.touchGrassPercent(snes)
+      prevRoom = touch_grass.currentRoomLabel(snes)
+      prevMoney = touch_grass.readU16(snes, 0x9831)
+      # Smoke: prologue story percents (stubs until RE; see docs/llm-sequence.md).
+      echo fmt"story_pcts smoke: tg={prevTg} pokey={story_percents.pokeyPercent(snes)} pokey_knock={story_percents.pokeyKnockPercent(snes)} buzzbuzz={story_percents.buzzBuzzPercent(snes)} sunrise={story_percents.sunrisePercent(snes)} room={prevRoom}"
 
-      # Record recent history (last few actions + did tg%/room change since prior LLM tick?)
-      # This lets qwen course-correct when stuck (no progress = try different skill/approach).
-      let madePokeyProgress = pokeyPct > prevPokey
-      let madeTgRoomProgress = (tg > oldTg) or (room != oldRoom) or madePokeyProgress
-      let madeProgressForHist = madeTgRoomProgress or madePosProgress
-      let progStr = if madeProgressForHist: "PROGRESS" else: "NO_CHANGE"
-      let histEntry = fmt"[{ctx.frameCount}] tg {oldTg}->{tg} room {oldRoom}->{room} ({progStr})"
-      recentHistory.add(histEntry)
-      if recentHistory.len > 6:
-        recentHistory = recentHistory[recentHistory.len - 6 .. ^1]
+    let frameImage = newImage(ppu.ScreenWidth, ppu.ScreenHeight)
+    let ctx = policy.PolicyContext(
+      snes: snes,
+      frameImage: frameImage,
+      frameCount: 0,
+      joy1: 0'u16,
+      targetFps: targetSpeed
+    )
 
-      # Milestone reports on crossing (per docs/llm-plays.md). Capture pos + active policy + git.
-      if tg != oldTg or room != oldRoom:
-        # px/py already read above for pos progress; reuse for report
-        var mname = fmt"tg{oldTg}_to_{tg}_{oldRoom}_to_{room}"
-        if oldTg == 25 and tg >= 75: mname = "exit_bedroom_to_house"
-        elif oldTg < 100 and tg == 100: mname = "touch_grass_outside"
-        elif oldTg == 0 and tg == 25: mname = "enter_bedroom"
-        elif (oldTg == 75 or oldTg == 0) and tg == 50: mname = "enter_battle"
-        writeMilestoneReport(mname, ctx.frameCount, oldTg, tg, oldRoom, room, px, py, currentPolicy)
+    let L = lua53.newstate()
+    if L == nil:
+      echo "ERROR: lua newstate nil"
+      quit(1)
+    L.openSandbox()
+    policy.setupPolicyApi(L, ctx)
+    # scene() — structured perception (nearby entities relative to Ness). Bound at
+    # app level because scene.nim (tools) imports policy; see sceneLua above.
+    L.pushcfunction(sceneLua)
+    L.setglobal("scene".cstring)
 
-        # On real progress (tg up), snapshot under LLM namespace only (never play slots).
-        if tg > oldTg:
+    # SKILL LIBRARY (persistent brain part 1): load bin/states/llm_skills.lua BEFORE any policy.
+    # If absent, SEED by writing Escape+WalkTo+Intro+Win (so escapeMenu/walkTo/winBattle etc in scope).
+    # This happens once at boot; skills become globals callable from update().
+    # (touch_grass provides the strings; only edit allowed files.)
+    if fileExists(SkillsFile):
+      let skillSrc = readFile(SkillsFile)
+      if loadPolicyChunk(L, skillSrc, "persistent_skills"):
+        echo "SKILL_LIBRARY: loaded ", SkillsFile, " (len=", skillSrc.len, ") into sandbox BEFORE policy"
+      else:
+        echo "SKILL_LIBRARY: WARNING: loadPolicyChunk failed for ", SkillsFile, " (continuing without)"
+    else:
+      let seedSrc = touch_grass.EscapeMenuSkillLua & "\n\n" & touch_grass.WalkToSkillLua & "\n\n" &
+        touch_grass.IntroSkillLua & "\n\n" & touch_grass.WinBattleSkillLua & "\n\n" &
+        touch_grass.AdvanceDialogueSkillLua
+      writeFile(SkillsFile, seedSrc)
+      echo "SKILL_LIBRARY: absent; seeded ", SkillsFile, " (len=", seedSrc.len, ") with Escape+WalkTo+Intro+Win+AdvanceDialogue"
+      discard loadPolicyChunk(L, seedSrc, "seeded_skills")
+    # Confirm walkTo is callable (from WalkTo seed or prior skills) for verify logs.
+    L.getglobal("walkTo".cstring)
+    let walkIsFn = (L.getType(-1) == lua53.TFUNCTION)
+    L.pop(1)
+    if walkIsFn:
+      echo "SKILL_LIBRARY: walkTo is callable in the Lua sandbox (confirmed)"
+    else:
+      echo "SKILL_LIBRARY: walkTo not present as function (policy may still define later)"
+
+    discard getProvider(useMock)  # provider selection now via gUseMock for thread dispatch
+    gUseMock = useMock
+    workChan.open()
+    resultChan.open()
+    createThread(workerThread, llmWorkerProc)
+    if watchAsync:
+      echo "BACKGROUND: worker thread started; --watch-async: frames keep stepping while LLM in-flight; hot-swap on result"
+    else:
+      echo "BACKGROUND: worker thread started; --sync-llm: pause frames until policy applies (apply-at-snapshot)"
+
+    var currentPolicy: string
+    if loadStateSlot >= 0 or loadStatePath.len > 0:
+      # loaded state IS the start. Use scenarioPolicy set above (battle for fixture/slot1, nav otherwise).
+      # Replaced at first slow tick if needed. Decouples battle win verif from nav.
+      currentPolicy = scenarioPolicy
+      let kind = if scenarioPolicy == llm_mock_policies.BattlePolicy: "battle" else: "nav"
+      echo "initial policy seeded from scenarioPolicy (", kind, ", len=", currentPolicy.len, ")"
+    else:
+      # Seed INITIAL policy with IntroSkillLua (deterministic title->naming->bedroom).
+      # Always start here for both mock and real so multi-step intro actually runs.
+      # LLM handoff only after tg>=25 (bedroom reached); see slow-clock guard below.
+      currentPolicy = touch_grass.IntroSkillLua
+      echo "initial policy seeded with IntroSkillLua (len=", currentPolicy.len, ")"
+    if not loadPolicyChunk(L, currentPolicy, "initial"):
+      echo "failed to load initial policy; abort"
+      quit(1)
+    # Extract notes from the initial policy string too (captures the -- NOTE: we put in mock for verify).
+    extractAndAppendNotes(currentPolicy)
+    extractAndAppendLearns(currentPolicy)
+
+    let clockDesc = if watchAsync:
+      "async: keep stepping current policy while LLM thinks"
+    else:
+      "sync: pause frames until policy applies"
+    echo "starting two-clock loop (fast: per-frame update; slow: LLM every ", llmInterval, " frames; ", clockDesc, ")"
+    if not useHeadless:
+      echo "  windowed mode: a separate GL window will show the LLM-driven play (no keyboard input; policy controls joy1)"
+    else:
+      echo "  headless mode (no window)"
+
+    var maxTouchGrass = 0
+    var maxPokey = 0
+    var pokeyAchievedFrame = -1
+    let logPath = "bin/llm_ai_log.txt"
+    createDir("bin")
+    proc logTg(msg: string) =
+      let f = open(logPath, fmAppend)
+      f.writeLine(msg)
+      f.close()
+      echo msg
+
+    var blit: GlBlit
+    if not useHeadless:
+      blit = initGlBlit("EarthBound - LLM (qwen)", ppu.ScreenWidth, ppu.ScreenHeight, 3)
+
+    var status = "running"
+
+    # Pacing state for --speed wiring (and AI-controlled via ctx.targetFps / sim.setSpeed).
+    # Use deadline schedule: after each frame, advance deadline by 1/fps, sleep remainder if early.
+    # Clamp using MaxPacingBacklogFrames: if far behind, reset deadline (prevents weird future over-sleep after stall).
+    # 0 = unlimited. --speed paces running segments. --sync-llm pauses while pending; --watch-async does not.
+    var nextDeadline = getMonoTime()
+
+    # Main loop: policy + step + (optional) GL present. Emulation paced by --speed during run segments.
+    # --watch-async: keep stepping with current policy while LLM in-flight; poll+hot-swap each frame.
+    # --sync-llm: pause frame advance until policy applies (apply-at-snapshot).
+    while ctx.frameCount < maxFrames:
+      if (not useHeadless) and blit.window.closeRequested:
+        break
+      if not useHeadless:
+        pollEvents()
+
+      let wasPending = pendingLlm
+
+      let err = policy.runPolicyFrame(L, ctx)
+      if err.len > 0:
+        echo fmt"policy runtime error frame {ctx.frameCount}: {err}"
+        status = "err"
+
+      snes.joy1 = ctx.joy1
+      if (ctx.joy1 and policy.BtnRight) != 0:
+        echo fmt"  joy1 has RIGHT bit (0x{ctx.joy1:04x}) frame {ctx.frameCount}"
+
+      policy.stepOneFrame(snes, cpu, frameImage)
+      ctx.frameCount += 1
+      if wasPending:
+        framesDuringPending += 1
+
+      # Poll background result every frame (non-blocking). Hot-swap when ready.
+      # Async watch path relies on this every-frame poll; sync path also uses it inside pause-wait.
+      discard pollAndApplyResult(L, currentPolicy, status, ctx.frameCount)
+
+      # WIRE --speed / AI fps control: pace to target (only when we do advance a frame).
+      # After frame, compute next deadline = prev + (1s/fps), sleep remainder to it.
+      # If behind by >4 frames worth, reset deadline (clamp backlog, resume without catchup burst/sleep debt).
+      # fps=0: skip, run full speed (near-instant for --speed 0).
+      # ctx.targetFps read after policy run, so sim.setSpeed(fps) in update() takes effect immediately for next iter.
+      # --sync-llm pause-wait bypasses this; --watch-async keeps pacing while thinking.
+      let fps = ctx.targetFps
+      if fps > 0:
+        let frameNs = 1_000_000_000'i64 div fps.int64
+        nextDeadline = nextDeadline + initDuration(nanoseconds = frameNs)
+        let now = getMonoTime()
+        if now < nextDeadline:
+          let ns = (nextDeadline - now).inNanoseconds
+          let ms = (ns div 1_000_000).int
+          if ms > 0:
+            sleep(ms)
+        else:
+          let behind = (now - nextDeadline).inNanoseconds
+          if behind > frameNs * MaxPacingBacklogFrames:
+            nextDeadline = now
+
+      if not useHeadless:
+        blit.blit(frameImage)
+        let t = fmt"EarthBound - LLM (qwen) - frame {ctx.frameCount} [{status}]"
+        if blit.window.title != t:
+          blit.window.title = t
+
+      # Periodic SRAM flush for isolated save (throttled like play.nim to coalesce writes).
+      if saveSramEnabled and snes.sramDirty and (ctx.frameCount mod 60 == 0):
+        saveSram(snes, saveSramPath)
+
+      # PNG dumps only when --png-every explicitly provided by user; target subdir
+      # (prevents bin/ root spam from default or previous runs).
+      if pngEverySet and pngEvery > 0 and (ctx.frameCount mod pngEvery == 0):
+        createDir("bin/llm_frames")
+        let p = fmt"bin/llm_frames/llm_ai_frame_{ctx.frameCount:04d}.png"
+        frameImage.writeFile(p)
+        echo fmt"  wrote {p}"
+
+      # Slow clock: re-query provider with fresh summary, hot-reload if changed.
+      # Never blocks the fast per-frame path; only runs every llmInterval.
+      # INTRO SEED: for real LLM, do NOT query/replace until tg>=25 (bedroom).
+      # This lets IntroSkillLua drive the full title->naming->bedroom sequence.
+      # Then handoff to qwen from bedroom state. For mock, query early (canned).
+      if llmInterval > 0 and (ctx.frameCount mod llmInterval == 0) and ctx.frameCount > 0:
+        let tg = touch_grass.touchGrassPercent(snes)
+        let room = touch_grass.currentRoomLabel(snes)
+        let pokeyPct = story_percents.pokeyPercent(snes)
+        let pokeyKnockPct = story_percents.pokeyKnockPercent(snes)
+        let buzzBuzzPct = story_percents.buzzBuzzPercent(snes)
+        let sunrisePct = story_percents.sunrisePercent(snes)
+        let oldTg = prevTg
+        let oldRoom = prevRoom
+        if tg > maxTouchGrass:
+          maxTouchGrass = tg
+        if pokeyPct > maxPokey:
+          maxPokey = pokeyPct
+        # Latch the Pokey achievement: reaching Pokey and talking is a milestone;
+        # the post-talk scene moves the player so pokey_pct falls back — don't let
+        # that read as regression / trigger a rollback that undoes the win.
+        if pokeyPct >= 100 and pokeyAchievedFrame < 0:
+          pokeyAchievedFrame = ctx.frameCount
+          logTg(fmt"POKEY ACHIEVED at frame {ctx.frameCount} (talked to Pokey at the meteor)")
+          echo "POKEY ACHIEVED!"
+        # Only log when progress actually changed, or every ~300 frames as a heartbeat.
+        let logSig = fmt"{tg}|{room}|{pokeyPct}|{pokeyKnockPct}|{buzzBuzzPct}|{sunrisePct}"
+        if logSig != lastLogSig or (ctx.frameCount mod 300 == 0):
+          logTg(fmt"{now()} frame={ctx.frameCount} touch_grass_pct={tg} max={maxTouchGrass} room={room} pokey_pct={pokeyPct} pokey_knock_pct={pokeyKnockPct} buzzbuzz_pct={buzzBuzzPct} sunrise_pct={sunrisePct}")
+          lastLogSig = logSig
+        if oldTg < 100 and tg >= 100:
+          logTg(fmt"TOUCH GRASS ACHIEVED at frame {ctx.frameCount}")
+          echo "TOUCH GRASS ACHIEVED!"
+          # Campaign handoff: outside → Pokey % seed (docs/llm-sequence.md). ExploreOnett
+          # remains available via selectMockPolicyByName for display-only experiments.
+          if scenarioPolicy == llm_mock_policies.NavHousePolicy or
+              currentPolicy == llm_mock_policies.NavHousePolicy:
+            let pokey = llm_mock_policies.PokeyVisitPolicy
+            if loadPolicyChunk(L, pokey, "pokey_visit_after_tg100"):
+              scenarioPolicy = pokey
+              currentPolicy = pokey
+              echo "POLICY: tg>=100 — switched seed to PokeyVisitPolicy (Pokey % gate)"
+              status = "pokey"
+            else:
+              echo "POLICY: PokeyVisitPolicy load failed; keeping prior"
+        # Read live player pos for *fine-grained* progress (critical after tg plateaus at 75).
+        # tg/room only flips on big milestones; inside the house we must detect "still walking toward exit".
+        let pidx = touch_grass.PlayerSlot * touch_grass.SlotIndexStride
+        let px = touch_grass.readU16(snes, touch_grass.WorldXBase + pidx)
+        let py = touch_grass.readU16(snes, touch_grass.WorldYBase + pidx)
+        let posDelta = abs(px - prevPlayerX) + abs(py - prevPlayerY)
+        let madePosProgress = posDelta > 12   # meaningful world movement since last slow tick
+
+        # Record recent history (last few actions + did tg%/room change since prior LLM tick?)
+        # This lets qwen course-correct when stuck (no progress = try different skill/approach).
+        let madePokeyProgress = pokeyPct > prevPokey
+        let madeTgRoomProgress = (tg > oldTg) or (room != oldRoom) or madePokeyProgress
+        let madeProgressForHist = madeTgRoomProgress or madePosProgress
+        let progStr = if madeProgressForHist: "PROGRESS" else: "NO_CHANGE"
+        let histEntry = fmt"[{ctx.frameCount}] tg {oldTg}->{tg} room {oldRoom}->{room} ({progStr})"
+        recentHistory.add(histEntry)
+        if recentHistory.len > 6:
+          recentHistory = recentHistory[recentHistory.len - 6 .. ^1]
+
+        # Milestone reports on crossing (per docs/llm-plays.md). Capture pos + active policy + git.
+        if tg != oldTg or room != oldRoom:
+          # px/py already read above for pos progress; reuse for report
+          var mname = fmt"tg{oldTg}_to_{tg}_{oldRoom}_to_{room}"
+          if oldTg == 25 and tg >= 75: mname = "exit_bedroom_to_house"
+          elif oldTg < 100 and tg == 100: mname = "touch_grass_outside"
+          elif oldTg == 0 and tg == 25: mname = "enter_bedroom"
+          elif (oldTg == 75 or oldTg == 0) and tg == 50: mname = "enter_battle"
+          writeMilestoneReport(mname, ctx.frameCount, oldTg, tg, oldRoom, room, px, py, currentPolicy)
+
+          # On real progress (tg up), snapshot under LLM namespace only (never play slots).
+          if tg > oldTg:
+            try:
+              writeStateFile(LlmRollbackState, snes, cpu)
+              lastMilestonePath = LlmRollbackState
+              stuckCounter = 0
+              echo "  SAVED rollback milestone -> ", LlmRollbackState
+            except CatchableError as e:
+              echo "  save milestone failed: ", e.msg
+
+        # Story-percent milestone: pokey_pct climbs while tg is pinned at 100 outside, so the
+        # tg-gated save above never fires on the hill. Snapshot here so a later rollback lands at
+        # the doorstep (60/90), not back at outside-start (0).
+        if madePokeyProgress:
           try:
             writeStateFile(LlmRollbackState, snes, cpu)
             lastMilestonePath = LlmRollbackState
             stuckCounter = 0
-            echo "  SAVED rollback milestone -> ", LlmRollbackState
+            echo fmt"  SAVED pokey milestone (pokey_pct {prevPokey}->{pokeyPct}) -> {LlmRollbackState}"
           except CatchableError as e:
-            echo "  save milestone failed: ", e.msg
+            echo "  save pokey milestone failed: ", e.msg
 
-      # Story-percent milestone: pokey_pct climbs while tg is pinned at 100 outside, so the
-      # tg-gated save above never fires on the hill. Snapshot here so a later rollback lands at
-      # the doorstep (60/90), not back at outside-start (0).
-      if madePokeyProgress:
-        try:
-          writeStateFile(LlmRollbackState, snes, cpu)
-          lastMilestonePath = LlmRollbackState
+        # higher-level stuck detection + rollback using save/load (beyond per-skill wiggle)
+        # Use *coarse* (tg/room) + *fine* (live pos delta) + money. This prevents false "stuck" while
+        # the agent is successfully walking across house_interior (tg stays 75 until the door).
+        let curMoney = touch_grass.readU16(snes, 0x9831)
+        let moneyProg = curMoney != prevMoney
+        let madeAnyProgress = madeTgRoomProgress or madePosProgress or moneyProg or madePokeyProgress
+        # At the goal (adjacent to Pokey, pokey_pct>=90) the bot deliberately
+        # stands still mashing Up+A to trigger the talk — "not moving" there is
+        # success in progress, not a stall. Don't let rollback yank it away
+        # before the scene fires.
+        let atGoal = pokeyPct >= 90
+        if not madeAnyProgress and not atGoal:
+          stuckCounter += 1
+        else:
           stuckCounter = 0
-          echo fmt"  SAVED pokey milestone (pokey_pct {prevPokey}->{pokeyPct}) -> {LlmRollbackState}"
-        except CatchableError as e:
-          echo "  save pokey milestone failed: ", e.msg
+        # Extra signal for oscillation/yo-yo at door thresholds (tg 25<->75 with bad fixed target policy).
+        # Boosts counter so rollback + replan happens sooner instead of endless crossing.
+        if tg < oldTg:
+          stuckCounter = stuckCounter + 3
+          echo "  REGRESSION detected (tg " & $oldTg & "->" & $tg & "); boosting stuck counter"
+        prevMoney = curMoney
+        prevPokey = pokeyPct
+        prevPlayerX = px
+        prevPlayerY = py
+        if stuckCounter > 18 and lastMilestonePath.len > 0:
+          echo fmt"STUCK_DETECTED (counter={stuckCounter}); rolling back to {lastMilestonePath}"
+          try:
+            readStateFile(lastMilestonePath, snes, cpu)
+            snes.joy1 = 0
+            ctx.joy1 = 0
+            # Reset prev* + pos trackers to post-load values.
+            prevTg = touch_grass.touchGrassPercent(snes)
+            prevRoom = touch_grass.currentRoomLabel(snes)
+            prevMoney = touch_grass.readU16(snes, 0x9831)
+            prevPokey = story_percents.pokeyPercent(snes)
+            let pidxR = touch_grass.PlayerSlot * touch_grass.SlotIndexStride
+            prevPlayerX = touch_grass.readU16(snes, touch_grass.WorldXBase + pidxR)
+            prevPlayerY = touch_grass.readU16(snes, touch_grass.WorldYBase + pidxR)
+            stuckCounter = 0
+            pendingLlm = false
+            currentPolicy = scenarioPolicy
+            discard loadPolicyChunk(L, currentPolicy, "post_rollback_safe_nav")
+            status = "rollback"
+          except CatchableError as e:
+            echo "rollback load failed: ", e.msg
+            stuckCounter = 0
 
-      # higher-level stuck detection + rollback using save/load (beyond per-skill wiggle)
-      # Use *coarse* (tg/room) + *fine* (live pos delta) + money. This prevents false "stuck" while
-      # the agent is successfully walking across house_interior (tg stays 75 until the door).
-      let curMoney = touch_grass.readU16(snes, 0x9831)
-      let moneyProg = curMoney != prevMoney
-      let madeAnyProgress = madeTgRoomProgress or madePosProgress or moneyProg or madePokeyProgress
-      # At the goal (adjacent to Pokey, pokey_pct>=90) the bot deliberately
-      # stands still mashing Up+A to trigger the talk — "not moving" there is
-      # success in progress, not a stall. Don't let rollback yank it away
-      # before the scene fires.
-      let atGoal = pokeyPct >= 90
-      if not madeAnyProgress and not atGoal:
-        stuckCounter += 1
-      else:
-        stuckCounter = 0
-      # Extra signal for oscillation/yo-yo at door thresholds (tg 25<->75 with bad fixed target policy).
-      # Boosts counter so rollback + replan happens sooner instead of endless crossing.
-      if tg < oldTg:
-        stuckCounter = stuckCounter + 3
-        echo "  REGRESSION detected (tg " & $oldTg & "->" & $tg & "); boosting stuck counter"
-      prevMoney = curMoney
-      prevPokey = pokeyPct
-      prevPlayerX = px
-      prevPlayerY = py
-      if stuckCounter > 18 and lastMilestonePath.len > 0:
-        echo fmt"STUCK_DETECTED (counter={stuckCounter}); rolling back to {lastMilestonePath}"
-        try:
-          readStateFile(lastMilestonePath, snes, cpu)
-          snes.joy1 = 0
-          ctx.joy1 = 0
-          # Reset prev* + pos trackers to post-load values.
-          prevTg = touch_grass.touchGrassPercent(snes)
-          prevRoom = touch_grass.currentRoomLabel(snes)
-          prevMoney = touch_grass.readU16(snes, 0x9831)
-          prevPokey = story_percents.pokeyPercent(snes)
-          let pidxR = touch_grass.PlayerSlot * touch_grass.SlotIndexStride
-          prevPlayerX = touch_grass.readU16(snes, touch_grass.WorldXBase + pidxR)
-          prevPlayerY = touch_grass.readU16(snes, touch_grass.WorldYBase + pidxR)
-          stuckCounter = 0
-          pendingLlm = false
-          currentPolicy = scenarioPolicy
-          discard loadPolicyChunk(L, currentPolicy, "post_rollback_safe_nav")
-          status = "rollback"
-        except CatchableError as e:
-          echo "rollback load failed: ", e.msg
-          stuckCounter = 0
+        prevTg = tg
+        prevRoom = room
 
-      prevTg = tg
-      prevRoom = room
-
-      let doLlmCall = useMock or (tg >= 25)
-      if doLlmCall:
-        if not pendingLlm:
-          status = if watchAsync: "thinking-async" else: "thinking"
-          if not useHeadless:
-            # Keep last frame visible while we queue the (occasional) LLM call.
-            blit.blit(frameImage)
-            blit.window.title = fmt"EarthBound - LLM (qwen) - frame {ctx.frameCount} [thinking...]"
-          let baseSummary = buildStateSummary(ctx)
-          let screenTxt = policy.getScreenText(ctx.snes)
-          let histBlock = if recentHistory.len > 0:
-            "\n\nRECENT HISTORY (last few policies/actions + progress check tg%/room changed?):\n" & recentHistory.join("\n") & "\n"
-          else:
-            "\n\nRECENT HISTORY: (none yet)\n"
-          let richSummary = baseSummary & histBlock & "\nON-SCREEN TEXT (current dialogue/menu via getScreenText/screen.text):\n" &
-            (if screenTxt.len > 0: screenTxt else: "(no readable text visible)")
-          # Pass snapshot of notes at send time so worker uses consistent view (no race with appendNote on main).
-          workChan.send( (richSummary, currentPolicy, persistentNotes) )
-          pendingLlm = true
-          let modeLabel = if watchAsync: "async" else: "sync"
-          echo fmt"LLM_QUEUED: frame={ctx.frameCount} mode={modeLabel}"
-          if not useHeadless:
-            blit.blit(frameImage)
-            let thinkLabel = if watchAsync: "thinking (async)" else: "waiting policy..."
-            blit.window.title = fmt"EarthBound - LLM (qwen) - frame {ctx.frameCount} [{thinkLabel}]"
-          if not watchAsync:
-            # --sync-llm / --pause-llm: freeze frames until policy applies (apply-at-snapshot).
-            # The returned policy matches the summary state at send time — good for milestone CI.
-            while pendingLlm:
-              discard pollAndApplyResult(L, currentPolicy, status, ctx.frameCount)
-              if not pendingLlm:
-                break
-              sleep(5)
-              if not useHeadless:
-                pollEvents()
-                if blit.window.closeRequested:
+        let doLlmCall = useMock or (tg >= 25)
+        if doLlmCall:
+          if not pendingLlm:
+            status = if watchAsync: "thinking-async" else: "thinking"
+            if not useHeadless:
+              # Keep last frame visible while we queue the (occasional) LLM call.
+              blit.blit(frameImage)
+              blit.window.title = fmt"EarthBound - LLM (qwen) - frame {ctx.frameCount} [thinking...]"
+            let baseSummary = buildStateSummary(ctx)
+            let screenTxt = policy.getScreenText(ctx.snes)
+            let histBlock = if recentHistory.len > 0:
+              "\n\nRECENT HISTORY (last few policies/actions + progress check tg%/room changed?):\n" & recentHistory.join("\n") & "\n"
+            else:
+              "\n\nRECENT HISTORY: (none yet)\n"
+            let richSummary = baseSummary & histBlock & "\nON-SCREEN TEXT (current dialogue/menu via getScreenText/screen.text):\n" &
+              (if screenTxt.len > 0: screenTxt else: "(no readable text visible)")
+            # Pass snapshot of notes at send time so worker uses consistent view (no race with appendNote on main).
+            workChan.send( (richSummary, currentPolicy, persistentNotes) )
+            pendingLlm = true
+            let modeLabel = if watchAsync: "async" else: "sync"
+            echo fmt"LLM_QUEUED: frame={ctx.frameCount} mode={modeLabel}"
+            if not useHeadless:
+              blit.blit(frameImage)
+              let thinkLabel = if watchAsync: "thinking (async)" else: "waiting policy..."
+              blit.window.title = fmt"EarthBound - LLM (qwen) - frame {ctx.frameCount} [{thinkLabel}]"
+            if not watchAsync:
+              # --sync-llm / --pause-llm: freeze frames until policy applies (apply-at-snapshot).
+              # The returned policy matches the summary state at send time — good for milestone CI.
+              while pendingLlm:
+                discard pollAndApplyResult(L, currentPolicy, status, ctx.frameCount)
+                if not pendingLlm:
                   break
-                blit.blit(frameImage)
-                blit.window.title = fmt"EarthBound - LLM (qwen) - frame {ctx.frameCount} [waiting policy...]"
-          # else --watch-async: do nothing special; main loop keeps stepping current policy
-          # and pollAndApplyResult hot-swaps when the worker result lands.
-        # else: already pending (async path may still hit next llmInterval while in-flight — skip)
-      else:
-        # keep running the seeded IntroSkillLua; defer LLM until bedroom
-        status = "intro"
+                sleep(5)
+                if not useHeadless:
+                  pollEvents()
+                  if blit.window.closeRequested:
+                    break
+                  blit.blit(frameImage)
+                  blit.window.title = fmt"EarthBound - LLM (qwen) - frame {ctx.frameCount} [waiting policy...]"
+            # else --watch-async: do nothing special; main loop keeps stepping current policy
+            # and pollAndApplyResult hot-swaps when the worker result lands.
+          # else: already pending (async path may still hit next llmInterval while in-flight — skip)
+        else:
+          # keep running the seeded IntroSkillLua; defer LLM until bedroom
+          status = "intro"
 
-    if cpu.stopped:
-      echo "cpu stopped; ending run"
-      break
+      if cpu.stopped:
+        echo "cpu stopped; ending run"
+        break
 
-  let finalTg = touch_grass.touchGrassPercent(snes)
-  if finalTg > maxTouchGrass: maxTouchGrass = finalTg
-  let finalPokey = story_percents.pokeyPercent(snes)
-  if finalPokey > maxPokey: maxPokey = finalPokey
-  let finalPokeyKnock = story_percents.pokeyKnockPercent(snes)
-  let finalBuzz = story_percents.buzzBuzzPercent(snes)
-  let finalSunrise = story_percents.sunrisePercent(snes)
-  logTg(fmt"{now()} frame={ctx.frameCount} touch_grass_pct={finalTg} max={maxTouchGrass} pokey_pct={finalPokey} max_pokey={maxPokey} pokey_knock_pct={finalPokeyKnock} buzzbuzz_pct={finalBuzz} sunrise_pct={finalSunrise} (final)")
-  echo fmt"done: ran {ctx.frameCount} frames. final joy1=0x{snes.joy1:04x} max_touch_grass={maxTouchGrass} pokey_pct={finalPokey} max_pokey={maxPokey}" &
-    (if pokeyAchievedFrame >= 0: fmt" POKEY_ACHIEVED@{pokeyAchievedFrame}" else: "") & fmt" sunrise_pct={finalSunrise}"
-  echo fmt"frames_during_pending={framesDuringPending} (frames advanced while LLM request in-flight; async proof when >0)"
-  if saveStateSlot >= 0:
-    let outPath = llmSlotPath(saveStateSlot)
-    writeStateFile(outPath, snes, cpu)
-    echo fmt"saved final state to LLM path {outPath} (px=0x{touch_grass.readU16(snes, 0x0BBE):04X} py=0x{touch_grass.readU16(snes, 0x0BFA):04X})"
-  if saveSramEnabled and snes.sramDirty:
-    saveSram(snes, saveSramPath)
-  L.close()
-  quit(0)
-
-when isMainModule:
+    let finalTg = touch_grass.touchGrassPercent(snes)
+    if finalTg > maxTouchGrass: maxTouchGrass = finalTg
+    let finalPokey = story_percents.pokeyPercent(snes)
+    if finalPokey > maxPokey: maxPokey = finalPokey
+    let finalPokeyKnock = story_percents.pokeyKnockPercent(snes)
+    let finalBuzz = story_percents.buzzBuzzPercent(snes)
+    let finalSunrise = story_percents.sunrisePercent(snes)
+    logTg(fmt"{now()} frame={ctx.frameCount} touch_grass_pct={finalTg} max={maxTouchGrass} pokey_pct={finalPokey} max_pokey={maxPokey} pokey_knock_pct={finalPokeyKnock} buzzbuzz_pct={finalBuzz} sunrise_pct={finalSunrise} (final)")
+    echo fmt"done: ran {ctx.frameCount} frames. final joy1=0x{snes.joy1:04x} max_touch_grass={maxTouchGrass} pokey_pct={finalPokey} max_pokey={maxPokey}" &
+      (if pokeyAchievedFrame >= 0: fmt" POKEY_ACHIEVED@{pokeyAchievedFrame}" else: "") & fmt" sunrise_pct={finalSunrise}"
+    echo fmt"frames_during_pending={framesDuringPending} (frames advanced while LLM request in-flight; async proof when >0)"
+    if saveStateSlot >= 0:
+      let outPath = llmSlotPath(saveStateSlot)
+      writeStateFile(outPath, snes, cpu)
+      echo fmt"saved final state to LLM path {outPath} (px=0x{touch_grass.readU16(snes, 0x0BBE):04X} py=0x{touch_grass.readU16(snes, 0x0BFA):04X})"
+    if saveSramEnabled and snes.sramDirty:
+      saveSram(snes, saveSramPath)
+    L.close()
+    quit(0)
   main()

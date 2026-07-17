@@ -226,16 +226,15 @@ can start any time and continuously enriches D.
 
 - [x] F (interim): dynamic objective ladder; confabulation trimmed
 - [x] D (scaffold): `knowledge/` schema + seeded pokey/mom
-- [x] B (started): `probe_entity_id.nim`; door blocker = slot 4 (identity byte TBD)
-- [ ] B: pin the identity byte; add to `docs/memory-map.md`
-- [ ] D: `-- LEARN` router + relevant-entry injection
-- [x] Azem: qwen3.6-27b@q6_k loaded at full 262144 ctx × 8 slots; vision path confirmed
-- [x] A: `buildScene`/`sceneJson` (`src/tools/scene.nim`) + `probe_scene.nim`; wired into `buildStateSummary` (relative dir + tiles, visibility-filtered)
-- [x] A: expose `scene()` to Lua (native binding in `llm_ai.nim`; documented in SANDBOX API)
-- [x] A: relax `trimForLlm` (80k notes / 24k policy backstops; feed the full brain)
-- [~] B: grok worker in flight (entity-identity byte)
-- [~] E: grok worker in flight (dialogue harvester → KB; already captured Pokey's crater line)
-- [ ] A: vision plumbing into `realProvider` (image_url content part; `max_tokens>=2000`)
-- [ ] E: dialogue harvester → KB
-- [ ] C: intent verbs; referee no-regression
-- [ ] F: rewrite objectives as intent+perception (drop coord ladders)
+- [x] Azem: qwen3.6-27b@q6_k loaded at full 262144 ctx × 8 slots; vision confirmed
+- [x] A: `buildScene`/`sceneJson` (`scene.nim`) + `probe_scene.nim`; wired into `buildStateSummary`
+- [x] A: `scene()` exposed to Lua + documented in SANDBOX API
+- [x] A: relax `trimForLlm` (80k/24k backstops; feed the full brain)
+- [x] **B: identity byte pinned** — `$2CD6` sprite-group / `$29CA` ptr; Mom=`$0091` verified; in `memory-map.md`; `probe_entity_names.nim` (grok, verified)
+- [x] **A: scene names entities** from `$2CD6/$29CA` (reads "mom, NE, 3 tiles")
+- [x] **C: intent verbs** — `nearestEntity`/`approach`/`talk` (`IntentNavSkillLua`); coord-free policy reaches pokey 100 (`probe_intent_nav.nim`, grok, verified)
+- [x] **E: dialogue harvester** → `knowledge/dialogue_log.md` (`probe_dialogue_harvest.nim`, grok, verified)
+- [x] **D: `-- LEARN` write-router + relevant-KB injection** live in `llm_ai.nim` (`probe_memory_router.nim`, grok, verified — Mom KB block injects when she's nearby). ⚠️ import refactor to `when isMainModule` → live `make llm-ai` smoke test wanted.
+- [x] **A: landmarks** in the scene (`scene.nim` `AreaLandmarks`; door shows "meteor_crater NW")
+- [ ] F: rewrite objectives as intent+perception (drop coord ladders — NOW unblocked: scene names + landmarks + intent verbs all exist)
+- [ ] A: vision plumbing into `realProvider` (image_url; `max_tokens>=2000`; live smoke test)
