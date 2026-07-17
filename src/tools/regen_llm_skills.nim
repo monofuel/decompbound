@@ -28,7 +28,7 @@ proc main() =
   if "followTrail" notin seed:
     raise newException(ValueError, "skills seed missing followTrail")
   if "nearestEntity" notin seed or "function approach" notin seed or
-      "function talk" notin seed:
+      "function talk" notin seed or "function goToward" notin seed:
     raise newException(ValueError, "skills seed missing intent-nav verbs")
 
 when isMainModule:

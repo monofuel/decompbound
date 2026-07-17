@@ -973,8 +973,11 @@ const IntentNavSkillLua* = """
 --   live WRAM pos; false when adjacent (dist_tiles <= 1) or entity missing.
 -- talk(slotOrDir) -> approach, face, A, advanceDialogue(); true once a dialogue
 --   window is open (and while advancing it).
+-- goToward(name) -> landmarkTarget(name) then navTo; false when arrived
+--   (manhattan <= 12). If navTo BLOCKs, step a bit in the landmark's scene dir
+--   then replan (no glitch/clip). Requires landmarkTarget() + scene().
 -- Entity pos: slot s at $0B8E+s*2 (X) / $0BCA+s*2 (Y); player slot 24 = $0BBE/$0BFA.
--- Requires: scene(), navTo/walkTo, escapeMenu, advanceDialogue, mem, pad, frame.
+-- Requires: scene(), landmarkTarget, navTo/walkTo, escapeMenu, advanceDialogue, mem, pad, frame.
 -- TODO(magic): adjacent dist_tiles<=1 and face+A cadence from probe_dialogue_harvest.
 
 local function _intentParseEntities()
@@ -1130,6 +1133,94 @@ function talk(slotOrDir)
     pad.press("A")
   end
   return _talk.opened
+end
+
+-- goToward(name): travel to a named landmark of the current area with no
+-- coordinates in the policy. Engine resolves name -> (x,y) via landmarkTarget.
+local GO_ARRIVE = 12
+local GO_UNSTICK_N = 48
+local _go = {unstick = 0, dir = nil, name = nil}
+
+local function _intentLandmarkDir(name)
+  local j = scene() or ""
+  local body = j:match('"landmarks":%[([^%]]*)%]')
+  if not body or body == "" then
+    return nil
+  end
+  for nm, dir in body:gmatch('"name":"([^"]*)","dir":"([^"]*)"') do
+    if nm == name then
+      return dir
+    end
+  end
+  return nil
+end
+
+local function _intentPressDir(dir)
+  if not dir or dir == "" or dir == "here" then
+    return
+  end
+  if dir:find("N", 1, true) then
+    pad.press("Up")
+  end
+  if dir:find("S", 1, true) then
+    pad.press("Down")
+  end
+  if dir:find("E", 1, true) then
+    pad.press("Right")
+  end
+  if dir:find("W", 1, true) then
+    pad.press("Left")
+  end
+end
+
+function goToward(name)
+  if escapeMenu() then
+    return true
+  end
+  if not landmarkTarget then
+    return false
+  end
+  local x, y = landmarkTarget(name)
+  if x == nil then
+    return false
+  end
+  local px, py = _intentPlayerXY()
+  local dist = math.abs(x - px) + math.abs(y - py)
+  if dist <= GO_ARRIVE then
+    _go.unstick = 0
+    return false
+  end
+  if _go.name ~= name then
+    _go.name = name
+    _go.unstick = 0
+    _go.dir = nil
+  end
+  -- After a BLOCKED report: step in the landmark's compass dir a bit, then
+  -- let navTo replan from the new pose (never clip through solids).
+  if _go.unstick > 0 then
+    _go.unstick = _go.unstick - 1
+    _intentPressDir(_go.dir)
+    return true
+  end
+  if navTo then
+    if navTo(x, y) then
+      return true
+    end
+    -- false: arrived (THRESH) or honestly BLOCKED.
+    px, py = _intentPlayerXY()
+    if math.abs(x - px) + math.abs(y - py) <= GO_ARRIVE then
+      return false
+    end
+    local dir = _intentLandmarkDir(name) or "N"
+    _go.dir = dir
+    _go.unstick = GO_UNSTICK_N
+    -- Clear navTo's blocked latch (same tx/ty keeps blocked=true forever).
+    navTo(px, py)
+    _intentPressDir(dir)
+    return true
+  end
+  walkTo(x, y)
+  return true
 end
 """
 
