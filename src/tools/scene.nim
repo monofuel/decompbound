@@ -111,6 +111,16 @@ proc buildScene*(snes: SnesBus): Scene =
         distTiles: (abs(lx - result.px) + abs(ly - result.py)) div 8)
   result.text = policy.getDialogueText(snes).strip()
 
+proc landmarkTarget*(snes: SnesBus, name: string): tuple[found: bool, x, y: int] =
+  ## Resolve a named landmark in the CURRENT area to its world pixel target, so
+  ## `goToward("meteor_crater")` can navTo it without any coordinate in the
+  ## policy/prompt (engine holds the map). Returns found=false if unknown here.
+  let room = touch_grass.currentRoomLabel(snes)
+  if AreaLandmarks.hasKey(room):
+    for (nm, lx, ly) in AreaLandmarks[room]:
+      if nm == name: return (true, lx, ly)
+  (false, 0, 0)
+
 proc sceneJson*(snes: SnesBus): string =
   ## Compact JSON for the LLM prompt. Nearest entities first.
   let sc = buildScene(snes)

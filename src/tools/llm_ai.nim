@@ -121,6 +121,19 @@ proc sceneLua(L: lua53.PState): cint {.cdecl.} =
   L.pushstring(scene.sceneJson(ctx.snes).cstring)
   return 1
 
+proc landmarkTargetLua(L: lua53.PState): cint {.cdecl.} =
+  ## Lua: landmarkTarget(name) -> x, y  (two ints) or nil if not a landmark of
+  ## the current area. Powers coordinate-free travel: goToward(name) resolves the
+  ## name here (engine map data) and navTo's it — no coord ever in the policy.
+  let ctx = policy.getPolicyCtx(L)
+  let t = scene.landmarkTarget(ctx.snes, $L.toString(1))
+  if not t.found:
+    L.pushnil()
+    return 1
+  L.pushinteger(t.x)
+  L.pushinteger(t.y)
+  return 2
+
 var
   workChan: Channel[ProviderWork]
   resultChan: Channel[ProviderResult]
@@ -1210,6 +1223,10 @@ when isMainModule:
     # app level because scene.nim (tools) imports policy; see sceneLua above.
     L.pushcfunction(sceneLua)
     L.setglobal("scene".cstring)
+    # landmarkTarget(name) -> x,y — resolves a named place to a nav target so
+    # goToward(name) can travel coordinate-free (engine holds the map).
+    L.pushcfunction(landmarkTargetLua)
+    L.setglobal("landmarkTarget".cstring)
 
     # SKILL LIBRARY (persistent brain part 1): load bin/states/llm_skills.lua BEFORE any policy.
     # If absent, SEED by writing Escape+WalkTo+Intro+Win (so escapeMenu/walkTo/winBattle etc in scope).
