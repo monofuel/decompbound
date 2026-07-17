@@ -98,9 +98,6 @@ proc main() =
       # joy1 left at 0 by runPolicyFrame
 
     snes.joy1 = ctx.joy1
-    if (ctx.joy1 and policy.BtnRight) != 0:
-      echo fmt"  joy1 has RIGHT bit (0x{ctx.joy1:04x}) frame {ctx.frameCount}"
-
     policy.stepOneFrame(snes, cpu, frameImage)
     ctx.frameCount += 1
 
