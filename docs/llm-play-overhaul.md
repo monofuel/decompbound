@@ -5,6 +5,45 @@ improvements to the LLM-play harness (`src/tools/llm_ai.nim`, `touch_grass.nim`
 skills, `story_percents.nim`). Cross-links: `docs/llm-plays.md`,
 `docs/llm-sequence.md`, `docs/memory-map.md`, `knowledge/README.md`.
 
+## Run modes — the track matrix (canonical terminology)
+
+The end goal is an LLM **playing** EarthBound (a 30-hour, pun-and-wordplay-heavy
+game). A run is defined by two orthogonal axes; a **track** = one Pilot × one
+Tempo. Everything stands on the shared **Building Blocks** — the Lua skill
+library (`scene`/`talk`/`followRoute`/`winBattle`/KB in `bin/states/llm_skills.lua`,
+seeded from `touch_grass.nim`). Both Pilots speak that one vocabulary; that
+invariant is what keeps the tracks from diverging.
+
+**PILOT** — who authors the policy Lua each tick:
+- **Scripted** — deterministic Lua we author (seed policies / a hand TAS). The
+  *reference floor*: reproducible, fast, the referees run it. (flag today: `--mock`)
+- **Agent** — the LLM (qwen) writes/edits the Lua live from the Building Blocks.
+  The *goal*. (flag today: `--no-mock`)
+- *(future rung: **Copilot** — the LLM chooses intent; Scripted blocks execute
+  the mechanics.)*
+
+**TEMPO** — the clock + observability:
+- **Theater** — real-time (~60fps) + window, for a human to watch/demo. (`--speed 60`)
+- **Turbo** — uncapped fps, headless, for fast iteration / CI / progress. (`--headless --speed 0`)
+- **Adaptive** — the Pilot drives its own clock via `sim.setSpeed()` (fast-forward
+  corridors, slow to 60 for menus/fights). A *modifier* on either; the natural
+  default for a smart Agent.
+
+The four tracks: `Scripted·Turbo` = referees/CI · `Agent·Theater` = watch qwen
+play · `Agent·Turbo` = headless autonomous grind · `Scripted·Theater` = demo a
+known beat.
+
+**Division of labor** (why the Agent track is non-negotiable): Building Blocks
+handle MECHANICS (nav, battle, menus, shops, dialogue-advance — all TAS-able);
+the Agent handles LANGUAGE + JUDGMENT (puns, password/riddle puzzles, item
+choices, when to grind/heal, story branches — a TAS can only replay a known
+answer, it can't *understand* a wordplay puzzle). The KB/memory is the Agent's
+long-term brain across the long run.
+
+**Planned CLI:** collapse the flag soup into `--pilot scripted|agent` and
+`--tempo theater|turbo|adaptive` (mapping onto today's `--mock`/`--headless`/
+`--speed`), so a track is one clean switch.
+
 ## The problem
 
 The bot currently plays **blind**. Every LLM tick it receives a text-only
