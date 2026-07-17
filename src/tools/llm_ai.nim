@@ -173,6 +173,12 @@ var
   prevPlayerX = 0
   prevPlayerY = 0
   prevPokey = 0
+  # Milestone completion LATCHES — the story percents are live (position+flag)
+  # gauges that UN-latch when Ness leaves (e.g. pokeyPercent drops below 100 the
+  # moment he walks away from Pokey to head home). Latch each once seen complete
+  # so the objective advances forward and never snaps back to a finished goal.
+  tgDone = false
+  pokeyDone = false
   lastLogSig = ""
     ## Last logged progress signature (tg/room/story-pcts). The per-tick status line only
     ## prints when this changes or on a periodic heartbeat — otherwise a 10k-frame run emits
@@ -737,10 +743,15 @@ proc buildStateSummary*(ctx: policy.PolicyContext): string =
   # head toward named LANDMARKS and NPCs from the SCENE — no raw coordinates.
   # Story framing is only what's confirmed in-game (read dialogue live). Knock
   # caps at 80 (bedroom); the final sleep beat needs a human capture.
+  # LATCH completion: the live percents un-latch when Ness leaves (pokeyPercent
+  # drops below 100 the instant he walks away from Pokey to head home), which
+  # would snap the goal back to the crater. Once seen complete, stay advanced.
+  if tgPct >= 100: tgDone = true
+  if pokeyPct >= 100: pokeyDone = true
   let objective =
-    if tgPct < 100:
+    if not tgDone:
       "A METEOR JUST HIT. You're Ness, woken in your bedroom — get downstairs and OUTSIDE. Head down the stairs (go SOUTH first — furniture blocks a straight east line), through the sitting room, and out the front door. No fights. Target tg_pct=100."
-    elif pokeyPct < 100:
+    elif not pokeyDone:
       "GET TO THE CRATER. Pokey is up at the meteor with the cops. Ride the dense route up: call followRoute('onett_to_crater') every frame — it carries you SW, west, and up the hill to the meteor (verified to reach Pokey; sparse goToward jams the hill, so use the route). When Pokey or any NPC appears in your SCENE, talk(that slot) — he sends you home; READ his line via screen.text(). Don't enter the Minch house. Target pokey_pct=100."
     elif pokeyKnockPct < 80:
       "HEAD HOME. Pokey sent you home — head for the ness_home_door landmark (see SCENE direction); followRoute('onett_to_crater') is bidirectional, so following it from the crater walks you back toward the door. When the SCENE shows an entity named 'mom', talk('mom') and she sends you inside (her line: \"[redacted dialogue]\"). Once inside, head upstairs and walk onto your bed. Target pokey_knock_pct=80."
