@@ -26,7 +26,7 @@ import
   pixie,
   windy,
   ../decompbound/[cpu, ppu, snesbus, lua53, policy, save_state],
-  ./[glblit, touch_grass, llm_mock_policies, story_percents]
+  ./[glblit, touch_grass, llm_mock_policies, story_percents, scene]
 
 const
   DefaultFrames = 60
@@ -186,8 +186,10 @@ proc realProvider(summary: string, currentLua: string): string =
   let t0 = now()
   const SystemPrompt = """You are an expert at writing compact Lua policies that play EarthBound (SNES decomp harness).
 
-GOAL: Touch grass — walk bedroom → stairs → sitting room (south first) → east front door → outside Onett (tg 25→75→100). No battle on this path.
-NEXT GOAL once outside (tg=100): pokey_pct — reach Pokey at the METEOR SITE and talk to him. The route (human-verified) is NOT north from the door: go SOUTH-WEST off the yard, WEST along the road (Y~0x01F8-0x0270), climb NORTH at X~0x0600, then EAST along the ridge to the site. Waypoint ladder for navTo (advance when close): (0x0A2F,0x01AF) (0x0970,0x0270) (0x07CD,0x01DB) (0x0680,0x01F8) (0x05F8,0x0148) (0x0677,0x0150) (0x06D8,0x0130) (0x06DC,0x00ED) (0x078F,0x00B1) (0x0807,0x0116) (0x0858,0x0102). Pokey stands at (0x0858,0x00F2); at the last waypoint face Up and press A, then advanceDialogue() through the text (dialogue uses window slot $8654 — advanceDialogue handles it). pokey_pct: 30 west road, 50 climb, 70 ridge, 80 site, 90 beside Pokey, 100 talked. Do not enter the Minch house (px>=0x1C00 indoors scores 0).
+SETTING: You are Ness. A METEOR just crashed into the hills above Onett in the middle of the night — the whole town's rattled. This is EarthBound: it's funny, it's weird, lean into it. FOLLOW >>> CURRENT_OBJECTIVE at the top of the RICH STATE — it's authoritative and ADVANCES as you finish milestones, so never keep re-doing a finished one (once pokey_pct=100, STOP talking to Pokey and move on). The story ladder, each step unlocking the next:
+  1. WAKE UP & GET OUTSIDE (tg_pct→100): a meteor woke you — bedroom → stairs → sitting room (SOUTH first, furniture blocks the straight east line) → east front door → outside. No fights.
+  2. GET UP TO THE CRATER (pokey_pct→100): your neighbor Pokey is up at the meteor with the cops who've cordoned it off. Route is NOT north from the door — go SOUTH-WEST off the yard, WEST along the road (Y~0x01F8-0x0270), climb NORTH at X~0x0600, EAST along the ridge. navTo ladder: (0x0A2F,0x01AF) (0x0970,0x0270) (0x07CD,0x01DB) (0x0680,0x01F8) (0x05F8,0x0148) (0x0677,0x0150) (0x06D8,0x0130) (0x06DC,0x00ED) (0x078F,0x00B1) (0x0807,0x0116) (0x0858,0x0102). Pokey at (0x0858,0x00F2): beside him, face Up + A, then advanceDialogue() (he sends you home to bed) — READ his line via screen.text(). Do NOT enter the Minch house (px>=0x1C00 scores 0).
+  3. HEAD HOME TO BED (pokey_knock_pct→80): Pokey sent you home — retrace the ridge/road back east to the front door (~0x0A60,0x0158). Your MOM is at the door (captured: "[redacted dialogue]") and you can't slip past her — face Up + press A (advanceDialogue) to talk to her and she sends you inside. Then upstairs to bed: hall (0x1D40,0x03E8) → (0x1F40,0x0450) → bed (0x1FB8,0x0450). Outdoors use followTrail/navTo; INDOORS use walkTo (navTo fails inside). Knock caps at 80 for now (the sleep→KNOCK beat isn't bot-triggerable yet — hold at the bed, don't thrash).
 WAYPOINTS (pick next from live px/py; call walkTo every frame):
 - bedroom (tg25 / x>=0x1F00 upstairs): walkTo(0x1F00,0x0450) then hall (0x1D40,0x03E8) then stair (0x1CC0,0x03E8)
 - after stairs (downstairs): SOUTH first walkTo(0x1D30,0x0178) — do NOT pure-east along y=0x0140 (furniture)
@@ -323,8 +325,10 @@ proc realProviderSnap(summary: string, currentLua: string, notes: string): strin
   let t0 = now()
   const SystemPrompt = """You are an expert at writing compact Lua policies that play EarthBound (SNES decomp harness).
 
-GOAL: Touch grass — walk bedroom → stairs → sitting room (south first) → east front door → outside Onett (tg 25→75→100). No battle on this path.
-NEXT GOAL once outside (tg=100): pokey_pct — reach Pokey at the METEOR SITE and talk to him. The route (human-verified) is NOT north from the door: go SOUTH-WEST off the yard, WEST along the road (Y~0x01F8-0x0270), climb NORTH at X~0x0600, then EAST along the ridge to the site. Waypoint ladder for navTo (advance when close): (0x0A2F,0x01AF) (0x0970,0x0270) (0x07CD,0x01DB) (0x0680,0x01F8) (0x05F8,0x0148) (0x0677,0x0150) (0x06D8,0x0130) (0x06DC,0x00ED) (0x078F,0x00B1) (0x0807,0x0116) (0x0858,0x0102). Pokey stands at (0x0858,0x00F2); at the last waypoint face Up and press A, then advanceDialogue() through the text (dialogue uses window slot $8654 — advanceDialogue handles it). pokey_pct: 30 west road, 50 climb, 70 ridge, 80 site, 90 beside Pokey, 100 talked. Do not enter the Minch house (px>=0x1C00 indoors scores 0).
+SETTING: You are Ness. A METEOR just crashed into the hills above Onett in the middle of the night — the whole town's rattled. This is EarthBound: it's funny, it's weird, lean into it. FOLLOW >>> CURRENT_OBJECTIVE at the top of the RICH STATE — it's authoritative and ADVANCES as you finish milestones, so never keep re-doing a finished one (once pokey_pct=100, STOP talking to Pokey and move on). The story ladder, each step unlocking the next:
+  1. WAKE UP & GET OUTSIDE (tg_pct→100): a meteor woke you — bedroom → stairs → sitting room (SOUTH first, furniture blocks the straight east line) → east front door → outside. No fights.
+  2. GET UP TO THE CRATER (pokey_pct→100): your neighbor Pokey is up at the meteor with the cops who've cordoned it off. Route is NOT north from the door — go SOUTH-WEST off the yard, WEST along the road (Y~0x01F8-0x0270), climb NORTH at X~0x0600, EAST along the ridge. navTo ladder: (0x0A2F,0x01AF) (0x0970,0x0270) (0x07CD,0x01DB) (0x0680,0x01F8) (0x05F8,0x0148) (0x0677,0x0150) (0x06D8,0x0130) (0x06DC,0x00ED) (0x078F,0x00B1) (0x0807,0x0116) (0x0858,0x0102). Pokey at (0x0858,0x00F2): beside him, face Up + A, then advanceDialogue() (he sends you home to bed) — READ his line via screen.text(). Do NOT enter the Minch house (px>=0x1C00 scores 0).
+  3. HEAD HOME TO BED (pokey_knock_pct→80): Pokey sent you home — retrace the ridge/road back east to the front door (~0x0A60,0x0158). Your MOM is at the door (captured: "[redacted dialogue]") and you can't slip past her — face Up + press A (advanceDialogue) to talk to her and she sends you inside. Then upstairs to bed: hall (0x1D40,0x03E8) → (0x1F40,0x0450) → bed (0x1FB8,0x0450). Outdoors use followTrail/navTo; INDOORS use walkTo (navTo fails inside). Knock caps at 80 for now (the sleep→KNOCK beat isn't bot-triggerable yet — hold at the bed, don't thrash).
 WAYPOINTS (pick next from live px/py; call walkTo every frame):
 - bedroom (tg25 / x>=0x1F00 upstairs): walkTo(0x1F00,0x0450) then hall (0x1D40,0x03E8) then stair (0x1CC0,0x03E8)
 - after stairs (downstairs): SOUTH first walkTo(0x1D30,0x0178) — do NOT pure-east along y=0x0140 (furniture)
@@ -547,6 +551,22 @@ proc buildStateSummary(ctx: policy.PolicyContext): string =
   let buzzBuzzPct = story_percents.buzzBuzzPercent(ctx.snes)
   let sunrisePct = story_percents.sunrisePercent(ctx.snes)
 
+  # DYNAMIC OBJECTIVE — you are Ness on the night a meteor hit the hills above
+  # Onett. The goal ADVANCES as milestones complete so you never dead-end (don't
+  # re-talk Pokey forever once pokey_pct=100). COORDS are verified/load-bearing;
+  # story framing is kept to what's confirmed in-game (read NPC dialogue live via
+  # screen.text() rather than assuming plot). Knock caps at 80 (bedroom) — the
+  # final sleep beat needs a human capture (see knock_re_notes).
+  let objective =
+    if tgPct < 100:
+      "A METEOR JUST HIT. You're Ness, woken up in your bedroom — get downstairs and OUTSIDE. Bedroom → stairs → sitting room (go SOUTH first, furniture blocks the straight east line) → east out the front door → outside Onett. No fights on the way. Target tg_pct=100."
+    elif pokeyPct < 100:
+      "GET UP TO THE CRATER. Your neighbor Pokey is up at the meteor with the cops who've cordoned it off. From the yard head SOUTH-WEST, WEST along the road (Y~0x01F8-0x0270), climb NORTH up the hill at X~0x0600, then EAST along the ridge to the crater. Pokey's at (0x0858,0x00F2): get beside him, face Up + A, then advanceDialogue() (he sends you home to bed). READ what he says via screen.text(). Do NOT wander into the Minch house (px>=0x1C00 scores 0). Target pokey_pct=100."
+    elif pokeyKnockPct < 80:
+      "HEAD HOME TO BED. Pokey sent you home — go back east down the ridge/road to your front door (~0x0A60,0x0158). Your MOM is at the door (captured line: \"[redacted dialogue] now. Oh, Ness. You don't understand the importance of a good night's sleep...\") — you can't slip past, so face Up and press A (advanceDialogue) to talk to her and she sends you inside. Once indoors (px>=0x1C00) head UPSTAIRS to your bed: hall (0x1D40,0x03E8) → (0x1F40,0x0450) → bed (0x1FB8,0x0450). Outdoors use followTrail/navTo; INDOORS use walkTo (navTo fails inside the house). Target pokey_knock_pct=80 (back at your bed)."
+    else:
+      "YOU'RE HOME AT YOUR BED (knock=80). Stand by the bed (0x1FB8,0x0450) and hold. The sleep→KNOCK beat (80→100) is a scripted prologue event not yet bot-triggerable, so don't thrash — keep escapeMenu() safe and stay put."
+
   # MENU DETECTION (robust for menu-blindness fix): prefer getScreenText (visible items) over old flag.
   # Detects overworld (Talk/Check/..) vs battle (Bash/..) vs submenus; sets menu_open + which_menu.
   # via getScreenText per task spec (or WRAM fallback).
@@ -594,7 +614,13 @@ proc buildStateSummary(ctx: policy.PolicyContext): string =
   let pr2 = safeR8(0x988D)
   let partyRoster = fmt"{pr0} {pr1} {pr2}".strip()
 
+  # Structured scene (perception channel #2) — what's around Ness in RELATIVE
+  # terms (direction + tiles), so the bot navigates by intent, not coordinates.
+  let sceneStr = scene.sceneJson(ctx.snes)
+
   result = fmt"""RICH LABELED STATE:
+>>> CURRENT_OBJECTIVE: {objective}
+SCENE (nearby entities are relative to you — head toward/away by direction, not raw coords): {sceneStr}
 touch_grass_pct: {tgPct}
 pokey_pct: {pokeyPct}
 pokey_knock_pct: {pokeyKnockPct}
