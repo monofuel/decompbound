@@ -236,7 +236,8 @@ can start any time and continuously enriches D.
 - [x] **E: dialogue harvester** → `knowledge/dialogue_log.md` (`probe_dialogue_harvest.nim`, grok, verified)
 - [x] **D: `-- LEARN` write-router + relevant-KB injection** live in `llm_ai.nim` (`probe_memory_router.nim`, grok, verified — Mom KB block injects when she's nearby). ⚠️ import refactor to `when isMainModule` → live `make llm-ai` smoke test wanted.
 - [x] **A: landmarks** in the scene (`scene.nim` `AreaLandmarks`; door shows "meteor_crater NW")
-- [x] **F: objectives rewritten to intent+perception** — outdoor travel is now `goToward(landmark)` chains + `talk('mom')`/`talk(slot)`; the hex crater ladder is GONE from the prompt. Route landmarks (`onett_road`/`hill_climb`/`crater_ridge`) added so the chain threads the hill. Indoor `walkTo` waypoints remain (labeled INDOOR-ONLY) — honest gap until indoor landmarks/pathfinding exist.
-- [ ] nav: verify the goToward landmark-CHAIN reaches the crater coord-free (single-target jammed at pokey 70; chain untested live) → grok probe
+- [x] **F: objectives rewritten to intent+perception** — hex crater ladder GONE from the prompt; travel by named landmark + `talk('mom')`/`talk(slot)`. Indoor `walkTo` waypoints remain (labeled INDOOR-ONLY).
+- [x] nav CHAIN verified (`probe_gotoward_chain.nim`, grok) — **NEGATIVE**: chain jams at leg 1 (`onett_road`), pokey% stuck 10. navTo/A* can't thread this terrain; sparse landmark hops fail. F prompt corrected to an honest NAV CAVEAT (don't instruct a route that stalls).
+- [ ] **nav (the real blocker): coordinate-free outdoor travel needs a DENSE named route via followTrail**, not sparse navTo landmarks. The seed pokey policy reaches 100 only via FollowTrailSkillLua's dense trail — expose that as an engine-held named route so `goToward`/`followRoute` executes it coord-free. THIS is what unblocks the live crater journey.
 - [ ] nav: indoor landmarks + walkTo-based goToward (kill the last coord waypoints)
 - [ ] A: vision plumbing into `realProvider` (image_url; `max_tokens>=2000`; live smoke test)
