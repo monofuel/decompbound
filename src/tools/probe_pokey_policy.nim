@@ -39,7 +39,7 @@ proc main() =
   # doorEnter loaded but PokeyVisitPolicy must not call it
   let skills = EscapeMenuSkillLua & "\n" & WalkToSkillLua & "\n" & WinBattleSkillLua &
     "\n" & AdvanceDialogueSkillLua & "\n" & NavSkillLua & "\n" & FollowTrailSkillLua &
-    "\n" & DoorEnterSkillLua
+    "\n" & NamedRoutesLua & "\n" & DoorEnterSkillLua
   loadChunk(L, skills, "sk")
 
   var switched = false
