@@ -1044,6 +1044,21 @@ when isMainModule:
         useMock = false
       elif a == "--mock":
         useMock = true
+      # Track matrix (docs/llm-play-overhaul.md): --pilot PILOT --tempo TEMPO.
+      # Convenience over the raw --mock/--headless/--speed flags below.
+      elif (a == "--pilot" and i < paramCount()) or a.startsWith("--pilot="):
+        let v = (if a == "--pilot": (inc i; paramStr(i)) else: a[8 .. ^1]).toLowerAscii()
+        case v
+        of "scripted", "tas": useMock = true        # deterministic seed Lua
+        of "agent", "llm": useMock = false           # qwen writes Lua live
+        else: echo "unknown --pilot '", v, "' (use scripted|agent)"
+      elif (a == "--tempo" and i < paramCount()) or a.startsWith("--tempo="):
+        let v = (if a == "--tempo": (inc i; paramStr(i)) else: a[8 .. ^1]).toLowerAscii()
+        case v
+        of "theater": useHeadless = false; targetSpeed = 60   # watch, ~60fps + window
+        of "turbo": useHeadless = true; targetSpeed = 0        # headless, uncapped
+        of "adaptive": useHeadless = false; targetSpeed = 60   # window; policy drives fps via sim.setSpeed
+        else: echo "unknown --tempo '", v, "' (use theater|turbo|adaptive)"
       elif a == "--watch-async":
         watchAsync = true
         clockModeSet = true
@@ -1091,7 +1106,8 @@ when isMainModule:
       elif a.startsWith("--speed="):
         targetSpeed = parseInt(a[8..^1])
       elif a == "--help" or a == "-h":
-        echo "usage: nim r src/tools/llm_ai.nim -- [--frames N] [--llm-interval K] [--png-every M] [--speed N] [--watch-async|--sync-llm|--pause-llm] [--verbose] [--headless] [--mock|--no-mock] [--save-srm | --save-srm=PATH] [--load-state N | --load-state=N] [--load-state-path PATH] [rom]"
+        echo "usage: nim r src/tools/llm_ai.nim -- [--pilot scripted|agent] [--tempo theater|turbo|adaptive] [--frames N] [--llm-interval K] [--png-every M] [--speed N] [--watch-async|--sync-llm|--pause-llm] [--verbose] [--headless] [--mock|--no-mock] [--save-srm | --save-srm=PATH] [--load-state N | --load-state=N] [--load-state-path PATH] [rom]"
+        echo "  TRACK MATRIX: --pilot scripted (deterministic seed Lua) | agent (qwen live);  --tempo theater (60fps+window) | turbo (headless uncapped) | adaptive (policy-driven fps). See docs/llm-play-overhaul.md."
         echo "  defaults: --frames 60 --llm-interval 20 --speed 0 ROM=bin/Earthbound (U) [!].smc"
         echo "  windowed by default (opens GL window titled 'EarthBound - LLM (qwen)' for watching)"
         echo "  --headless: no window (for CI / batch); --png-every only dumps when flag is passed"
@@ -1150,6 +1166,9 @@ when isMainModule:
       elif loadStateSlot >= 0: llmSlotPath(loadStateSlot)
       else: "none"
     let clockStr = if watchAsync: "watch-async" else: "sync-llm"
+    let pilotName = if useMock: "Scripted" else: "Agent"
+    let tempoName = if useHeadless: "Turbo" elif targetSpeed == 0: "Turbo(win)" else: "Theater"
+    echo fmt"llm_ai TRACK: {pilotName}·{tempoName}"
     echo fmt"llm_ai: ROM={romPath} frames={maxFrames} llmInterval={llmInterval} pngEvery={pngEvery} (set={pngEverySet}) speed={targetSpeed} mock={useMock} headless={useHeadless} clock={clockStr} verbose={gVerbose} loadState={loadStr} saveSram={saveStr}"
     echo fmt"llm_ai: state namespace = {LlmStateDir}/ (human play slots bin/states/slotN.state never written by default)"
     scenarioPolicy = llm_mock_policies.selectMockPolicy(loadStateSlot)

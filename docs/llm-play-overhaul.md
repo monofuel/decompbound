@@ -40,9 +40,12 @@ choices, when to grind/heal, story branches — a TAS can only replay a known
 answer, it can't *understand* a wordplay puzzle). The KB/memory is the Agent's
 long-term brain across the long run.
 
-**Planned CLI:** collapse the flag soup into `--pilot scripted|agent` and
-`--tempo theater|turbo|adaptive` (mapping onto today's `--mock`/`--headless`/
-`--speed`), so a track is one clean switch.
+**CLI (shipped):** `--pilot scripted|agent` and `--tempo theater|turbo|adaptive`
+map onto `--mock`/`--headless`/`--speed`; the resolved track echoes at startup
+(`llm_ai TRACK: Agent·Theater`). Verified live: `Scripted·Turbo`, `Agent·Turbo`.
+- ⚠️ **Turbo isn't truly display-free yet:** `llm_ai` links `libX11` via `windy`
+  even headless, so `*·Turbo` can't run on a display-less server/CI. Follow-up:
+  compile-time-gate the window deps so Turbo needs no X.
 
 ## The problem
 
