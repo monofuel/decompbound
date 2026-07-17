@@ -66,28 +66,46 @@ proc realProvider(summary: string, currentLua: string): string
 proc mockProviderSnap(summary: string, currentLua: string, notes: string): string
 proc realProviderSnap(summary: string, currentLua: string, notes: string): string
 
+const
+  # qwen3.6-27b is served at full 262144 ctx (~1M chars) — feed the rich brain,
+  # don't squeeze it. These are generous backstops against pathological growth,
+  # not the old ~26k-window trim. See docs/llm-play-overhaul.md + memory
+  # qwen36-llm-play-model ("feed rich input, don't trim").
+  NotesCharBudget = 80000     # ~20k tokens of notes/KB; keep last N lines if over
+  NotesLineKeep = 400
+  PolicyCharBudget = 24000    # ~6k tokens of prior policy
+
 proc trimForLlm(notes, lastPolicy: string): tuple[notesBlock, policyRef: string] =
-  ## Truncate notes + LAST POLICY shown in the *sent* user message (and FULL log) so total
-  ## prompt tokens stay safely inside the loaded model's n_ctx (avoids the 65k>26k 400).
-  ## Rich STATE + HISTORY + screen text + instructions are kept; only the growing brain blobs trimmed.
-  ## This keeps context within window while still giving qwen the prior policy to improve on.
+  ## Pass the notes + LAST POLICY through nearly untouched now that full context
+  ## is served; only clamp if they grow pathologically large. Rich STATE +
+  ## HISTORY + screen text + instructions are always kept in full.
   var n = notes
-  if n.len > 6000:
+  if n.len > NotesCharBudget:
     let ls = n.splitLines()
-    if ls.len > 18:
-      n = ls[^18 .. ^1].join("\n")
+    if ls.len > NotesLineKeep:
+      n = ls[^NotesLineKeep .. ^1].join("\n")
     else:
-      n = n[ max(0, n.len-6000) ..< n.len ]
+      n = n[ max(0, n.len-NotesCharBudget) ..< n.len ]
   let nb = if n.len > 0:
-    "\n\nPERSISTENT NOTES (trimmed for ctx fit; full file in llm_notes.txt; your brain):\n" & n & "\n(end)\n"
+    "\n\nPERSISTENT NOTES (full unless pathologically large; also in llm_notes.txt; your brain):\n" & n & "\n(end)\n"
   else:
     "\n\nPERSISTENT NOTES: (no notes yet — use -- NOTE: lines in policy output to build knowledge base)\n"
   var p = lastPolicy
-  if p.len > 2400:
-    let h = p[0 ..< min(700, p.len)]
-    let t = if p.len > 700: p[ max(0, p.len-1600) ..< p.len ] else: ""
-    p = h & "\n...[trimmed " & $(p.len - 700 - 1600) & " middle chars for 256K/ctx fit; see FULL log or file for prior]...\n" & t
+  if p.len > PolicyCharBudget:
+    let h = p[0 ..< min(4000, p.len)]
+    let t = if p.len > 4000: p[ max(0, p.len-8000) ..< p.len ] else: ""
+    p = h & "\n...[trimmed " & $(p.len - 4000 - 8000) & " middle chars; see FULL log or file]...\n" & t
   (nb, p)
+
+proc sceneLua(L: lua53.PState): cint {.cdecl.} =
+  ## Lua: scene() -> compact JSON of nearby entities (relative dir + tiles),
+  ## player pos/room, and on-screen text. Lets policies branch on live
+  ## perception instead of hardcoded coordinates. See src/tools/scene.nim.
+  ## App-level binding (scene.nim is in tools and imports policy, so it can't
+  ## live in policy.setupPolicyApi without a circular dep — registered here).
+  let ctx = policy.getPolicyCtx(L)
+  L.pushstring(scene.sceneJson(ctx.snes).cstring)
+  return 1
 
 var
   workChan: Channel[ProviderWork]
@@ -202,6 +220,7 @@ SANDBOX API (globals always available in update()):
 - mem.read(addr) -> byte (WRAM; player = party leader entity slot 24: world X at 0x0BBE/0x0BBF, Y at 0x0BFA/0x0BFB)
 - pad.press("A") / pad.set("Right", true)  (buttons: A B X Y L R Up Down Left Right Start Select)
 - screen.text() -> string  (current on-screen dialogue, menus, battle commands via getScreenText)
+- scene() -> JSON string  (structured perception: nearby entities as {slot,kind,dir,dist_tiles} RELATIVE to you, plus player pos/room + on_screen_text. Also shown pre-computed in the SCENE line of the state. Use it to head toward/away from an entity by DIRECTION — e.g. an entity "N, 2 tiles" is just above you — instead of guessing coordinates.)
 - sim.setSpeed(fps) / sim.fast() / sim.normal()  (0=unlimited fast-forward for corridors; 60 for menus/fights. Decoupled from your LLM tick.)
 
 AVAILABLE LIBRARY SKILLS (preloaded from bin/states/llm_skills.lua into Lua globals; call them from your update()):
@@ -341,6 +360,7 @@ SANDBOX API (globals always available in update()):
 - mem.read(addr) -> byte (WRAM; player = party leader entity slot 24: world X at 0x0BBE/0x0BBF, Y at 0x0BFA/0x0BFB)
 - pad.press("A") / pad.set("Right", true)  (buttons: A B X Y L R Up Down Left Right Start Select)
 - screen.text() -> string  (current on-screen dialogue, menus, battle commands via getScreenText)
+- scene() -> JSON string  (structured perception: nearby entities as {slot,kind,dir,dist_tiles} RELATIVE to you, plus player pos/room + on_screen_text. Also shown pre-computed in the SCENE line of the state. Use it to head toward/away from an entity by DIRECTION — e.g. an entity "N, 2 tiles" is just above you — instead of guessing coordinates.)
 - sim.setSpeed(fps) / sim.fast() / sim.normal()  (0=unlimited fast-forward for corridors; 60 for menus/fights. Decoupled from your LLM tick.)
 
 AVAILABLE LIBRARY SKILLS (preloaded from bin/states/llm_skills.lua into Lua globals; call them from your update()):
@@ -1034,6 +1054,10 @@ proc main() =
     quit(1)
   L.openSandbox()
   policy.setupPolicyApi(L, ctx)
+  # scene() — structured perception (nearby entities relative to Ness). Bound at
+  # app level because scene.nim (tools) imports policy; see sceneLua above.
+  L.pushcfunction(sceneLua)
+  L.setglobal("scene".cstring)
 
   # SKILL LIBRARY (persistent brain part 1): load bin/states/llm_skills.lua BEFORE any policy.
   # If absent, SEED by writing Escape+WalkTo+Intro+Win (so escapeMenu/walkTo/winBattle etc in scope).

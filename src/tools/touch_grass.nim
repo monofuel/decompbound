@@ -966,6 +966,173 @@ function followTrail(points)
 end
 """
 
+const IntentNavSkillLua* = """
+-- Intent-level navigation over scene() perception (no hardcoded coordinates).
+-- nearestEntity() -> {slot, dir, dist_tiles} or nil — first nearby_entities entry.
+-- approach(slotOrDir) -> true while walking toward that entity via navTo on its
+--   live WRAM pos; false when adjacent (dist_tiles <= 1) or entity missing.
+-- talk(slotOrDir) -> approach, face, A, advanceDialogue(); true once a dialogue
+--   window is open (and while advancing it).
+-- Entity pos: slot s at $0B8E+s*2 (X) / $0BCA+s*2 (Y); player slot 24 = $0BBE/$0BFA.
+-- Requires: scene(), navTo/walkTo, escapeMenu, advanceDialogue, mem, pad, frame.
+-- TODO(magic): adjacent dist_tiles<=1 and face+A cadence from probe_dialogue_harvest.
+
+local function _intentParseEntities()
+  local j = scene() or ""
+  local body = j:match('"nearby_entities":%[([^%]]*)%]')
+  local ents = {}
+  if not body or body == "" then
+    return ents
+  end
+  for slot, kind, dir, dist in body:gmatch(
+      '"slot":(%d+),"kind":"([^"]*)","dir":"([^"]*)","dist_tiles":(%d+)') do
+    ents[#ents + 1] = {
+      slot = tonumber(slot),
+      kind = kind,
+      dir = dir,
+      dist_tiles = tonumber(dist),
+    }
+  end
+  return ents
+end
+
+local function _intentEntXY(slot)
+  local i = slot * 2
+  local ex = mem.read(0x0B8E + i) + 256 * mem.read(0x0B8E + i + 1)
+  local ey = mem.read(0x0BCA + i) + 256 * mem.read(0x0BCA + i + 1)
+  return ex, ey
+end
+
+local function _intentPlayerXY()
+  local px = mem.read(0x0BBE) + 256 * mem.read(0x0BBF)
+  local py = mem.read(0x0BFA) + 256 * mem.read(0x0BFB)
+  return px, py
+end
+
+local function _intentDistTiles(slot)
+  local ex, ey = _intentEntXY(slot)
+  local px, py = _intentPlayerXY()
+  return math.floor((math.abs(ex - px) + math.abs(ey - py)) / 8)
+end
+
+local function _intentResolve(slotOrDir)
+  local ents = _intentParseEntities()
+  if slotOrDir == nil then
+    if #ents == 0 then return nil end
+    return ents[1]
+  end
+  if type(slotOrDir) == "number" then
+    for _, e in ipairs(ents) do
+      if e.slot == slotOrDir then
+        return e
+      end
+    end
+    -- Slot known but off the nearby list: still target live coords.
+    local d = _intentDistTiles(slotOrDir)
+    return {slot = slotOrDir, dir = "here", dist_tiles = d}
+  end
+  local want = tostring(slotOrDir)
+  for _, e in ipairs(ents) do
+    if e.dir == want then
+      return e
+    end
+  end
+  return nil
+end
+
+local _talk = {face_n = 0, slot = nil, opened = false}
+
+function nearestEntity()
+  local ents = _intentParseEntities()
+  if #ents == 0 then
+    return nil
+  end
+  return ents[1]
+end
+
+function approach(slotOrDir)
+  if escapeMenu() then
+    return true
+  end
+  local e = _intentResolve(slotOrDir)
+  if e == nil then
+    return false
+  end
+  local dist = _intentDistTiles(e.slot)
+  if dist <= 1 then
+    return false
+  end
+  -- Stand one tile out from the entity (not on top of them) so A can talk.
+  local ex, ey = _intentEntXY(e.slot)
+  local px, py = _intentPlayerXY()
+  local dx = ex - px
+  local dy = ey - py
+  local tx, ty = ex, ey
+  if math.abs(dx) >= math.abs(dy) then
+    if dx ~= 0 then
+      tx = ex - ((dx > 0) and 8 or -8)
+    end
+  else
+    if dy ~= 0 then
+      ty = ey - ((dy > 0) and 8 or -8)
+    end
+  end
+  if navTo then
+    return navTo(tx, ty)
+  end
+  walkTo(tx, ty)
+  return true
+end
+
+function talk(slotOrDir)
+  if escapeMenu() then
+    return true
+  end
+  local win0 = mem.read(0x8650)
+  local win1 = mem.read(0x8654)
+  if win0 ~= 0xFF or win1 ~= 0xFF then
+    _talk.opened = true
+    if advanceDialogue then
+      advanceDialogue()
+    end
+    return true
+  end
+  local e = _intentResolve(slotOrDir)
+  if e == nil then
+    return false
+  end
+  if _talk.slot ~= e.slot then
+    _talk.slot = e.slot
+    _talk.face_n = 0
+    _talk.opened = false
+  end
+  if approach(e.slot) then
+    _talk.face_n = 0
+    return false
+  end
+  -- Adjacent: face briefly (no A yet), then A pulses without holding d-pad.
+  _talk.face_n = _talk.face_n + 1
+  local dir = e.dir or ""
+  if _talk.face_n <= 10 then
+    if dir:find("N", 1, true) then
+      pad.press("Up")
+    elseif dir:find("S", 1, true) then
+      pad.press("Down")
+    end
+    if dir:find("E", 1, true) then
+      pad.press("Right")
+    elseif dir:find("W", 1, true) then
+      pad.press("Left")
+    end
+    return false
+  end
+  if (_talk.face_n % 8) < 3 then
+    pad.press("A")
+  end
+  return _talk.opened
+end
+"""
+
 proc currentRoomLabel*(snes: SnesBus): string =
   ## Human label for the LLM summary (bedroom / outside / title etc).
   let pct = touchGrassPercent(snes)

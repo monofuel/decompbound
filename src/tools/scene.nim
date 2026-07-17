@@ -8,9 +8,27 @@
 ## (piece B); until then kind="npc" / name unknown, but relative position alone
 ## already removes the coordinate crutch.
 import
-  std/[strformat, strutils, algorithm, math],
+  std/[strformat, strutils, algorithm, math, tables],
   ../decompbound/[snesbus, policy],
   ./touch_grass
+
+const
+  # Entity IDENTITY (RE'd 2026-07-16, see docs/memory-map.md + probe_entity_names.nim):
+  # $2CD6 = sprite-group ID (the "who"); when $FFFF, fall back to $29CA sprite ptr.
+  SpriteGroupBase = 0x2CD6
+  SpritePtrBase   = 0x29CA
+  # Known named characters. Appearance keys — same-looking townies share a group.
+  GroupNames = {0x0091: "mom", 0x002C: "pokey", 0x01B5: "ness"}.toTable
+  PtrNames   = {0x2A8A: "mom", 0x204B: "pokey", 0x4796: "ness"}.toTable
+
+proc entityName(snes: SnesBus, slot: int): string =
+  ## Name for a slot from its sprite-group / ptr identity ("" if unknown).
+  let i = slot * SlotIndexStride
+  let g = readU16(snes, SpriteGroupBase + i)
+  if g != 0xFFFF and GroupNames.hasKey(g): return GroupNames[g]
+  let p = readU16(snes, SpritePtrBase + i)
+  if PtrNames.hasKey(p): return PtrNames[p]
+  ""
 
 type
   SceneEntity* = object
@@ -18,7 +36,8 @@ type
     x*, y*: int
     dir*: string        # compass from player: N/S/E/W/NE/... or "here"
     distTiles*: int
-    kind*: string       # "npc" for now (name pending entity-identity RE)
+    kind*: string       # "npc"
+    name*: string       # identity name from $2CD6/$29CA, "" if unknown
 
   Scene* = object
     px*, py*: int
@@ -60,7 +79,8 @@ proc buildScene*(snes: SnesBus): Scene =
       slot: s, x: x, y: y,
       dir: compass(dx, dy),
       distTiles: dist,
-      kind: "npc")
+      kind: "npc",
+      name: entityName(snes, s))
   result.ents.sort(proc(a, b: SceneEntity): int = cmp(a.distTiles, b.distTiles))
   if result.ents.len > MaxNearby: result.ents.setLen(MaxNearby)
   result.room = touch_grass.currentRoomLabel(snes)
@@ -71,7 +91,8 @@ proc sceneJson*(snes: SnesBus): string =
   let sc = buildScene(snes)
   var parts: seq[string]
   for e in sc.ents:
-    parts.add &"""{{"slot":{e.slot},"kind":"{e.kind}","dir":"{e.dir}","dist_tiles":{e.distTiles}}}"""
+    let nameField = if e.name.len > 0: &""","name":"{e.name}"""" else: ""
+    parts.add &"""{{"slot":{e.slot},"kind":"{e.kind}"{nameField},"dir":"{e.dir}","dist_tiles":{e.distTiles}}}"""
   let textEsc = sc.text.replace("\"", "'").replace("\n", " ").strip()
   &"""{{"player":{{"x":"0x{sc.px:04X}","y":"0x{sc.py:04X}","room":"{sc.room}"}},""" &
     &""""nearby_entities":[{parts.join(",")}],"on_screen_text":"{textEsc}"}}"""

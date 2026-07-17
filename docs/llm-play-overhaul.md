@@ -231,8 +231,10 @@ can start any time and continuously enriches D.
 - [ ] D: `-- LEARN` router + relevant-entry injection
 - [x] Azem: qwen3.6-27b@q6_k loaded at full 262144 ctx × 8 slots; vision path confirmed
 - [x] A: `buildScene`/`sceneJson` (`src/tools/scene.nim`) + `probe_scene.nim`; wired into `buildStateSummary` (relative dir + tiles, visibility-filtered)
-- [ ] A: expose `scene()` to Lua so policies can branch on it
-- [ ] A: relax `trimForLlm` now that full context is served
+- [x] A: expose `scene()` to Lua (native binding in `llm_ai.nim`; documented in SANDBOX API)
+- [x] A: relax `trimForLlm` (80k notes / 24k policy backstops; feed the full brain)
+- [~] B: grok worker in flight (entity-identity byte)
+- [~] E: grok worker in flight (dialogue harvester → KB; already captured Pokey's crater line)
 - [ ] A: vision plumbing into `realProvider` (image_url content part; `max_tokens>=2000`)
 - [ ] E: dialogue harvester → KB
 - [ ] C: intent verbs; referee no-regression

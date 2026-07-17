@@ -10,7 +10,8 @@ proc main() =
   createDir("bin/states")
   let seed = EscapeMenuSkillLua & "\n\n" & WalkToSkillLua & "\n\n" & IntroSkillLua &
     "\n\n" & WinBattleSkillLua & "\n\n" & AdvanceDialogueSkillLua & "\n\n" &
-    DoorEnterSkillLua & "\n\n" & NavSkillLua & "\n\n" & FollowTrailSkillLua
+    DoorEnterSkillLua & "\n\n" & NavSkillLua & "\n\n" & FollowTrailSkillLua &
+    "\n\n" & IntentNavSkillLua
   writeFile("bin/states/llm_skills.lua", seed)
   echo "wrote bin/states/llm_skills.lua len=", seed.len
   if "8650" notin seed or "open-window" notin seed:
@@ -26,6 +27,9 @@ proc main() =
     raise newException(ValueError, "skills seed missing navTo")
   if "followTrail" notin seed:
     raise newException(ValueError, "skills seed missing followTrail")
+  if "nearestEntity" notin seed or "function approach" notin seed or
+      "function talk" notin seed:
+    raise newException(ValueError, "skills seed missing intent-nav verbs")
 
 when isMainModule:
   main()
