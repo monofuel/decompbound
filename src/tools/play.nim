@@ -129,10 +129,20 @@ proc main() =
   var verbose = false
   var romPath = ""
   var startStatePath = ""
+  # Leak-bisection toggles: RssAnon growth in live play can come from the OpenAL
+  # audio queue or the per-frame glTexImage2D upload — neither shows up in a Nim
+  # heap probe. Run with --no-audio or --no-tex and watch the mem heartbeat to see
+  # which one flattens the leak. Emulation still runs; only that live path is cut.
+  var noAudio = false
+  var noTex = false
   for i in 1..paramCount():
     let arg = paramStr(i)
     if arg == "--verbose" or arg == "-v":
       verbose = true
+    elif arg == "--no-audio":
+      noAudio = true
+    elif arg == "--no-tex":
+      noTex = true
     elif arg == "--load-state-path" and i < paramCount():
       discard  # value consumed next iteration via startStatePath check below
     elif arg.startsWith("--load-state-path="):
@@ -233,6 +243,15 @@ Controls:
   const TargetFrameNs = 1_000_000_000 div 60
   var frameAcc: int64 = 0
   var lastFrameTime = getMonoTime()
+  # GC/perf instrumentation (rare-stutter investigation). Time each loop iteration
+  # and log a HITCH line — with live heap + per-frame delta — when one blows past
+  # the frame budget. A GC/collection pause shows up as a slow frame whose occupied
+  # memory DROPS: a negative dMem on a hitch = memory was reclaimed that frame =
+  # the pause was a collection (most telling under the default --mm:orc). A memory
+  # heartbeat every ~2s records the heap sawtooth to the session log.
+  const HitchThresholdMs = 24.0  # ~1.5x the 16.6ms/60fps budget; under this = normal.
+  var prevOccupiedMem = getOccupiedMem()
+  var lastMemLogTime = getMonoTime()
   # Auto-capture: every 5s dump the frame + PPU state to bin/autoshots/
   # (gitignored) so scenes can be reviewed/diagnosed after the fact. ON by
   # default. Tradeoff: the synchronous per-5s PNG write blocks one frame = a
@@ -529,6 +548,7 @@ void main() {
   startRecording("boot")
 
   while not window.closeRequested:
+    let iterStart = getMonoTime()
     pollEvents()
     ss.pump()  # reclaim finished buffers every iteration (paused or not)
 
@@ -807,7 +827,7 @@ void main() {
         # Only queue at normal speed; during fast-forward we still tick the APU
         # (so the driver keeps running) but don't queue pitch-garbled audio.
         const SamplesPerFrame = 32000 div 60
-        let genAudio = framesPerTick == 1 and not frameAdvance
+        let genAudio = framesPerTick == 1 and not frameAdvance and not noAudio
         var pcm = newSeq[uint8](SamplesPerFrame * 4)
         var smp = 0
         var l = 0
@@ -958,11 +978,12 @@ void main() {
     # Display the frame built during emulation.
     let image = frameImage
     glBindTexture(GL_TEXTURE_2D, textureId)
-    glTexImage2D(
-      GL_TEXTURE_2D, 0, GL_RGBA8.GLint,
-      image.width.GLsizei, image.height.GLsizei, 0,
-      GL_RGBA, GL_UNSIGNED_BYTE, cast[pointer](image.data[0].addr)
-    )
+    if not noTex:
+      glTexImage2D(
+        GL_TEXTURE_2D, 0, GL_RGBA8.GLint,
+        image.width.GLsizei, image.height.GLsizei, 0,
+        GL_RGBA, GL_UNSIGNED_BYTE, cast[pointer](image.data[0].addr)
+      )
 
     # Aspect-preserving viewport with black borders: fit the largest rect of the
     # framebuffer's aspect (ScreenWidth:ScreenHeight) inside the window, centered,
@@ -989,6 +1010,24 @@ void main() {
     glDrawArrays(GL_TRIANGLES, 0, 6)
 
     window.swapBuffers()
+
+    # Perf/GC: full-iteration wall time + heap. Slow frame -> HITCH line (with the
+    # replay seg anchor so you can seek back to it); mem heartbeat every ~2s.
+    let iterMs = (getMonoTime() - iterStart).inMicroseconds.float / 1000.0
+    let occ = getOccupiedMem()
+    let memDeltaKb = (occ - prevOccupiedMem) div 1024
+    prevOccupiedMem = occ
+    if iterMs > HitchThresholdMs and not paused:
+      let segTag =
+        if recording: &" seg={replayLogPath.extractFilename} segframe={recordFrame}"
+        else: ""
+      let hitch = &"HITCH frame={frameCount} {iterMs:.1f}ms heap={occ div 1024}KB " &
+        &"dMem={memDeltaKb:+}KB total={getTotalMem() div 1024}KB{segTag}"
+      echo hitch
+      writeLog(hitch)
+    if (getMonoTime() - lastMemLogTime).inMilliseconds >= 2000:
+      lastMemLogTime = getMonoTime()
+      writeLog(&"mem frame={frameCount} heap={occ div 1024}KB total={getTotalMem() div 1024}KB fps={fpsShown:.0f}")
 
     inc fpsAccum
     let fpsElapsed = (getMonoTime() - fpsClock).inMilliseconds
@@ -1036,6 +1075,7 @@ void main() {
       let lf = open("bin/autoshots/registers.log", fmAppend)
       lf.writeLine(regLine)
       lf.close()
+      echo &"autoshot → bin/autoshots/shot_{shotCount:04}.png @ frame {frameCount}{segTag}"
       inc shotCount
       lastShotTime = getMonoTime()
 

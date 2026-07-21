@@ -35,6 +35,7 @@ proc main() =
 
   let rom = readRomFile(romPath)
   let snes = newSnesBus(rom)
+  snes.recordMmioTrace = true  # this tool reads hdmaWrites; opt into the trace.
   var cpu = snes.resetCpu()
   loadState(snes, cpu, slot)
 

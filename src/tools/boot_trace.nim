@@ -32,6 +32,7 @@ proc main() =
 
   let rom = readRomFile(paramStr(1))
   let snes = newSnesBus(rom)
+  snes.recordMmioTrace = true  # this tool reads mmioReads/mmioWrites; opt in.
   var cpu = snes.resetCpu()
 
   echo &"Reset vector: ${cpu.pc:04X}"

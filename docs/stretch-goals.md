@@ -30,6 +30,9 @@ emulator bug as a side effect.
 BG round-trips byte-exact (`docs/graphics.md` rule).
 
 ### 👾 Animated Bestiary
+**Plan:** promoted to [`docs/bestiary.md`](bestiary.md) — data backbone + a pretty
+human GUI mode and a machine-readable AI/CLI mode (answers "does enemy X have a
+shield?" from the ROM).
 **What:** a browsable "Pokédex" of every enemy, NPC, and party sprite —
 animations playing, stats beside them.
 **Secretly cracks:** sprite decoding (graphics track) + enemy tables (game-data).

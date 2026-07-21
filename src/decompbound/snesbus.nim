@@ -52,8 +52,13 @@ type
     apuPostBoot*: seq[(uint32, uint8)]  ## Port writes after the driver ran.
     apuJumps*: seq[(uint8, uint8, uint16)]  ## (counter, flag, target) pairs for block starts.
     vblankToggle: bool
-    mmioReads*: seq[uint32]   ## Trace of MMIO reads (debug aid).
-    mmioWrites*: seq[(uint32, uint8)]  ## Trace of MMIO writes.
+    recordMmioTrace*: bool
+      ## OFF by default. Only debug tools (boot_trace) enable it. In live play,
+      ## recording every MMIO access grew mmioReads/mmioWrites unbounded — the
+      ## game does thousands of accesses/frame → ~9KB/frame retained leak (they
+      ## are never cleared). Gated so play never pays for the trace.
+    mmioReads*: seq[uint32]   ## Trace of MMIO reads (debug aid; needs recordMmioTrace).
+    mmioWrites*: seq[(uint32, uint8)]  ## Trace of MMIO writes (needs recordMmioTrace).
     ## PPU memory.
     vram*: array[0x8000, uint16]   ## 64KB as 32K words.
     cgram*: array[256, uint16]     ## 256 BGR555 palette entries.
@@ -117,7 +122,7 @@ proc isMmio(offset: uint32): bool =
 proc mmioRead(snes: SnesBus, offset: uint32): uint8 =
   ## Read an MMIO register. Stubs return plausible idle values so boot
   ## code polling hardware status can make progress.
-  snes.mmioReads.add offset
+  if snes.recordMmioTrace: snes.mmioReads.add offset
   case offset:
   of 0x2140, 0x2141, 0x2142, 0x2143:
     # APU ports: SPC700 boot ROM handshake HLE. The boot ROM announces
@@ -328,7 +333,7 @@ proc writeBbus(snes: SnesBus, offset: uint32, value: uint8)
 
 proc writeBbus(snes: SnesBus, offset: uint32, value: uint8) =
   ## Apply a write to B-bus port (from DMA or HDMA). Updates PPU state.
-  snes.hdmaWrites.add((offset, value))
+  if snes.recordMmioTrace: snes.hdmaWrites.add((offset, value))
   if offset >= 0x2100 and offset <= 0x21FF:
     snes.ppuRegs[(offset - 0x2100).int] = value
     discard snes.ppuPortWrite(offset, value)
@@ -523,7 +528,7 @@ proc runHdma*(snes: SnesBus) =
 
 proc mmioWrite(snes: SnesBus, offset: uint32, value: uint8) =
   ## Write an MMIO register.
-  snes.mmioWrites.add (offset, value)
+  if snes.recordMmioTrace: snes.mmioWrites.add (offset, value)
   if offset >= 0x2100 and offset <= 0x21FF:
     snes.ppuRegs[(offset - 0x2100).int] = value
     if snes.ppuPortWrite(offset, value):

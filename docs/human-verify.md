@@ -64,6 +64,12 @@ Copy this template when adding a row (agents: always use it):
 
 ### Overworld / menus
 
+- [ ] **Sprite behind object: clean occlusion + swirl tint** · 2026-07-19 · `ppu overlayForegroundBg preSpriteComposite`
+  - **Run:** `make play` → walk Ness **behind** a building / store counter; then start a battle and watch the **swirl** with a character partly behind an object
+  - **Pass if:** the object covers the sprite with **no color/brightness seam**; during the swirl the part of the object over the sprite **fades/tints the same** as the rest of that object
+  - **Fail if:** a visible seam where object overlaps sprite, or that patch stays full-bright / un-tinted during the swirl
+  - **Notes:**
+
 - [ ] **Auto-screenshots now ON by default** · 2026-07-09 · `play.nim autoShot=true`
   - **Run:** `make play` → play for ~20s, then check `bin/autoshots/`
   - **Pass if:** `shot_NNNN.png` files appear every ~5s and the periodic stutter is tolerable

@@ -192,6 +192,13 @@ var
   anySpriteDrawn: bool
     ## True if renderSprites drew any pixel this frame (lets the foreground-BG
     ## overlay skip its passes entirely when nothing needs interleaving).
+  preSpriteComposite: array[ScreenHeight, array[ScreenWidth, ColorRGBA]]
+    ## Snapshot of the fully color-math'd + brightness'd BG composite each pixel
+    ## had *before* renderSprites clobbered it. Filled by renderScanline. When
+    ## overlayForegroundBg redraws a foreground BG tile back in front of a sprite,
+    ## it restores this instead of re-decoding a raw tile — so the occluding patch
+    ## keeps the same color math (swirl/dim) as the rest of that object, and the
+    ## seam between over-sprite and not-over-sprite pixels disappears.
 
 proc windowAreaLine(snes: SnesBus, sel: uint8, shift: int, combine: int,
                     area: var WindowLine) =
@@ -429,7 +436,9 @@ proc renderScanline*(snes: SnesBus, image: Image, py: int) =
         # the math operand is the fixed color). Matches prior half-gate.
         let half = doHalf and (useSubScreen and subDrawn[px] or not useSubScreen)
         m = colorMathBlend(m, s, doSub, half)
-    image[px, py] = applyMasterBrightness(m, inidisp)
+    let outPixel = applyMasterBrightness(m, inidisp)
+    image[px, py] = outPixel
+    preSpriteComposite[py][px] = outPixel
 
 proc renderBgScanline*(snes: SnesBus, image: Image, py: int, bg: int, bpp: int,
                        paletteBase: int, prio: int = -1) =
@@ -619,13 +628,14 @@ proc overlayForegroundBg*(snes: SnesBus, image: Image) =
       passes.add (2, 2, 0, 3)     # BG3-high (prio bit): frontmost, over all OBJ.
   else:
     discard
-  let inidisp = snes.ppuRegs[0x00]
   var line: array[ScreenWidth, ColorRGBA]
   var drawn: array[ScreenWidth, bool]
   for p in passes:
     for py in 0..<ScreenHeight:
       for px in 0..<ScreenWidth:
         drawn[px] = false
+      # `drawn[px]` flags where this high-priority tile exists; `line` colors are
+      # unused — the correct color-math'd pixel comes from preSpriteComposite.
       snes.bgScanlineInto(line, drawn, py, p.bg, p.bpp, p.pal, 1)  # high tiles.
       for px in 0..<ScreenWidth:
         if not drawn[px]:
@@ -633,7 +643,10 @@ proc overlayForegroundBg*(snes: SnesBus, image: Image) =
         let sp = objSpritePrio[py][px].int
         if sp < 0 or sp > p.maxPrio:
           continue    # no sprite here, or the sprite is in front of this BG.
-        image[px, py] = applyMasterBrightness(line[px], inidisp)
+        # Restore the pre-sprite composite (already color-math'd + brightness'd)
+        # rather than re-decoding a raw tile — keeps swirl/dim tint over sprites
+        # and removes the occlusion seam. See preSpriteComposite decl.
+        image[px, py] = preSpriteComposite[py][px]
 
 proc renderFrame*(snes: SnesBus): Image =
   ## Render the current PPU state: backdrop, then BG layers back to front.

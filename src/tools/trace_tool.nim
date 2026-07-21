@@ -125,6 +125,7 @@ proc main() =
 
   let rom = readRomFile(romPath)
   let snes = newSnesBus(rom)
+  snes.recordMmioTrace = true  # this tool reads hdmaWrites; opt into the trace.
   if loadSrm:
     let sp = sramPathFor(romPath)
     loadSram(snes, sp)

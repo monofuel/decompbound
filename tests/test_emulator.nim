@@ -62,6 +62,7 @@ block bootToEngineIdle:
     echo "[test_emulator] no gold ROM present; skipping boot regression"
   else:
     let snes = newSnesBus(readRomFile(GoldMasterRom))
+    snes.recordMmioTrace = true  # this test tallies snes.mmioWrites (APU upload volume)
     var cpu = snes.resetCpu()
     snes.initHdma()
     var uniquePcs = initHashSet[uint32]()

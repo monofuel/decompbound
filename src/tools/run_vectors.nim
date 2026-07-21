@@ -117,6 +117,7 @@ proc main() =
   files.sort()
 
   let bus = newBus()
+  bus.recordDirty = true  # the harness resets touched RAM between vectors via bus.dirty
   var totalPassed = 0
   var totalFailed = 0
   var failing: seq[FileResult]

@@ -27,6 +27,10 @@ type
     ## returns true when it fully handled the write.
     mem*: seq[uint8]
     dirty*: seq[int]
+    recordDirty*: bool  ## OFF by default. Only the vector-test harness needs the
+                        ## dirty list (to reset touched RAM between tests); in normal
+                        ## emulation it grew one int per write forever — a heap leak
+                        ## and the source of the rare realloc-copy frame stutter.
     readHook*: proc(address: uint32): int
     writeHook*: proc(address: uint32, value: uint8): bool
 
@@ -65,7 +69,8 @@ proc write8*(bus: Bus, address: uint32, value: uint8) =
   if bus.writeHook != nil and bus.writeHook(address and 0xFFFFFF, value):
     return
   bus.mem[(address and 0xFFFFFF).int] = value
-  bus.dirty.add (address and 0xFFFFFF).int
+  if bus.recordDirty:
+    bus.dirty.add (address and 0xFFFFFF).int
 
 proc read16*(bus: Bus, address: uint32): uint16 =
   ## Read a little-endian word, crossing banks linearly (data semantics).

@@ -20,6 +20,7 @@ block syntheticProof:
   ## Prove the harness: json initial -> poke ram+cpu state -> cpu.step -> match final state+ram.
   ## These always execute (no 3GB data needed) and give basic opcode coverage.
   let bus = newBus()
+  bus.recordDirty = true  # runOne resets touched RAM between vectors via bus.dirty
   let synthVectors = @[
     %*{
       "name": "synth-ea-nop-e",
@@ -110,6 +111,7 @@ block vectorCoverage:
 
     # Exercise a few real vectors (parse only these; proves harness against real data)
     let bus = newBus()
+    bus.recordDirty = true  # runOne resets touched RAM between vectors via bus.dirty
     var sampleFails: seq[string]
     let samples = ["ea.n.json", "a9.n.json", "00.e.json"]
     var sampledOps: seq[uint8]
