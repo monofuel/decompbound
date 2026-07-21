@@ -310,6 +310,12 @@ function walkTo(tx, ty)
   end
   _walk.lx = px
   _walk.ly = py
+  -- Dominant-axis-first (NOT true diagonal): the Ness/Minch house interiors are
+  -- tight, and EB cancels ALL movement on a diagonal INTO a wall, so a diagonal
+  -- default jams in doorways (verified: bedroom->outside stalls at tg=75). Pure
+  -- axis slides along the wall through the narrow gaps. Outdoors, followTrail
+  -- uses true diagonal — the open terrain there is where the smoothness/speed
+  -- win lives; indoors, safe passage matters more than a smoother diagonal.
   local dir
   local use_perp = (_walk.stuck > STUCK_N)
   if adx >= ady then
@@ -926,40 +932,49 @@ function followTrail(points)
     end
   end
 
-  -- Direct drive (no path, no frontier). Dominant-axis first so a blocked
-  -- secondary axis cannot cancel movement (EB diagonal-into-wall trap).
+  -- Direct drive (no path, no frontier). Three tiers keyed on stuck (which
+  -- climbs when manhattan distance to the waypoint stops improving):
+  --   * fresh  -> TRUE DIAGONAL: press both axes when both deltas are nonzero.
+  --     Human-looking, ~30% fewer steps than a staircase (max(dx,dy) vs dx+dy),
+  --     and 01/03 slope tiles only move on diagonal input anyway. This is the
+  --     common case on open ground and hillsides.
+  --   * jammed -> the diagonal ran INTO a wall (EB cancels ALL movement on a
+  --     diagonal-into-solid), so slide along it with the PURE dominant axis.
+  --   * stuck  -> the free direction is the OTHER axis (or a slope needs a
+  --     perpendicular nudge): pure non-dominant axis + slope wiggle, then navTo
+  --     recovery takes over at TRAIL_RECOVER_N above.
   local dx = wp.x - px
   local dy = wp.y - py
   local adx = math.abs(dx)
   local ady = math.abs(dy)
   if _trail.stuck < TRAIL_DUAL_N then
-    if adx >= ady then
-      if dx ~= 0 then
-        pad.press((dx > 0) and "Right" or "Left")
-      elseif dy ~= 0 then
-        pad.press((dy > 0) and "Down" or "Up")
-      end
-    else
-      if dy ~= 0 then
-        pad.press((dy > 0) and "Down" or "Up")
-      elseif dx ~= 0 then
-        pad.press((dx > 0) and "Right" or "Left")
-      end
-    end
-  else
-    -- Stuck briefly: dual-axis for 01/03 slopes, then perpendicular wiggle.
     if dx ~= 0 then
       pad.press((dx > 0) and "Right" or "Left")
     end
     if dy ~= 0 then
       pad.press((dy > 0) and "Down" or "Up")
     end
-    if _trail.stuck >= TRAIL_WIGGLE_N then
-      if dy ~= 0 and dx == 0 then
-        pad.press(((f // 8) % 2 == 0) and "Left" or "Right")
-      elseif dx ~= 0 and dy == 0 then
-        pad.press(((f // 8) % 2 == 0) and "Up" or "Down")
-      end
+  elseif _trail.stuck < TRAIL_WIGGLE_N then
+    -- Diagonal jammed into a wall: pure dominant axis slides along it.
+    if adx >= ady then
+      if dx ~= 0 then pad.press((dx > 0) and "Right" or "Left")
+      elseif dy ~= 0 then pad.press((dy > 0) and "Down" or "Up") end
+    else
+      if dy ~= 0 then pad.press((dy > 0) and "Down" or "Up")
+      elseif dx ~= 0 then pad.press((dx > 0) and "Right" or "Left") end
+    end
+  else
+    -- Still stuck: free axis is the non-dominant one; add a perpendicular
+    -- wiggle for slope tiles that only yield on alternating diagonal input.
+    if adx >= ady then
+      if dy ~= 0 then pad.press((dy > 0) and "Down" or "Up") end
+    else
+      if dx ~= 0 then pad.press((dx > 0) and "Right" or "Left") end
+    end
+    if dy ~= 0 and dx == 0 then
+      pad.press(((f // 8) % 2 == 0) and "Left" or "Right")
+    elseif dx ~= 0 and dy == 0 then
+      pad.press(((f // 8) % 2 == 0) and "Up" or "Down")
     end
   end
   return true
