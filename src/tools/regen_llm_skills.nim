@@ -29,6 +29,8 @@ proc main() =
     raise newException(ValueError, "skills seed missing followTrail")
   if "followRoute" notin seed or "onett_to_crater" notin seed:
     raise newException(ValueError, "skills seed missing followRoute / onett_to_crater")
+  if "crater_to_onett" notin seed:
+    raise newException(ValueError, "skills seed missing crater_to_onett (home leg route)")
   if "nearestEntity" notin seed or "function approach" notin seed or
       "function talk" notin seed or "function goToward" notin seed:
     raise newException(ValueError, "skills seed missing intent-nav verbs")

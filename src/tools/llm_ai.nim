@@ -179,6 +179,13 @@ var
   # so the objective advances forward and never snaps back to a finished goal.
   tgDone = false
   pokeyDone = false
+  # Once Pokey is talked (pokey_pct=100) the objective flips to HEAD HOME. In that
+  # phase pokey_pct DROPS as Ness walks away (expected, not regression) and
+  # progress is measured by pokey_knock_pct climbing instead. knockPhase re-points
+  # the rollback anchor + stuck detector at the home leg so they stop dragging
+  # Ness back to the crater.
+  knockPhase = false
+  prevKnock = 0
   lastLogSig = ""
     ## Last logged progress signature (tg/room/story-pcts). The per-tick status line only
     ## prints when this changes or on a periodic heartbeat — otherwise a 10k-frame run emits
@@ -240,7 +247,7 @@ proc realProvider(summary: string, currentLua: string): string =
 SETTING: You are Ness. A METEOR just crashed into the hills above Onett in the middle of the night — the whole town's rattled. This is EarthBound: it's funny, it's weird, lean into it. FOLLOW >>> CURRENT_OBJECTIVE at the top of the RICH STATE — it's authoritative and ADVANCES as you finish milestones, so never keep re-doing a finished one (once pokey_pct=100, STOP talking to Pokey and move on). The story ladder, each step unlocking the next:
   1. WAKE UP & GET OUTSIDE (tg_pct→100): a meteor woke you — bedroom → stairs → sitting room (SOUTH first, furniture blocks the straight east line) → east front door → outside. No fights.
   2. GET TO THE CRATER (pokey_pct→100): Pokey is up at the meteor with the cops. Ride the dense route: call followRoute('onett_to_crater') every frame — it carries you SW/west/up the hill to the meteor (verified to reach Pokey; sparse goToward jams the hill). When an NPC appears in your SCENE, talk(that slot) — Pokey sends you home; READ his line via screen.text(). Do NOT enter the Minch house (px>=0x1C00 scores 0).
-  3. HEAD HOME (pokey_knock_pct→80): Pokey sent you home — head for the ness_home_door landmark; followRoute('onett_to_crater') is bidirectional, so following it from the crater walks you back toward the door. When the SCENE shows an entity named 'mom', talk('mom') and she sends you inside (her line: "[redacted dialogue]"). Then head upstairs and walk onto your bed. Knock caps at 80 for now (the sleep→KNOCK beat isn't bot-triggerable yet — hold, don't thrash).
+  3. HEAD HOME (pokey_knock_pct→80): Pokey sent you home — call followRoute('crater_to_onett') every frame: it's the dedicated dense route back DOWN from the meteor to your front door (do NOT reuse onett_to_crater backwards — that local-mins on the hill). When the SCENE shows an entity named 'mom' at the door, talk('mom') and she sends you inside (her line: "[redacted dialogue]"). Then head upstairs and walk onto your bed. Knock caps at 80 for now (the sleep→KNOCK beat isn't bot-triggerable yet — hold, don't thrash).
 INDOOR WAYPOINTS (house interior ONLY — no landmarks/pathfinder inside yet, so use walkTo targets here; OUTDOORS travel by goToward(landmark) instead, never these coords):
 - bedroom (tg25 / x>=0x1F00 upstairs): walkTo(0x1F00,0x0450) then hall (0x1D40,0x03E8) then stair (0x1CC0,0x03E8)
 - after stairs (downstairs): SOUTH first walkTo(0x1D30,0x0178) — do NOT pure-east along y=0x0140 (furniture)
@@ -383,7 +390,7 @@ proc realProviderSnap(summary: string, currentLua: string, notes: string): strin
 SETTING: You are Ness. A METEOR just crashed into the hills above Onett in the middle of the night — the whole town's rattled. This is EarthBound: it's funny, it's weird, lean into it. FOLLOW >>> CURRENT_OBJECTIVE at the top of the RICH STATE — it's authoritative and ADVANCES as you finish milestones, so never keep re-doing a finished one (once pokey_pct=100, STOP talking to Pokey and move on). The story ladder, each step unlocking the next:
   1. WAKE UP & GET OUTSIDE (tg_pct→100): a meteor woke you — bedroom → stairs → sitting room (SOUTH first, furniture blocks the straight east line) → east front door → outside. No fights.
   2. GET TO THE CRATER (pokey_pct→100): Pokey is up at the meteor with the cops. Ride the dense route: call followRoute('onett_to_crater') every frame — it carries you SW/west/up the hill to the meteor (verified to reach Pokey; sparse goToward jams the hill). When an NPC appears in your SCENE, talk(that slot) — Pokey sends you home; READ his line via screen.text(). Do NOT enter the Minch house (px>=0x1C00 scores 0).
-  3. HEAD HOME (pokey_knock_pct→80): Pokey sent you home — head for the ness_home_door landmark; followRoute('onett_to_crater') is bidirectional, so following it from the crater walks you back toward the door. When the SCENE shows an entity named 'mom', talk('mom') and she sends you inside (her line: "[redacted dialogue]"). Then head upstairs and walk onto your bed. Knock caps at 80 for now (the sleep→KNOCK beat isn't bot-triggerable yet — hold, don't thrash).
+  3. HEAD HOME (pokey_knock_pct→80): Pokey sent you home — call followRoute('crater_to_onett') every frame: it's the dedicated dense route back DOWN from the meteor to your front door (do NOT reuse onett_to_crater backwards — that local-mins on the hill). When the SCENE shows an entity named 'mom' at the door, talk('mom') and she sends you inside (her line: "[redacted dialogue]"). Then head upstairs and walk onto your bed. Knock caps at 80 for now (the sleep→KNOCK beat isn't bot-triggerable yet — hold, don't thrash).
 INDOOR WAYPOINTS (house interior ONLY — no landmarks/pathfinder inside yet, so use walkTo targets here; OUTDOORS travel by goToward(landmark) instead, never these coords):
 - bedroom (tg25 / x>=0x1F00 upstairs): walkTo(0x1F00,0x0450) then hall (0x1D40,0x03E8) then stair (0x1CC0,0x03E8)
 - after stairs (downstairs): SOUTH first walkTo(0x1D30,0x0178) — do NOT pure-east along y=0x0140 (furniture)
@@ -754,7 +761,7 @@ proc buildStateSummary*(ctx: policy.PolicyContext): string =
     elif not pokeyDone:
       "GET TO THE CRATER. Pokey is up at the meteor with the cops. Ride the dense route up: call followRoute('onett_to_crater') every frame — it carries you SW, west, and up the hill to the meteor (verified to reach Pokey; sparse goToward jams the hill, so use the route). When Pokey or any NPC appears in your SCENE, talk(that slot) — he sends you home; READ his line via screen.text(). Don't enter the Minch house. Target pokey_pct=100."
     elif pokeyKnockPct < 80:
-      "HEAD HOME. Pokey sent you home — head for the ness_home_door landmark (see SCENE direction); followRoute('onett_to_crater') is bidirectional, so following it from the crater walks you back toward the door. When the SCENE shows an entity named 'mom', talk('mom') and she sends you inside (her line: \"[redacted dialogue]\"). Once inside, head upstairs and walk onto your bed. Target pokey_knock_pct=80."
+      "HEAD HOME. Pokey sent you home — call followRoute('crater_to_onett') every frame: it's the dedicated dense route back down from the meteor to your front door (do NOT reuse onett_to_crater backwards — that jams on the hill). When the SCENE shows an entity named 'mom' at the door, talk('mom') and she sends you inside (her line: \"[redacted dialogue]\"). Once inside, head upstairs and walk onto your bed. Target pokey_knock_pct=80."
     else:
       "YOU'RE HOME AT YOUR BED (knock=80). Rest by the bed and hold — the sleep→KNOCK beat (80→100) is a scripted prologue event not yet bot-triggerable, so keep escapeMenu() safe and don't thrash."
 
@@ -1437,6 +1444,27 @@ when isMainModule:
           pokeyAchievedFrame = ctx.frameCount
           logTg(fmt"POKEY ACHIEVED at frame {ctx.frameCount} (talked to Pokey at the meteor)")
           echo "POKEY ACHIEVED!"
+          # Campaign handoff: Pokey talked → HEAD HOME seed (the missing leg that
+          # left the bot mashing talk at the crater forever — there was no route
+          # away). Switch to PokeyKnockPolicy, which rides followRoute("crater_to_
+          # onett") back to the door. Only auto-advance from the Pokey seed so a
+          # human-chosen scenario / qwen policy isn't clobbered.
+          if scenarioPolicy == llm_mock_policies.PokeyVisitPolicy:
+            let knock = llm_mock_policies.PokeyKnockPolicy
+            if loadPolicyChunk(L, knock, "pokey_knock_after_pokey100"):
+              scenarioPolicy = knock
+              currentPolicy = knock
+              knockPhase = true
+              # Re-anchor rollback on the home leg: forget the crater milestone so a
+              # door-entry stall can't teleport Ness back up the hill. From here the
+              # bedroom (pokey_knock=80) is the goal; pokey_knock progress re-arms it.
+              lastMilestonePath = ""
+              prevKnock = pokeyKnockPct
+              stuckCounter = 0
+              echo "POLICY: pokey_pct>=100 — switched seed to PokeyKnockPolicy (HEAD HOME)"
+              status = "knock"
+            else:
+              echo "POLICY: PokeyKnockPolicy load failed; keeping prior"
         # Only log when progress actually changed, or every ~300 frames as a heartbeat.
         let logSig = fmt"{tg}|{room}|{pokeyPct}|{pokeyKnockPct}|{buzzBuzzPct}|{sunrisePct}"
         if logSig != lastLogSig or (ctx.frameCount mod 300 == 0):
@@ -1498,8 +1526,10 @@ when isMainModule:
 
         # Story-percent milestone: pokey_pct climbs while tg is pinned at 100 outside, so the
         # tg-gated save above never fires on the hill. Snapshot here so a later rollback lands at
-        # the doorstep (60/90), not back at outside-start (0).
-        if madePokeyProgress:
+        # the doorstep (60/90), not back at outside-start (0). Suppress once HEAD HOME begins —
+        # there pokey_pct climbing means Ness drifted BACK toward the crater, not progress.
+        let madeKnockProgress = knockPhase and pokeyKnockPct > prevKnock
+        if madePokeyProgress and not knockPhase:
           try:
             writeStateFile(LlmRollbackState, snes, cpu)
             lastMilestonePath = LlmRollbackState
@@ -1507,18 +1537,36 @@ when isMainModule:
             echo fmt"  SAVED pokey milestone (pokey_pct {prevPokey}->{pokeyPct}) -> {LlmRollbackState}"
           except CatchableError as e:
             echo "  save pokey milestone failed: ", e.msg
+        # HEAD HOME milestone: re-anchor rollback FORWARD along the home leg (door=50,
+        # bedroom=80) so a stall never drags Ness back up the hill to the crater.
+        if madeKnockProgress:
+          try:
+            writeStateFile(LlmRollbackState, snes, cpu)
+            lastMilestonePath = LlmRollbackState
+            stuckCounter = 0
+            echo fmt"  SAVED knock milestone (pokey_knock_pct {prevKnock}->{pokeyKnockPct}) -> {LlmRollbackState}"
+          except CatchableError as e:
+            echo "  save knock milestone failed: ", e.msg
 
         # higher-level stuck detection + rollback using save/load (beyond per-skill wiggle)
         # Use *coarse* (tg/room) + *fine* (live pos delta) + money. This prevents false "stuck" while
         # the agent is successfully walking across house_interior (tg stays 75 until the door).
         let curMoney = touch_grass.readU16(snes, 0x9831)
         let moneyProg = curMoney != prevMoney
-        let madeAnyProgress = madeTgRoomProgress or madePosProgress or moneyProg or madePokeyProgress
-        # At the goal (adjacent to Pokey, pokey_pct>=90) the bot deliberately
-        # stands still mashing Up+A to trigger the talk — "not moving" there is
-        # success in progress, not a stall. Don't let rollback yank it away
-        # before the scene fires.
-        let atGoal = pokeyPct >= 90
+        # In HEAD HOME phase, pokey_pct climbing is backward drift, not progress —
+        # count knock progress instead so the stuck detector reads the home leg.
+        let madeAnyProgress =
+          if knockPhase:
+            madeTgRoomProgress or madePosProgress or moneyProg or madeKnockProgress
+          else:
+            madeTgRoomProgress or madePosProgress or moneyProg or madePokeyProgress
+        # At the goal the bot deliberately stands still mashing to trigger a scene —
+        # "not moving" there is success, not a stall. Pre-home that's adjacency to
+        # Pokey (pokey_pct>=90); on the home leg it's reaching the door (knock>=50),
+        # where facing + A warps Ness inside, and the bedroom (knock>=80).
+        let atGoal =
+          if knockPhase: pokeyKnockPct >= 50
+          else: pokeyPct >= 90
         if not madeAnyProgress and not atGoal:
           stuckCounter += 1
         else:
@@ -1530,6 +1578,7 @@ when isMainModule:
           echo "  REGRESSION detected (tg " & $oldTg & "->" & $tg & "); boosting stuck counter"
         prevMoney = curMoney
         prevPokey = pokeyPct
+        prevKnock = pokeyKnockPct
         prevPlayerX = px
         prevPlayerY = py
         if stuckCounter > 18 and lastMilestonePath.len > 0:
@@ -1543,6 +1592,7 @@ when isMainModule:
             prevRoom = touch_grass.currentRoomLabel(snes)
             prevMoney = touch_grass.readU16(snes, 0x9831)
             prevPokey = story_percents.pokeyPercent(snes)
+            prevKnock = story_percents.pokeyKnockPercent(snes)
             let pidxR = touch_grass.PlayerSlot * touch_grass.SlotIndexStride
             prevPlayerX = touch_grass.readU16(snes, touch_grass.WorldXBase + pidxR)
             prevPlayerY = touch_grass.readU16(snes, touch_grass.WorldYBase + pidxR)
