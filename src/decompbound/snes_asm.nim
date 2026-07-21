@@ -39,14 +39,22 @@ const
   MnemonicAliases = {"andop": "AND"}.toTable
   # Addressing-mode markers -> AddressingMode enum symbol emitted into instr().
   ModeMarkers = {
-    "long":  "amAbsoluteLong",
-    "longx": "amAbsoluteLongX",
-    "abs":   "amAbsolute",
-    "absx":  "amAbsoluteX",
-    "absy":  "amAbsoluteY",
-    "dp":    "amDirectPage",
-    "dpx":   "amDirectPageX",
-    "dpy":   "amDirectPageY",
+    "long":   "amAbsoluteLong",
+    "longx":  "amAbsoluteLongX",
+    "abs":    "amAbsolute",
+    "absx":   "amAbsoluteX",
+    "absy":   "amAbsoluteY",
+    "dp":     "amDirectPage",
+    "dpx":    "amDirectPageX",
+    "dpy":    "amDirectPageY",
+    "dpil":   "amDpIndirectLong",     # [$dp]
+    "dpily":  "amDpIndirectLongY",    # [$dp],Y
+    "dpind":  "amDpIndirect",         # ($dp)
+    "dpindx": "amDpIndirectX",        # ($dp,X)
+    "dpindy": "amDpIndirectY",        # ($dp),Y
+    "sr":     "amStackRelative",      # $sr,S
+    "sry":    "amStackRelativeY",     # ($sr,S),Y
+    "absind": "amAbsIndirect",        # ($abs)
   }.toTable
 
 proc immMode(mnemonic: string): string =

@@ -46,6 +46,22 @@ suite "snesAsm lowers to the raw assembler":
     check m == r
     check m.len == 3   # opcode + 2 operand bytes
 
+  test "indirect / stack-relative / indexed markers match raw modes":
+    let m = snesAsm(Org, NativeFlags16):
+      lda dpily 0x0E      # [$0E],Y
+      sta absx 0x0000     # $0000,X
+      lda sr 0x01         # $01,S
+      lda dpind 0x20      # ($20)
+      jmp absind 0x1234   # ($1234)
+    let r = assemble(@[
+      instr("LDA", amDpIndirectLongY, 0x0E),
+      instr("STA", amAbsoluteX, 0x0000),
+      instr("LDA", amStackRelative, 0x01),
+      instr("LDA", amDpIndirect, 0x20),
+      instr("JMP", amAbsIndirect, 0x1234),
+    ], Org, NativeFlags16)
+    check m == r
+
   test "implied and accumulator forms":
     let m = snesAsm(Org, NativeFlags16):
       pla
