@@ -3,7 +3,7 @@
 ## generated regions. See docs/goal-1.5.md.
 
 import
-  ./[assembler, opcodes]
+  ./snes_asm
 
 const
   SramPiracyCheckOffset* = 0x00A11C
@@ -40,36 +40,34 @@ proc sramMirrorPiracyCheck*(): seq[uint8] =
   ##
   ## Entry: native mode, 16-bit A/X (M/X clear). Clobbers A; uses long stores.
   ## Called via JSL (see $C0B9A8).
-  var nodes: seq[AsmNode]
-  nodes.add instr("SEP", amImmediate8, StatusM)
-  nodes.add instr("LDA", amImmediateM, SramProbePattern)
-  nodes.add instr("STA", amAbsoluteLong, SramProbeA)
-  nodes.add instr("INC", amAccumulator)
-  nodes.add instr("STA", amAbsoluteLong, SramProbeB)
-  nodes.add instr("CMP", amAbsoluteLong, SramProbeA)
-  nodes.add instrTo("BEQ", amRelative8, "sramMirrorsOk")
-  # Mirrors did not collide: treat as copier / oversized SRAM.
-  nodes.add instr("REP", amImmediate8, StatusM)
-  nodes.add instr("PLA", amImplied)
-  nodes.add instr("TSC", amImplied)
-  nodes.add instr("SBC", amImmediateM, CallerFrameDelta)
-  nodes.add instr("TCD", amImplied)
-  nodes.add instr("JML", amAbsoluteLong, PiracyLectureAddr)
-  nodes.add label("sramMirrorsOk")
-  # Branch target still has 8-bit A from the entry SEP; linear flag tracking
-  # would inherit the fall-through path's REP, so re-assert m8 here.
-  nodes.add flagHint(m8 = true, x8 = false)
-  nodes.add instr("LDA", amAbsoluteLong, Stat78Addr)
-  nodes.add instr("AND", amImmediateM, Stat78GateMask)
-  nodes.add instrTo("BEQ", amRelative8, "returnNative")
-  nodes.add instr("REP", amImmediate8, StatusM)
-  nodes.add instr("PLA", amImplied)
-  nodes.add instr("TSC", amImplied)
-  nodes.add instr("SBC", amImmediateM, CallerFrameDelta)
-  nodes.add instr("TCD", amImplied)
-  nodes.add instr("JML", amAbsoluteLong, BootContinueAddr)
-  nodes.add label("returnNative")
-  nodes.add instr("REP", amImmediate8, StatusM)
-  nodes.add instr("RTL", amImplied)
-  result = assemble(nodes, SramPiracyCheckSnes,
-                    FlagState(m8: false, x8: false, emulation: false))
+  snesAsm(SramPiracyCheckSnes, NativeFlags16):
+    sep StatusM
+    lda SramProbePattern
+    sta long SramProbeA
+    inc a
+    sta long SramProbeB
+    cmp long SramProbeA
+    beq "sramMirrorsOk"
+    # Mirrors did not collide: treat as copier / oversized SRAM.
+    rep StatusM
+    pla
+    tsc
+    sbc CallerFrameDelta
+    tcd
+    jml long PiracyLectureAddr
+    label "sramMirrorsOk"
+    # Branch target still has 8-bit A from the entry SEP; linear flag tracking
+    # would inherit the fall-through path's REP, so re-assert m8 here.
+    flagHint true, false
+    lda long Stat78Addr
+    andOp Stat78GateMask
+    beq "returnNative"
+    rep StatusM
+    pla
+    tsc
+    sbc CallerFrameDelta
+    tcd
+    jml long BootContinueAddr
+    label "returnNative"
+    rep StatusM
+    rtl
