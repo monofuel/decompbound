@@ -47,6 +47,21 @@ map onto `--mock`/`--headless`/`--speed`; the resolved track echoes at startup
   even headless, so `*·Turbo` can't run on a display-less server/CI. Follow-up:
   compile-time-gate the window deps so Turbo needs no X.
 
+**HEAD HOME leg (shipped 2026-07-20):** the campaign now has the full
+prologue chain — `tg100 → PokeyVisit → pokey100 → PokeyKnock (HEAD HOME) →
+door(50) → bedroom(80)`. Previously there was NO `pokey100→home` handoff, so
+after Pokey the bot was told to walk home via `onett_to_crater` "backwards"
+(never seats — greedy at point 1, local-mins on the hill) and stayed pinned at
+the crater re-mashing talk. Fixed: (1) `followRoute('crater_to_onett')` — the
+verified reverse trail promoted into the skill library as its own forward
+route, `PokeyKnockPolicy` converged onto it (knock convergence, now
+single-sourced with the Agent); (2) the `pokey100→PokeyKnock` live handoff;
+(3) `knockPhase` — once heading home, progress/rollback track `pokey_knock_pct`
+(pokey_pct dropping is expected, not regression) so a door stall no longer
+teleports Ness back to the crater. Verified Scripted·Turbo end-to-end, holds at
+knock=80 (the RE'd cap). The knock→100 flag still awaits a human prologue-night
+capture (see `pokeyKnockPercent`).
+
 ## The problem
 
 The bot currently plays **blind**. Every LLM tick it receives a text-only
