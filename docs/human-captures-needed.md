@@ -13,26 +13,18 @@ hijacks F12 for its own screenshot, so ours matches that key.)
 
 ---
 
-## Capture 1 — healthy mid-battle state (unblocks the whole battle system)
+## Capture 1 — healthy mid-battle state — ✅ FOUND, NO CAPTURE NEEDED
 
-**Why:** headless battle entry currently aborts ~6 frames in (`$4DBA` sets then
-clears, PPU never reaches mode 0, command menu never renders — see
-`bin/battle_re_notes.txt` + task #19). Every `4DBA=1` fixture we have is stale
-VRAM ("DEAD — glitched house tiles"). We need ONE real mid-battle state to RE the
-command-menu cursor + turn engine and build a `winBattle` that actually wins.
-
-**Recipe:**
-1. `make play`
-2. Walk in any grassy/encounter area until a random battle starts and the
-   **command menu is fully up** — the box showing `Bash / Goods / Auto Fight /
-   PSI / Defend / Run Away`.
-3. Press **F12** right there (menu visible, before choosing anything).
-4. Optional but great: also F12 (a) mid-attack animation (SMAAAASH / damage
-   numbers) and (b) the victory "EXP" box. More phase samples = faster turn-engine RE.
-
-**What we need in the capture:** `$4DBA != 0` **and** BG mode 0 (`$2105 & 7 == 0`)
-— that combination is what distinguishes a live battle from the dead fixtures.
-Verify with `nim r src/tools/probe_battle_quick.nim <path>` after.
+**Resolved 2026-07-20.** A healthy mid-battle F12 was already in the archive:
+`../decompbound_secret/screenstates/earthbound_20260719-223714.png` (command menu
+up vs a car enemy; party Ness 378/135, Paula 154/145, Jeff 225/0). Extracted to
+`bin/states/battle_menu_healthy.state` (scanner: `probe_scan_screenstates.nim`).
+**Battle execution + victory work headless from it** (`probe_battle_advance.nim`:
+A→Bash→"Ness attacks! 161 HP"→win→overworld). So the battle SYSTEM is unblocked;
+what remains is (a) finishing `winBattle` against this fixture and (b) the
+separate battle-ENTRY abort (task #19) — neither needs a new capture. Key
+correction: a live battle reads `$4DBA=0`/mode 0 (NOT `$4DBA=1`); detect via mode
+0 + party structs.
 
 ---
 
