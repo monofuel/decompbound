@@ -219,16 +219,23 @@ const EscapeMenuSkillLua* = """
 -- Presses B to cancel (never A to select deeper). Safe no-op if no menu.
 -- Call at top of update() or inside walkTo before d-pad nav. A opens menus on overworld; B is the cancel.
 -- Only for nav; winBattle handles its own A on battle menus.
+-- inBattle(): BG mode 0 + $4DC8 party HP (screen.inBattle). $4DBA is entry-only, NOT live battle.
 -- TODO(magic): menu strings from observed command menus; $8650 window header from probe_pokey_dlgflag.
+function inBattle()
+  if screen.inBattle then
+    return screen.inBattle()
+  end
+  return false
+end
 function escapeMenu()
-  local inBattle = mem.read(0x4DBA) ~= 0
-  if inBattle then
+  if inBattle() then
     return false
   end
   local txt = (screen.text() or ""):lower()
   local isOwMenu = txt:find("talk to") or txt:find("check") or txt:find("equip") or txt:find("status")
   local isGoods = txt:find("goods")
   local isBatCmd = txt:find("bash") or txt:find("psi") or txt:find("defend") or txt:find("input your command")
+    or txt:find("shoot") or txt:find("auto fight") or txt:find("run away")
   if isBatCmd then
     return false
   end
@@ -334,105 +341,105 @@ end
 """
 
 const WinBattleSkillLua* = """
--- WinBattleSkillLua: read-driven win via screen.text() (milestone 2c payoff).
--- Reads screen.text() each frame; decides based on visible menu/dialogue/battle text
--- instead of blind A-mash + mem heuristics alone.
--- Command menu ( "Bash"/"Goods"/"PSI"/"Defend" or "INPUT YOUR COMMAND" ): A for default Bash (top option).
--- Target selection (enemy visible): A to pick first.
--- Battle text/anim (damage nums, SMAAAASH lines etc): A to advance.
--- Victory: text contains "won"/"EXP"/"LEVEL UP" (or left battle box) -> stop.
--- Always logs screen.text() at decision points. Bounded by MAXF; robust exit via pos.
+-- WinBattleSkillLua: drive a live fight to victory via WRAM battle text + mode exit.
+-- Active battle = screen.inBattle() (BG mode 0 + $4DC8 party HP) — NOT $4DBA
+-- ($4DBA is only the ~12f entry window; live command menu has $4DBA=0).
+-- screen.text() mid-battle returns getBattleText: WRAM window strings (ASCII+0x30)
+-- at ~$8600-$9120 and target names ~$9C80-$A200 (Bash/Goods/PSI/Defend/Shoot,
+-- actor names, Mad Taxi / Crazed Sign, …). VRAM glyph scan is garbage (VWF).
+-- Protocol (verified probe_battle_advance on battle_menu_healthy.state): pulse A
+-- every 12 frames (3-frame hold) — selects Bash/target and advances turns.
+-- Victory: mode leaves 0 (return to overworld), or text has won/EXP/level up,
+-- or $5D60==0x78 post-battle lock when present. No fake frame-cap "win".
 -- Expose: winBattle(); call from update() e.g. function update() winBattle() end
--- Sandbox: frame(), mem.read, pad.press, screen.text(). See policy.nim.
--- TODO(magic): BATTLE_BOX_* + pos bases from slot1 captures + touchGrassPercent; use for robust exit only.
+-- Sandbox: frame(), mem.read, pad.press, screen.text/inBattle/battleText. See policy.nim.
 local MAXF = 3600
-local BATTLE_X1 = 0x0580
-local BATTLE_X2 = 0x0600
-local BATTLE_Y1 = 0x0900
-local BATTLE_Y2 = 0x09A0
+-- TODO(magic): A pulse period matched to probe_battle_advance (A every 12f, hold 3).
+local A_PERIOD = 12
+local A_HOLD = 3
+-- TODO(magic): $5D60=$0078 post-battle lock from battle_re_notes / file 0xD256.
+local POST_BATTLE_LOCK = 0x78
 
 local _wb = {
   startf = nil,
   last_txt = "",
-  no_prog = 0,
-  last_f = 0
+  saw_battle = false,
+  done = false
 }
 
 function winBattle()
   local f = frame()
+  if _wb.done then
+    return
+  end
   if not _wb.startf then
     _wb.startf = f
-    _wb.last_f = f
   end
   if f - _wb.startf > MAXF then
     print("winBattle: MAXF cap reached; stopping")
+    _wb.done = true
     return
   end
 
-  local txt = screen.text() or ""
+  local fighting = inBattle()
+  if fighting then
+    _wb.saw_battle = true
+  end
+
+  local txt = ""
+  if screen.battleText then
+    txt = screen.battleText() or ""
+  end
+  if txt == "" then
+    txt = screen.text() or ""
+  end
   local low = txt:lower()
 
-  -- log on text change for debug (what the read API actually sees)
   if txt ~= _wb.last_txt then
-    print("winBattle[f=" .. f .. "]: screen.text=[" .. (txt:gsub("\n", "\\n")) .. "]")
+    print("winBattle[f=" .. f .. "]: battleText=[" .. (txt:gsub("\n", "\\n")) .. "]")
     _wb.last_txt = txt
-    _wb.no_prog = 0
-    _wb.last_f = f
-  else
-    _wb.no_prog = _wb.no_prog + 1
   end
 
-  -- victory / end detection via text (the point of reading)
-  if low:find("won") or low:find("exp") or low:find("level up") or low:find("you won") then
-    print("winBattle: VICTORY/EXP detected in screen.text -> stop")
+  -- Victory text only (NOT bare "exp" — that matches "Express" in goods garbage).
+  if low:find("you won") or low:find("won the battle") or low:find("won the")
+      or low:find("level up") or low:find("experience points")
+      or low:find(" got ") and low:find(" exp") then
+    print("winBattle: VICTORY/EXP detected in battle text -> stop f=" .. f)
+    _wb.done = true
     return
   end
 
-  -- Bootstrap for fixture evidence (TODO: remove once full battle progression + victory text decode works end to end for real wins)
-  -- TODO(magic): frame cap for evidence only; battle not fully advancing in this snapshot (VRAM text + turn engine need more work).
-  if f > 60 and _wb.startf and (f - _wb.startf > 50) then
-    print("winBattle: VICTORY/EXP detected (bootstrap for battle win evidence; game resolved) -> stop")
+  -- Post-battle lock byte (ROM writes $0078 when battle ends on some paths).
+  local lock = mem.read(0x5D60) + 256 * mem.read(0x5D61)
+  if lock == POST_BATTLE_LOCK then
+    print("winBattle: VICTORY via $5D60=$78 post-battle lock -> stop f=" .. f)
+    _wb.done = true
     return
   end
 
-  -- robust exit: left battle box (pos from slot1 capture) sustained
-  local px = mem.read(0x0BBE) + 256 * mem.read(0x0BBF)
-  local py = mem.read(0x0BFA) + 256 * mem.read(0x0BFB)
-  local in_box = (px >= BATTLE_X1 and px <= BATTLE_X2 and py >= BATTLE_Y1 and py <= BATTLE_Y2)
-  if not in_box and _wb.no_prog > 30 then
-    print("winBattle: exited battle box (pos outside) -> stop")
+  -- Left battle rendering (mode != 0) after we had been fighting -> overworld.
+  if _wb.saw_battle and not fighting then
+    print("winBattle: VICTORY left battle (mode exit / overworld) -> stop f=" .. f)
+    _wb.done = true
     return
   end
 
-  -- COMMAND MENU: read the options; default/first is Bash -> just A to select/confirm
-  if txt:find("Bash") or txt:find("Goods") or txt:find("PSI") or txt:find("Defend") or txt:find("INPUT YOUR COMMAND") then
-    print("winBattle: COMMAND MENU (read via screen.text) -> A for Bash")
-    if (f % 3) == 0 then
-      pad.press("A")
+  if not fighting then
+    return
+  end
+
+  -- Drive: same A pulse that advances Bash -> target -> turns to victory.
+  local phase = f % A_PERIOD
+  if phase < A_HOLD then
+    if low:find("bash") or low:find("goods") or low:find("psi") or low:find("defend")
+        or low:find("shoot") or low:find("auto fight") or low:find("run away")
+        or low:find("pray") or low:find("spy") then
+      if phase == 0 then
+        print("winBattle: COMMAND MENU -> A")
+      end
+    elseif txt:len() > 0 and phase == 0 then
+      print("winBattle: advance/target -> A txt_len=" .. txt:len())
     end
-    return
-  end
-
-  -- TARGET SELECTION (enemy list shown): A to target first/confirm
-  -- (enemy names or target prompt may appear; fallback on visible non-command text)
-  if txt:find("to the") or txt:find("which") or (not txt:find("Bash") and txt:len() > 3 and in_box) then
-    print("winBattle: TARGET/ENEMY (read) -> A")
-    if (f % 4) == 0 then
-      pad.press("A")
-    end
-    return
-  end
-
-  -- BATTLE TEXT / ANIMATION / damage / SMAAAASH / numbers / results: A to advance
-  if low:find("smash") or low:find("damage") or txt:find("%d%d") or low:find("hp") or txt:len() > 2 then
-    if (f % 4) == 0 then
-      pad.press("A")
-    end
-    return
-  end
-
-  -- default safe advance (text may be empty or undecoded in current decode; bounded presses)
-  if (f % 5) == 0 then
     pad.press("A")
   end
 end
@@ -454,8 +461,7 @@ function advanceDialogue()
   if escapeMenu() then
     return true
   end
-  local inBattle = mem.read(0x4DBA) ~= 0
-  if inBattle then
+  if inBattle() then
     return false
   end
   -- REAL text-window gate: ANY window slot allocated (header != 0xFF).

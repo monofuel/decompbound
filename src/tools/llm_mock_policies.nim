@@ -12,7 +12,7 @@ const
 -- Waypoints verified for 25->75->100 from bin/states/llm/bedroom.state (seed of game_start).
 function update()
   if escapeMenu() then return end
-  if mem.read(0x4DBA) ~= 0 then winBattle(); return end
+  if inBattle() then winBattle(); return end
   local px = mem.read(0x0BBE) + 256 * mem.read(0x0BBF)
   local py = mem.read(0x0BFA) + 256 * mem.read(0x0BFB)
   -- already outside Onett band
@@ -65,7 +65,7 @@ end
 -- Seed for display loop once tg==100. Coords are soft placeholders near house exit.
 function update()
   if escapeMenu() then return end
-  if mem.read(0x4DBA) ~= 0 then winBattle(); return end
+  if inBattle() then winBattle(); return end
   local px = mem.read(0x0BBE) + 256 * mem.read(0x0BBF)
   local py = mem.read(0x0BFA) + 256 * mem.read(0x0BFB)
   -- still indoors: finish house path east to door / outside band
@@ -109,7 +109,7 @@ end
 -- followRoute = engine-held reachability chain (same trail as Agent).
 function update()
   if escapeMenu() then return end
-  if mem.read(0x4DBA) ~= 0 then winBattle(); return end
+  if inBattle() then winBattle(); return end
   local px = mem.read(0x0BBE) + 256 * mem.read(0x0BBF)
   local py = mem.read(0x0BFA) + 256 * mem.read(0x0BFB)
   -- still indoors Ness house: NavHouse exit (do not treat Minch as goal)
@@ -165,7 +165,7 @@ end
 -- At bed: face + A to sleep; advanceDialogue drains the knock window.
 function update()
   if escapeMenu() then return end
-  if mem.read(0x4DBA) ~= 0 then winBattle(); return end
+  if inBattle() then winBattle(); return end
   local px = mem.read(0x0BBE) + 256 * mem.read(0x0BBF)
   local py = mem.read(0x0BFA) + 256 * mem.read(0x0BFB)
   -- Indoors Ness house: reverse of NavHouse (door → stairs → bedroom → bed).

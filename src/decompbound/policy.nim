@@ -53,6 +53,23 @@ const
   TextMsgWalkBackMax = 256
   TextDecodeSafetyMax = 4096
 
+  # Battle UI text lives in WRAM window records (ASCII+0x30), NOT $96C5 dialogue.
+  # Verified 2026-07-20 on bin/states/battle_menu_healthy.state while A-mashing:
+  # command options at $89E7/$8A14/$8A41/$8A6E/$8A9B/$8AC8 (stride ~$2D, text @+7),
+  # active actor name ~$868C, target/enemy names ~$9CD7/$9CF5/$A99E.
+  # VRAM tile reverse-map (font bases $0180/$0280/$02A0) is garbage mid-battle
+  # (VWF / different mapping) — WRAM is the reliable path.
+  BattleTextRegion0Lo = 0x8600
+  BattleTextRegion0Hi = 0x9120
+  BattleTextRegion1Lo = 0x9C80
+  BattleTextRegion1Hi = 0xA200
+  BattleBattlerPtrBase = 0x4DC8
+  BattleBattlerHpOff = 0x0A
+  BattleMinHp = 1
+  BattleMaxHp = 999
+  BattleTextMinRun = 3
+  BattleTextMinLetters = 2
+
   # Full-bus sandbox peek (snes.read / snes.readRange). Hardware-port window in
   # system banks must never go through bus.read8 — MMIO reads latch state.
   SnesAddrMask = 0xFFFFFF
@@ -257,6 +274,67 @@ proc getScreenText*(snes: SnesBus): string =
 proc wramU8(snes: SnesBus, off: int): uint8 {.inline.} =
   ## Read one WRAM byte at $7E0000+off (off may already include bank bits).
   snes.bus.mem[0x7E0000 + (off and 0x1FFFF)]
+
+proc wramU16Le(snes: SnesBus, off: int): int {.inline.} =
+  ## Little-endian u16 from WRAM $7E0000+off.
+  wramU8(snes, off).int or (wramU8(snes, off + 1).int shl 8)
+
+proc ebStorageChar(b: uint8): char {.inline.} =
+  ## Decode one EB storage byte (printable = ASCII + 0x30) to ASCII, or '\0'.
+  let chVal = int(b) - 0x30
+  if chVal >= 0x20 and chVal <= 0x7E:
+    return char(chVal)
+  '\0'
+
+proc isInBattle*(snes: SnesBus): bool =
+  ## True for an active fight: BG mode 0 and battler ptr table $4DC8 has live HP.
+  ## $4DBA is only the ~12-frame entry window and is 0 on a healthy command menu
+  ## (verified battle_menu_healthy.state 2026-07-20). Outdoor/nav fixtures are mode 1.
+  let mode = snes.ppuRegs[0x05].int and 0x07
+  if mode != 0:
+    return false
+  let battlerPtr = wramU16Le(snes, BattleBattlerPtrBase)
+  if battlerPtr == 0 or battlerPtr == 0xFFFF:
+    return false
+  let hp = wramU16Le(snes, battlerPtr + BattleBattlerHpOff)
+  hp >= BattleMinHp and hp <= BattleMaxHp
+
+proc getBattleText*(snes: SnesBus): string =
+  ## Decode battle UI strings from WRAM window buffers (ASCII+0x30 storage).
+  ## Covers command menu (Bash/Goods/…), actor names, and target/enemy labels.
+  ## Battle flavor lines are often VWF-only in VRAM; this returns what is reliably
+  ## present in window RAM. Empty when no printable runs in the battle regions.
+  var seen: seq[string] = @[]
+  var lines: seq[string] = @[]
+  let regions = [
+    (BattleTextRegion0Lo, BattleTextRegion0Hi),
+    (BattleTextRegion1Lo, BattleTextRegion1Hi),
+  ]
+  for (lo, hi) in regions:
+    var i = lo
+    while i < hi:
+      let ch0 = ebStorageChar(wramU8(snes, i))
+      if ch0 == '\0':
+        inc i
+        continue
+      var s = ""
+      var j = i
+      while j < hi:
+        let c2 = ebStorageChar(wramU8(snes, j))
+        if c2 == '\0':
+          break
+        s.add c2
+        inc j
+      if s.len >= BattleTextMinRun and s notin seen:
+        var letters = 0
+        for c in s:
+          if c in {'A'..'Z', 'a'..'z'}:
+            inc letters
+        if letters >= BattleTextMinLetters:
+          seen.add s
+          lines.add s
+      i = j
+  lines.join("\n")
 
 proc dialogueWindowOpen(snes: SnesBus): bool =
   ## True when slot0 ($8650) or slot1 ($8654) holds an allocated window.
@@ -750,11 +828,13 @@ proc screenText*(L: lua53.PState): cint {.cdecl.} =
   ## Prefer getDialogueText (decodes the real EB dialogue script stream via the
   ## $96C5 cursor + dictionary tokens — verified to read actual dialogue where
   ## the old VRAM tile scan returned garbage, because EB uses a variable-width
-  ## font). Falls back to the tilemap scan (getScreenText) for menus / battle
-  ## command windows that are not driven by the dialogue script stream.
+  ## font). Mid-battle: getBattleText (WRAM window buffers; VRAM glyph scan is
+  ## garbage). Else tilemap scan (getScreenText) for overworld menus.
   ## READ-ONLY + safe (no host FS/ROM access; same boundary as screen.pixel).
   let ctx = getPolicyCtx(L)
   var txt = getDialogueText(ctx.snes)
+  if txt.len == 0 and isInBattle(ctx.snes):
+    txt = getBattleText(ctx.snes)
   if txt.len == 0:
     txt = getScreenText(ctx.snes)
   L.pushstring(txt.cstring)
@@ -765,6 +845,19 @@ proc screenDialogue*(L: lua53.PState): cint {.cdecl.} =
   ## stream (empty when no message window is open); no menu/tilemap fallback.
   let ctx = getPolicyCtx(L)
   L.pushstring(getDialogueText(ctx.snes).cstring)
+  return 1
+
+proc screenInBattle*(L: lua53.PState): cint {.cdecl.} =
+  ## Lua binding: screen.inBattle() -> bool.
+  ## BG mode 0 + populated $4DC8 battler HP (not $4DBA — that is entry-only).
+  let ctx = getPolicyCtx(L)
+  L.pushboolean(if isInBattle(ctx.snes): 1.cint else: 0.cint)
+  return 1
+
+proc screenBattleText*(L: lua53.PState): cint {.cdecl.} =
+  ## Lua binding: screen.battleText() -> string. WRAM battle window strings only.
+  let ctx = getPolicyCtx(L)
+  L.pushstring(getBattleText(ctx.snes).cstring)
   return 1
 
 proc padSet*(L: lua53.PState): cint {.cdecl.} =
@@ -820,8 +913,9 @@ proc setupPolicyApi*(L: lua53.PState, ctx: PolicyContext) =
   ## Expose the read-only + input-only sandboxed surface to Lua.
   ## mem.read (WRAM-only, unchanged), snes.read / snes.readRange (full-bus, side-effect-free),
   ## nav.walkable / nav.findPath (native hitbox collision + BFS pathfinding),
-  ## screen.{width,height,pixel,text}, pad.{set,press}, frame, sim.{setSpeed,fast,normal}.
-  ## screen.text() returns decoded BG tilemap on-screen text (menus, dialogue, battle commands).
+  ## screen.{width,height,pixel,text,dialogue,inBattle,battleText}, pad.{set,press},
+  ## frame, sim.{setSpeed,fast,normal}.
+  ## screen.text() returns dialogue stream, battle WRAM window text, or tilemap scan.
   ## snes.* peeks ROM/WRAM mirrors without touching MMIO (ports return 0). Writes stay pad-only.
   ## nav.* plans over WRAM $7EE000 via $C05F33 (file 0x005F33 / gate 0x0029CC); findPath starts
   ## from live player slot-24 pos. sim.* controls targetFps in ctx (llm_ai loop; llm_play unaffected).
@@ -861,6 +955,10 @@ proc setupPolicyApi*(L: lua53.PState, ctx: PolicyContext) =
   L.setfield(-2, "text".cstring)
   L.pushcfunction(screenDialogue)
   L.setfield(-2, "dialogue".cstring)
+  L.pushcfunction(screenInBattle)
+  L.setfield(-2, "inBattle".cstring)
+  L.pushcfunction(screenBattleText)
+  L.setfield(-2, "battleText".cstring)
   L.setglobal("screen".cstring)
   # pad
   L.newtable()
