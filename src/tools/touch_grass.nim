@@ -792,6 +792,10 @@ const FollowTrailSkillLua* = """
 --     (diagonals into a solid axis cancel ALL movement in EB — verified on the
 --     Onett western climb at (0x0608,0x018A): Left+Up stuck, pure Up free).
 --     After brief stuck, add the secondary axis (slopes) then slope-wiggle.
+--   * Outdoor only: if a SOLID entity sits ~1-2 tiles in the intended travel
+--     direction, pure-axis perpendicular sidestep around it (then resume).
+--     Gated by _npc_sidestep_enabled (default on; probe sets false for baseline).
+--     Indoor walkTo is untouched — diagonal/sidestep defaults jam house doorways.
 --   * If wall-stuck for RECOVER_N: navTo the SAME trail point. If still no
 --     progress for RETREAT_N frames of recovery, step the index back one
 --     (re-anchor on the previous human sample) and resume. No glitch/clip.
@@ -802,6 +806,7 @@ const FollowTrailSkillLua* = """
 -- Requires: escapeMenu, navTo (recovery), pad, mem, frame.
 -- TODO(magic): ARRIVE/RECOVER_N/RETREAT_N tuned on TAS 20260709-225653;
 --   climb freeze (0x0608,0x018A) is the calibration case.
+-- TODO(magic): NPC_ALONG/NPC_CROSS ~1-2 tiles; SIDE_N ~one body clear (probe_npc_block).
 
 local TRAIL_ARRIVE = 8
 local TRAIL_RECOVER_N = 40
@@ -809,6 +814,12 @@ local TRAIL_RETREAT_N = 90
 local TRAIL_DUAL_N = 10
 local TRAIL_WIGGLE_N = 20
 local TRAIL_ROOM_JUMP = 0x80
+-- TODO(magic): entity soft body ~1 tile; along-axis look-ahead ~2 tiles (probe pin).
+local NPC_ALONG = 20
+local NPC_CROSS = 16
+local NPC_SIDE_N = 18
+local NPC_SLOTS = 24
+local OUTDOOR_X_MAX = 0x1C00
 
 local _trail = {
   key = nil,
@@ -820,7 +831,85 @@ local _trail = {
   recovering = false,
   rec_frames = 0,
   rec_best = nil,
+  side_btn = nil,
+  side_n = 0,
 }
+
+-- Return a pure perpendicular pad button if a non-player entity body sits in
+-- the intended travel direction; nil when clear / indoor / sidestep disabled.
+local function _trailNpcSidestep(px, py, dx, dy)
+  if _npc_sidestep_enabled == false then
+    return nil
+  end
+  if px >= OUTDOOR_X_MAX then
+    return nil
+  end
+  if dx == 0 and dy == 0 then
+    return nil
+  end
+  local adx = math.abs(dx)
+  local ady = math.abs(dy)
+  local primaryV = ady >= adx
+  for slot = 0, NPC_SLOTS - 1 do
+    local i = slot * 2
+    local ex = mem.read(0x0B8E + i) + 256 * mem.read(0x0B8F + i)
+    local ey = mem.read(0x0BCA + i) + 256 * mem.read(0x0BCB + i)
+    if (ex == 0 and ey == 0) or ex == 0xFFFF or ey == 0xFFFF then
+      -- empty / unset slot
+    else
+      local et = mem.read(0x2B6E + i) + 256 * mem.read(0x2B6F + i)
+      -- TODO(magic): type 0 / 0xFFFF = inactive; solid NPCs use nonzero ctype (player outdoor=5).
+      if et ~= 0 and et ~= 0xFFFF then
+        local edx = ex - px
+        local edy = ey - py
+        local aex = math.abs(edx)
+        local aey = math.abs(edy)
+        local blocks = false
+        if primaryV then
+          -- Traveling N/S: body roughly same column and ahead on Y.
+          if aex <= NPC_CROSS and aey <= NPC_ALONG and edy * dy > 0 then
+            blocks = true
+          end
+        else
+          if aey <= NPC_CROSS and aex <= NPC_ALONG and edx * dx > 0 then
+            blocks = true
+          end
+        end
+        -- Diagonal drive into a body slightly off the dominant axis.
+        if not blocks and dx ~= 0 and dy ~= 0 and aex <= NPC_CROSS and aey <= NPC_CROSS then
+          if (edx * dx > 0 or aex <= 8) and (edy * dy > 0 or aey <= 8) then
+            blocks = true
+          end
+        end
+        if blocks then
+          -- Pure perpendicular, away from the body on the cross-axis.
+          if primaryV then
+            if edx > 0 then
+              return "Left"
+            elseif edx < 0 then
+              return "Right"
+            elseif dx ~= 0 then
+              return (dx > 0) and "Right" or "Left"
+            else
+              return "Right"
+            end
+          else
+            if edy > 0 then
+              return "Up"
+            elseif edy < 0 then
+              return "Down"
+            elseif dy ~= 0 then
+              return (dy > 0) and "Down" or "Up"
+            else
+              return "Down"
+            end
+          end
+        end
+      end
+    end
+  end
+  return nil
+end
 
 function followTrail(points)
   if escapeMenu() then
@@ -842,6 +931,8 @@ function followTrail(points)
     _trail.recovering = false
     _trail.rec_frames = 0
     _trail.rec_best = nil
+    _trail.side_btn = nil
+    _trail.side_n = 0
   end
 
   local f = frame()
@@ -857,6 +948,8 @@ function followTrail(points)
     _trail.recovering = false
     _trail.rec_frames = 0
     _trail.rec_best = nil
+    _trail.side_btn = nil
+    _trail.side_n = 0
   end
 
   -- Advance only on genuine arrival; never jump past unreached detour points.
@@ -875,6 +968,8 @@ function followTrail(points)
       _trail.recovering = false
       _trail.rec_frames = 0
       _trail.rec_best = nil
+      _trail.side_btn = nil
+      _trail.side_n = 0
     else
       break
     end
@@ -949,10 +1044,34 @@ function followTrail(points)
   --   * stuck  -> the free direction is the OTHER axis (or a slope needs a
   --     perpendicular nudge): pure non-dominant axis + slope wiggle, then navTo
   --     recovery takes over at TRAIL_RECOVER_N above.
+  -- Outdoor NPC body ahead of intended travel: pure-axis perpendicular sidestep
+  -- for NPC_SIDE_N frames (then resume). Does not touch indoor walkTo.
   local dx = wp.x - px
   local dy = wp.y - py
   local adx = math.abs(dx)
   local ady = math.abs(dy)
+
+  local side = nil
+  if _trail.side_btn and _trail.side_n > 0 then
+    side = _trail.side_btn
+    _trail.side_n = _trail.side_n - 1
+    if _trail.side_n <= 0 then
+      _trail.side_btn = nil
+    end
+  else
+    side = _trailNpcSidestep(px, py, dx, dy)
+    if side then
+      _trail.side_btn = side
+      _trail.side_n = NPC_SIDE_N - 1
+    end
+  end
+  if side then
+    pad.press(side)
+    -- Sidestep is deliberate lateral motion; do not accrue wall-stuck/recovery.
+    _trail.stuck = 0
+    return true
+  end
+
   if _trail.stuck < TRAIL_DUAL_N then
     if dx ~= 0 then
       pad.press((dx > 0) and "Right" or "Left")
