@@ -110,6 +110,50 @@ the opcode meanings are the next dig.
   blocks at `0x45B67`, `0x63040`, and the `~0x8BCxx` cluster). A top-level master
   dialogue-ID table wasn't isolated — that needs the dynamic hook.
 
+### Entity action-script VM — opcode mapping (dig 2026-07-21)
+
+There are **two** interpreters, and they are NOT the same VM:
+
+- **Entity action-script VM** — dispatch `$C0952B` → jump table `$C09558`
+  (`JSR ($9558,X)`), opcodes `0x00–0x4C`. Drives NPC/entity behaviour, movement,
+  animation, doors, and cutscene sequencing via the `[$80],Y` stream.
+- **Text control-code VM** — `$C179AA` / `$C1890E` (documented above). This is
+  where the *story* "event language" lives: give-item, start-battle, teleport,
+  party change, dialogue-flag ops. **Still the frontier** — do not attribute
+  those to the action-script table.
+
+**Verified byte-exact (✅):**
+
+- **Jump table `$C09558`** is real, little-endian handler addresses in `$95xx–
+  $9Bxx`; entries 0..7 = `$95F2 $9603 $9627 $964D $9685 $96AA $96C3 $99DD`.
+  Valid range `0x00–0x4C`; `0x4D–0x6F` are handler bytes misread as pointers.
+- **Round-trip block file `0x3A076`** (`$C3A076`, 9 bytes), an idle-entity loop
+  seen live on many slots: `42 e3 a6 c0 | 06 01 | 19 76 a0` decodes as
+  `CALL $C0A6E3` (op `0x42`, +3 far ptr) · `WAIT 1` (op `0x06`, +1) ·
+  `GOTO $A076` (op `0x19`, +2, target = the block's own start → loops).
+  `encode(decode(bytes)) == bytes`; do NOT linear-decode past a `0x19` (the
+  following bytes are other scripts — you must follow the jump).
+- **Bitop sub-ops** (op `0x0D` → `$C09ABD`, static-disasm verified):
+  0=`*addr &= mask`, 1=`*addr |= mask`, 2=`*addr ^= mask`, 3=`*addr = mask`.
+
+**Tentative (🟡 — from a PARTIAL live trace; only ~12 of 77 ops fired in idle
+Onett):** rough semantics clusters seen so far — `0x06` wait, `0x19` goto,
+`0x42` far-call (`$C09D9E` anim/interaction kernel), conditionals sourced from
+`$1516,X` (per-entity work register), timers from `$10F2,X`. Movement (`0x28–
+0x30`), far-call (`0x03–0x05`), bitop-to-flags (`0x0D`), and halt (`0x00`) did
+**not** fire idle — they need door/talk/cutscene states to observe. Treat the
+per-opcode meaning table as unproven until each opcode is traced live. The story
+event ops (item/battle/teleport/party) are the OTHER VM and remain unmapped.
+
+**Script-engine WRAM (🟡, from the same trace — verify before relying):** entity
+work/condition `$1516,X`; frame/anim timer `$10F2,X`; story/event flags `$988B…`
+(hit via absolute WRAM bitops, not a dedicated opcode). Candidates needing a
+clean trace: `$1372` wait, `$13FE`/`$148A` script PC, `$12E6` stack depth.
+
+**Next dig:** force door-enter / talk / cutscene states to fire `0x00`, `0x03–
+0x05`, `0x0D`, `0x28–0x30`; separately hook the text-CC VM (`$C179AA`) for the
+give-item / start-battle / flag story ops.
+
 **Text-stream decode mechanics (verified byte-exact):**
 
 - **Glyph → tile index:** `glyph_id = (byte − 0x50) & 0x7F` — verified at file
