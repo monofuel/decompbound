@@ -60,20 +60,21 @@ code** — no jump table needs hand-resolving.
 
 **Honesty properties.** Every seed is a genuine opcode fetch (`cpu.pc` sampled
 at fetch time), so the core of every region is CPU-confirmed code. Tracing then
-walks each basic block forward to its return/branch; those linear successors are
-real code too (the CPU would fetch them next). The one caveat is inline data
-embedded in code (`JSR handler` followed by an in-line `.word` table): forward
-decode can over-run a routine's end and disassemble a few data bytes as
-instructions. Such bytes still **reproduce the gold ROM byte-exactly** (that is
-what `tests/test_regions.nim` gates), so the coverage number is honest as a
-*byte-reproduction* metric; only the code/data *labeling* at a few run tails is
-best-effort, and those show up as spurious high-operand frontier sites
-(`($FCFC,X)` and friends) to be pruned as regions are refined.
+walks each basic block forward to its return/branch. The critical requirement is
+**seeding at the right M/X width**: a mid-execution seed reached in 16-bit native
+mode, if decoded as 8-bit (the tracer's default), misaligns and over-runs the
+routine into trailing data, marking it Code. Those bytes still *reproduce gold
+byte-exactly* (so `tests/test_regions.nim` cannot catch them), which is exactly
+why an early version of this seeding *inflated* coverage ~3× with misaligned
+garbage and a frontier full of false `($FCFC,X)` sites. The fix: `probe_pc_coverage`
+records the true `cpu.m8/x8/emulation` width at each fetch and `convert_all` passes
+it through `seedFlags`, so each seed decodes at the boundary the CPU used.
 
-This seeding took byte-exact coverage from **141,963 → 493,895 bytes (4.51% →
-15.70% of the ROM)** in one pass. `make compare` reports it as *Decompiled
-(byte-exact)* — the number to drive up — separate from coincidental zero-fill
-matches, which are not progress.
+Correctly aligned, this seeding took byte-exact coverage from **141,963 → 179,250
+bytes (4.51% → 5.70% of the ROM)** — real code recovered from behind the computed
+jumps, with the frontier restored to its ~20 genuine jump-table sites. `make
+compare` reports it as *Decompiled (byte-exact)* — the number to drive up —
+separate from coincidental zero-fill matches, which are not progress.
 
 ## The browsers: one explorer per format
 
