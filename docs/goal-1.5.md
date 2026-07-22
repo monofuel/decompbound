@@ -105,20 +105,27 @@ Adoption *spends* understanding; the other campaigns *mint* it:
 So the recommended order stands: chase audio/graphics/scripting for joy
 and knowledge; adopt regions opportunistically as understanding falls out.
 
-**Adopted so far:**
+**Adopted so far** — authoritative list is `adopted.nim` →
+`allAdoptedRegions()`; the running total is the `make compare` "Understood"
+line. As of the audio campaign: **9 routines, 721 bytes**.
 
-- `sramMirrorPiracyCheck` (`$C0A11C`, 54 bytes) — the copier-detection SRAM
-  mirror trick; first adoption, boundary-aligned.
-- `earthboundRandom` (`$C08E9A`, 56 bytes) — the PRNG advance; first
-  **mid-region** adoption, and it already has a native Nim mirror
-  (`rng.nim` reimpl matched the emulator 10/10), the "dual implementation"
-  below in embryo.
+- Boot / integrity: `sramMirrorPiracyCheck` (`$C0A11C`) — copier-detection
+  SRAM mirror trick; first adoption, boundary-aligned.
+- RNG: `earthboundRandom` (`$C08E9A`) — the PRNG advance; first **mid-region**
+  adoption, and it already has a native Nim mirror (`rng.nim` matched the
+  emulator 10/10) — the "dual implementation" below, in embryo.
+- Audio playback spine: `uploadApuPackages` (`$C0AB06`, SPC700 IPL handshake +
+  block streamer), `loadSong` (`$C4FBBD`, song ID → song/pack tables →
+  upload), `queueApuCommand` (`$C0ABE0`, command ring buffer), the port
+  helpers (`writeApuPort0/1/3`), and `requestCgramDma` (`$C0856B` — the doc's
+  old "play music" guess, **disproven**: `$0030` feeds a CGRAM DMA table, so
+  it is named for the proven consumer, not the myth).
 
-Next candidates (understanding already minted, awaiting the lift): the APU
-upload routine (`$C0AB06`) and the audio helpers documented in
-`docs/audio.md`; the RNG cold-init seed (`$C08121`) once adopted as part of
-its whole enclosing boot routine (do not carve a bare fragment out of a
-routine you have not named).
+Next candidates (understanding minted, awaiting the lift): the `$C0ABC6`
+wait-idle-then-clear-song helper that `loadSong` calls; the warm/cold boot
+check; the RNG cold-init seed (`$C08121`) once adopted as part of its whole
+enclosing boot routine (do not carve a bare fragment out of a routine you
+have not named).
 
 ## Someday: dual implementations
 
