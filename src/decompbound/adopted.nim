@@ -7,7 +7,8 @@
 
 import
   ./[sram_piracy, rng, apu_upload, cgram_dma_request, apu_port_io,
-     song_loader, queue_apu_cmd, wait_apu_idle, bg_layer_setup]
+     song_loader, queue_apu_cmd, wait_apu_idle, bg_layer_setup,
+     obj_base, bg4_bases, clear_wram_block]
 
 proc allAdoptedRegions*(): seq[tuple[name: string, offset: int, data: seq[uint8]]] =
   ## Every hand-curated code region, assembled from named source.
@@ -47,6 +48,9 @@ proc allAdoptedRegions*(): seq[tuple[name: string, offset: int, data: seq[uint8]
   result.add (name: "setBgMode",
               offset: SetBgModeOffset,
               data: setBgMode())
+  result.add (name: "setObjBase",
+              offset: SetObjBaseOffset,
+              data: setObjBase())
   result.add (name: "setBg1Bases",
               offset: SetBg1BasesOffset,
               data: setBg1Bases())
@@ -56,6 +60,12 @@ proc allAdoptedRegions*(): seq[tuple[name: string, offset: int, data: seq[uint8]
   result.add (name: "setBg3Bases",
               offset: SetBg3BasesOffset,
               data: setBg3Bases())
+  result.add (name: "setBg4Bases",
+              offset: SetBg4BasesOffset,
+              data: setBg4Bases())
+  result.add (name: "clearWramBlock280C",
+              offset: ClearWramBlock280COffset,
+              data: clearWramBlock280C())
 
 proc adoptedRanges*(): seq[tuple[start: int, last: int]] =
   ## Inclusive file-offset spans owned by curated modules, derived from the

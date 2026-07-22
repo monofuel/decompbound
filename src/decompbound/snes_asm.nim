@@ -40,6 +40,9 @@ const
   Rel8Mnemonics = [
     "BPL", "BMI", "BVC", "BVS", "BCC", "BCS", "BNE", "BEQ", "BRA",
   ]
+  # Block moves take a packed bank pair (not an immediate width): low byte =
+  # destination bank, high byte = source bank. `mvn 0x7E7E` → MVN $7E,$7E.
+  BlockMoveMnemonics = ["MVN", "MVP"]
   # 65816 mnemonics that collide with Nim keywords need a DSL alias. AND is the
   # only real 65816/Nim clash; alias it `andOp`. TODO: extend if more surface.
   MnemonicAliases = {"andop": "AND"}.toTable
@@ -120,10 +123,12 @@ proc lowerStatement(stmt: NimNode): NimNode =
       return newCall(bindSym"instr", newLit(mne),
                      ident(ModeMarkers[marker]), operand[1])
 
-  # Bare operand: relative-8 for branch mnemonics (raw offset byte), else
-  # immediate (width from the mnemonic).
+  # Bare operand: relative-8 for branch mnemonics (raw offset byte), packed
+  # bank-pair for MVN/MVP, else immediate (width from the mnemonic).
   if mne in Rel8Mnemonics:
     return newCall(bindSym"instr", newLit(mne), ident"amRelative8", operand)
+  if mne in BlockMoveMnemonics:
+    return newCall(bindSym"instr", newLit(mne), ident"amBlockMove", operand)
   return newCall(bindSym"instr", newLit(mne), ident(immMode(mne)), operand)
 
 macro snesAsm*(origin, entry, body: untyped): untyped =
