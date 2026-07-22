@@ -54,26 +54,42 @@ proc sramMirrorPiracyCheck*(): seq[uint8] =
 The macro is sugar only: it lowers to the same `AsmNode`/`assemble()`
 machinery Goal 1 verified. **Zero new verification surface.**
 
-## Migration mechanics
+## Migration mechanics (shipped)
 
-The region registry (`regions.nim`) already supports this:
+The pipeline is built and proven end-to-end:
 
-1. A curated module registers its region; `tools/convert_all.nim` skips
-   adopted ranges (an adopted-regions manifest it consults).
-2. The generated file for that region is **deleted**.
+1. A curated module registers its region in `adopted.nim` →
+   `allAdoptedRegions()` as `(name, offset, data: yourProc())`.
+2. `tools/convert_all.nim` **carves that byte-range out** of the traced
+   code (`adoptedRanges()`), so a curated routine can sit **mid-region**,
+   not only on a traced-region boundary. The enclosing block simply splits
+   around the adopted span — no generated file to hand-delete.
 3. The per-region gold test (`tests/test_regions.nim`) is the adoption
-   gate: rename and document all you want — the bytes must still match.
+   gate: rename and document all you want — every region must still be
+   byte-exact against gold, and no two regions may overlap.
 
 Adoption is therefore un-fakeable. Each adoption is a small,
 self-contained, independently verifiable unit of work — ideal ticket shape
 for agent sessions.
 
-## The metric
+Mid-region carving was the missing piece: before it, only routines that
+happened to start on a boundary (`sramMirrorPiracyCheck` at `$C0A11C`)
+could adopt. The RNG advance (`$C08E9A`) is buried inside the 811-byte
+`$C08C6D` block; carving splits it 557 + [56 adopted] + 198.
 
-**Adopted bytes vs. scaffold bytes.** This is the "% understood" number
-that fixes what the raw byte-match percentage could never express. It only
-moves through actual comprehension, because adopted output must still be
-byte-identical to gold.
+## The metric (live in `make compare`)
+
+**Adopted bytes vs. scaffold bytes** — the "% understood" number that fixes
+what the raw byte-match percentage could never express. It only moves
+through actual comprehension, because adopted output must still be
+byte-identical to gold. `make compare` now prints it:
+
+```
+Understood (Goal 1.5 adopted): 110 bytes = 0.06% of decompiled — readable, named, documented Nim
+```
+
+Baseline 110 bytes = `sramMirrorPiracyCheck` (54) + `earthboundRandom` (56).
+This is the number the Adoption Campaign drives up.
 
 ## Where understanding comes from
 
@@ -89,9 +105,20 @@ Adoption *spends* understanding; the other campaigns *mint* it:
 So the recommended order stands: chase audio/graphics/scripting for joy
 and knowledge; adopt regions opportunistically as understanding falls out.
 
-**Candidate #1, fully decoded and waiting:** `code_00A11C.nim` is the SRAM
-mirror anti-piracy check (see the emulator saga, 2026-07-04). It should be
-the first generated file we get to delete.
+**Adopted so far:**
+
+- `sramMirrorPiracyCheck` (`$C0A11C`, 54 bytes) — the copier-detection SRAM
+  mirror trick; first adoption, boundary-aligned.
+- `earthboundRandom` (`$C08E9A`, 56 bytes) — the PRNG advance; first
+  **mid-region** adoption, and it already has a native Nim mirror
+  (`rng.nim` reimpl matched the emulator 10/10), the "dual implementation"
+  below in embryo.
+
+Next candidates (understanding already minted, awaiting the lift): the APU
+upload routine (`$C0AB06`) and the audio helpers documented in
+`docs/audio.md`; the RNG cold-init seed (`$C08121`) once adopted as part of
+its whole enclosing boot routine (do not carve a bare fragment out of a
+routine you have not named).
 
 ## Someday: dual implementations
 
