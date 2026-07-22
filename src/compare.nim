@@ -26,6 +26,13 @@ type
     intentionalMatches: int
     intentionalBytes: int
     percentage: float
+    ## Honest-signal breakdown (compare.nim is the referee; the headline
+    ## "raw matches" number is inflated by coincidental zero-fill agreement
+    ## between the gold ROM and the not-yet-built decomp ROM, so it must not
+    ## be read as decompilation progress). See docs/rom-emulator-tests.md.
+    coincidentalMatches: int    ## matches OUTSIDE any implemented region
+    coincidentalZeroMatches: int ## of those, the ones where gold byte == 0x00
+    trueCoverage: float         ## intentionalMatches / totalBytes — real progress
   
   GitInfo = object
     commitHash: string
@@ -133,36 +140,53 @@ proc compareFullRom(): ComparisonStats =
   var nonMatchingBytes = 0
   var intentionalMatches = 0
   var intentionalBytes = 0
-  
+  var coincidentalMatches = 0
+  var coincidentalZeroMatches = 0
+
   for i in 0..<compareSize:
     let isImplemented = isInImplementedRegion(i)
     if isImplemented:
       intentionalBytes += 1
-    
+
     if goldRomData[i] == decompRomData[i]:
       matchingBytes += 1
       if isImplemented:
         intentionalMatches += 1
+      else:
+        # Matched a byte we never actually decompiled: coincidence, not
+        # progress. Overwhelmingly zero-fill where both ROMs are blank.
+        coincidentalMatches += 1
+        if goldRomData[i] == '\0':
+          coincidentalZeroMatches += 1
     else:
       nonMatchingBytes += 1
-  
+
   let totalPercentage = (matchingBytes.float / goldRomSize.float) * 100.0
   let intentionalPercentage = if intentionalBytes > 0: (intentionalMatches.float / intentionalBytes.float) * 100.0 else: 0.0
-  
-  echo &"ROM comparison: {goldRomSize} bytes total, {matchingBytes} match, {nonMatchingBytes} differ ({totalPercentage:.2f}% total matches)"
-  echo &"  Implemented regions: {intentionalBytes} bytes, {intentionalMatches} match ({intentionalPercentage:.2f}% of implemented)"
-  
+  let trueCoverage = (intentionalMatches.float / goldRomSize.float) * 100.0
+  let coincidentalNonZero = coincidentalMatches - coincidentalZeroMatches
+
+  # Lead with the honest number: how much of the ROM is actually decompiled
+  # and byte-exact. The raw-match line is demoted and explicitly flagged as
+  # inflated, so it can never be mistaken for progress again.
+  echo &"Decompiled (byte-exact): {intentionalMatches} / {goldRomSize} bytes = {trueCoverage:.2f}% of ROM  [implemented regions {intentionalPercentage:.2f}% exact]"
+  echo &"  Coincidental matches (never decompiled): {coincidentalMatches}  ({coincidentalZeroMatches} zero-fill + {coincidentalNonZero} non-zero) — NOT progress"
+  echo &"  Raw byte matches incl. coincidental: {matchingBytes} ({totalPercentage:.2f}%) — inflated, do not track"
+
   if compareSize < goldRomSize:
     let remainingBytes = goldRomSize - compareSize
     echo &"  ({remainingBytes} bytes not yet implemented in decomp ROM)"
-  
+
   result = ComparisonStats(
     totalBytes: goldRomSize,
     matchingBytes: matchingBytes,
     nonMatchingBytes: nonMatchingBytes,
     intentionalMatches: intentionalMatches,
     intentionalBytes: intentionalBytes,
-    percentage: intentionalPercentage
+    percentage: intentionalPercentage,
+    coincidentalMatches: coincidentalMatches,
+    coincidentalZeroMatches: coincidentalZeroMatches,
+    trueCoverage: trueCoverage
   )
 
 proc compareHeaders(goldHeader: RomHeaderData, decompHeader: RomHeaderData): ComparisonStats =
@@ -229,12 +253,19 @@ proc generateReport(romStats: ComparisonStats, headerStats: ComparisonStats, git
   let nonMatchingBytesStr = formatNumber(romStats.nonMatchingBytes)
   let intentionalBytesStr = formatNumber(romStats.intentionalBytes)
   let intentionalMatchesStr = formatNumber(romStats.intentionalMatches)
-  report.add &"- Total bytes: {totalBytesStr}\n"
-  report.add &"- Matching bytes: {matchingBytesStr}\n"
-  report.add &"- Non-matching bytes: {nonMatchingBytesStr}\n"
-  report.add &"- Implemented bytes: {intentionalBytesStr}\n"
-  report.add &"- Intentional matches: {intentionalMatchesStr}\n"
-  report.add &"- Progress (of implemented): {romStats.percentage:.2f}%\n\n"
+  let coincidentalStr = formatNumber(romStats.coincidentalMatches)
+  let coincidentalZeroStr = formatNumber(romStats.coincidentalZeroMatches)
+  let coincidentalNonZeroStr = formatNumber(
+    romStats.coincidentalMatches - romStats.coincidentalZeroMatches)
+  report.add "**Decomp coverage** = byte-exact decompiled bytes as a fraction of the whole ROM. This is the number to drive up.\n\n"
+  report.add &"- **Decompiled (byte-exact): {intentionalMatchesStr} / {totalBytesStr} = {romStats.trueCoverage:.2f}% of ROM**\n"
+  report.add &"- Implemented regions: {intentionalBytesStr} bytes, {intentionalMatchesStr} exact ({romStats.percentage:.2f}% of implemented — the byte-exact gate)\n"
+  report.add "\n"
+  report.add "### Coincidental matches (not progress)\n\n"
+  report.add "Bytes that agree with gold but were never decompiled — mostly zero-fill where both ROMs are blank. Tracked only to keep the raw-match number honest.\n\n"
+  report.add &"- Coincidental matches: {coincidentalStr} ({coincidentalZeroStr} zero-fill + {coincidentalNonZeroStr} non-zero)\n"
+  report.add &"- Raw byte matches (inflated, incl. coincidental): {matchingBytesStr} / {totalBytesStr}\n"
+  report.add &"- Non-matching bytes: {nonMatchingBytesStr}\n\n"
   report.add "## Header Comparison\n\n"
   report.add &"- Total bytes: {headerStats.totalBytes}\n"
   report.add &"- Matching bytes: {headerStats.matchingBytes}\n"
