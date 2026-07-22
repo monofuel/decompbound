@@ -38,6 +38,43 @@ emulator answers it dynamically by watching the game decode its *own* data:
 So the emulator work is **on-path for decompilation**, not a detour: static
 disasm finds the interpreter, dynamic tracing reveals the data it eats.
 
+### The emulator also resolves the *code* frontier
+
+Static control-flow tracing (`tools/convert_all.nim`) follows the ROM from its
+interrupt vectors, but stops dead at every computed/indirect jump — `JMP
+($xxxx,X)`, `JML [$xx]` — because it cannot know statically where the game
+dispatches. EarthBound is a data-driven engine full of these jump tables, so
+vector-only tracing reaches a small fraction of the code. Each stop is recorded
+in `generated/frontier.md`.
+
+The emulator resolves this the same way it resolves data: **every address the
+CPU actually fetches an instruction from is, by definition, real executed
+code** — no jump table needs hand-resolving.
+
+- `tools/probe_pc_coverage.nim` boots the ROM and replays save-states + recorded
+  `.tas` sessions, recording the ROM file offset of every instruction fetch.
+- It writes those addresses to `src/decompbound/observed_entries.txt` (addresses
+  only — structural facts, like `frontier.md`; no game data, safe to commit).
+- `convert_all` seeds `analyzeControlFlow` with them, so tracing carries *past*
+  the frontier through code we know is real because it ran.
+
+**Honesty properties.** Every seed is a genuine opcode fetch (`cpu.pc` sampled
+at fetch time), so the core of every region is CPU-confirmed code. Tracing then
+walks each basic block forward to its return/branch; those linear successors are
+real code too (the CPU would fetch them next). The one caveat is inline data
+embedded in code (`JSR handler` followed by an in-line `.word` table): forward
+decode can over-run a routine's end and disassemble a few data bytes as
+instructions. Such bytes still **reproduce the gold ROM byte-exactly** (that is
+what `tests/test_regions.nim` gates), so the coverage number is honest as a
+*byte-reproduction* metric; only the code/data *labeling* at a few run tails is
+best-effort, and those show up as spurious high-operand frontier sites
+(`($FCFC,X)` and friends) to be pruned as regions are refined.
+
+This seeding took byte-exact coverage from **141,963 → 493,895 bytes (4.51% →
+15.70% of the ROM)** in one pass. `make compare` reports it as *Decompiled
+(byte-exact)* — the number to drive up — separate from coincidental zero-fill
+matches, which are not progress.
+
 ## The browsers: one explorer per format
 
 The silky explorer stubs already reserved in the repo are the intended viewers,
