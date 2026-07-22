@@ -1098,7 +1098,7 @@ proc generateCode11EF2C*(): seq[uint8] =
   result = assemble(nodes, 0xD1EF2C'u32,
                     FlagState(m8: true, x8: false, emulation: false))
 
-## Region: file 0x11F020-0x11F0B9 (SNES $D1F020), 154 bytes.
+## Region: file 0x11F020-0x11F0B8 (SNES $D1F020), 153 bytes.
 proc generateCode11F020*(): seq[uint8] =
   ## Assemble the region at file 0x11F020 from disassembled source.
   var nodes: seq[AsmNode]
@@ -1162,14 +1162,14 @@ proc generateCode11F020*(): seq[uint8] =
   nodes.add instr("TSC", amImplied)  # $D1F09F: TSC
   nodes.add instr("SBC", amAbsoluteLongX, 0x7DFF7D)  # $D1F0A0: SBC $7DFF7D,X
   nodes.add instr("SBC", amAbsoluteLongX, 0xFF7D)  # $D1F0A4: SBC $00FF7D,X
-  nodes.add instr("CPY", amImmediateX, 0xFF3F)  # $D1F0A8: CPY #$FF3F
-  nodes.add instr("BRK", amImmediate8, 0xC0)  # $D1F0AB: BRK #$C0
-  nodes.add instr("AND", amAbsoluteLongX, 0x4F00FF)  # $D1F0AD: AND $4F00FF,X
-  nodes.add instr("EOR", amAbsoluteLong, 0x7F4747)  # $D1F0B1: EOR $7F4747
-  nodes.add instr("ADC", amAbsoluteLongX, 0x407F7F)  # $D1F0B5: ADC $407F7F,X
-  nodes.add instr("RTI", amImplied)  # $D1F0B9: RTI
+  nodes.add instr("CPY", amImmediateX, 0x3F)  # $D1F0A8: CPY #$3F
+  nodes.add instr("SBC", amAbsoluteLongX, 0x3FC000)  # $D1F0AA: SBC $3FC000,X
+  nodes.add instr("SBC", amAbsoluteLongX, 0x4F4F00)  # $D1F0AE: SBC $4F4F00,X
+  nodes.add instr("EOR", amDpIndirectLong, 0x47)  # $D1F0B2: EOR [$47]
+  nodes.add instr("ADC", amAbsoluteLongX, 0x7F7F7F)  # $D1F0B4: ADC $7F7F7F,X
+  nodes.add instr("RTI", amImplied)  # $D1F0B8: RTI
   result = assemble(nodes, 0xD1F020'u32,
-                    FlagState(m8: false, x8: false, emulation: false))
+                    FlagState(m8: true, x8: true, emulation: false))
 
 ## Region: file 0x11FF0F-0x11FF11 (SNES $D1FF0F), 3 bytes.
 proc generateCode11FF0F*(): seq[uint8] =

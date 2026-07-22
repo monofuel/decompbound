@@ -91,18 +91,12 @@ the opcode meanings are the next dig.
 
 **Two more layers located (verified byte-exact):**
 
-- **Event/object-script opcode dispatch: file `0x9558`** (SNES `$C09558`) — a
-  56-entry jump table (opcodes `0x00–0x6F`, bounded by `CMP #$0070`), reached via
-  `JSR ($9558,X)` from `$C0952B`. This is the main event/entity bytecode
-  interpreter — the `[$80],Y` stream system that drives NPCs, cutscenes, *and*
-  doors — distinct from the `$C179AA` *text* control-code dispatch. (Resolved as
-  a Goal-1 frontier jump door.) **Per-opcode handlers mapped (semantics tentative,
-  need the live hook):** each of the 56 opcodes' handler offset (`$95xx`–`$9Bxx`)
-  and rough operand width (0–5 bytes) are disassembled — e.g. op `0x14` → `$9A87`,
-  ~5 bytes (coords?); op `0x02` advances +4. Semantics cluster into flag test/set,
-  give-item, start-battle (JSL), teleport (map + 2–4-byte coords), party
-  add/remove, and conditional/loop — exact meanings + the flag layout still want
-  the live interpreter trace.
+- **Event/object-script opcode dispatch: file `0x9558`** (SNES `$C09558`) — the
+  main event/entity bytecode interpreter, the `[$80],Y` stream system that drives
+  NPCs, cutscenes, *and* doors — distinct from the `$C179AA` *text* control-code
+  dispatch. (Resolved as a Goal-1 frontier jump door.) The precise two-table
+  dispatch structure is verified below (grok dig 2026-07-21, conductor-verified
+  byte-exact against the ROM). Per-opcode *semantics* remain tentative.
 - **Dialogue text-block pointer table: file `0x8CDED`** (SNES `$C8CDED`) — 4-byte
   entries (`id * 4`), each a 24-bit far pointer to an encoded script block (first
   entries point to `$C8BC2D`+). Parallel tables at `~0x8D1ED` / `~0x8D5ED`; lookup
@@ -122,11 +116,27 @@ There are **two** interpreters, and they are NOT the same VM:
   party change, dialogue-flag ops. **Still the frontier** — do not attribute
   those to the action-script table.
 
-**Verified byte-exact (✅):**
+**Verified byte-exact (✅ — grok dig 2026-07-21, every table byte re-read from the
+ROM by the conductor):** the dispatch is **two tables**, split by opcode value at
+`$C09524 CMP #$0070 / BCS`:
 
-- **Jump table `$C09558`** is real, little-endian handler addresses in `$95xx–
-  $9Bxx`; entries 0..7 = `$95F2 $9603 $9627 $964D $9685 $96AA $96C3 $99DD`.
-  Valid range `0x00–0x4C`; `0x4D–0x6F` are handler bytes misread as pointers.
+- **Low path — table `$C09558` (file `0x9558`), 77 entries.** Opcode `< $70`:
+  `ASL A / TAX / JSR ($9558,X)` → `X = opcode*2`. Dense bound `($95F2−$9558)/2 =
+  77`; all 77 words are in-bank code pointers spanning `$95F2..$9BF8`, first
+  handler `$95F2` immediately follows the table. 69 unique targets (the tail
+  duplicates the 8 high-path handlers). Entries 0..7 =
+  `$95F2 $9603 $9627 $964D $9685 $96AA $96C3 $99DD`.
+- **High path — table `$C095E2` (file `0x95E2`), 8 entries.** Opcode `>= $70`:
+  `AND #$0070 / LSR×3 / TAX / JSR ($95E2,X)` → 8 slots `X∈{0,2,…,E}`. These 8
+  words physically **overlay** words 69..76 of the `$9558` table; targets
+  `$96CF $9A38 $9A3E $9A44 $9713 $9731 $974F $993D`.
+- Sampled handlers all disassemble as real routines ending `RTS`. A few whose
+  bodies are unambiguous: high-path `$9A38 = INC $10F2,X`, `$9A3E = DEC $10F2,X`
+  (per-entity timer op at `$10F2`), `$96CF` sets `$10F2,X = −1` on a `$FF`
+  stream sentinel. Most bodies still need the live trace for full semantics.
+- **NOT a single `0x00–0x6F` table** (an earlier note); opcodes past the 77 low
+  slots route through the high-path table, and frontier sites like `($FCFC,X)` /
+  `($C08E,X)` near here are misaligned decodes into data/operands, not tables.
 - **Round-trip block file `0x3A076`** (`$C3A076`, 9 bytes), an idle-entity loop
   seen live on many slots: `42 e3 a6 c0 | 06 01 | 19 76 a0` decodes as
   `CALL $C0A6E3` (op `0x42`, +3 far ptr) · `WAIT 1` (op `0x06`, +1) ·

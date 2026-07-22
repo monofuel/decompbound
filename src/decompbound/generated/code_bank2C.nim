@@ -15,11 +15,12 @@ proc generateCode2CA0B0*(): seq[uint8] =
   nodes.add instr("ADC", amAbsoluteLongX, 0x70C93)  # $ECA0B8: ADC $070C93,X
   nodes.add instr("STA", amAbsoluteX, 0x5D0C)  # $ECA0BC: STA $5D0C,X
   nodes.add instr("BCS", amRelative8, 0x30)  # $ECA0BF: BCS +48
-  nodes.add instr("CMP", amImmediateM, 0x7B0C)  # $ECA0C1: CMP #$7B0C
+  nodes.add instr("CMP", amImmediateM, 0xC)  # $ECA0C1: CMP #$0C
+  nodes.add instr("TDC", amImplied)  # $ECA0C3: TDC
   nodes.add instr("TYA", amImplied)  # $ECA0C4: TYA
   nodes.add instr("TSB", amAbsolute, 0x937F)  # $ECA0C5: TSB $937F
-  nodes.add instr("CMP", amImmediateM, 0x1906)  # $ECA0C8: CMP #$1906
-  nodes.add instr("LDY", amDirectPageX, 0x6)  # $ECA0CB: LDY $06,X
+  nodes.add instr("CMP", amImmediateM, 0x6)  # $ECA0C8: CMP #$06
+  nodes.add instr("ORA", amAbsoluteY, 0x6B4)  # $ECA0CA: ORA $06B4,Y
   nodes.add instr("TCS", amImplied)  # $ECA0CD: TCS
   nodes.add instr("LDA", amDirectPageX, 0xC)  # $ECA0CE: LDA $0C,X
   nodes.add instr("TDC", amImplied)  # $ECA0D0: TDC
@@ -33,8 +34,8 @@ proc generateCode2CA0B0*(): seq[uint8] =
   nodes.add instrTo("BMI", amRelative8, "loc_ECA0B0")  # $ECA0E5: BMI -55
   nodes.add instr("TSB", amAbsolute, 0x987B)  # $ECA0E7: TSB $987B
   nodes.add instr("TSB", amAbsolute, 0x937F)  # $ECA0EA: TSB $937F
-  nodes.add instr("CMP", amImmediateM, 0x190C)  # $ECA0ED: CMP #$190C
-  nodes.add instr("LDY", amDirectPageX, 0xC9)  # $ECA0F0: LDY $C9,X
+  nodes.add instr("CMP", amImmediateM, 0xC)  # $ECA0ED: CMP #$0C
+  nodes.add instr("ORA", amAbsoluteY, 0xC9B4)  # $ECA0EF: ORA $C9B4,Y
   nodes.add instr("LDA", amDirectPageX, 0xC9)  # $ECA0F2: LDA $C9,X
   nodes.add instr("TSB", amAbsolute, 0xAB57)  # $ECA0F4: TSB $AB57
   nodes.add instr("TSB", amAbsolute, 0x937B)  # $ECA0F7: TSB $937B
@@ -43,26 +44,28 @@ proc generateCode2CA0B0*(): seq[uint8] =
   nodes.add instr("SBC", amDpIndirectX, 0xA)  # $ECA0FE: SBC ($0A,X)
   nodes.add instr("CLC", amImplied)  # $ECA100: CLC
   nodes.add instr("EOR", amAbsoluteX, 0xABA4)  # $ECA101: EOR $ABA4,X
-  nodes.add instr("CMP", amImmediateM, 0x7B18)  # $ECA104: CMP #$7B18
+  nodes.add instr("CMP", amImmediateM, 0x18)  # $ECA104: CMP #$18
+  nodes.add instr("TDC", amImplied)  # $ECA106: TDC
   nodes.add instr("PLB", amImplied)  # $ECA107: PLB
-  nodes.add instr("CMP", amImmediateM, 0xCAB)  # $ECA108: CMP #$0CAB
-  nodes.add instr("CMP", amImmediateM, 0x2D0C)  # $ECA10B: CMP #$2D0C
-  nodes.add label("loc_ECA10E")
-  nodes.add instr("LDY", amDirectPage, 0x18)  # $ECA10E: LDY $18
+  nodes.add instr("CMP", amImmediateM, 0xAB)  # $ECA108: CMP #$AB
+  nodes.add instr("TSB", amAbsolute, 0xCC9)  # $ECA10A: TSB $0CC9
+  nodes.add instr("AND", amAbsolute, 0x18A4)  # $ECA10D: AND $18A4
   nodes.add instr("TDC", amImplied)  # $ECA110: TDC
   nodes.add instr("PLB", amImplied)  # $ECA111: PLB
   nodes.add instr("CLC", amImplied)  # $ECA112: CLC
   nodes.add instr("AND", amAbsolute, 0x18A4)  # $ECA113: AND $18A4
   nodes.add instr("EOR", amAbsoluteX, 0xC9AB)  # $ECA116: EOR $C9AB,X
   nodes.add instr("PLB", amImplied)  # $ECA119: PLB
-  nodes.add instr("CMP", amImmediateM, 0x18AB)  # $ECA11A: CMP #$18AB
+  nodes.add instr("CMP", amImmediateM, 0xAB)  # $ECA11A: CMP #$AB
+  nodes.add instr("CLC", amImplied)  # $ECA11C: CLC
   nodes.add label("loc_ECA11D")
-  nodes.add instr("AND", amImmediateM, 0x18B7)  # $ECA11D: AND #$18B7
+  nodes.add instr("AND", amImmediateM, 0xB7)  # $ECA11D: AND #$B7
+  nodes.add instr("CLC", amImplied)  # $ECA11F: CLC
   nodes.add instr("EOR", amAbsoluteX, 0xEDAB)  # $ECA120: EOR $EDAB,X
   nodes.add instr("LSR", amDirectPage, 0xE1)  # $ECA123: LSR $E1
   nodes.add instr("COP", amImmediate8, 0xE0)  # $ECA125: COP #$E0
   nodes.add instrTo("BNE", amRelative8, "loc_ECA11D")  # $ECA127: BNE -12
-  nodes.add instrTo("BVC", amRelative8, "loc_ECA10E")  # $ECA129: BVC -29
+  nodes.add instr("BVC", amRelative8, 0xE3)  # $ECA129: BVC -29
   nodes.add instr("ORA", amDpIndirectX, 0x37)  # $ECA12B: ORA ($37,X)
   nodes.add label("loc_ECA12D")
   nodes.add instr("LDX", amAbsoluteY, 0xC90C)  # $ECA12D: LDX $C90C,Y
@@ -71,9 +74,9 @@ proc generateCode2CA0B0*(): seq[uint8] =
   nodes.add instr("BCS", amRelative8, 0x4)  # $ECA135: BCS +4
   nodes.add instr("EOR", amAbsoluteY, 0xB0B1)  # $ECA137: EOR $B0B1,Y
   nodes.add instr("TSB", amAbsolute, 0x5AE)  # $ECA13A: TSB $05AE
-  nodes.add instr("CMP", amImmediateM, 0xC906)  # $ECA13D: CMP #$C906
-  nodes.add instr("BRK", amImmediate8, 0xED)  # $ECA140: BRK #$ED
-  nodes.add instr("LSR", amDirectPage, 0xE1)  # $ECA142: LSR $E1
+  nodes.add instr("CMP", amImmediateM, 0x6)  # $ECA13D: CMP #$06
+  nodes.add instr("CMP", amImmediateM, 0x0)  # $ECA13F: CMP #$00
+  nodes.add instr("SBC", amAbsolute, 0xE146)  # $ECA141: SBC $E146
   nodes.add instr("ORA", amDpIndirect, 0xE0)  # $ECA144: ORA ($E0)
   nodes.add instr("BNE", amRelative8, 0xF4)  # $ECA146: BNE -12
   nodes.add instrTo("BVC", amRelative8, "loc_ECA12D")  # $ECA148: BVC -29
@@ -84,12 +87,12 @@ proc generateCode2CA0B0*(): seq[uint8] =
   nodes.add instr("PLB", amImplied)  # $ECA154: PLB
   nodes.add instr("TSB", amDirectPage, 0x59)  # $ECA155: TSB $59
   nodes.add instr("LDY", amAbsolute, 0xCAB)  # $ECA157: LDY $0CAB
-  nodes.add instr("LDA", amImmediateM, 0xC905)  # $ECA15A: LDA #$C905
-  nodes.add instr("ASL", amDirectPage, 0xC9)  # $ECA15D: ASL $C9
-  nodes.add instr("SBC", amStackRelativeY, 0xE1)  # $ECA15F: SBC ($E1,S),Y
-  nodes.add instr("TRB", amDirectPage, 0xE3)  # $ECA161: TRB $E3
-  nodes.add instr("ORA", amDpIndirectX, 0x32)  # $ECA163: ORA ($32,X)
-  nodes.add instr("TAX", amImplied)  # $ECA165: TAX
+  nodes.add instr("LDA", amImmediateM, 0x5)  # $ECA15A: LDA #$05
+  nodes.add instr("CMP", amImmediateM, 0x6)  # $ECA15C: CMP #$06
+  nodes.add instr("CMP", amImmediateM, 0xF3)  # $ECA15E: CMP #$F3
+  nodes.add instr("SBC", amDpIndirectX, 0x14)  # $ECA160: SBC ($14,X)
+  nodes.add instr("SBC", amStackRelative, 0x1)  # $ECA162: SBC $01,S
+  nodes.add instr("AND", amDpIndirect, 0xAA)  # $ECA164: AND ($AA)
   nodes.add instr("SEP", amImmediate8, 0x24)  # $ECA166: SEP #$24
   nodes.add instr("ORA", amDpIndirectX, 0xC)  # $ECA168: ORA ($0C,X)
   nodes.add instr("EOR", amAbsoluteY, 0x4B1)  # $ECA16A: EOR $04B1,Y
@@ -282,7 +285,7 @@ proc generateCode2CA0B0*(): seq[uint8] =
   nodes.add instr("COP", amImmediate8, 0x18)  # $ECA301: COP #$18
   nodes.add instr("RTL", amImplied)  # $ECA303: RTL
   result = assemble(nodes, 0xECA0B0'u32,
-                    FlagState(m8: false, x8: false, emulation: false))
+                    FlagState(m8: true, x8: false, emulation: false))
 
 ## Region: file 0x2CDE31-0x2CDEAD (SNES $ECDE31), 125 bytes.
 proc generateCode2CDE31*(): seq[uint8] =

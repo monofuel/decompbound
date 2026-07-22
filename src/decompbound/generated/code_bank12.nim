@@ -1306,9 +1306,10 @@ proc generateCode125A31*(): seq[uint8] =
   nodes.add instr("BRK", amImmediate8, 0x78)  # $D25A3B: BRK #$78
   nodes.add instr("BRK", amImmediate8, 0x20)  # $D25A3D: BRK #$20
   nodes.add instr("BRK", amImmediate8, 0xCF)  # $D25A3F: BRK #$CF
-  nodes.add instr("CPY", amImmediateX, 0xC3CC)  # $D25A41: CPY #$C3CC
-  nodes.add instr("PEI", amDpIndirect, 0xC3)  # $D25A44: PEI ($C3)
-  nodes.add instr("STA", amAbsoluteY, 0x9186)  # $D25A46: STA $9186,Y
+  nodes.add instr("CPY", amImmediateX, 0xCC)  # $D25A41: CPY #$CC
+  nodes.add instr("CMP", amStackRelative, 0xD4)  # $D25A43: CMP $D4,S
+  nodes.add instr("CMP", amStackRelative, 0x99)  # $D25A45: CMP $99,S
+  nodes.add instr("STX", amDirectPage, 0x91)  # $D25A47: STX $91
   nodes.add instr("STX", amDirectPage, 0xA9)  # $D25A49: STX $A9
   nodes.add instr("LDX", amDirectPage, 0x88)  # $D25A4B: LDX $88
   nodes.add instr("STX", amDirectPage, 0x0)  # $D25A4D: STX $00
@@ -1362,12 +1363,14 @@ proc generateCode125A31*(): seq[uint8] =
   nodes.add instr("BRK", amImmediate8, 0xFF)  # $D25AB5: BRK #$FF
   nodes.add instr("BRK", amImmediate8, 0xFF)  # $D25AB7: BRK #$FF
   nodes.add instr("BRK", amImmediate8, 0xFF)  # $D25AB9: BRK #$FF
-  nodes.add instr("CPY", amImmediateX, 0xF03F)  # $D25ABB: CPY #$F03F
-  nodes.add instr("ORA", amAbsoluteLong, 0x2FF)  # $D25ABE: ORA $0002FF
-  nodes.add instr("ORA", amAbsoluteLong, 0x7F800)  # $D25AC2: ORA $07F800
-  nodes.add instr("ORA", amDpIndirectX, 0xFE)  # $D25AC6: ORA ($FE,X)
-  nodes.add instr("ORA", amDpIndirectLong, 0xF8)  # $D25AC8: ORA [$F8]
+  nodes.add instr("CPY", amImmediateX, 0x3F)  # $D25ABB: CPY #$3F
+  nodes.add instrTo("BEQ", amRelative8, "loc_D25ACE")  # $D25ABD: BEQ +15
+  nodes.add instr("SBC", amAbsoluteLongX, 0xF0002)  # $D25ABF: SBC $0F0002,X
+  nodes.add instr("BRK", amImmediate8, 0xF8)  # $D25AC3: BRK #$F8
+  nodes.add instr("ORA", amDpIndirectLong, 0x1)  # $D25AC5: ORA [$01]
+  nodes.add instr("INC", amAbsoluteX, 0xF807)  # $D25AC7: INC $F807,X
   nodes.add instr("ORA", amAbsoluteLong, 0xCFFF3)  # $D25ACA: ORA $0CFFF3
+  nodes.add label("loc_D25ACE")
   nodes.add instr("SBC", amAbsoluteLongX, 0xFFF0)  # $D25ACE: SBC $00FFF0,X
   nodes.add instr("SBC", amAbsoluteLongX, 0xFF00)  # $D25AD2: SBC $00FF00,X
   nodes.add instr("SBC", amAbsoluteLongX, 0xFF00)  # $D25AD6: SBC $00FF00,X
@@ -1376,20 +1379,22 @@ proc generateCode125A31*(): seq[uint8] =
   nodes.add instr("SED", amImplied)  # $D25AE0: SED
   nodes.add instr("PHP", amImplied)  # $D25AE1: PHP
   nodes.add instr("BEQ", amRelative8, 0x10)  # $D25AE2: BEQ +16
-  nodes.add instr("CPX", amImmediateX, 0x4020)  # $D25AE4: CPX #$4020
+  nodes.add instr("CPX", amImmediateX, 0x20)  # $D25AE4: CPX #$20
+  nodes.add instr("RTI", amImplied)  # $D25AE6: RTI
   nodes.add instr("RTI", amImplied)  # $D25AE7: RTI
   nodes.add instr("BRA", amRelative8, 0x80)  # $D25AE8: BRA -128
   result = assemble(nodes, 0xD25A31'u32,
-                    FlagState(m8: false, x8: false, emulation: false))
+                    FlagState(m8: true, x8: true, emulation: false))
 
-## Region: file 0x125AF4-0x125AF7 (SNES $D25AF4), 4 bytes.
+## Region: file 0x125AF4-0x125AF9 (SNES $D25AF4), 6 bytes.
 proc generateCode125AF4*(): seq[uint8] =
   ## Assemble the region at file 0x125AF4 from disassembled source.
   var nodes: seq[AsmNode]
-  nodes.add instr("CPX", amImmediateX, 0xC020)  # $D25AF4: CPX #$C020
-  nodes.add instr("RTI", amImplied)  # $D25AF7: RTI
+  nodes.add instr("CPX", amImmediateX, 0x20)  # $D25AF4: CPX #$20
+  nodes.add instr("CPY", amImmediateX, 0x40)  # $D25AF6: CPY #$40
+  nodes.add instr("BRA", amRelative8, 0x80)  # $D25AF8: BRA -128
   result = assemble(nodes, 0xD25AF4'u32,
-                    FlagState(m8: false, x8: false, emulation: false))
+                    FlagState(m8: true, x8: true, emulation: false))
 
 ## Region: file 0x1260CA-0x1260E9 (SNES $D260CA), 32 bytes.
 proc generateCode1260CA*(): seq[uint8] =
@@ -2219,7 +2224,7 @@ proc generateCode12DCEC*(): seq[uint8] =
   nodes.add instr("ORA", amAbsoluteLong, 0x3F300F)  # $D2DD14: ORA $3F300F
   nodes.add instr("RTI", amImplied)  # $D2DD18: RTI
   result = assemble(nodes, 0xD2DCEC'u32,
-                    FlagState(m8: true, x8: true, emulation: false))
+                    FlagState(m8: true, x8: true, emulation: true))
 
 ## Region: file 0x12DD5B-0x12DD6B (SNES $D2DD5B), 17 bytes.
 proc generateCode12DD5B*(): seq[uint8] =
@@ -2237,7 +2242,7 @@ proc generateCode12DD5B*(): seq[uint8] =
   nodes.add instr("PHA", amImplied)  # $D2DD69: PHA
   nodes.add instr("BRA", amRelative8, 0x80)  # $D2DD6A: BRA -128
   result = assemble(nodes, 0xD2DD5B'u32,
-                    FlagState(m8: true, x8: true, emulation: false))
+                    FlagState(m8: true, x8: true, emulation: true))
 
 ## Region: file 0x12DD92-0x12DDAC (SNES $D2DD92), 27 bytes.
 proc generateCode12DD92*(): seq[uint8] =
@@ -2259,7 +2264,7 @@ proc generateCode12DD92*(): seq[uint8] =
   nodes.add instr("CPY", amImmediateX, 0xC0)  # $D2DDAA: CPY #$C0
   nodes.add instr("RTI", amImplied)  # $D2DDAC: RTI
   result = assemble(nodes, 0xD2DD92'u32,
-                    FlagState(m8: true, x8: true, emulation: false))
+                    FlagState(m8: true, x8: true, emulation: true))
 
 ## Region: file 0x12DDAE-0x12DDAF (SNES $D2DDAE), 2 bytes.
 proc generateCode12DDAE*(): seq[uint8] =
@@ -2267,7 +2272,7 @@ proc generateCode12DDAE*(): seq[uint8] =
   var nodes: seq[AsmNode]
   nodes.add instr("BRA", amRelative8, 0xF0)  # $D2DDAE: BRA -16
   result = assemble(nodes, 0xD2DDAE'u32,
-                    FlagState(m8: true, x8: true, emulation: false))
+                    FlagState(m8: true, x8: true, emulation: true))
 
 ## Region: file 0x12DE1E-0x12DE2D (SNES $D2DE1E), 16 bytes.
 proc generateCode12DE1E*(): seq[uint8] =
@@ -2284,7 +2289,7 @@ proc generateCode12DE1E*(): seq[uint8] =
   nodes.add instr("PHA", amImplied)  # $D2DE2B: PHA
   nodes.add instr("BRA", amRelative8, 0x80)  # $D2DE2C: BRA -128
   result = assemble(nodes, 0xD2DE1E'u32,
-                    FlagState(m8: true, x8: true, emulation: false))
+                    FlagState(m8: true, x8: true, emulation: true))
 
 ## Region: file 0x12E020-0x12E03E (SNES $D2E020), 31 bytes.
 proc generateCode12E020*(): seq[uint8] =

@@ -224,7 +224,7 @@ proc generateCode131F20*(): seq[uint8] =
   nodes.add instr("SED", amImplied)  # $D31FB5: SED
   nodes.add instr("JML", amAbsIndirectLong, 0xFCDC)  # $D31FB6: JML [$FCDC]
   result = assemble(nodes, 0xD31F20'u32,
-                    FlagState(m8: false, x8: true, emulation: false))
+                    FlagState(m8: true, x8: true, emulation: false))
 
 ## Region: file 0x13201A-0x132076 (SNES $D3201A), 93 bytes.
 proc generateCode13201A*(): seq[uint8] =
@@ -274,7 +274,7 @@ proc generateCode13201A*(): seq[uint8] =
   nodes.add instr("SED", amImplied)  # $D32073: SED
   nodes.add instr("JML", amAbsIndirectLong, 0xFCDC)  # $D32074: JML [$FCDC]
   result = assemble(nodes, 0xD3201A'u32,
-                    FlagState(m8: false, x8: true, emulation: false))
+                    FlagState(m8: true, x8: true, emulation: false))
 
 ## Region: file 0x13209C-0x1320AA (SNES $D3209C), 15 bytes.
 proc generateCode13209C*(): seq[uint8] =
@@ -288,7 +288,7 @@ proc generateCode13209C*(): seq[uint8] =
   nodes.add instr("TYA", amImplied)  # $D320A9: TYA
   nodes.add instr("RTS", amImplied)  # $D320AA: RTS
   result = assemble(nodes, 0xD3209C'u32,
-                    FlagState(m8: false, x8: true, emulation: false))
+                    FlagState(m8: true, x8: true, emulation: false))
 
 ## Region: file 0x1320E0-0x13215E (SNES $D320E0), 127 bytes.
 proc generateCode1320E0*(): seq[uint8] =
@@ -1317,7 +1317,7 @@ proc generateCode137F20*(): seq[uint8] =
   nodes.add instr("SED", amImplied)  # $D37FEF: SED
   nodes.add instr("JMP", amAbsIndirectX, 0x7EFC)  # $D37FF0: JMP ($7EFC,X)
   result = assemble(nodes, 0xD37F20'u32,
-                    FlagState(m8: false, x8: true, emulation: false))
+                    FlagState(m8: true, x8: true, emulation: false))
 
 ## Region: file 0x138044-0x138141 (SNES $D38044), 254 bytes.
 proc generateCode138044*(): seq[uint8] =
@@ -1429,7 +1429,7 @@ proc generateCode138044*(): seq[uint8] =
   nodes.add instr("ADC", amDpIndirect, 0xAF)  # $D3813F: ADC ($AF)
   nodes.add instr("STP", amImplied)  # $D38141: STP
   result = assemble(nodes, 0xD38044'u32,
-                    FlagState(m8: false, x8: true, emulation: false))
+                    FlagState(m8: true, x8: true, emulation: false))
 
 ## Region: file 0x13A67A-0x13A687 (SNES $D3A67A), 14 bytes.
 proc generateCode13A67A*(): seq[uint8] =

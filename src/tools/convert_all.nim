@@ -20,11 +20,15 @@ const
   # computed/indirect jump; these seeds carry it past the frontier with code we
   # know is real because it actually executed. Addresses only — safe to commit.
   ObservedEntriesFile = "src/decompbound/observed_entries.txt"
+  # Conductor-verified static jump-table targets (grok digs, each byte-checked
+  # against the ROM before landing here). Complements the runtime-observed set
+  # with handlers that gameplay didn't happen to exercise. Addresses only.
+  ResolvedEntriesFile = "src/decompbound/resolved_entries.txt"
 
-proc loadObservedEntries(rom: seq[uint8]): seq[int] =
-  ## Parse the observed-entry list (hex SNES addresses) into file offsets.
-  if not fileExists(ObservedEntriesFile): return
-  for rawLine in readFile(ObservedEntriesFile).splitLines():
+proc loadEntryFile(rom: seq[uint8], path: string): seq[int] =
+  ## Parse a hex-SNES-address entry list into file offsets.
+  if not fileExists(path): return
+  for rawLine in readFile(path).splitLines():
     let line = rawLine.strip()
     if line.len == 0 or line.startsWith("#"): continue
     let off = snesToFile(parseHexInt(line).uint32)
@@ -63,10 +67,12 @@ proc main() =
     if target >= 0 and target < rom.len:
       entryPoints.add target
 
-  let observed = loadObservedEntries(rom)
+  let observed = loadEntryFile(rom, ObservedEntriesFile)
+  let resolved = loadEntryFile(rom, ResolvedEntriesFile)
   entryPoints.add observed
-  if observed.len > 0:
-    stderr.writeLine &"Seeding {observed.len} emulator-observed entry points."
+  entryPoints.add resolved
+  if observed.len > 0 or resolved.len > 0:
+    stderr.writeLine &"Seeding {observed.len} observed + {resolved.len} resolved entry points."
 
   stderr.writeLine "Tracing control flow from vectors..."
   let analysis = analyzeControlFlow(rom, entryPoints, @[HeaderRegion])

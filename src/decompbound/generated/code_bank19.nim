@@ -854,5 +854,5 @@ proc generateCode19F842*(): seq[uint8] =
   nodes.add instr("ADC", amAbsoluteLongX, 0x573FC7)  # $D9F8D7: ADC $573FC7,X
   nodes.add instr("JMP", amAbsIndirectX, 0x38FB)  # $D9F8DB: JMP ($38FB,X)
   result = assemble(nodes, 0xD9F842'u32,
-                    FlagState(m8: true, x8: true, emulation: true))
+                    FlagState(m8: true, x8: true, emulation: false))
 

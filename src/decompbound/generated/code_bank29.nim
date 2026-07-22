@@ -318,7 +318,7 @@ proc generateCode29188A*(): seq[uint8] =
   nodes.add instr("CMP", amAbsoluteX, 0xCCCC)  # $E9191A: CMP $CCCC,X
   nodes.add instr("JML", amAbsIndirectLong, 0x3ACD)  # $E9191D: JML [$3ACD]
   result = assemble(nodes, 0xE9188A'u32,
-                    FlagState(m8: true, x8: true, emulation: true))
+                    FlagState(m8: true, x8: true, emulation: false))
 
 ## Region: file 0x291FF0-0x29201E (SNES $E91FF0), 47 bytes.
 proc generateCode291FF0*(): seq[uint8] =

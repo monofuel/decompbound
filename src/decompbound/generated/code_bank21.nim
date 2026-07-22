@@ -626,8 +626,9 @@ proc generateCode210BFD*(): seq[uint8] =
   nodes.add instr("STZ", amAbsoluteX, 0x5097)  # $E10C11: STZ $5097,X
   nodes.add instr("SEI", amImplied)  # $E10C14: SEI
   nodes.add instr("STA", amAbsoluteLongX, 0x95A3A5)  # $E10C15: STA $95A3A5,X
-  nodes.add instr("ORA", amImmediateM, 0x200)  # $E10C19: ORA #$0200
-  nodes.add instr("TSB", amAbsolute, 0x2301)  # $E10C1C: TSB $2301
+  nodes.add instr("ORA", amImmediateM, 0x0)  # $E10C19: ORA #$00
+  nodes.add instr("COP", amImmediate8, 0xC)  # $E10C1B: COP #$0C
+  nodes.add instr("ORA", amDpIndirectX, 0x23)  # $E10C1D: ORA ($23,X)
   nodes.add instr("STZ", amDirectPageX, 0x91)  # $E10C1F: STZ $91,X
   nodes.add instr("STZ", amAbsolute, 0x9191)  # $E10C21: STZ $9191
   nodes.add instr("STA", amAbsoluteX, 0x505C)  # $E10C24: STA $505C,X
@@ -638,8 +639,8 @@ proc generateCode210BFD*(): seq[uint8] =
   nodes.add instr("LDX", amImmediateX, 0x50)  # $E10C30: LDX #$50
   nodes.add instr("ADC", amDirectPageX, 0x91)  # $E10C32: ADC $91,X
   nodes.add instr("LDA", amStackRelative, 0xA4)  # $E10C34: LDA $A4,S
-  nodes.add instr("ORA", amImmediateM, 0x200)  # $E10C36: ORA #$0200
-  nodes.add instr("PHD", amImplied)  # $E10C39: PHD
+  nodes.add instr("ORA", amImmediateM, 0x0)  # $E10C36: ORA #$00
+  nodes.add instr("COP", amImmediate8, 0xB)  # $E10C38: COP #$0B
   nodes.add instr("ORA", amDpIndirectX, 0x25)  # $E10C3A: ORA ($25,X)
   nodes.add instr("STY", amDirectPage, 0x98)  # $E10C3C: STY $98
   nodes.add instr("STA", amDirectPageX, 0x50)  # $E10C3E: STA $50,X
@@ -655,7 +656,7 @@ proc generateCode210BFD*(): seq[uint8] =
   nodes.add instr("STA", amAbsoluteLongX, 0x509EA7)  # $E10C55: STA $509EA7,X
   nodes.add instrTo("BRA", amRelative8, "loc_E10BFD")  # $E10C59: BRA -94
   result = assemble(nodes, 0xE10BFD'u32,
-                    FlagState(m8: false, x8: true, emulation: false))
+                    FlagState(m8: false, x8: true, emulation: true))
 
 ## Region: file 0x2112A0-0x212F03 (SNES $E112A0), 7268 bytes.
 proc generateCode2112A0*(): seq[uint8] =
@@ -4423,5 +4424,5 @@ proc generateCode21FC84*(): seq[uint8] =
   nodes.add instr("BVS", amRelative8, 0x3E)  # $E20009: BVS +62
   nodes.add instr("BRA", amRelative8, 0xA)  # $E2000B: BRA +10
   result = assemble(nodes, 0xE1FC84'u32,
-                    FlagState(m8: true, x8: true, emulation: false))
+                    FlagState(m8: true, x8: true, emulation: true))
 

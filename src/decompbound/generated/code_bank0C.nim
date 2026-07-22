@@ -2858,7 +2858,7 @@ proc generateCode0C52E0*(): seq[uint8] =
   nodes.add instr("TCD", amImplied)  # $CC53D4: TCD
   nodes.add instr("JMP", amAbsolute, 0x5B83)  # $CC53D5: JMP $5B83
   result = assemble(nodes, 0xCC52E0'u32,
-                    FlagState(m8: false, x8: false, emulation: false))
+                    FlagState(m8: true, x8: true, emulation: false))
 
 ## Region: file 0x0C568A-0x0C573B (SNES $CC568A), 178 bytes.
 proc generateCode0C568A*(): seq[uint8] =
@@ -2989,7 +2989,7 @@ proc generateCode0C5B83*(): seq[uint8] =
   nodes.add instr("LDA", amAbsoluteX, 0x1D9D)  # $CC5B8B: LDA $1D9D,X
   nodes.add instr("JML", amAbsIndirectLong, 0x1901)  # $CC5B8E: JML [$1901]
   result = assemble(nodes, 0xCC5B83'u32,
-                    FlagState(m8: false, x8: false, emulation: false))
+                    FlagState(m8: true, x8: true, emulation: false))
 
 ## Region: file 0x0C5FB7-0x0C6043 (SNES $CC5FB7), 141 bytes.
 proc generateCode0C5FB7*(): seq[uint8] =

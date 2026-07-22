@@ -39,7 +39,7 @@ proc generateCode170000*(): seq[uint8] =
   nodes.add instr("ASL", amAccumulator)  # $D70037: ASL A
   nodes.add instr("RTS", amImplied)  # $D70038: RTS
   result = assemble(nodes, 0xD70000'u32,
-                    FlagState(m8: true, x8: true, emulation: false))
+                    FlagState(m8: true, x8: false, emulation: false))
 
 ## Region: file 0x170190-0x1701C2 (SNES $D70190), 51 bytes.
 proc generateCode170190*(): seq[uint8] =
@@ -355,7 +355,7 @@ proc generateCode17A350*(): seq[uint8] =
   nodes.add instr("MVN", amBlockMove, 0x54)  # $D7A3B4: MVN $54,$00
   nodes.add instr("RTI", amImplied)  # $D7A3B7: RTI
   result = assemble(nodes, 0xD7A350'u32,
-                    FlagState(m8: true, x8: true, emulation: false))
+                    FlagState(m8: true, x8: false, emulation: false))
 
 ## Region: file 0x17A3F6-0x17A48F (SNES $D7A3F6), 154 bytes.
 proc generateCode17A3F6*(): seq[uint8] =
@@ -438,7 +438,7 @@ proc generateCode17A3F6*(): seq[uint8] =
   nodes.add instr("EOR", amDirectPageX, 0x44)  # $D7A48D: EOR $44,X
   nodes.add instr("RTI", amImplied)  # $D7A48F: RTI
   result = assemble(nodes, 0xD7A3F6'u32,
-                    FlagState(m8: true, x8: true, emulation: false))
+                    FlagState(m8: true, x8: false, emulation: false))
 
 ## Region: file 0x17EC2F-0x17EC9F (SNES $D7EC2F), 113 bytes.
 proc generateCode17EC2F*(): seq[uint8] =

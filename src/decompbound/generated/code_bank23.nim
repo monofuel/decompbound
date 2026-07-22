@@ -5777,7 +5777,7 @@ proc generateCode23DE7F*(): seq[uint8] =
   nodes.add instr("BIT", amAbsoluteX, 0x42C0)  # $E3DE98: BIT $42C0,X
   nodes.add instr("STP", amImplied)  # $E3DE9B: STP
   result = assemble(nodes, 0xE3DE7F'u32,
-                    FlagState(m8: false, x8: true, emulation: false))
+                    FlagState(m8: true, x8: true, emulation: false))
 
 ## Region: file 0x23DED3-0x23DF37 (SNES $E3DED3), 101 bytes.
 proc generateCode23DED3*(): seq[uint8] =
@@ -5805,9 +5805,8 @@ proc generateCode23DED3*(): seq[uint8] =
   nodes.add instr("ADC", amDpIndirectY, 0xBD)  # $E3DEFA: ADC ($BD),Y
   nodes.add instr("BIT", amDirectPageX, 0xFC)  # $E3DEFC: BIT $FC,X
   nodes.add instr("SBC", amDirectPageX, 0x3D)  # $E3DEFE: SBC $3D,X
-  nodes.add instr("CPY", amImmediateX, 0x43)  # $E3DF00: CPY #$43
-  nodes.add instr("STY", amDirectPage, 0x2C)  # $E3DF02: STY $2C
-  nodes.add instr("SBC", amStackRelative, 0x2D)  # $E3DF04: SBC $2D,S
+  nodes.add instr("CPY", amImmediateX, 0x8443)  # $E3DF00: CPY #$8443
+  nodes.add instr("BIT", amAbsolute, 0x2DE3)  # $E3DF03: BIT $2DE3
   nodes.add instr("LDA", amAbsolute, 0xBB21)  # $E3DF06: LDA $BB21
   nodes.add instr("ORA", amStackRelative, 0x1D)  # $E3DF09: ORA $1D,S
   nodes.add instr("DEY", amImplied)  # $E3DF0B: DEY
@@ -5833,7 +5832,7 @@ proc generateCode23DED3*(): seq[uint8] =
   nodes.add instr("CMP", amDpIndirectX, 0x30)  # $E3DF33: CMP ($30,X)
   nodes.add instr("JML", amAbsIndirectLong, 0x2C16)  # $E3DF35: JML [$2C16]
   result = assemble(nodes, 0xE3DED3'u32,
-                    FlagState(m8: false, x8: true, emulation: false))
+                    FlagState(m8: false, x8: false, emulation: false))
 
 ## Region: file 0x23DFA4-0x23E047 (SNES $E3DFA4), 164 bytes.
 proc generateCode23DFA4*(): seq[uint8] =
