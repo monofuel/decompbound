@@ -20315,7 +20315,7 @@ proc generateCode00A964*(): seq[uint8] =
   result = assemble(nodes, 0xC0A964'u32,
                     FlagState(m8: false, x8: false, emulation: false))
 
-## Region: file 0x00ABC6-0x00AC00 (SNES $C0ABC6), 59 bytes.
+## Region: file 0x00ABC6-0x00ABDF (SNES $C0ABC6), 26 bytes.
 proc generateCode00ABC6*(): seq[uint8] =
   ## Assemble the region at file 0x00ABC6 from disassembled source.
   var nodes: seq[AsmNode]
@@ -20330,21 +20330,6 @@ proc generateCode00ABC6*(): seq[uint8] =
   nodes.add instr("LDA", amImmediateM, 0xFFFF)  # $C0ABD9: LDA #$FFFF
   nodes.add instr("STA", amAbsolute, 0xB53B)  # $C0ABDC: STA $B53B
   nodes.add instr("RTL", amImplied)  # $C0ABDF: RTL
-  nodes.add instr("SEP", amImmediate8, 0x30)  # $C0ABE0: SEP #$30
-  nodes.add instr("CMP", amImmediateM, 0x0)  # $C0ABE2: CMP #$00
-  nodes.add instr("BEQ", amRelative8, 0x1B)  # $C0ABE4: BEQ +27
-  nodes.add instr("LDX", amAbsolute, 0xCA)  # $C0ABE6: LDX $00CA
-  nodes.add instr("ORA", amAbsolute, 0x1ACA)  # $C0ABE9: ORA $1ACA
-  nodes.add instr("STA", amAbsoluteX, 0x1AC2)  # $C0ABEC: STA $1AC2,X
-  nodes.add instr("TXA", amImplied)  # $C0ABEF: TXA
-  nodes.add instr("INC", amAccumulator)  # $C0ABF0: INC A
-  nodes.add instr("AND", amImmediateM, 0x7)  # $C0ABF1: AND #$07
-  nodes.add instr("STA", amAbsolute, 0xCA)  # $C0ABF3: STA $00CA
-  nodes.add instr("LDA", amImmediateM, 0x80)  # $C0ABF6: LDA #$80
-  nodes.add instr("EOR", amAbsolute, 0x1ACA)  # $C0ABF8: EOR $1ACA
-  nodes.add instr("STA", amAbsolute, 0x1ACA)  # $C0ABFB: STA $1ACA
-  nodes.add instr("REP", amImmediate8, 0x30)  # $C0ABFE: REP #$30
-  nodes.add instr("RTL", amImplied)  # $C0AC00: RTL
   result = assemble(nodes, 0xC0ABC6'u32,
                     FlagState(m8: false, x8: false, emulation: false))
 

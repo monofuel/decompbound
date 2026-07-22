@@ -6,7 +6,8 @@
 ## See docs/goal-1.5.md.
 
 import
-  ./[sram_piracy, rng, apu_upload, cgram_dma_request, apu_port_io]
+  ./[sram_piracy, rng, apu_upload, cgram_dma_request, apu_port_io,
+     song_loader, queue_apu_cmd]
 
 proc allAdoptedRegions*(): seq[tuple[name: string, offset: int, data: seq[uint8]]] =
   ## Every hand-curated code region, assembled from named source.
@@ -31,6 +32,12 @@ proc allAdoptedRegions*(): seq[tuple[name: string, offset: int, data: seq[uint8]
   result.add (name: "writeApuPort1Toggled",
               offset: WriteApuPort1ToggleOffset,
               data: writeApuPort1Toggled())
+  result.add (name: "loadSong",
+              offset: LoadSongOffset,
+              data: loadSong())
+  result.add (name: "queueApuCommand",
+              offset: QueueApuCmdOffset,
+              data: queueApuCommand())
 
 proc adoptedRanges*(): seq[tuple[start: int, last: int]] =
   ## Inclusive file-offset spans owned by curated modules, derived from the

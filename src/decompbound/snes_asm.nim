@@ -34,6 +34,12 @@ const
   # TODO: this is the SNES immediate-mode split; keep in sync with opcodes.nim.
   Imm8Mnemonics = ["SEP", "REP", "BRK", "COP", "WDM"]
   ImmXMnemonics = ["LDX", "LDY", "CPX", "CPY"]
+  # Branches with a bare numeric operand are raw rel8 offsets (not immediates).
+  # Needed when the target sits outside the assembled region (e.g. BEQ into a
+  # sibling routine). Label targets still use the string form (`beq "lbl"`).
+  Rel8Mnemonics = [
+    "BPL", "BMI", "BVC", "BVS", "BCC", "BCS", "BNE", "BEQ", "BRA",
+  ]
   # 65816 mnemonics that collide with Nim keywords need a DSL alias. AND is the
   # only real 65816/Nim clash; alias it `andOp`. TODO: extend if more surface.
   MnemonicAliases = {"andop": "AND"}.toTable
@@ -114,7 +120,10 @@ proc lowerStatement(stmt: NimNode): NimNode =
       return newCall(bindSym"instr", newLit(mne),
                      ident(ModeMarkers[marker]), operand[1])
 
-  # Bare operand: immediate (width from the mnemonic).
+  # Bare operand: relative-8 for branch mnemonics (raw offset byte), else
+  # immediate (width from the mnemonic).
+  if mne in Rel8Mnemonics:
+    return newCall(bindSym"instr", newLit(mne), ident"amRelative8", operand)
   return newCall(bindSym"instr", newLit(mne), ident(immMode(mne)), operand)
 
 macro snesAsm*(origin, entry, body: untyped): untyped =
