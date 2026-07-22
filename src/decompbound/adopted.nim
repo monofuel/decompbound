@@ -8,7 +8,8 @@
 import
   ./[sram_piracy, rng, apu_upload, cgram_dma_request, apu_port_io,
      song_loader, queue_apu_cmd, wait_apu_idle, bg_layer_setup,
-     obj_base, bg4_bases, clear_wram_block, ppu_color_math, ppu_windows]
+     obj_base, bg4_bases, clear_wram_block, ppu_color_math, ppu_windows,
+     ppu_scroll, mode7_mul, hdma_channel, hw_multiply]
 
 proc allAdoptedRegions*(): seq[tuple[name: string, offset: int, data: seq[uint8]]] =
   ## Every hand-curated code region, assembled from named source.
@@ -81,6 +82,21 @@ proc allAdoptedRegions*(): seq[tuple[name: string, offset: int, data: seq[uint8]
   result.add (name: "resetWindowPositions",
               offset: ResetWindowPositionsOffset,
               data: resetWindowPositions())
+  result.add (name: "flushBg3Vofs",
+              offset: FlushBg3VofsOffset,
+              data: flushBg3Vofs())
+  result.add (name: "mode7MulBySine",
+              offset: Mode7MulBySineOffset,
+              data: mode7MulBySine())
+  result.add (name: "clearHdmaEnableBit",
+              offset: ClearHdmaEnableBitOffset,
+              data: clearHdmaEnableBit())
+  result.add (name: "setupHdmaChannelWh0",
+              offset: SetupHdmaChannelWh0Offset,
+              data: setupHdmaChannelWh0())
+  result.add (name: "hardwareMultiply",
+              offset: HardwareMultiplyOffset,
+              data: hardwareMultiply())
 
 proc adoptedRanges*(): seq[tuple[start: int, last: int]] =
   ## Inclusive file-offset spans owned by curated modules, derived from the
