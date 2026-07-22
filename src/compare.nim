@@ -2,7 +2,7 @@
 
 import
   std/[os, osproc, strutils, strformat, times],
-  decompbound/regions
+  decompbound/[regions, adopted]
 
 const
   GoldMasterRom = "bin/Earthbound (U) [!].smc"
@@ -166,10 +166,20 @@ proc compareFullRom(): ComparisonStats =
   let trueCoverage = (intentionalMatches.float / goldRomSize.float) * 100.0
   let coincidentalNonZero = coincidentalMatches - coincidentalZeroMatches
 
+  # Goal 1.5 "% understood": bytes owned by hand-curated, named, documented
+  # modules (adopted.nim) vs. anonymous generated scaffold. Both are byte-exact,
+  # so this only moves through real comprehension — the raw byte % can't express
+  # it. This is the number the Adoption Campaign drives up.
+  var adoptedBytes = 0
+  for r in allAdoptedRegions():
+    adoptedBytes += r.data.len
+  let adoptedPct = if intentionalMatches > 0: (adoptedBytes.float / intentionalMatches.float) * 100.0 else: 0.0
+
   # Lead with the honest number: how much of the ROM is actually decompiled
   # and byte-exact. The raw-match line is demoted and explicitly flagged as
   # inflated, so it can never be mistaken for progress again.
   echo &"Decompiled (byte-exact): {intentionalMatches} / {goldRomSize} bytes = {trueCoverage:.2f}% of ROM  [implemented regions {intentionalPercentage:.2f}% exact]"
+  echo &"  Understood (Goal 1.5 adopted): {adoptedBytes} bytes = {adoptedPct:.2f}% of decompiled — readable, named, documented Nim"
   echo &"  Coincidental matches (never decompiled): {coincidentalMatches}  ({coincidentalZeroMatches} zero-fill + {coincidentalNonZero} non-zero) — NOT progress"
   echo &"  Raw byte matches incl. coincidental: {matchingBytes} ({totalPercentage:.2f}%) — inflated, do not track"
 

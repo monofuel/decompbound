@@ -87,13 +87,24 @@ proc main() =
   let analysis = analyzeControlFlow(rom, entryPoints, @[HeaderRegion],
                                     seedFlags = seedFlags)
 
-  # Group contiguous code bytes into regions.
+  # Adopted byte-ranges: curated modules (adopted.nim) own these spans. Carve
+  # them OUT of the traced code so a hand-written region can sit MID-region, not
+  # only on a boundary. Generated scaffold and adopted source never overlap;
+  # the enclosing traced region simply splits around the adopted span.
+  let adopted = adoptedRanges()
+  proc isAdopted(off: int): bool =
+    for r in adopted:
+      if off >= r.start and off <= r.last: return true
+    false
+
+  # Group contiguous code bytes into regions, breaking at adopted boundaries.
   var regions: seq[tuple[start: int, length: int]]
   var i = 0
   while i < analysis.byteTypes.len:
-    if analysis.byteTypes[i] == Code:
+    if analysis.byteTypes[i] == Code and not isAdopted(i):
       let start = i
-      while i < analysis.byteTypes.len and analysis.byteTypes[i] == Code:
+      while i < analysis.byteTypes.len and analysis.byteTypes[i] == Code and
+            not isAdopted(i):
         inc i
       regions.add (start: start, length: i - start)
     else:
@@ -112,12 +123,8 @@ proc main() =
   # regions; a file each explodes `make compare`/`make test` compile time, so
   # group them — same regions, same bytes, far fewer translation units.
   var byBank: OrderedTable[int, seq[tuple[start: int, length: int]]]
-  var skippedAdopted = 0
+  let skippedAdopted = adopted.len
   for region in regions:
-    if isAdoptedOffset(region.start):
-      # Goal 1.5: curated modules own these ranges; do not regenerate.
-      skippedAdopted += 1
-      continue
     byBank.mgetOrPut(region.start shr 16, @[]).add region
 
   for bank, bankRegions in byBank:
@@ -181,7 +188,7 @@ proc main() =
 
   stderr.writeLine &"Generated {moduleNames.len} region modules: {totalBytes} bytes, {totalInstructions} instructions."
   if skippedAdopted > 0:
-    stderr.writeLine &"Skipped {skippedAdopted} adopted region(s) (see decompbound/adopted.nim)."
+    stderr.writeLine &"Carved out {skippedAdopted} adopted range(s) for curated modules (see decompbound/adopted.nim)."
   stderr.writeLine &"Frontier: {frontier.len} computed-jump sites recorded in {OutputDir}/frontier.md."
 
 when isMainModule:

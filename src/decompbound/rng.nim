@@ -6,10 +6,12 @@
 ## reproduced across runs). RE'd 2026-07-21 (dynamic trace + round-trip).
 ##
 ## Documentation of the understood routine, expressed through `snesAsm` so it
-## reads as annotated assembly. Gold-gated in tests/test_rng.nim against the
-## verified disassembly (generated/code_008E9A.nim). Full registry adoption
-## (deleting the generated scaffold) awaits splitting that 254-byte traced region
-## — it holds several unrelated routines after this one's RTL.
+## reads as annotated assembly. ADOPTED into the region registry (adopted.nim):
+## convert_all carves these 56 bytes out of the enclosing traced region
+## (0x008C6D-0x008F97), so this curated source — not generated scaffold —
+## produces $C08E9A in the build. Gold-gated two ways: tests/test_regions.nim
+## (byte-exact vs gold, un-fakeable) and tests/test_rng.nim (routine fully
+## covered by one region). This is the first mid-region Goal 1.5 adoption.
 
 import
   ./snes_asm
