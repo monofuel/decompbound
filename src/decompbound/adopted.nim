@@ -6,7 +6,7 @@
 ## See docs/goal-1.5.md.
 
 import
-  ./[sram_piracy, rng]
+  ./[sram_piracy, rng, apu_upload, cgram_dma_request, apu_port_io]
 
 proc allAdoptedRegions*(): seq[tuple[name: string, offset: int, data: seq[uint8]]] =
   ## Every hand-curated code region, assembled from named source.
@@ -16,6 +16,21 @@ proc allAdoptedRegions*(): seq[tuple[name: string, offset: int, data: seq[uint8]
   result.add (name: "earthboundRandom",
               offset: RngAdvanceOffset,
               data: earthboundRandom())
+  result.add (name: "uploadApuPackages",
+              offset: ApuUploadOffset,
+              data: uploadApuPackages())
+  result.add (name: "requestCgramDma",
+              offset: CgramDmaRequestOffset,
+              data: requestCgramDma())
+  result.add (name: "writeApuPort0",
+              offset: WriteApuPort0Offset,
+              data: writeApuPort0())
+  result.add (name: "writeApuPort3Cmd57",
+              offset: WriteApuPort3Cmd57Offset,
+              data: writeApuPort3Cmd57())
+  result.add (name: "writeApuPort1Toggled",
+              offset: WriteApuPort1ToggleOffset,
+              data: writeApuPort1Toggled())
 
 proc adoptedRanges*(): seq[tuple[start: int, last: int]] =
   ## Inclusive file-offset spans owned by curated modules, derived from the

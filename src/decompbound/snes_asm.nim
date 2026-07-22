@@ -95,9 +95,17 @@ proc lowerStatement(stmt: NimNode): NimNode =
   if operand.kind == nnkIdent and ($operand).toLowerAscii == "a":
     return newCall(bindSym"instr", newLit(mne), ident"amAccumulator")
 
-  # Label branch: `beq "target"`.
+  # Label target: relative branches by default; JSR/JMP resolve absolute
+  # (low 16 bits), JSL/JML absolute-long, BRL/PER relative-16. Needed by
+  # routines that JSR to a local helper (e.g. APU IPL reboot at $C0ABA8).
   if operand.kind == nnkStrLit:
-    return newCall(bindSym"instrTo", newLit(mne), ident"amRelative8", operand)
+    let mode =
+      case mne
+      of "JSR", "JMP": "amAbsolute"
+      of "JSL", "JML": "amAbsoluteLong"
+      of "BRL", "PER": "amRelative16"
+      else: "amRelative8"
+    return newCall(bindSym"instrTo", newLit(mne), ident(mode), operand)
 
   # Marked mode: `sta long SramProbeA`.
   if operand.kind in {nnkCommand, nnkCall} and operand[0].kind == nnkIdent:
