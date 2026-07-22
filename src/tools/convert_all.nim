@@ -25,15 +25,23 @@ const
   # with handlers that gameplay didn't happen to exercise. Addresses only.
   ResolvedEntriesFile = "src/decompbound/resolved_entries.txt"
 
-proc loadEntryFile(rom: seq[uint8], path: string): seq[int] =
-  ## Parse a hex-SNES-address entry list into file offsets.
+proc loadEntryFile(rom: seq[uint8], path: string,
+                   flags: var Table[int, FlagState]): seq[int] =
+  ## Parse an entry list of `<hex SNES addr> [width nibble]` into file offsets.
+  ## The optional nibble (bit0=m8, bit1=x8, bit2=emulation) records the true CPU
+  ## width at that fetch so the tracer decodes the seed at the right boundary.
   if not fileExists(path): return
   for rawLine in readFile(path).splitLines():
     let line = rawLine.strip()
     if line.len == 0 or line.startsWith("#"): continue
-    let off = snesToFile(parseHexInt(line).uint32)
+    let parts = line.splitWhitespace()
+    let off = snesToFile(parseHexInt(parts[0]).uint32)
     if off >= 0 and off < rom.len:
       result.add off
+      if parts.len >= 2:
+        let nib = parseInt(parts[1])
+        flags[off] = FlagState(m8: (nib and 1) != 0, x8: (nib and 2) != 0,
+                               emulation: (nib and 4) != 0)
 
 proc readRomFile(filepath: string): seq[uint8] =
   ## Read ROM file and return bytes, stripping a 512-byte copier header.
@@ -67,15 +75,17 @@ proc main() =
     if target >= 0 and target < rom.len:
       entryPoints.add target
 
-  let observed = loadEntryFile(rom, ObservedEntriesFile)
-  let resolved = loadEntryFile(rom, ResolvedEntriesFile)
+  var seedFlags = initTable[int, FlagState]()
+  let observed = loadEntryFile(rom, ObservedEntriesFile, seedFlags)
+  let resolved = loadEntryFile(rom, ResolvedEntriesFile, seedFlags)
   entryPoints.add observed
   entryPoints.add resolved
   if observed.len > 0 or resolved.len > 0:
-    stderr.writeLine &"Seeding {observed.len} observed + {resolved.len} resolved entry points."
+    stderr.writeLine &"Seeding {observed.len} observed + {resolved.len} resolved entry points ({seedFlags.len} width-annotated)."
 
   stderr.writeLine "Tracing control flow from vectors..."
-  let analysis = analyzeControlFlow(rom, entryPoints, @[HeaderRegion])
+  let analysis = analyzeControlFlow(rom, entryPoints, @[HeaderRegion],
+                                    seedFlags = seedFlags)
 
   # Group contiguous code bytes into regions.
   var regions: seq[tuple[start: int, length: int]]

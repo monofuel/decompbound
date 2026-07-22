@@ -22,12 +22,13 @@
 import
   std/[os, sets, algorithm, strformat, strutils, tables],
   pixie,
-  ../decompbound/[cpu, ppu, policy, memmap, regions, replay, save_state, snesbus]
+  ../decompbound/[cpu, ppu, policy, memmap, opcodes, regions, replay, save_state, snesbus]
 
 proc recordFrame(snes: SnesBus, cpu: var Cpu, image: Image,
-                 seen: var HashSet[int]) =
+                 seen: var Table[int, FlagState]) =
   ## One frame, mirroring policy.stepOneFrame, but recording the ROM file offset
-  ## of every instruction the CPU fetches. Only real code lands in `seen`.
+  ## AND the true M/X/emulation width of every instruction the CPU fetches. The
+  ## width is what lets the static tracer decode each seed at the right boundary.
   var l = 0
   while l < 262:
     if l == 224 and (snes.nmitimen and 0x80) != 0:
@@ -36,8 +37,8 @@ proc recordFrame(snes: SnesBus, cpu: var Cpu, image: Image,
       if not (cpu.stopped or cpu.waiting):
         let pcAddr = (cpu.pbr.uint32 shl 16) or cpu.pc.uint32
         let fileOff = snesToFile(pcAddr)
-        if fileOff >= 0:
-          seen.incl fileOff
+        if fileOff >= 0 and fileOff notin seen:
+          seen[fileOff] = FlagState(m8: cpu.m8, x8: cpu.x8, emulation: cpu.emulation)
       cpu.step(snes.bus)
       if cpu.stopped:
         break
@@ -51,7 +52,7 @@ proc recordFrame(snes: SnesBus, cpu: var Cpu, image: Image,
       break
 
 proc runSegment(rom: seq[uint8], statePath: string, frames: int,
-                seen: var HashSet[int]) =
+                seen: var Table[int, FlagState]) =
   ## Boot fresh, optionally load a state, run `frames` frames sampling a few
   ## button presses so menu/confirm paths execute too.
   let snes = newSnesBus(rom)
@@ -67,7 +68,7 @@ proc runSegment(rom: seq[uint8], statePath: string, frames: int,
     snes.joy1 = stimulus[(f div 20) mod stimulus.len]
     recordFrame(snes, cpu, img, seen)
 
-proc runReplay(rom: seq[uint8], tasPath: string, seen: var HashSet[int]) =
+proc runReplay(rom: seq[uint8], tasPath: string, seen: var Table[int, FlagState]) =
   ## Replay a recorded .tas from its pinned start-state, feeding joy1 from the log.
   let (header, deltas) = parseReplay(tasPath)
   let startRef = header.startStateRef
@@ -119,7 +120,7 @@ proc main() =
     quit(1)
 
   let rom = policy.readRomFile(romPath)
-  var seen = initHashSet[int]()
+  var seen = initTable[int, FlagState]()
 
   stderr.writeLine "boot segment..."
   runSegment(rom, "", frames, seen)
@@ -142,19 +143,28 @@ proc main() =
     for off in region.offset ..< region.offset + region.data.len:
       implemented.incl off
   var newOffsets: seq[int]
-  for off in seen:
+  for off in seen.keys:
     if off notin implemented:
       newOffsets.add off
   newOffsets.sort()
 
-  # Emit observed entry addresses (SNES) — sorted, one hex per line.
+  # Emit observed entries (SNES addr + width nibble) — sorted. Nibble encodes the
+  # true M/X/emulation width at the fetch: bit0=m8, bit1=x8, bit2=emulation, so
+  # convert_all decodes each seed at the boundary the CPU actually used.
   createDir(outPath.parentDir)
-  var body = "# Observed instruction-fetch addresses (SNES) — regenerate via probe_pc_coverage.\n"
+  var body = "# Observed instruction-fetch entries: <SNES addr> <width nibble> " &
+    "(bit0=m8 bit1=x8 bit2=emu). Regenerate via probe_pc_coverage.\n"
   var snesAddrs: seq[int]
-  for off in seen: snesAddrs.add fileToSnes(off).int
+  var flagsByOff = initTable[int, FlagState]()
+  for off, fs in seen:
+    let snes = fileToSnes(off).int
+    snesAddrs.add snes
+    flagsByOff[snes] = fs
   snesAddrs.sort()
   for a in snesAddrs:
-    body.add &"{a:06X}\n"
+    let fs = flagsByOff[a]
+    let nib = (if fs.m8: 1 else: 0) or (if fs.x8: 2 else: 0) or (if fs.emulation: 4 else: 0)
+    body.add &"{a:06X} {nib}\n"
   writeFile(outPath, body)
 
   stderr.writeLine ""

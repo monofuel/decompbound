@@ -112,10 +112,14 @@ proc disassemble*(data: openArray[uint8], fileOffset: int,
 
 proc analyzeControlFlow*(data: openArray[uint8], entryPoints: seq[int],
                          dataRegions: seq[tuple[start: int, last: int]] = @[],
-                         progressCallback: proc(processed: int, queueSize: int) = nil): RomAnalysis =
+                         progressCallback: proc(processed: int, queueSize: int) = nil,
+                         seedFlags: Table[int, FlagState] = initTable[int, FlagState]()): RomAnalysis =
   ## Discover code regions by recursive descent from entry points.
   ## Entry points are file offsets, assumed to start in emulation-mode
-  ## flag state unless discovered mid-trace (which inherit tracked state).
+  ## flag state unless overridden by seedFlags (e.g. the true M/X width the
+  ## emulator observed at that fetch) or discovered mid-trace. Correct entry
+  ## width is essential: an 8-bit assumption on a 16-bit routine misaligns the
+  ## whole run and manufactures spurious computed-jump frontier sites.
   ## dataRegions are known non-code ranges (the ROM header, declared data);
   ## traced runs stop at them and never mark them as code.
   ## Frontier honesty: indirect and computed jumps are not followed.
@@ -135,7 +139,8 @@ proc analyzeControlFlow*(data: openArray[uint8], entryPoints: seq[int],
 
   for ep in entryPoints:
     if ep >= 0 and ep < data.len and ep notin started:
-      workQueue.add (ep, initFlagState())
+      let f = if ep in seedFlags: seedFlags[ep] else: initFlagState()
+      workQueue.add (ep, f)
       started.incl ep
 
   while workQueue.len > 0:
