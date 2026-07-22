@@ -7,7 +7,7 @@
 
 import
   ./[sram_piracy, rng, apu_upload, cgram_dma_request, apu_port_io,
-     song_loader, queue_apu_cmd, wait_apu_idle]
+     song_loader, queue_apu_cmd, wait_apu_idle, bg_layer_setup]
 
 proc allAdoptedRegions*(): seq[tuple[name: string, offset: int, data: seq[uint8]]] =
   ## Every hand-curated code region, assembled from named source.
@@ -44,6 +44,18 @@ proc allAdoptedRegions*(): seq[tuple[name: string, offset: int, data: seq[uint8]
   result.add (name: "readApuPort0",
               offset: ReadApuPort0Offset,
               data: readApuPort0())
+  result.add (name: "setBgMode",
+              offset: SetBgModeOffset,
+              data: setBgMode())
+  result.add (name: "setBg1Bases",
+              offset: SetBg1BasesOffset,
+              data: setBg1Bases())
+  result.add (name: "setBg2Bases",
+              offset: SetBg2BasesOffset,
+              data: setBg2Bases())
+  result.add (name: "setBg3Bases",
+              offset: SetBg3BasesOffset,
+              data: setBg3Bases())
 
 proc adoptedRanges*(): seq[tuple[start: int, last: int]] =
   ## Inclusive file-offset spans owned by curated modules, derived from the
