@@ -107,25 +107,31 @@ and knowledge; adopt regions opportunistically as understanding falls out.
 
 **Adopted so far** — authoritative list is `adopted.nim` →
 `allAdoptedRegions()`; the running total is the `make compare` "Understood"
-line. As of the audio campaign: **9 routines, 721 bytes**.
+line. As of the audio + PPU/boot campaigns: **23 routines, 1257 bytes**.
 
-- Boot / integrity: `sramMirrorPiracyCheck` (`$C0A11C`) — copier-detection
-  SRAM mirror trick; first adoption, boundary-aligned.
-- RNG: `earthboundRandom` (`$C08E9A`) — the PRNG advance; first **mid-region**
-  adoption, and it already has a native Nim mirror (`rng.nim` matched the
-  emulator 10/10) — the "dual implementation" below, in embryo.
-- Audio playback spine: `uploadApuPackages` (`$C0AB06`, SPC700 IPL handshake +
-  block streamer), `loadSong` (`$C4FBBD`, song ID → song/pack tables →
-  upload), `queueApuCommand` (`$C0ABE0`, command ring buffer), the port
-  helpers (`writeApuPort0/1/3`), and `requestCgramDma` (`$C0856B` — the doc's
-  old "play music" guess, **disproven**: `$0030` feeds a CGRAM DMA table, so
-  it is named for the proven consumer, not the myth).
+- Boot / integrity: `sramMirrorPiracyCheck` (`$C0A11C`, copier-detection SRAM
+  mirror), `clearWramBlock280C` (`$C00000` — the very first bytes of $C0, a
+  WRAM zero-fill via the MVN seed-and-propagate idiom).
+- RNG: `earthboundRandom` (`$C08E9A`) — first **mid-region** adoption; it also
+  has a native Nim mirror (`rng.nim` matched the emulator 10/10) — the "dual
+  implementation" below, in embryo.
+- Audio playback spine (11 routines): `uploadApuPackages` (`$C0AB06`, SPC700
+  IPL upload), `loadSong` (`$C4FBBD`, ID → song/pack tables → upload),
+  `queueApuCommand` (ring buffer), `waitApuIdleClearSong`/`readApuPort0`
+  (stop-music handshake), the port pokes, and `requestCgramDma` (`$C0856B` —
+  the doc's old "play music" guess, **disproven**: `$0030` feeds a CGRAM DMA
+  table, so it is named for the proven consumer, not the myth).
+- PPU config (9 routines): `setBgMode` (BGMODE), `setObjBase` (OBSEL),
+  `setBg1..4Bases` (BGnSC + BGnNBA), `applyColorMathPreset`/`setFixedColorRgb`/
+  `writeColorMathRegs` (CGWSEL/CGADSUB/COLDATA), `configurePpuWindows`/
+  `resetWindowPositions` (window regs).
 
-Next candidates (understanding minted, awaiting the lift): the `$C0ABC6`
-wait-idle-then-clear-song helper that `loadSong` calls; the warm/cold boot
-check; the RNG cold-init seed (`$C08121`) once adopted as part of its whole
-enclosing boot routine (do not carve a bare fragment out of a routine you
-have not named).
+The campaign method that works: point grok at a subsystem with minted
+understanding, let it RE + lift, then the conductor cross-checks every name
+against the hardware evidence and re-runs the gold gate on the **final**
+state before committing (an early transient can include a routine grok later
+drops — always re-gate what's actually on disk). Naming discipline has already
+**disproven** two wrong guesses (`$C0856B`≠play-music, `$C08D79`≠DMA).
 
 ## Someday: dual implementations
 
