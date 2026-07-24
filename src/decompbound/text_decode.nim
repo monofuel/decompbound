@@ -30,35 +30,35 @@ const
     0, # 00: end (also special-cased as zero-byte in the fetch loop)
     0, # 01: line / window helper (JSR $04B5); no stream operands
     0, # 02: prompt/suspend (RTL out of interpreter at $C18B0A); no stream ops
-    0, # 03
-    0, # 04
-    0, # 05
-    0, # 06
-    0, # 07
-    0, # 08
-    0, # 09
-    0, # 0A: sets $1E collector (can gather further bytes — TODO)
-    0, # 0B
-    0, # 0C
-    0, # 0D
-    0, # 0E
-    0, # 0F
-    0, # 10
-    0, # 11
-    0, # 12
-    0, # 13
-    0, # 14
-    1, # 15: call table0[index] — 1-byte index (AND #$00FF; INC once @ 0x18837)
+    0, # 03: window helper; no primary stream operands (handler $8A1D)
+    1, # 04: $1E=$4265 secondary; first-order 1 sub-op (handler $8A29)
+    1, # 05: $1E=$42AD
+    1, # 06: $1E=$42F5
+    1, # 07: $1E=$435F
+    1, # 08: $1E=$43D6
+    1, # 09: $1E=$41D0
+    1, # 0A: $1E=$4103 secondary installer
+    1, # 0B: $1E=$4558
+    1, # 0C: $1E=$4591
+    1, # 0D: $1E=$45EF
+    1, # 0E: $1E=$461A
+    0, # 0F: JSR $042E only; no stream ops
+    1, # 10: $1E=$4EAB
+    0, # 11: helper chain (JSR $196A); stream ops via helper -- TODO
+    0, # 12: JSR $0BD3; no primary stream ops
+    0, # 13: window helper; no stream ops
+    0, # 14: window helper; no stream ops
+    1, # 15: call table0[index] -- 1-byte index (AND #$00FF; INC once @ 0x18837)
     1, # 16: call table1[index]
     1, # 17: call table2[index]
     1, # 18: multi-byte CC prefix; next byte is sub-op ($1E=$790B @ 0x18AC4)
-    0, # 19
-    0, # 1A
-    0, # 1B
+    1, # 19: $1E=$79AA secondary installer (handler $8ACC)
+    1, # 1A: $1E=$7B56
+    1, # 1B: $1E=$7C36
     1, # 1C: multi-byte CC prefix; next byte is sub-op ($1E=$7D94 @ 0x18AE4)
-    0, # 1D
-    0, # 1E
-    0, # 1F
+    1, # 1D: $1E=$7F11
+    1, # 1E: $1E=$811F
+    1, # 1F: $1E=$81BB
   ]
 
 proc farPtrToFileOffset*(bank: uint8, physAddr: uint16): int =

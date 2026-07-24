@@ -39,13 +39,18 @@ const
     w[0x09] = 0
     w[0x0A] = 2
     w[0x0B] = 2
+    w[0x0C] = 0  # no stream ops; entity link/unlink style (handler $99C3)
+    w[0x0D] = 5  # bitop: u16 addr + u8 sub + u16 value (handler $9A9F)
     w[0x0E] = 3
     w[0x0F] = 0
     w[0x10] = 1
+    w[0x11] = 1  # switch/case on $1516 (handler $999E); control transfer
     w[0x12] = 3
     w[0x13] = 0
+    w[0x14] = 4  # field-index bitop: u8 field + u8 sub + u16 val (handler $9A87)
     w[0x15] = 4
     w[0x16] = 2
+    w[0x17] = 2  # conditional GOTO/return (handler $9B44); control transfer
     w[0x18] = 4
     w[0x19] = 2
     w[0x1A] = 2
@@ -61,6 +66,7 @@ const
     w[0x24] = 0
     w[0x25] = 2
     w[0x26] = 1
+    w[0x27] = 3  # bitop on $1516,X: u8 sub + u16 val (handler $9A97)
     w[0x28] = 2
     w[0x29] = 2
     w[0x2A] = 2
@@ -90,6 +96,15 @@ const
     w[0x42] = 3
     w[0x43] = 1
     w[0x44] = 0
+    # Tail ops 0x45..0x4C alias high-path handlers (same as 0x3B..0x42).
+    w[0x45] = 1  # same $96CF as 0x3B
+    w[0x46] = 0  # same $9A38 as 0x3C
+    w[0x47] = 0  # same $9A3E as 0x3D
+    w[0x48] = 1  # same $9A44 as 0x3E
+    w[0x49] = 2  # same $9713 as 0x3F
+    w[0x4A] = 2  # same $9731 as 0x40
+    w[0x4B] = 2  # same $974F as 0x41
+    w[0x4C] = 3  # same $993D as 0x42 (FAR CALL)
     w
 
   ## Ops that end a linear walk (Y replaced or halt/self-loop).
@@ -103,7 +118,9 @@ const
     t[0x09] = true
     t[0x0A] = true
     t[0x0B] = true
+    t[0x11] = true
     t[0x16] = true
+    t[0x17] = true
     t[0x19] = true
     t[0x1A] = true
     t
@@ -117,8 +134,8 @@ type
     ended*: bool
 
 proc isSignatureOp*(op: int): bool =
-  ## True for WAIT / GOTO / GOSUB / FAR CALL.
-  op in [0x06, 0x19, 0x1A, 0x42]
+  ## True for WAIT / GOTO / GOSUB / FAR CALL (incl. 0x4C alias).
+  op in [0x06, 0x19, 0x1A, 0x42, 0x4C]
 
 proc walkActionScript*(rom: openArray[uint8]; start, limit: int): ActionScriptWalk =
   ## Walk one action-script stream from start until terminal/high/unknown/limit.
@@ -140,7 +157,7 @@ proc walkActionScript*(rom: openArray[uint8]; start, limit: int): ActionScriptWa
     if pos + 1 + w > limit:
       result.length = pos - start
       return
-    if op == 0x42:
+    if op in [0x42, 0x4C]:
       let bank = int(rom[pos + 3])
       if bank < ActionScriptBankLo or bank > ActionScriptBankHi:
         result.length = pos - start

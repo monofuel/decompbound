@@ -373,3 +373,28 @@ block liveFfShortRecordStreams:
     doAssert total >= 400, &"expected ≥400 ffRec bytes, got {total}"
     echo "[test_baserom_extract] FF short-record streams OK: ", n,
       " spans, ", total, " bytes"
+
+block liveCfProgramPool:
+  ## Residual 4-byte-word program pool for u16 ptr table @0x0F59F1.
+  if not goldBaseromAvailable():
+    discard
+  else:
+    let gold = readGoldBaseromBytes()
+    var n = 0
+    var total = 0
+    for s in allBaseromExtractSpans():
+      if s.kind != ekTable or not s.name.startsWith("table_cfProg_"):
+        continue
+      doAssert s.length mod 4 == 0, &"{s.name}: not 4-byte aligned length"
+      var zeroHi = 0
+      var words = s.length div 4
+      for i in 0..<words:
+        if gold[s.offset + i * 4 + 3] == 0:
+          zeroHi += 1
+      doAssert zeroHi * 4 >= words * 3, &"{s.name}: low zero-high density"
+      n += 1
+      total += s.length
+    doAssert n >= 1, &"expected ≥1 cfProg claims, got {n}"
+    doAssert total >= 400, &"expected ≥400 cfProg bytes, got {total}"
+    echo "[test_baserom_extract] CF program pool residual OK: ", n,
+      " spans, ", total, " bytes"
