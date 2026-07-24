@@ -491,3 +491,110 @@ block liveCfObj12Records:
     doAssert n >= 20, &"expected ≥20 cfObj12 claims, got {n}"
     doAssert total >= 240, &"expected ≥240 cfObj12 bytes, got {total}"
     echo "[test_baserom_extract] CF obj12 records OK: ", n, " spans, ", total, " B"
+
+block liveEfSpriteGroupRecords:
+  ## Residual EF sprite-group/obj-config bodies via ptr table $EF133F (file 0x2F133F).
+  if not goldBaseromAvailable():
+    discard
+  else:
+    let gold = readGoldBaseromBytes()
+    const
+      PtrBase = 0x2F133F
+      BankBase = 0x2F0000
+    var n = 0
+    var total = 0
+    var recs = 0
+    for s in allBaseromExtractSpans():
+      if s.kind != ekTable or not s.name.startsWith("table_efSprGrp_"):
+        continue
+      # Every claimed byte must lie inside some $EF133F target record.
+      var covered = 0
+      var i = 0
+      while i < 464:
+        let po = PtrBase + i * 4
+        let lo = int(gold[po]) or (int(gold[po + 1]) shl 8)
+        let bank = int(gold[po + 2])
+        doAssert bank == 0xEF, &"ptr table bank @id{i}"
+        let fo = BankBase + lo
+        let lo2 = int(gold[po + 4]) or (int(gold[po + 5]) shl 8)
+        let bank2 = int(gold[po + 6])
+        if bank2 != 0xEF:
+          break
+        let fo2 = BankBase + lo2
+        let ln = fo2 - fo
+        if ln >= 16 and ln <= 64 and fo < s.offset + s.length and fo2 > s.offset:
+          let a = max(fo, s.offset)
+          let b = min(fo2, s.offset + s.length)
+          if b > a:
+            # Full record must be inside the claim when it overlaps.
+            if fo >= s.offset and fo2 <= s.offset + s.length:
+              doAssert gold[fo] >= 1'u8 and gold[fo] <= 7'u8, s.name
+              covered += ln
+              recs += 1
+        i += 1
+      doAssert covered == s.length, &"{s.name}: covered {covered} != {s.length}"
+      n += 1
+      total += s.length
+    doAssert n >= 15, &"expected ≥15 efSprGrp claims, got {n}"
+    doAssert total >= 1700, &"expected ≥1700 efSprGrp bytes, got {total}"
+    doAssert recs >= 60, &"expected ≥60 records, got {recs}"
+    doAssert isBaseromExtractOffset(0x2F2426)
+    doAssert isBaseromExtractOffset(0x2F25CE)  # last byte of id97
+    echo "[test_baserom_extract] EF sprite-group residual OK: ", n, " spans, ",
+      total, " B, ", recs, " records"
+
+block liveAbsRefResidualTables:
+  ## Loader-backed residual tables found via code_bank abs-long scan into unclaimed.
+  if not goldBaseromAvailable():
+    discard
+  else:
+    let gold = readGoldBaseromBytes()
+    # bitMask8 @0x04562F
+    doAssert isBaseromExtractOffset(0x04562F)
+    doAssert isBaseromExtractOffset(0x045636)
+    const masks8 = [1'u8, 2, 4, 8, 16, 32, 64, 128]
+    for i, m in masks8:
+      doAssert gold[0x04562F + i] == m
+    # bitMask4 residual @0x0458AB
+    doAssert isBaseromExtractOffset(0x0458AB)
+    for i, m in [1'u8, 2, 4, 8]:
+      doAssert gold[0x0458AB + i] == m
+    # 3×u8 @0x04A1F2
+    doAssert isBaseromExtractOffset(0x04A1F2)
+    doAssert gold[0x04A1F2] == 0x12
+    doAssert gold[0x04A1F3] == 0x0F
+    doAssert gold[0x04A1F4] == 0x30
+    # D7 tile-prop u16 residual @0x17B200 (22 B)
+    doAssert isBaseromExtractOffset(0x17B200)
+    doAssert isBaseromExtractOffset(0x17B215)
+    for i in 0..<(22 div 2):
+      let v = int(gold[0x17B200 + i * 2]) or
+        (int(gold[0x17B200 + i * 2 + 1]) shl 8)
+      doAssert (v and 7) <= 7
+    # CF map ptr residual holes claimed this wave
+    for off in [0x0F6943, 0x0F69D5, 0x0F6B91]:
+      doAssert isBaseromExtractOffset(off)
+    var cfExtra = 0
+    for s in allBaseromExtractSpans():
+      if s.kind == ekTable and s.name in [
+          "table_cfMapPtr_0x0F6943",
+          "table_cfMapPtr_0x0F69D5",
+          "table_cfMapPtr_0x0F6B91"]:
+        cfExtra += s.length
+        doAssert s.length mod 2 == 0
+        var prev = -1
+        var nPtr = 0
+        for j in 0..<(s.length div 2):
+          let v = int(gold[s.offset + j * 2]) or
+            (int(gold[s.offset + j * 2 + 1]) shl 8)
+          if v == 0:
+            continue
+          doAssert v >= 0x7000 and v < 0xA000
+          if prev >= 0:
+            doAssert v >= prev
+          prev = v
+          nPtr += 1
+        doAssert nPtr >= 2
+    doAssert cfExtra == 40 + 18 + 22
+    echo "[test_baserom_extract] abs-ref residual tables OK: bitMask8/4 + u8×3 + ",
+      "d7TileProp22 + cfMapPtr ", cfExtra, " B"

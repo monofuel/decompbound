@@ -112,3 +112,72 @@ Task baseline: **95.79%** (`~132k` residual).
 nim r tests/test_baserom_extract.nim
 nim r src/decompbound.nim --compare
 ```
+
+## Residual wave (EF sprite-group / obj-config) — 2026-07-24
+
+| Region | File range | Format | Residual claimed |
+|--------|------------|--------|------------------|
+| EF sprite-group body | scattered `$EF1D5C`..`$EF47xx` free holes | records via far-ptr table `$EF133F` (file `0x2F133F`); lengths 25/27/41; type byte `@+0` ∈ 1..7 | **1715 B** (17 spans, 67 complete records) |
+
+**Largest single span:** `0x2F2426+452` = ids **80..97** (was top residual L465 minus 1-byte orphan tail of id79 + partial id98).
+
+**Compare after rebuild:** **96.12%** byte-exact (`3,023,649 / 3,145,728`), implemented regions **100.00% exact**. Prior **96.06%** (`3,021,917`). **Δ +1,732 B** (~+0.06%).
+
+### RE notes (loader-linked)
+
+- **Pointer table:** SNES `$EF133F`, 4-byte far ptrs bank `$EF`, indexed `id*4`. Real loaders in bank `$C0` / `$C4` (`LDA #$133F` + `LDA #$00EF` at `0x001DF9`, `0x001E79`, `0x001FE0`, `0x007A8B`, `0x04B1D0`).
+- **Record layout (structural):** variable **25 / 27 / 41** bytes between consecutive ptrs. Common head `03 20 05 1C 08 08 08 08` or `02 20 00 1C …` then tile/offset payload. Matches earlier docs object-config track (`docs/decompilation.md` / `$2CD6` sprite-group id → `$EF133F`).
+- **Claim policy:** only **complete** records that are 100% residual-unclaimed (no partials straddling code_spans). Semantic field decode (script bank@+8 note was for a different config width) still open — claim is ptr-bounded structure only.
+- **Other top residuals (`$DB`/`$D7`/`$CA`/`$CE`):** still dense binary without a matching far-ptr table + fixed record walk solid enough to claim this wave. `$CE62EE` is a 5-byte `[far][00][type1..6]` table (loader `$C2EBDF` `LDA.l,X`) but sits almost entirely inside false-positive code_spans already claimed as code.
+
+### Verification
+
+```
+nim r tests/test_baserom_extract.nim
+nim r src/decompbound.nim --compare
+```
+
+
+## Residual wave (abs-ref unclaimed scan) — 2026-07-24
+
+Method: build unclaimed from `code_spans` + `baserom_extract` + meta; scan
+`code_bank*.nim` for absolute-long operands (`$C…` / `0xC…`) that land in
+unclaimed gaps; prefer **genuine LDA/AND.L loaders** in banks `$C0–$C4`
+(REP/JSL/RTL context) over raw ref counts (many hits are data-as-code false
+positives). Also claim remaining CF map-ptr holes that match the existing
+holey-u16 → count+4n format.
+
+| Region | File range | Format | Residual claimed |
+|--------|------------|--------|------------------|
+| Bit-index masks | `0x04562F` ×8 | `01 02 04 08 10 20 40 80`; loaders `$C21645`/`$C21685` | 8 B |
+| Bit-index masks | `0x0458AB` ×4 | residual `01 02 04 08`; loaders `$C1B08D`/`$C3EE38` | 4 B |
+| u8 lookup | `0x04A1F2` ×3 | 3×u8; loaders `$C2382B`/`$C23B51` | 3 B |
+| Map tile props | `0x17B200` ×22 | u16 residual of `$D7B200` table; loaders `$C00ABC`/`$C026CD` (low3 enum) | 22 B |
+| CF map ptrs | `0x0F6943`/`0x0F69D5`/`0x0F6B91` | holey bank-local u16 → count+4n | 80 B |
+
+**This wave residual = 117 B.**
+
+### RE notes
+
+- Naïve abs-ref ranking is dominated by **mis-disassembled data** (WAI/BRK
+  streams that decode as `CMP/SBC AbsoluteLong`). Filter to load-like ops with
+  real prologues in low banks before trusting a hit.
+- `$C4562F` is the classic 8-byte bit mask table (bit number → mask). Flag tests
+  use `DEC; LSR×3` for byte index then `JSL $C09231` for bit index into this table.
+- `$D7B200` is a large u16 tile-property grid (most already claimed as code
+  spans mid-table); residual head only. Second loader masks `AND #$0007` for a
+  0..7 enum.
+- CF map ptr holes sit between prior `table_cfMapPtr_*` claims; all targets
+  re-validate as count+4n placement records.
+
+### Tooling
+
+- `src/tools/scan_unclaimed_absrefs.nim` — rank unclaimed gaps by abs-ref density
+  from generated bank comments/operands.
+
+### Verification
+
+```
+nim r tests/test_baserom_extract.nim
+nim r src/tools/chunk_check.nim summary
+```
