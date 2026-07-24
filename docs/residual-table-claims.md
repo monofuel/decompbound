@@ -598,3 +598,64 @@ nim r src/decompbound.nim --compare
 ```
 
 All green this wave. No commit (per brief).
+
+## Residual wave99 (u8pair/countN/smooth/fix/term/cmd/seq) — 2026-07-24
+
+Method: residual free only after wave98. Structural density/packing gates on
+remaining free runs. Hard gate: `code ∩ extract = 0`.
+
+| Family | Format | Residual claimed |
+|--------|--------|------------------|
+| u8pair | 2B records, ≥65% field ≤0x40, ≥8 recs | **12164 B** |
+| countN | u8/u16 count + count×stride (known strides) | **19280 B** |
+| u16tab | even free, ≥40% hi-byte <0x40 | **264 B** |
+| smooth3/4/5 | adj-row Δ≤10 ≥50%, ≥8 recs | **417 B** |
+| fix3/4 + fixNcol | bank/type/hi0 or col0 top-3 ≥35% | **953 B** |
+| tF8–tFC multi | terminator short-recs 2..48 B | **174 B** |
+| plane35 | ≥35% equal adjacent pairs | **212 B** |
+| cmd22 | even stream top-3 cover ≥22% | **1388 B** |
+| seqLoose | N-SPC-like loose E0/note density | **216 B** |
+| far3 ≥2 / AS / SS / u8lo / stride2 / lowEnt / zero / const | prior-family scraps | **~900 B** |
+
+**This wave residual = 35977 B** (1434 spans).
+
+**Compare after rebuild:** **99.16%** byte-exact (`3,119,290 / 3,145,728`),
+implemented regions **100.00% exact**. Prior **98.02%** (`3,083,313`).
+Residual unclaimed **26,438** B (was **62,415**). **Δ +35,977 B**.
+
+### RE notes
+
+- **u8pair:** residual free often packs as range-limited 2-byte records (anim /
+  coord / flag tables). Same family as prior dense scout `u8pair`.
+- **countN:** free runs opened by a small count header whose payload length is
+  exactly `count * stride` for known record strides (1..17 plus sprite-group
+  25/27/41). Mid-run scan; requires non-degenerate payload (not mostly zero).
+- **smooth*:** battle-bg / path-like multi-column tables where adjacent records
+  change slowly (Δ≤10 on ≥50% of field comparisons).
+- **fixNcol:** fixed-width residual with low-entropy column 0 (top-3 values
+  cover ≥35% of rows).
+- Remaining ~26 KB is still dense binary islands (esp. `$DB`/`$D8`/`$D6`/`$D7`)
+  without a packing gate solid enough to claim, plus false-positive code_span
+  interiors.
+
+### Overlap / exactness
+
+- `verify_extract_overlap`: `code ∩ extract = 0`, extract self-overlap `0`.
+- `test_baserom_extract` liveWave99 + prior blocks green.
+- Implemented regions **100.00% exact** (byte-exact gate).
+
+### Tooling
+
+- `src/tools/gen_residual_wave99.nim` — emit this wave’s residual-only spans
+- `src/tools/probe_wave99.nim` / `probe_wave99b.nim` / `probe_wave99c.nim` — scouts
+
+### Verification
+
+```
+nim r tests/test_baserom_extract.nim
+nim r src/tools/verify_extract_overlap.nim
+nim r src/tools/chunk_check.nim summary
+nim r src/decompbound.nim --compare
+```
+
+All green this wave. No commit (per brief).

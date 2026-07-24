@@ -982,3 +982,114 @@ block liveWave98Residual:
       " far4=", far4B, " u16=", u16B, " as=", asB,
       " core=", waveTot, " B"
 
+
+block liveWave99Residual:
+  ## Residual wave99: u8pair/countN/u16/smooth/fix/term/cmd/seq/as free-only.
+  if not goldBaseromAvailable():
+    discard
+  else:
+    let gold = readGoldBaseromBytes()
+    var u8B, countB, u16B, smoothB, fixB, termB, cmdB, seqB, asB, planeB = 0
+    let chunks = allRomChunksMeta()
+    for s in allBaseromExtractSpans():
+      let isW99 =
+        s.name.startsWith("table_u8pair_") or s.name.startsWith("table_countN_") or
+        s.name.startsWith("table_u16tab_") or s.name.startsWith("table_smooth") or
+        s.name.startsWith("table_fix3_") or s.name.startsWith("table_fix4_") or
+        s.name.startsWith("table_fix5col_") or s.name.startsWith("table_fix6col_") or
+        s.name.startsWith("table_fix7col_") or s.name.startsWith("table_fix8col_") or
+        s.name.startsWith("table_fix9col_") or s.name.startsWith("table_fix10col_") or
+        s.name.startsWith("table_fix12col_") or s.name.startsWith("table_tF") or
+        s.name.startsWith("table_plane35_") or s.name.startsWith("table_cmd22_") or
+        s.name.startsWith("table_seqLoose_") or s.name.startsWith("table_far3w99_") or
+        s.name.startsWith("as_wave99_") or s.name.startsWith("script_wave99_") or
+        s.name.startsWith("table_u8lo_") or s.name.startsWith("table_stride2_") or
+        s.name.startsWith("table_lowEnt_") or s.name.startsWith("zero_wave99_") or
+        s.name.startsWith("table_constFill_w99_")
+      if not isW99:
+        continue
+
+      # hard gate: no code_span overlap
+      for c in chunks:
+        if c.kind != ckImplementedCode:
+          continue
+        let a0 = max(s.offset, c.offset)
+        let a1 = min(s.offset + s.length, c.offset + c.length)
+        doAssert a0 >= a1, &"overlap {s.name} with code 0x{c.offset:06X}"
+
+      if s.name.startsWith("table_u8pair_"):
+        u8B += s.length
+        doAssert s.length >= 16 and s.length mod 2 == 0
+        let nRec = s.length div 2
+        var ok = 0
+        for i in 0 ..< nRec:
+          let a = gold[s.offset + i * 2]
+          let b = gold[s.offset + i * 2 + 1]
+          if a <= 0x40 or b <= 0x40:
+            ok += 1
+        doAssert ok * 100 >= nRec * 65, s.name
+      elif s.name.startsWith("table_countN_"):
+        countB += s.length
+        doAssert s.length >= 6
+        # header must match some stride packing
+        var matched = false
+        for hdr in 1 .. 2:
+          for stride in [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 17, 25, 27, 41]:
+            let cnt =
+              if hdr == 1: gold[s.offset].int
+              else: gold[s.offset].int or (gold[s.offset + 1].int shl 8)
+            if cnt < 2 or cnt > 100: continue
+            if hdr + cnt * stride == s.length:
+              matched = true
+              break
+          if matched: break
+        doAssert matched, &"{s.name}: no count*stride match len={s.length}"
+      elif s.name.startsWith("table_u16tab_"):
+        u16B += s.length
+        doAssert s.length mod 2 == 0 and s.length >= 16
+      elif s.name.startsWith("table_smooth"):
+        smoothB += s.length
+        doAssert s.length >= 24
+      elif s.name.startsWith("table_fix3_") or s.name.startsWith("table_fix4_") or
+          s.name.contains("col_"):
+        fixB += s.length
+      elif s.name.startsWith("table_tF"):
+        termB += s.length
+      elif s.name.startsWith("table_cmd22_"):
+        cmdB += s.length
+        doAssert s.length >= 12 and s.length mod 2 == 0
+      elif s.name.startsWith("table_seqLoose_"):
+        seqB += s.length
+        var e0xx, notes, e0 = 0
+        for j in 0 ..< s.length:
+          let b = gold[s.offset + j].int
+          if b >= 0x80 and b <= 0xC7: notes += 1
+          elif b >= 0xE0:
+            e0 += 1
+            if b == 0xE0 and j + 1 < s.length and gold[s.offset + j + 1] < 0x40:
+              e0xx += 1
+        doAssert e0xx >= 1 and notes >= 2 and e0 >= 1, s.name
+      elif s.name.startsWith("as_wave99_"):
+        asB += s.length
+        doAssert s.kind == ekActionScript
+        doAssert isGoodActionScriptSpan(gold, s.offset, s.length), s.name
+      elif s.name.startsWith("table_plane35_"):
+        planeB += s.length
+        doAssert s.length >= 16 and s.length mod 2 == 0
+      elif s.name.startsWith("zero_wave99_"):
+        doAssert s.kind == ekZeroPad
+        for j in 0 ..< s.length:
+          doAssert gold[s.offset + j] == 0
+      elif s.name.startsWith("table_constFill_w99_"):
+        let v = gold[s.offset]
+        for j in 0 ..< s.length:
+          doAssert gold[s.offset + j] == v
+
+    doAssert u8B >= 8000, &"u8pair {u8B}"
+    doAssert countB >= 10000, &"countN {countB}"
+    let waveTot = u8B + countB + u16B + smoothB + fixB + termB + cmdB + seqB + asB + planeB
+    doAssert waveTot >= 25000, &"wave99 core total {waveTot}"
+    echo "[test_baserom_extract] wave99 residual OK: u8pair=", u8B,
+      " countN=", countB, " u16=", u16B, " smooth=", smoothB,
+      " fix=", fixB, " term=", termB, " cmd=", cmdB, " seq=", seqB,
+      " as=", asB, " plane=", planeB, " core=", waveTot, " B"
