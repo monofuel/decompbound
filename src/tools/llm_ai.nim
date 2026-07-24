@@ -51,8 +51,9 @@ const
     ## Persistent skill library (walkTo etc). Loaded at boot into Lua BEFORE policy. Gitignored.
   NotesFile = "bin/states/llm_notes.txt"
     ## Persistent notes (agent knowledge). Loaded into prompt; -- NOTE: appends here. Gitignored.
-  KnowledgeDir = "knowledge"
-    ## Markdown KB (npcs/enemies/places/mechanics). -- LEARN routes here; scene names inject reads.
+  KnowledgeDir = "../decompbound_secret/knowledge"
+    ## Markdown KB outside the public tree (dialogue/NPC facts are game-derived).
+    ## -- LEARN routes here; scene names inject reads. Sibling of the repo root.
   KnowledgeBulletCharCap = 800
     ## Max chars of bullet facts injected per named entity KB file.
   KnowledgeMaxFiles = 3
@@ -276,9 +277,9 @@ PERSISTENT BRAIN:
   -- NOTE: <one concise fact e.g. "bedroom exit door approx (1E00,05C0)", "A opens command menu on overworld - use B to cancel", "sector FFFF indoors">
   The harness parses -- NOTE: and appends to bin/states/llm_notes.txt (full file reloaded into prompt every slow tick).
   -- LEARN <cat>:<slug> <fact text>  (cat = npc|enemy|place|mechanic)
-  Routes into knowledge/<cat>s/<slug>.md as a [bot] bullet (typed KB; e.g. -- LEARN npc:pokey he takes credit for your work).
+  Routes into decompbound_secret/knowledge/<cat>s/<slug>.md as a [bot] bullet (typed KB; e.g. -- LEARN npc:pokey he takes credit for your work).
 - Full llm_notes.txt is always included below so you remember discoveries across frames/runs.
-- Nearby named NPCs inject their knowledge/npcs/<name>.md facts into STATE (KNOWLEDGE block).
+- Nearby named NPCs inject their secret knowledge/npcs/<name>.md facts into STATE (KNOWLEDGE block).
 - Recent history tells you if prior policy made tg%/room progress.
 
 OUTPUT: Return ONLY valid Lua: starts exactly with 'function update()' , ends with 'end'. No markdown fences, no prose, no extra text outside the function. You may add -- NOTE: / -- LEARN lines inside or before/after the function.
@@ -419,9 +420,9 @@ PERSISTENT BRAIN:
   -- NOTE: <one concise fact e.g. "bedroom exit door approx (1E00,05C0)", "A opens command menu on overworld - use B to cancel", "sector FFFF indoors">
   The harness parses -- NOTE: and appends to bin/states/llm_notes.txt (full file reloaded into prompt every slow tick).
   -- LEARN <cat>:<slug> <fact text>  (cat = npc|enemy|place|mechanic)
-  Routes into knowledge/<cat>s/<slug>.md as a [bot] bullet (typed KB; e.g. -- LEARN npc:pokey he takes credit for your work).
+  Routes into decompbound_secret/knowledge/<cat>s/<slug>.md as a [bot] bullet (typed KB; e.g. -- LEARN npc:pokey he takes credit for your work).
 - Full llm_notes.txt is always included below so you remember discoveries across frames/runs.
-- Nearby named NPCs inject their knowledge/npcs/<name>.md facts into STATE (KNOWLEDGE block).
+- Nearby named NPCs inject their secret knowledge/npcs/<name>.md facts into STATE (KNOWLEDGE block).
 - Recent history tells you if prior policy made tg%/room progress.
 
 OUTPUT: Return ONLY valid Lua: starts exactly with 'function update()' , ends with 'end'. No markdown fences, no prose, no extra text outside the function. You may add -- NOTE: / -- LEARN lines inside or before/after the function.
@@ -569,7 +570,7 @@ proc extractAndAppendNotes(src: string) =
     echo "  extracted ", count, " -- NOTE: record(s) from returned policy"
 
 proc learnCatDir(cat: string): string =
-  ## Map LEARN category tokens to knowledge/ subdirs (npc→npcs, …). Empty if unknown.
+  ## Map LEARN category tokens to KB subdirs under KnowledgeDir (npc→npcs, …). Empty if unknown.
   case cat.toLowerAscii()
   of "npc": "npcs"
   of "enemy": "enemies"
@@ -578,7 +579,7 @@ proc learnCatDir(cat: string): string =
   else: ""
 
 proc appendLearnFact*(cat, slug, fact: string): bool =
-  ## Append one [bot] fact under knowledge/<cat>s/<slug>.md (## Learned (bot)).
+  ## Append one [bot] fact under KnowledgeDir/<cat>s/<slug>.md (## Learned (bot)).
   ## Creates a minimal frontmatter file when missing. Skips identical [bot] bullets.
   ## Returns true when a new bullet was written.
   result = false
@@ -616,7 +617,7 @@ kind: {kind}
   result = true
 
 proc extractAndAppendLearns*(src: string) =
-  ## Parse `-- LEARN <cat>:<slug> <fact text>` lines and route into knowledge/.
+  ## Parse `-- LEARN <cat>:<slug> <fact text>` lines and route into KnowledgeDir.
   ## Categories: npc, enemy, place, mechanic. Called alongside extractAndAppendNotes.
   if src.len == 0: return
   var count = 0
@@ -646,7 +647,7 @@ proc extractAndAppendLearns*(src: string) =
     if appendLearnFact(cat, slug, fact):
       inc count
   if count > 0:
-    echo "  extracted ", count, " -- LEARN record(s) into knowledge/"
+    echo "  extracted ", count, " -- LEARN record(s) into ", KnowledgeDir
 
 proc extractNotes(src: string): string =
   ## Extract -- NOTE: lines without appending (for reports and snapshots).
@@ -691,7 +692,7 @@ proc kbBulletLines(path: string, maxChars: int): string =
 
 proc knowledgeInjection*(snes: SnesBus): string =
   ## Build the KNOWLEDGE prompt block for named entities currently in the scene.
-  ## Looks up knowledge/npcs/<name>.md for each non-empty entity name (cap files + chars).
+  ## Looks up KnowledgeDir/npcs/<name>.md for each non-empty entity name (cap files + chars).
   let sc = scene.buildScene(snes)
   var seen: seq[string] = @[]
   var chunks: seq[string] = @[]

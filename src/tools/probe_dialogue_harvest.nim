@@ -1,5 +1,5 @@
 ## NPC dialogue harvester: walk up to nearby entities, press A, capture real text.
-## Writes [game]-tagged lines into knowledge/dialogue_log.md (and known NPCs).
+## Writes [game]-tagged lines into decompbound_secret/knowledge/ (and known NPCs).
 ## LEGIT movement only (d-pad + collision). Pattern from probe_knock_door_ents.
 
 import
@@ -10,7 +10,8 @@ import
 
 const
   RomPath = "bin/Earthbound (U) [!].smc"
-  LogPath = "knowledge/dialogue_log.md"
+  KnowledgeDir = "../decompbound_secret/knowledge"
+  LogPath = KnowledgeDir / "dialogue_log.md"
   Right = 0x0100'u16
   Left = 0x0200'u16
   Down = 0x0400'u16
@@ -303,7 +304,8 @@ proc harvestEntity(
     result.note = "no talk text"
 
 proc appendLog(captures: seq[Capture]) =
-  ## Append [game] lines to knowledge/dialogue_log.md.
+  ## Append [game] lines to the secret dialogue log.
+  createDir(KnowledgeDir)
   var body = ""
   if not fileExists(LogPath):
     body = """# Dialogue log
@@ -330,11 +332,12 @@ Every line is ground truth from `policy.getDialogueText` — not model memory.
   writeFile(LogPath, body)
 
 proc maybeAttribute(cap: Capture) =
-  ## Append confident character attributions to knowledge/npcs/*.md.
+  ## Append confident character attributions under secret knowledge/npcs/.
   let low = cap.dialogue.toLowerAscii
   let dlgOneLine = cap.dialogue.replace("\n", " ")
   if MomFrag in low:
-    const path = "knowledge/npcs/mom.md"
+    let path = KnowledgeDir / "npcs" / "mom.md"
+    if not fileExists(path): return
     var md = readFile(path)
     let line =
       &"- Captured live (`{cap.state}` slot {cap.slot}, player 0x{cap.px:04X},0x{cap.py:04X}): " &
@@ -346,7 +349,8 @@ proc maybeAttribute(cap: Capture) =
       md.add line
       writeFile(path, md)
   if PokeyFrag in low:
-    const path = "knowledge/npcs/pokey.md"
+    let path = KnowledgeDir / "npcs" / "pokey.md"
+    if not fileExists(path): return
     var md = readFile(path)
     let line =
       &"- Captured live (`{cap.state}` slot {cap.slot}, player 0x{cap.px:04X},0x{cap.py:04X}): " &

@@ -1,6 +1,6 @@
-## Probe Ticket D: -- LEARN write-router + knowledge/npcs injection in buildStateSummary.
+## Probe Ticket D: -- LEARN write-router + secret knowledge/npcs injection.
 ##
-## (a) Routes a sample `-- LEARN npc:pokey ...` into knowledge/npcs/pokey.md.
+## (a) Routes a sample `-- LEARN npc:pokey ...` into decompbound_secret/knowledge/npcs/pokey.md.
 ## (b) Loads home_door.state and shows Mom KB bullets injected into the state summary.
 import
   std/[os, strutils, sequtils],
@@ -10,7 +10,7 @@ import
 const
   RomPath = "bin/Earthbound (U) [!].smc"
   HomeDoorState = "bin/states/llm/home_door.state"
-  PokeyKb = "knowledge/npcs/pokey.md"
+  PokeyKb = "../decompbound_secret/knowledge/npcs/pokey.md"
   SampleLearn = "-- LEARN npc:pokey he takes credit for your work"
 
 proc section(title: string) =
@@ -20,7 +20,7 @@ proc section(title: string) =
 
 proc main() =
   ## Run LEARN router + home_door knowledge injection smoke checks.
-  section("(a) BEFORE learn route — knowledge/npcs/pokey.md tail")
+  section("(a) BEFORE learn route — secret knowledge/npcs/pokey.md tail")
   if fileExists(PokeyKb):
     let before = readFile(PokeyKb)
     echo before
@@ -32,7 +32,7 @@ proc main() =
   echo "input: ", SampleLearn
   extractAndAppendLearns(SampleLearn)
 
-  section("(a) AFTER learn route — knowledge/npcs/pokey.md")
+  section("(a) AFTER learn route — secret knowledge/npcs/pokey.md")
   let after = readFile(PokeyKb)
   echo after
   if "he takes credit for your work [bot]" in after:

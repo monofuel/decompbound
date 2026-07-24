@@ -55,7 +55,7 @@ const
   # Known named places per area (engine-held map knowledge — like the collision
   # layer — so the bot heads "toward the crater" by NAME, never a hex coord in
   # the prompt). Seeded from the verified prologue route; migrate to
-  # knowledge/places/ as the bot explores and discovers more. Room label from
+  # decompbound_secret/knowledge/places/ as the bot explores. Room label from
   # touch_grass.currentRoomLabel.
   AreaLandmarks = {
     "outside_onett": @[

@@ -3,7 +3,7 @@
 Status: planning (2026-07-16). Owner: this is the umbrella design for a set of
 improvements to the LLM-play harness (`src/tools/llm_ai.nim`, `touch_grass.nim`
 skills, `story_percents.nim`). Cross-links: `docs/llm-plays.md`,
-`docs/llm-sequence.md`, `docs/memory-map.md`, `knowledge/README.md`.
+`docs/llm-sequence.md`, `docs/memory-map.md`, `../decompbound_secret/knowledge/` (secret KB).
 
 ## Run modes — the track matrix (canonical terminology)
 
@@ -152,7 +152,7 @@ Two complementary channels, sent every LLM tick:
    - `dir`/`dist_tiles` are computed **relative to the player** — this is what
      lets the prompt say "an NPC is 2 tiles north" instead of a raw coordinate.
    - `exits`/`landmarks`: start hand-curated per known area, later derive from
-     the map/collision + a small landmark table in `knowledge/places/`.
+     the map/collision + a small landmark table in `../decompbound_secret/knowledge/places/`.
    - Built in Nim (`buildSceneJson(ctx)`), injected into the summary; also
      exposed to Lua as `scene()` so policies can branch on it.
 
@@ -188,7 +188,7 @@ Two complementary channels, sent every LLM tick:
 
 - **Goal:** replace coord ladders in the prompt with **intent verbs** the bot
   chooses from perception; A* does the pixel-pushing underneath.
-  - `goToward(landmark)` — path toward a named landmark from `knowledge/places`.
+  - `goToward(landmark)` — path toward a named landmark from `../decompbound_secret/knowledge/places`.
   - `approach(slot|name)` — walk up to an entity (from the scene) and face it.
   - `followRoad(dir)` / `takeExit(dir)` — move along an exit until the scene
     changes.
@@ -207,8 +207,8 @@ Two complementary channels, sent every LLM tick:
 ### D. Knowledge / memory system — remember what you learn
 
 - **Goal:** a markdown knowledge base the bot reads and writes, so the game (and
-  play experience) teaches it. See `knowledge/README.md`.
-- **Layout (scaffolded):** `knowledge/{npcs,enemies,places,mechanics}/*.md`,
+  play experience) teaches it. Lives under `../decompbound_secret/knowledge/` (not in this repo).
+- **Layout (scaffolded):** `../decompbound_secret/knowledge/{npcs,enemies,places,mechanics}/*.md`,
   each with frontmatter + short facts tagged `[game]` / `[human]` / `[bot]`.
   Seeded: `npcs/pokey.md`, `npcs/mom.md`.
 - **Read:** inject only entries relevant to the current scene (NPCs on screen +
@@ -217,7 +217,7 @@ Two complementary channels, sent every LLM tick:
 - **Write:** the policy emits a typed note; the harness routes it. Evolve the
   current `-- NOTE:` parser into typed forms:
   `-- LEARN npc:pokey he takes credit for your work` → append a `[bot]` bullet
-  to `knowledge/npcs/pokey.md`. Keep flat `-- NOTE:` for scratch.
+  to `../decompbound_secret/knowledge/npcs/pokey.md`. Keep flat `-- NOTE:` for scratch.
 - **Depends on:** nothing (works now); better with B (name → file routing).
 - **Verify:** unit-test the router (note string → correct file+tag); a run emits
   a `-- LEARN` and the file gains the bullet.
@@ -228,7 +228,7 @@ Two complementary channels, sent every LLM tick:
 - **Goal:** the bot learns the story by **reading NPCs**, not from our memory.
   A probe/skill walks up to each nearby entity, faces it, presses A, and
   captures the real text via `getDialogueText` (script cursor `$96C5`), then
-  files it into `knowledge/`.
+  files it into `../decompbound_secret/knowledge/`.
 - **Why:** we and cloud models get EarthBound details wrong (this session: "cop"
   that's actually Mom; "Picky lost" at the wrong beat). The ROM is the only
   reliable source.
@@ -282,7 +282,7 @@ can start any time and continuously enriches D.
 ## Status checklist
 
 - [x] F (interim): dynamic objective ladder; confabulation trimmed
-- [x] D (scaffold): `knowledge/` schema + seeded pokey/mom
+- [x] D (scaffold): `../decompbound_secret/knowledge/` schema + seeded pokey/mom
 - [x] Azem: qwen3.6-27b@q6_k loaded at full 262144 ctx × 8 slots; vision confirmed
 - [x] A: `buildScene`/`sceneJson` (`scene.nim`) + `probe_scene.nim`; wired into `buildStateSummary`
 - [x] A: `scene()` exposed to Lua + documented in SANDBOX API
@@ -290,7 +290,7 @@ can start any time and continuously enriches D.
 - [x] **B: identity byte pinned** — `$2CD6` sprite-group / `$29CA` ptr; Mom=`$0091` verified; in `memory-map.md`; `probe_entity_names.nim` (grok, verified)
 - [x] **A: scene names entities** from `$2CD6/$29CA` (reads "mom, NE, 3 tiles")
 - [x] **C: intent verbs** — `nearestEntity`/`approach`/`talk` (`IntentNavSkillLua`); coord-free policy reaches pokey 100 (`probe_intent_nav.nim`, grok, verified)
-- [x] **E: dialogue harvester** → `knowledge/dialogue_log.md` (`probe_dialogue_harvest.nim`, grok, verified)
+- [x] **E: dialogue harvester** → `../decompbound_secret/knowledge/dialogue_log.md` (`probe_dialogue_harvest.nim`, grok, verified)
 - [x] **D: `-- LEARN` write-router + relevant-KB injection** live in `llm_ai.nim` (`probe_memory_router.nim`, grok, verified — Mom KB block injects when she's nearby). ⚠️ import refactor to `when isMainModule` → live `make llm-ai` smoke test wanted.
 - [x] **A: landmarks** in the scene (`scene.nim` `AreaLandmarks`; door shows "meteor_crater NW")
 - [x] **F: objectives rewritten to intent+perception** — hex crater ladder GONE from the prompt; travel by named landmark + `talk('mom')`/`talk(slot)`. Indoor `walkTo` waypoints remain (labeled INDOOR-ONLY).
