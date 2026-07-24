@@ -692,3 +692,56 @@ block liveEfMidAndC4HitboxResidual:
       ef, " c4Hitbox=", c4, " total=", ef + c4, " B"
 
 
+
+block liveResidualExpandC5ApuCf:
+  ## C5 body mid-record free + APU pack interiors + CF obj12 scraps (expand wave).
+  if not goldBaseromAvailable():
+    discard
+  else:
+    var c5 = 0
+    var c5N = 0
+    var apuNew = 0
+    var apuN = 0
+    var cf = 0
+    var cfN = 0
+    var samples: seq[BaseromExtractSpan] = @[]
+    for s in allBaseromExtractSpans():
+      # expand-wave C5 bodies use id~N in the note (prior C5 bodies use ids A..B)
+      if s.name.startsWith("table_c5Body_") and "id~" in s.note:
+        c5 += s.length
+        c5N += 1
+        doAssert s.kind == ekTable
+        doAssert s.length >= 2
+        doAssert s.offset >= 0x050000 and s.offset < 0x060000, s.name
+        samples.add s
+      # expand-wave APU: "APU pack interior residual" (no pack-number prefix)
+      if s.name.startsWith("apuPack_") and s.note.startsWith("APU pack interior residual"):
+        apuNew += s.length
+        apuN += 1
+        doAssert s.kind == ekApuPackage
+        doAssert s.length >= 2
+      if s.name in ["table_cfObj12_0x0F9359", "table_cfObj12_0x0F9458"]:
+        cf += s.length
+        cfN += 1
+        doAssert s.kind == ekTable
+        doAssert s.length == 12
+        samples.add s
+    doAssert c5 == 996, &"c5Body expand residual want 996 got {c5}"
+    doAssert c5N == 99
+    doAssert apuNew == 2413, &"apu interior residual want 2413 got {apuNew}"
+    doAssert apuN == 387
+    doAssert cf == 24 and cfN == 2
+    doAssert isBaseromExtractOffset(0x053A4C)
+    doAssert isBaseromExtractOffset(0x0BE308)
+    doAssert isBaseromExtractOffset(0x0F9359)
+    # residual-only vs code (cached chunk list)
+    let chunks = allRomChunksMeta()
+    for s in samples:
+      for c in chunks:
+        if c.kind != ckImplementedCode: continue
+        let a0 = max(s.offset, c.offset)
+        let a1 = min(s.offset + s.length, c.offset + c.length)
+        doAssert a0 >= a1, &"overlap {s.name} with code 0x{c.offset:06X}"
+    echo "[test_baserom_extract] residual expand C5/APU/CF OK: c5Body=",
+      c5, " apuInt=", apuNew, " cfObj=", cf, " total=", c5 + apuNew + cf, " B"
+

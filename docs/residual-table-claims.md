@@ -329,3 +329,90 @@ nim r src/tools/verify_extract_overlap.nim
 nim r src/tools/chunk_check.nim summary
 nim r src/decompbound.nim --compare
 ```
+
+
+## Residual expand wave (C5 body + APU interiors + CF scraps) — 2026-07-24
+
+Method: re-walk known loader-backed families for remaining residual free only
+(no `code_spans` overlap). Families already fully drained (EF mid, C4 hitbox,
+CF map ptrs, formPtr, item/shop/EXP, D7 map-attr, CADCA1) contribute 0 B new.
+
+| Region | File range | Format | Residual claimed |
+|--------|------------|--------|------------------|
+| C5 body mid-rec | `$C5A5B6` 14B index → bodies | ptr-bounded free holes; prefix `01 50 6C 1C 05` | **996 B** (99 spans) |
+| APU pack interiors | 105 known pack containers | free runs ≥4 B inside pack@base..base+size | **2413 B** (387 spans) |
+| CF 12B obj scraps | `0x0F9359`, `0x0F9458` | fixed 12 B; type@+0 ∈0..3; far `$C6–$C9` @+9 | **24 B** (2 spans) |
+
+**This wave residual = 3433 B.**
+
+**Compare after rebuild:** **96.34%** byte-exact (`3,030,572 / 3,145,728`),
+implemented regions **100.00% exact**. Prior **96.23%** (`3,027,139`).
+Residual unclaimed **115,136** B inventory (was 118,589). **Δ +3,433 B**.
+
+### RE notes
+
+- **C5 bodies:** index table `$C5A5B6` (253×14B) already claimed earlier; residual
+  is mid-body free holes inside ptr-bounded records with fixed head
+  `01 50 6C 1C 05`. Same structure as prior `gen_wave_claims` C5 body claims.
+- **APU interiors:** re-scan of pack containers already referenced by existing
+  `ekApuPackage` notes (`pack@0x… size=…`). Free runs ≥4 B inside container
+  bounds only — same pattern as pack-66 / pack-139 interior waves. No new
+  package discovery.
+- **CF obj12:** two complete 12 B records left in residual holes after prior
+  34-span wave.
+- **Drained families (0 B this wave):** EF mid-record, C4 hitbox, CF map ptrs,
+  formPtr, owEnemyArr, item/shop/EXP, BBG layer17, CADCA1, D7 map-attr.
+
+### Top residual free runs still open (post-wave)
+
+| # | File | Size | Bank | Head (hex) | Hypothesis / next probe |
+|---|------|------|------|------------|-------------------------|
+| 1 | `0x1B714F` | 814 | `$DB` | `0C 76 0C 6E 15 B7…` | dense structured; no C0–C4 abs-long base into residual |
+| 2 | `0x1BB0BD` | 552 | `$DB` | `00 21 01 59…` | near `$DBA7A2` claimed; not ptr-bounded free |
+| 3 | `0x17E54C` | 491 | `$D7` | `EA 83 2B 80…` | no C0–C4 loader into residual |
+| 4 | `0x0E6746` | 446 | `$CE` | `07 38 12 1E…` | after `$CE62EE` table end; not 5B-continuation |
+| 5 | `0x1B5696` | 425 | `$DB` | `8B 58 20 01…` | dense binary island |
+| 6 | `0x19A48C` | 418 | `$D9` | `04 E0 1D 10…` | audio/sequence-like? probe pack headers |
+| 7 | `0x1929E4` | 405 | `$D9` | `E1 02 92 08…` | same bank family as #6 |
+| 8 | `0x0C7371` | 401 | `$CC` | `0B 7D F3 FF…` | FF-heavy; try short-rec / anim walk |
+| 9 | `0x1A6012` | 400 | `$DA` | `8F 20 30 8D…` | dense binary |
+| 10 | `0x0AB440` | 396 | `$CA` | `04 E1 03 61…` | E0/20/A0-rich; no C0–C4 LDA.L into residual |
+| 11 | `0x09EE90` | 379 | `$C9` | `50 50 1C 01…` | possible script/config; SS/AS gates already fail head |
+| 12 | `0x0C6DCF` | 368 | `$CC` | `84 00 40 F8…` | HDMA/table-like |
+| 13 | `0x0C6ADA` | 355 | `$CC` | `D9 01 E6 E7…` | same CC band |
+| 14 | `0x14AC38` | 353 | `$D4` | `01 01 07 03…` | tile/attr-like |
+| 15 | `0x0EE8C6` | 346 | `$CE` | `0A 00 39 E0…` | dense CE island |
+| 16 | `0x0A7C65` | 326 | `$CA` | `29 01 01 3E…` | CA dense |
+| 17 | `0x1B7DBB` | 315 | `$DB` | `28 18 03 8B…` | DB dense |
+| 18 | `0x197DFE` | 314 | `$D9` | `8A 25 21 C6…` | D9 dense |
+| 19 | `0x1BF14B` | 303 | `$DB` | `84 01 D8 58…` | DB dense |
+| 20 | `0x0AB1CB` | 300 | `$CA` | `13 E0 3A 74…` | CA dense |
+
+**Dominant story unchanged:** largest bulk is false-positive `code_spans` covering
+data (banks `$DB`/`$D7`/`$CA`/`$CE` ~80–90% labeled code). Next high-leverage
+lever is **code_span reclassification**, not more extract fishing on free residual.
+
+### Concrete next probes
+
+1. Disasm-linked reclass of `$CE62EE` 5B table (already 100% inside code_spans;
+   carve to meta via existing `carveSpanAroundHoles` — label honesty, not %).
+2. Scan gold AbsoluteLong from **all** code banks (not only C0–C4) into top-20
+   residual runs — prior waves restricted to low banks.
+3. For `$CC7371` / `$CC6DCF` / `$CC6ADA`: try FF-terminated short-rec walker +
+   HDMA table pattern match against live WRAM dumps.
+4. For `$D9` runs: cross-check APU song/pack directory for container bases that
+   were never claimed as packages (new pack discovery, not interiors).
+5. Seed-trim false code around `$DB714F` if disasm density is BRK/WAI garbage.
+
+### Tooling
+
+- `src/tools/probe_residual_expand.nim` — re-walk known families + top residual runs
+
+### Verification
+
+```
+nim r tests/test_baserom_extract.nim
+nim r src/tools/verify_extract_overlap.nim
+nim r src/tools/chunk_check.nim summary
+nim r src/decompbound.nim --compare
+```
