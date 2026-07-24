@@ -787,3 +787,73 @@ bank/type ≥40%, far3 ≥1 bank `$C0–$EF`, print70 ≥6, plane25 ≥8, smooth
 gfx_lz, APU pack free interiors, loader-backed dense tables (CADCA1, D7 attr,
 EF sprite-group, C4 hitbox, formPtr, item/shop/EXP).
 
+
+## Residual wave101 (scraps after 99.45%) — 2026-07-24
+
+Baseline free residual: **17,151 B** in ~5,799 runs (max run 19 B).
+Hard gate: free residual only, zero `code_spans` overlap.
+
+| Family | Claim | Residual claimed |
+|--------|-------|------------------|
+| Pure zero free runs | `ekZeroPad` `zero_wave101_*` | 26 B / 22 |
+| Action-script full + good heads | `ekActionScript` `as_wave101_*` | 42 B / 9 |
+| Terminator F0–FF quality singles | `ekTable` `table_term1_w101_*` | 26 B / 6 |
+| u8-pair ≥4 recs | `ekTable` `table_u8pair4_w101_*` | 22 B / 2 |
+| Constant-byte fill ≥2 | `ekTable` `table_constFill_w101_*` | 22 B / 11 |
+| Far-ptr 3B pure rem (align 0–2) | `ekTable` `table_far3_w101_*` | 258 B / 86 |
+| Ternary flag alphabet `{00,01,80}` ≥4 | `ekTable` `table_bitFlag_w101_*` | 906 B / 169 |
+
+**This wave residual = 1,302 B** in 305 spans.
+
+**Compare after rebuild:** **99.50%** byte-exact (`3,129,879 / 3,145,728`), implemented
+regions **100.00% exact**. Prior baseline **99.45%** (`3,128,577` implied by
+17,151 free). Residual free after wave101: **15,849 B** in ~5,588 runs.
+
+### Honesty notes
+
+- **Claimed:** pure zeros any length; complete AS walks (`isGoodActionScriptSpan`);
+  term F0–FF singles already used in wave100; u8pair/const gates matching wave100b;
+  far3 only when free-run remainder after align 0–2 is a **pure** bank `$C0–$EF`
+  lo≠0 chain (no mid-run single-ptr noise); ternary `{0x00,0x01,0x80}` free ≥4 with
+  ≥1 non-zero (bit/flag residual — constrained alphabet, same spirit as plane25).
+- **Not claimed (would be dishonest or weak):**
+  - Single mid-run far3 noise (~963 B) without pure-rem / multi-chain structure.
+  - “SS loose” ended walks with glyphs≥2 — many false positives (e.g. `80 80 01 00`
+    counted as glyphs via encoding offset).
+  - Single-byte free as “const fill” or “pending format RE” gold-extract.
+  - Blanket residual free → extract with placeholder notes.
+
+### Remaining residual (~15,849 B) — top gaps / next steps
+
+| Bucket | Approx | Notes |
+|--------|--------|-------|
+| code\|code sandwich free | ~7.4 KB / ~2.5k runs | Mid-trace holes between `code_spans`. Needs **code seeds** → `convert_all` (expensive) or live PC coverage / resolved jump-table digs. Common prologue/RTL endings exist but not bulk-safe as extract. |
+| meta\|meta extract holes | ~several KB | Between SS/AS/table/gfx claims — mid-script fragments, partial records, dense binary scraps. Max free run still 19 B. |
+| Bank `$D8` (file `0x18`) | ~1.5 KB free left | Mostly `00/01/80` already claimed as bitFlag; remaining mixed bit/plane noise. |
+| Bank `$CF` cluster `0x0FB207+~1K` | holey cluster | Map/obj residual fragments; needs loader-linked RE beyond current holey-u16 / 12B formats. |
+| Incomplete AS FAR heads | ~50 B | Short free `42`/`4C` whose bank byte is already claimed next — cannot expand without overlap; re-carve only if parent AS claim is expanded carefully. |
+| Single-byte free | ~1.8 KB | Mostly non-zero noise; pure zeros already claimed. Not honest as standalone extract. |
+
+**100% exact is not reachable honestly this wave.** Next high-leverage path:
+
+1. **Code-seed wave** — seed free runs that sit between code with real 65816
+   prologues/RTL into `observed_entries.txt` / `resolved_entries.txt`, re-run
+   `convert_all`, re-compare (largest remaining bucket).
+2. **Loader-linked clusters** — dig bank `$CF` `0x0FB207` / `$D8` / `$D7` free
+   clusters with AbsoluteLong + record arithmetic (not statistical scrapers).
+3. **SS width RE** — top free often sits between `scriptStream_*` claims; multi-byte
+   CC residual heads that fail current quality gates need handler re-width, not
+   looser glyph ratios.
+
+### Tooling
+
+- `src/tools/gen_residual_wave101.nim` — emitter
+- `src/tools/probe_final_residual.nim` / `probe_claimable_now.nim` — residual scouts
+
+### Verification
+
+```
+nim r tests/test_baserom_extract.nim
+nim r src/tools/verify_extract_overlap.nim
+nim r src/decompbound.nim --compare
+```
