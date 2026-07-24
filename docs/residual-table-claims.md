@@ -416,3 +416,69 @@ nim r src/tools/verify_extract_overlap.nim
 nim r src/tools/chunk_check.nim summary
 nim r src/decompbound.nim --compare
 ```
+
+## All-bank AbsoluteLong + pack-table APU + ffRec residual — 2026-07-24
+
+Method: scan AbsoluteLong loaders from **all** generated banks / all code spans
+(not only C0–C4); walk pack table for free residual inside valid packages; claim
+remaining free residual that packs as FF-terminated short records (2..16 B/rec).
+Hard gate: residual free only (`code ∩ extract = 0`).
+
+| Family | Format | Residual claimed |
+|--------|--------|------------------|
+| AbsoluteLong tables | `$C0B0A6` 4B masks (LDA.L,X); `$CF30F7` 5B; CC FF-head / HDMA6; C5 idx/body free; CF prog4 / obj12 complete | **229 B** |
+| APU pack-table free | free runs inside pack-table packages with valid `[u16 len][u16 tgt]…` walk (`size≤0x2800`) | **310 B** |
+| ffRec residual | FF-terminated short records (2..16 B/rec, ≥2 recs/span); free only | **8227 B** |
+
+**This wave residual = 8766 B** (527 spans).
+
+**Coverage:** **96.62%** (`3,039,338 / 3,145,728`), implemented regions **100.00% exact**.
+Prior **96.34%** (`3,030,572`). Residual unclaimed **106,390** B (was **115,156**).
+
+### AbsoluteLong inventory (all banks)
+
+Gold AbsoluteLong load/store ops in code spans → residual free: **474 hits** across
+**258 runs**. Filtering to real **C0–CF `LDA.L` / `LDA.L,X` only** into residual:
+**7 hits** — residual free AbsoluteLong load bases from low banks are essentially
+drained (solid remaining: `$C0B0A6`, `$CF3100`/`$CF3101` window).
+
+High-bank generated AbsoluteLong hits into residual are mostly false-positive
+disassembly of data (SBC/CMP/STA from banks `$D0+`). Not used as sole claim basis
+without structure.
+
+### APU pack discovery
+
+- Pack table `0x04F947` ×170 walked with max size `0x2800`.
+- Known pack interiors (prior expand wave) fully claimed — **0 B** left.
+- **New pack-table free residual:** 310 B across 44 spans (mid-container holes).
+- Residual-island APU package discovery on top free runs: no solid full packages
+  fully free (D9 islands look sequence-like but fail clean package walk).
+
+### FF short-record residual
+
+Same format as prior `$CE` ffRec wave; extended globally over residual free.
+Test gate: every `table_ffRec_*` span fully packs as FF-terminated recs of length
+2..16. **8227 B** new (total ffRec inventory ~9260 B).
+
+### Cross-boundary script streams (not claimed)
+
+~3.3 kB residual free is the *prefix* of good CC streams that terminate past free
+into code_spans. `consumeScriptStreamRun` residual-only fails those (test
+`liveScriptStreamClaims`). Left for code_span reclass / carve, not extract.
+
+### Tooling
+
+- `src/tools/probe_allbank_abslong.nim` — all-bank AbsoluteLong → residual + pack discovery
+- `src/tools/gen_allbank_wave_claims.nim` — emit this wave’s spans
+- `src/tools/verify_extract_overlap.nim` — code_spans ∩ extract gate
+
+### Verification
+
+```
+nim r tests/test_baserom_extract.nim
+nim r src/tools/verify_extract_overlap.nim
+nim r src/tools/chunk_check.nim summary
+nim r src/decompbound.nim --compare
+```
+
+All green this wave. No commit (per brief).
