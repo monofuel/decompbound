@@ -6,6 +6,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        submodules: recursive
     - uses: treeform/setup-nim-action@v6
     - run: nimby sync -g nimby.lock
     - run: make test

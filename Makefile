@@ -10,6 +10,7 @@ ROM ?= bin/Earthbound (U) [!].smc
 BG ?= 0
 FRAMES ?= 60
 NIM_TEST_FLAGS ?= --hints:off --warnings:off
+LUA_LIB := vendor/lua/liblua.a
 
 help:
 	@echo "decompbound targets:"
@@ -33,6 +34,15 @@ help:
 # after changing nimby.lock.
 nim.cfg: nimby.lock
 	nimby sync -g nimby.lock
+
+# Static Lua 5.3 for the policy embed (gitignored archive; rebuild from the
+# vendor/lua submodule). Required by anything that links policy / lua53.
+$(LUA_LIB):
+	@if [ ! -f vendor/lua/makefile ] && [ ! -f vendor/lua/Makefile ]; then \
+	  echo "vendor/lua missing — run: git submodule update --init vendor/lua"; \
+	  exit 1; \
+	fi
+	$(MAKE) -C vendor/lua a
 
 build: nim.cfg
 	nim r src/decompbound.nim
@@ -151,10 +161,10 @@ N ?= 40
 disasm: nim.cfg
 	nim r src/tools/disasm.nim "$(ROM)" $(OFF) $(N)
 
-lua-test: nim.cfg
+lua-test: nim.cfg $(LUA_LIB)
 	nim r src/tools/lua_test.nim
 
-llm-play: nim.cfg
+llm-play: nim.cfg $(LUA_LIB)
 	@mkdir -p bin
 	nim r src/tools/llm_play.nim --frames 240 "$(ROM)" examples/policy_demo.lua
 
@@ -235,7 +245,7 @@ audio-diff: nim.cfg
 	nim r src/tools/audio_diff.nim $(ARGS)
 
 
-test: nim.cfg
+test: nim.cfg $(LUA_LIB)
 	@files=$$(ls tests/test_*.nim 2>/dev/null); \
 	if [ -z "$$files" ]; then \
 		echo "No unit tests found in tests/test_*.nim"; \
