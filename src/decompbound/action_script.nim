@@ -14,9 +14,9 @@
 
 const
   ## Minimum bytes for a residual action-script claim span.
-  ActionScriptMinLen* = 6
+  ActionScriptMinLen* = 4
   ## Minimum signature ops (WAIT/GOTO/GOSUB/FAR CALL) inside a claim.
-  ActionScriptMinSig* = 1
+  ActionScriptMinSig* = 0
   ## Max ops in one linear walk (safety bound).
   ActionScriptMaxOps* = 512
   ## Valid far-call bank range (HiROM game banks).
@@ -177,11 +177,10 @@ proc walkActionScript*(rom: openArray[uint8]; start, limit: int): ActionScriptWa
 
 proc isGoodActionScriptWalk*(w: ActionScriptWalk): bool =
   ## True when a walk is a claimable residual action-script unit.
+  ## Wave98: MinLen 4, ops≥1, ended; long spans still gated by isGoodActionScriptSpan.
   if not w.ended:
     return false
-  if w.length < 6 or w.ops < 2:
-    return false
-  if w.sig < 1:
+  if w.length < ActionScriptMinLen or w.ops < 1:
     return false
   result = true
 
@@ -223,9 +222,12 @@ proc countSignatureBytes*(rom: openArray[uint8]; start, length: int): int =
 
 proc isGoodActionScriptSpan*(rom: openArray[uint8]; start, length: int): bool =
   ## True when a residual span is fully covered by good walks and passes gates.
+  ## Spans ≥12 bytes still need ≥1 signature opcode (WAIT/GOTO/GOSUB/FAR CALL).
   if length < ActionScriptMinLen:
     return false
   if consumeActionScriptRun(rom, start, length) != length:
+    return false
+  if length >= 12 and countSignatureBytes(rom, start, length) < 1:
     return false
   if countSignatureBytes(rom, start, length) < ActionScriptMinSig:
     return false

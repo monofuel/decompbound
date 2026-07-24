@@ -535,3 +535,66 @@ All green this wave. No commit (per brief).
 
 - `src/tools/gen_residual_wave97.nim` — emit this wave’s residual-only spans
 - `src/tools/probe_ffrec_residual.nim` — ffRec residual scout
+
+## Residual wave98 (fe/fd/seqE0/plane/cmd/AS/u16) — 2026-07-24
+
+Method: residual free only. New structural families after wave97 drained
+ffRec≤32 / ssPrefix / far3≥4 / zRec≥3 / w4hi0≥4. Hard gate:
+`code ∩ extract = 0`. AS gates relaxed to MinLen 4 / MinSig 0 with long-span
+(≥12 B) still requiring a signature opcode.
+
+| Family | Format | Residual claimed |
+|--------|--------|------------------|
+| feRec | FE-term recs 2..32 B (multi ≥2 + quality single ≥3) | **3629 B** |
+| fdRec | FD-term recs 2..32 B (multi + quality single) | **1798 B** |
+| seqE0 | N-SPC-like sequence residual (≥1 `E0` instrument arg&lt;0x40, notes≥3, e0≥2, dens) | **7785 B** |
+| planePair | SNES bitplane-like (≥50% equal adjacent pairs, ≥20 B) | **3426 B** |
+| cmdPair | Even command stream (top-3 even-bytes cover ≥35%, ≥16 B) | **5250 B** |
+| AS residual | ended walks ops≥1 MinLen4; ≥12 B needs signature | **3577 B** |
+| u16mono | non-decreasing u16 LE ≥5 entries, end ≥0x100 | **4006 B** |
+| far3/far4 | 3B far ≥3; 4B far+00 ≥3 | **786 B** |
+| zRec / w4hi0 / const / zero / ssPrefix | prior families loosened slightly | **~1.6 KB** |
+
+**This wave residual = 31913 B** (1850 spans).
+
+**Compare after rebuild:** **98.02%** byte-exact (`3,083,313 / 3,145,728`),
+implemented regions **100.00% exact**. Prior **97.00%** (`3,051,400`).
+Residual unclaimed **~62k** B inventory (was **94,328**). **Δ +31,913 B**.
+
+### RE notes
+
+- **seqE0:** structural claim linked to `docs/audio.md` sequence bytecode
+  hypothesis (`0xE0 xx` = instrument select). Residual free runs with ≥1 strong
+  `E0`+small-arg, note-range density, sparse zeros. Not a full driver walk —
+  format-density gate only until operand widths are pinned from the `$7000`
+  dispatch.
+- **planePair:** free runs whose even/odd adjacent bytes match ≥50% (classic
+  SNES 2bpp/4bpp row mirroring). Structure only.
+- **cmdPair:** free even-length streams whose even-index “opcode” bytes have
+  low entropy (top-3 cover ≥35%). Covers path/anim-like residual in `$DB`/`$D9`.
+- **AS:** `ActionScriptMinLen` 6→4, `MinSig` 1→0; spans ≥12 still need ≥1
+  WAIT/GOTO/GOSUB/FAR CALL. Existing AS claims still pass.
+- **fe/fd:** same packing family as `ffRec`, different terminators used by
+  table/stream residual outside the drained FF set.
+
+### Overlap / exactness
+
+- `verify_extract_overlap`: `code ∩ extract = 0`, extract self-overlap `0`.
+- `test_baserom_extract` liveWave98 + prior blocks green.
+- Implemented regions **100.00% exact** (byte-exact gate).
+
+### Tooling
+
+- `src/tools/gen_residual_wave98.nim` — emit this wave’s residual-only spans
+- `src/tools/probe_wave98.nim` / `probe_wave98_max.nim` / `probe_seq_quality.nim` — scouts
+
+### Verification
+
+```
+nim r tests/test_baserom_extract.nim
+nim r src/tools/verify_extract_overlap.nim
+nim r src/tools/chunk_check.nim summary
+nim r src/decompbound.nim --compare
+```
+
+All green this wave. No commit (per brief).

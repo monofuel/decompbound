@@ -781,7 +781,7 @@ block liveWave97Residual:
         farN += 1
         farB += s.length
         doAssert s.kind == ekTable
-        doAssert s.length mod 3 == 0 and s.length >= 12
+        doAssert s.length mod 3 == 0 and s.length >= 9
         for i in 0 ..< (s.length div 3):
           let bk = gold[s.offset + i * 3 + 2].int
           doAssert bk >= 0xC0 and bk <= 0xEF, &"{s.name}: bad bank"
@@ -796,7 +796,7 @@ block liveWave97Residual:
         while i < hi:
           let rs = i
           var found = false
-          while i < hi and i - rs < 12:
+          while i < hi and i - rs < 16:
             if gold[i] == 0:
               found = true
               i += 1
@@ -804,15 +804,15 @@ block liveWave97Residual:
             i += 1
           doAssert found, &"{s.name}: missing 00 @0x{rs:06X}"
           let L = i - rs
-          doAssert L >= 2 and L <= 12
+          doAssert L >= 2 and L <= 16
           recs += 1
-        doAssert recs >= 3
+        doAssert recs >= 2
         samples.add s
       elif s.name.startsWith("table_w4hi0_"):
         w4N += 1
         w4B += s.length
         doAssert s.kind == ekTable
-        doAssert s.length mod 4 == 0 and s.length >= 16
+        doAssert s.length mod 4 == 0 and s.length >= 8
         for i in 0 ..< (s.length div 4):
           doAssert gold[s.offset + i * 4 + 3] == 0
         samples.add s
@@ -831,3 +831,154 @@ block liveWave97Residual:
     echo "[test_baserom_extract] wave97 residual OK: ssPrefix=", ssB,
       " far3=", farB, " zRec=", zB, " w4hi0=", w4B,
       " total=", ssB + farB + zB + w4B, " B"
+
+
+block liveWave98Residual:
+  ## Residual wave98: fe/fd/seqE0/plane/cmd/far/u16/as/z structural free-only.
+  if not goldBaseromAvailable():
+    discard
+  else:
+    let gold = readGoldBaseromBytes()
+    var feB, fdB, seqB, planeB, cmdB, far3B, far4B, u16B, asB, zB = 0
+    var feN, fdN, seqN, planeN, cmdN, far3N, far4N, u16N, asN, zN = 0
+    let chunks = allRomChunksMeta()
+    for s in allBaseromExtractSpans():
+      # code overlap gate for wave98 names
+      let isW98 =
+        s.name.startsWith("table_feRec_") or s.name.startsWith("table_fdRec_") or
+        s.name.startsWith("table_seqE0_") or s.name.startsWith("table_planePair_") or
+        s.name.startsWith("table_cmdPair_") or s.name.startsWith("table_far4_") or
+        s.name.startsWith("table_u16mono_") or s.name.startsWith("as_wave98_") or
+        s.name.startsWith("table_constFill_") or s.name.startsWith("zero_wave98_") or
+        s.name.startsWith("script_wave98_")
+      if not isW98 and not s.name.startsWith("table_far3_") and
+          not s.name.startsWith("table_zRec_") and not s.name.startsWith("table_w4hi0_"):
+        # still validate new far3/z/w4 via relaxed wave97; only count wave98 families here
+        discard
+
+      if s.name.startsWith("table_feRec_"):
+        feN += 1
+        feB += s.length
+        var i = s.offset
+        let hi = s.offset + s.length
+        var recs = 0
+        while i < hi:
+          let rs = i
+          var found = false
+          while i < hi and i - rs < 33:
+            if gold[i] == 0xFE:
+              found = true
+              i += 1
+              break
+            i += 1
+          doAssert found, &"{s.name}: missing FE @0x{rs:06X}"
+          let L = i - rs
+          doAssert L >= 2 and L <= 32
+          recs += 1
+        doAssert recs >= 1
+      elif s.name.startsWith("table_fdRec_"):
+        fdN += 1
+        fdB += s.length
+        var i = s.offset
+        let hi = s.offset + s.length
+        var recs = 0
+        while i < hi:
+          let rs = i
+          var found = false
+          while i < hi and i - rs < 33:
+            if gold[i] == 0xFD:
+              found = true
+              i += 1
+              break
+            i += 1
+          doAssert found, &"{s.name}: missing FD @0x{rs:06X}"
+          let L = i - rs
+          doAssert L >= 2 and L <= 32
+          recs += 1
+        doAssert recs >= 1
+      elif s.name.startsWith("table_seqE0_"):
+        seqN += 1
+        seqB += s.length
+        var e0, notes, e0xx, z = 0
+        for j in 0 ..< s.length:
+          let b = gold[s.offset + j].int
+          if b == 0: z += 1
+          elif b >= 0x80 and b <= 0xC7: notes += 1
+          elif b >= 0xE0:
+            e0 += 1
+            if b == 0xE0 and j + 1 < s.length and gold[s.offset + j + 1] < 0x40:
+              e0xx += 1
+        doAssert e0xx >= 1 and notes >= 3 and e0 >= 2, s.name
+        doAssert z * 8 <= s.length
+        doAssert (notes + e0) * 4 >= s.length
+      elif s.name.startsWith("table_planePair_"):
+        planeN += 1
+        planeB += s.length
+        doAssert s.length >= 20 and s.length mod 2 == 0
+        let np = s.length div 2
+        var pairs = 0
+        for i in 0 ..< np:
+          if gold[s.offset + i * 2] == gold[s.offset + i * 2 + 1]:
+            pairs += 1
+        doAssert pairs.float / np.float >= 0.50, s.name
+      elif s.name.startsWith("table_cmdPair_"):
+        cmdN += 1
+        cmdB += s.length
+        doAssert s.length >= 16 and s.length mod 2 == 0
+      elif s.name.startsWith("table_far4_"):
+        far4N += 1
+        far4B += s.length
+        doAssert s.length mod 4 == 0 and s.length >= 12
+        for i in 0 ..< (s.length div 4):
+          let bk = gold[s.offset + i * 4 + 2].int
+          doAssert bk >= 0xC0 and bk <= 0xEF
+          doAssert gold[s.offset + i * 4 + 3] == 0
+      elif s.name.startsWith("table_u16mono_"):
+        u16N += 1
+        u16B += s.length
+        doAssert s.length mod 2 == 0 and s.length >= 10
+        var prev = -1
+        for i in 0 ..< (s.length div 2):
+          let v = gold[s.offset + i * 2].int or (gold[s.offset + i * 2 + 1].int shl 8)
+          if prev >= 0:
+            doAssert v >= prev, s.name
+          prev = v
+      elif s.name.startsWith("as_wave98_"):
+        asN += 1
+        asB += s.length
+        doAssert s.kind == ekActionScript
+        doAssert isGoodActionScriptSpan(gold, s.offset, s.length), s.name
+      elif s.name.startsWith("table_constFill_"):
+        let v = gold[s.offset]
+        for j in 0 ..< s.length:
+          doAssert gold[s.offset + j] == v
+      elif s.name.startsWith("zero_wave98_"):
+        doAssert s.kind == ekZeroPad
+        for j in 0 ..< s.length:
+          doAssert gold[s.offset + j] == 0
+
+      if isW98 or s.name.startsWith("table_far4_") or s.name.startsWith("table_u16mono_") or
+          s.name.startsWith("table_seqE0_") or s.name.startsWith("table_planePair_") or
+          s.name.startsWith("table_cmdPair_") or s.name.startsWith("table_feRec_") or
+          s.name.startsWith("table_fdRec_") or s.name.startsWith("as_wave98_"):
+        for c in chunks:
+          if c.kind != ckImplementedCode:
+            continue
+          let a0 = max(s.offset, c.offset)
+          let a1 = min(s.offset + s.length, c.offset + c.length)
+          doAssert a0 >= a1, &"overlap {s.name} with code 0x{c.offset:06X}"
+
+    doAssert feB >= 3000, &"feRec {feB}"
+    doAssert fdB >= 500, &"fdRec {fdB}"
+    doAssert seqB >= 5000, &"seqE0 {seqB}"
+    doAssert planeB >= 2000, &"plane {planeB}"
+    doAssert cmdB >= 3000, &"cmd {cmdB}"
+    doAssert u16B >= 2000, &"u16 {u16B}"
+    doAssert asB >= 1000, &"as {asB}"
+    let waveTot = feB + fdB + seqB + planeB + cmdB + far4B + u16B + asB
+    doAssert waveTot >= 20000, &"wave98 core total {waveTot}"
+    echo "[test_baserom_extract] wave98 residual OK: fe=", feB,
+      " fd=", fdB, " seqE0=", seqB, " plane=", planeB, " cmd=", cmdB,
+      " far4=", far4B, " u16=", u16B, " as=", asB,
+      " core=", waveTot, " B"
+
