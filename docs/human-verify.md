@@ -94,6 +94,20 @@ Copy this template when adding a row (agents: always use it):
   - **Pass if:** the session `.tas` covers the run; mention the time range
   - **Notes:** this is the §4-style ground truth for pokey_knock/buzzbuzz/sunrise metrics + seeds — same playbook that cracked pokey (I mine the trail + WRAM flag diffs from the replay). Story flags can't be RE'd reliably without it (models confabulate EB beats).
   - **Update 2026-07-11:** the bot now drives the whole route UP TO the bedroom on its own (walk home → talk the door cop → enter → reach the bed spot; probe_knock grades knock 0→80). The one beat it can't do is **sleeping in the bed to trigger the Pokey knock** — from the cop-warp bedroom the bed is inert to the bot (walking into it just opens the overworld menu; no "sleep?" prompt). So the single highest-value thing in your run is **actually going to sleep and letting Pokey knock** — that gives me the before/after WRAM pair to pin the knock flag (100 tier). Everything after (Buzz Buzz, Picky, sunrise) is bonus ground truth for the next milestones.
+  - **Update 2026-07-24:** Agent night Onett reaches **captain 60 / paula soft 40** continuous; leave soft **captain 70** = later `$99F2=C4` alone; **captain 100** = later-story + outdoor **py≥0x0500** (day-leave map soft; F12 210416). Night freewalk still sticks at **py=0x02A0** — need **sleep→day** for true free-play leave without campaign day-map seat. Magicant/Giygas **100** still need dream/phase F12s (soft ceiling ma98/gi80).
+
+- [ ] **Late-game F12: Magicant entry + Cave of the Past / Giygas** · 2026-07-24 · endgame referees
+  - **Run:** From a late save (Poo in party ok) play into **Magicant** (post-sanctuaries) → F12 inside Magicant; if easy, F12 again at **Cave of the Past** or first **Giygas** phase.
+  - **Update 2026-07-24:** Soft ceiling **magicant 98 / giygas 80** holds continuously after bitpop threshold fix (550; 0xFF sentinel clear on first joy). Full F12 corpus (542) never exceeds ma98 — **no dream F12 on disk**. Flagdiff high-bp overworld ≠ dream phase. Product campaign seats soft98 from fo80 free+Poo (`soft98_from_fo80paula`); freewalk cannot invent soft98 bitpop. Recent F12 scan (200 large) peakMa=98 peakGi=80 peakBp=683 still dream=false.
+  - **Pass if:** F12s land under `~/Pictures/Screenshots/` with ebSt; note filenames in Notes
+  - **Notes:** soft ceiling automated. Only **100** needs true Magicant dream / Giygas phase flag bits.
+
+- [ ] **Day-1 F12: Giant Step cave mouth / Titanic Ant** · 2026-07-24 · giant_step 100 + freewalk cave
+  - **Run:** Day Onett after Frank (or any day leave map) → walk to **Giant Step** mountain/cave entrance → F12 **outside cave mouth** and again **just inside** if you enter.
+  - **Update 2026-07-24 (d94):** Soft **gs80** landed as day-open west band (`$9887≥02` + police west). Full F12 scan (542) has **no** Giant Step cave indoor seat (indoor hits are houses only). Bot cannot freewalk into cave from giant_approach even with leave_day1 day flags.
+  - **Update 2026-07-24 (d110):** Day outdoor freeplay now reaches **gs80 continuous** from `post_knock_outdoor` (no campaign giant seat; AgentFrank→AgentGiant + day flags). Cave mouth still blocked (indoor=0, minY~0x0251). An F12 **inside** the Giant Step cave / at Titanic Ant still unblocks **gs100**.
+  - **Pass if:** F12(s) with ebSt under `~/Pictures/Screenshots/`; mention filenames
+  - **Notes:** unblocks giant_step **100** (melody / indoor cave) and true freeplay past gs80.
 
 
 - [ ] **Breadcrumb trail: house → Pokey at the meteor** · 2026-07-09 · pokey_pct ground truth

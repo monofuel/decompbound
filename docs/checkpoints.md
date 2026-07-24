@@ -1,5 +1,45 @@
 - (monofuel note) asked grok for a list of the major game checkpoints
+- **LLM-play spine:** [grok_play_work.md](grok_play_work.md) Stream G grades Agent
+  progress against these segments (metrics as referees, not a TAS queue).
+- **Metric map (`story_percents.nim` / `checkpointSpineLine`):** hand-picked
+  prologue gates (tg / pokey / knock / sunrise) plus soft bands for the long
+  cart. Goal is **full Any% Glitchless coverage** below — expand metrics as
+  freeplay seats land; soft **&lt;100** is fine until scene/flag RE for each
+  **100**.
 
+  | Speedrun segment (this doc) | Metric id(s) | Soft peak (freeplay) | 100 needs |
+  |---|---|---|---|
+  | Intro / Onett start | tg, pokey, pokey_knock, buzzbuzz, sunrise | tg100; knock80; buzz/sunrise open | sleep→knock freeplay; Buzz F12 |
+  | Frank / Frankystein | frank | fr90 day continuous | boss kill flag |
+  | Titanic Ant / Giant Step | giant_step | gs80 day continuous | cave mouth F12 |
+  | Captain Strong | captain_strong | cs60–100 (leave soft) | true outdoor leave freeplay |
+  | Pencil Eraser / Peaceful Rest / Twoson | peaceful_rest | pr70–90 | — |
+  | Carpainter / Happy Happy / Paula | paula_rescue | pa90 soft | — |
+  | Threed / Lilliput / Mondo Mole | lilliput_steps | li70 soft | sanctuary melody |
+  | Jeff / Winters | winters | wi50 soft | Jeff join flag |
+  | Mini Barf / Boogey Tent | *(none yet)* | — | RE + metric |
+  | Master Belch / Saturn Valley | belch | be50 soft | Belch kill |
+  | Dusty Dunes / Gold Mine | *(folded into fourside soft)* | — | optional split |
+  | Dept. Store / Fourside | fourside | fo80 freeplay wall; fo90 soft seat | fo wall freewalk |
+  | Mani-Mani / Moonside | *(none yet)* | — | RE + metric |
+  | Monkey Cave | *(none yet)* | — | RE + metric |
+  | Clumsy Robot / Monotoli | monotoli | mo70 soft | — |
+  | Shrooom! / Rainy Circle | *(none yet)* | — | sanctuary metric |
+  | Summers / Dalaam / Poo | summers | su70 soft | Poo join |
+  | Pyramid / Kraken / Dungeon Man | *(none yet)* | — | RE + metric |
+  | Master Barf / Deep Darkness / Tenda | deep_darkness | dd80 soft | — |
+  | Starman Deluxe / Stonehenge | stonehenge | st80 soft | — |
+  | Electro Specter … Fire Spring | *(bitpop only)* | bitpop≥550 soft98 band | per-sanctuary |
+  | Ness’s Nightmare / Magicant | magicant | ma98 soft | dream F12 → ma100 |
+  | Phase Distorter / Giygas | giygas | gi80 soft | phase F12 → gi100 |
+  | Epilogue | *(none yet)* | — | credits/Mom flag |
+
+- **Product freeplay honesty (2026-07-24):** day-leave Y poke grades only (teleports
+  on night outdoor). Honest leave freeplay = `leave_day1_map` (pr70). fo wall
+  sealed maxY~0x16B0; fo60+ via campaign seats. Soft ceiling ma98/gi80 until
+  Magicant/Giygas dream-phase F12. Giant Step **80** = day-open west band
+  (`$9887≥02`, GiantWestMaxX 0x08F8); cave mouth freewalk still needs human F12
+  (d96 dig: indoor=0 from all day+knock seats / north wall).
 
 # Checkpoints
 

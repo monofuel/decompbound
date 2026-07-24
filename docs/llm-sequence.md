@@ -6,11 +6,21 @@
 **Stretch:** full game clear (local qwen on the pad; cloud models as skill/fixture authors).
 
 **Related:** [llm-plays.md](llm-plays.md) (harness), [llm-contamination.md](llm-contamination.md)
-(knowledge leakage envelope), [human-verify.md](human-verify.md).
+(knowledge leakage envelope), [human-verify.md](human-verify.md),
+[checkpoints.md](checkpoints.md) (**full-game** speedrun-style spine — Any%
+Glitchless segments, Sanctuaries, bosses, Giygas…), [grok_play_work.md](grok_play_work.md)
+(how Agent grades against those referees).
 
 This is a typical JRPG problem: the map is small; **story gates** are the real
 route. Continuous “wander Onett” is not the campaign. Ordered checkpoints +
 load-state fixtures are.
+
+**Scope of this file:** prologue only (touch grass → Pokey talk → knock →
+Buzz Buzz → sunrise). The hand-picked gates below are the working set for night-1
+Onett. Coverage for the **rest of the cartridge** lives in
+[checkpoints.md](checkpoints.md) — treat that catalog as the long-run referee
+backlog (not a human TAS queue). Stretch clear after Sunrise still walks that
+list one segment at a time.
 
 ---
 

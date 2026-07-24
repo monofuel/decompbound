@@ -167,6 +167,19 @@ graphics, shady shaders), differential-testing each swap against the emulated
 original. Not a rewrite — a gradual, verified migration. Nothing here should
 be started until Goals 1 and 2 provide the harness that makes it checkable.
 
+## Goal 5: MCP playthrough co-pilot
+
+**You** play EarthBound; an LLM in chat helps with *this* save (HP, later
+inventory/ailments/lookups) — not Goal 4’s “LLM is the player.”
+
+- Transport: [MCPort](https://github.com/monofuel/MCPort) HTTP/stdio server
+  (`src/tools/decompbound_mcp.nim`, `make mcp`, port 4343).
+- Read-only: battery `.srm` today (`src/decompbound/party_sram.nim`); live WRAM
+  / item+PSI tables later.
+- Product notes: `docs/mcp-server.md`.
+
+Does not block Goals 1–3.
+
 ## Companion apps (off the critical path)
 
 Small desktop apps that make the project browsable and surface bugs, all built
