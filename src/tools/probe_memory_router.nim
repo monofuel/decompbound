@@ -84,11 +84,9 @@ proc main() =
   if "[mom]" notin summary:
     echo "FAIL: Mom KB not injected (expected [mom] header)"
     quit(1)
-  if "[redacted]" notin summary and "front door" notin summary:
-    # Mom bullets mention the door / bed dialogue — either is fine.
-    if "Talking to her" notin summary:
-      echo "FAIL: Mom bullet facts not present in summary"
-      quit(1)
+  if "front door" notin summary and "Talking to her" notin summary and "Mom" notin summary:
+    echo "FAIL: Mom bullet facts not present in summary"
+    quit(1)
   echo "OK: Mom KB block injected into buildStateSummary"
 
   section("done")

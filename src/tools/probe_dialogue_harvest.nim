@@ -34,10 +34,8 @@ const
     "bin/states/llm/pokey_free.state",
     "bin/states/llm/onett_start.state",
   ]
-  # Known Mom door line fragment for confident attribution.
-  MomFrag = "[redacted]"
-  # Pokey self-names in the crater talk (verified live harvest).
-  PokeyFrag = "[redacted]"
+  # Attribute only via entity identity / name when available — never match on
+  # game dialogue literals (copyright hygiene).
 
 type
   Capture = object
@@ -332,38 +330,9 @@ Every line is ground truth from `policy.getDialogueText` — not model memory.
   writeFile(LogPath, body)
 
 proc maybeAttribute(cap: Capture) =
-  ## Append confident character attributions under secret knowledge/npcs/.
-  let low = cap.dialogue.toLowerAscii
-  let dlgOneLine = cap.dialogue.replace("\n", " ")
-  if MomFrag in low:
-    let path = KnowledgeDir / "npcs" / "mom.md"
-    if not fileExists(path): return
-    var md = readFile(path)
-    let line =
-      &"- Captured live (`{cap.state}` slot {cap.slot}, player 0x{cap.px:04X},0x{cap.py:04X}): " &
-      &"\"{dlgOneLine}\" [game]\n"
-    if "Captured live" notin md:
-      if not md.endsWith("\n"):
-        md.add "\n"
-      md.add "\n## Live harvest\n\n"
-      md.add line
-      writeFile(path, md)
-  if PokeyFrag in low:
-    let path = KnowledgeDir / "npcs" / "pokey.md"
-    if not fileExists(path): return
-    var md = readFile(path)
-    let line =
-      &"- Captured live (`{cap.state}` slot {cap.slot}, player 0x{cap.px:04X},0x{cap.py:04X}): " &
-      &"\"{dlgOneLine}\" [game]\n"
-    if "Captured live" notin md:
-      if not md.endsWith("\n"):
-        md.add "\n"
-      md.add "\n## Live harvest\n\n"
-      md.add line
-      md = md.replace(
-        "- His exact crater line (sends you home). [ ]",
-        "- His exact crater line (sends you home). [x]")
-      writeFile(path, md)
+  ## Optional NPC file attribution. Matching on dialogue *literals* is avoided
+  ## so public source stays free of game text; use entity identity instead.
+  discard cap
 
 proc main() =
   ## Harvest dialogue from nearby entities on the listed states.

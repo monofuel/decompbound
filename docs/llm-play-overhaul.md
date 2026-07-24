@@ -235,7 +235,7 @@ Two complementary channels, sent every LLM tick:
 - **Depends on:** A/B help (know who you're talking to), but a coords-free
   "approach nearest entity + A + capture" works now.
 - **Verify:** harvest run over a few states produces a dialogue log; spot-check
-  against known lines (Mom's "[redacted]").
+  against private fixtures (SHA-1 in `test_dialogue_decode`, secret KB).
 - **Build:** **grok worker** (walk-and-capture grind) + me verifying captures
   land in the KB with correct attribution.
 
