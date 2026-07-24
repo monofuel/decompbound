@@ -181,3 +181,100 @@ holey-u16 → count+4n format.
 nim r tests/test_baserom_extract.nim
 nim r src/tools/chunk_check.nim summary
 ```
+
+## Residual wave (dense banks $DB/$D7/$CA/$CE loader RE) — 2026-07-24
+
+Method: enumerate residual free runs in largest dense banks; scan **real** gold
+AbsoluteLong opcodes (`AF`/`BF`) in banks `$C0–$C4` whose operands land in or
+near those runs; RE record sizes only from loader arithmetic; claim **residual
+free only** (zero `code_spans` overlap).
+
+| Region | File range | Format | Residual claimed |
+|--------|------------|--------|------------------|
+| Map attr | `0x17A800..0x17B200` free holes | u8 cells; loaders `$C008F7`/`$C00B24`/`$C00B6F`/`$C00C35`/`$C00C7F`/`$C02303`/`$C02777`/`$C4DFF5` `LDA.L,X` + `AND #$00FF` | **181 B** (12 spans) |
+| CA 17B records | mid `$CADCA1` table | `X = id*17` (`ASL×4; ADC id`); loader `$C2D1CF` `LDA.L,X` | **120 B** (19 spans, ≥2 B) |
+| CE u16 ptrs | residual in `$CEDC45` table | bank-local u16; loader `$C4AA97`/`$C4AAE4` `id*2` `LDA.L,X` → 126 ptrs into `$CE6914+` | **8 B** (1 span) |
+
+**This wave residual = 309 B.**
+
+**Compare after rebuild:** **96.17%** byte-exact (`3,025,374 / 3,145,728`), implemented
+regions **100.00% exact**. Prior **96.16%** (`3,025,065`). Residual unclaimed
+**120,354** B (was ~120,663).
+
+### C0–C4 AbsoluteLong inventory into these banks
+
+Only **five** genuine `$C0–$C4` `LDA.L` / `LDA.L,X` bases hit `$CA`/`$CE`/`$D7`/`$DB`:
+
+| Base | Refs | Residual mid-window | Notes |
+|------|------|---------------------|-------|
+| `$D7A800` | 8 | 181 B free holes | map-attr u8; abuts `$D7B200` tile-prop (already claimed residual head) |
+| `$D7B200` | 2 | 0 B left | prior wave 22 B residual |
+| `$CE62EE` | 3 | 0 B *inside* 5B table | 110×`[far][00][type1..6]`; **entire table already inside false-positive code_spans** |
+| `$CEDC45` | 2 | 8 B in ptr table | u16 bank-local; targets mostly claimed as code; 0 fully-free target records |
+| `$CADCA1` | 1 | 120 B mid-table free | 17B records via `id*17`; BBG-adjacent (docs also cite `$CADEA1` layer table — **no** abs-long loader found for `$CADEA1`) |
+
+**Zero** C0–C4 AbsoluteLong operands land *inside residual free runs* of `$DB` (or the
+large `$CA`/`$CE`/`$D7` islands). All load bases for these banks are already
+claimed as code/meta; only mid-table residual holes remain claimable.
+
+### Large residual islands (not claimed this wave)
+
+Top free runs still lack a C0–C4 base + fixed record walk solid enough to claim:
+
+| Run | Size | Head (hex) | Why unclaimed |
+|-----|------|------------|---------------|
+| `$DB714F` | 814 | `0C 76 0C 6E 15 B7…` | no C0–C4 abs-long base; weak fixed-size score |
+| `$DBB0BD` | 552 | `00 21 01 59…` | near-window base `$DBA7A2` already claimed; residual not ptr-bounded |
+| `$D7E54C` | 491 | `EA 83 2B 80…` | no C0–C4 loader into residual |
+| `$CE6746` | 446 | `07 38 12 1E…` | after `$CE62EE` table end (`0x0E6514`); not 5B-continuation |
+| `$CAB440` / `$CA7C65` | 396 / 326 | E0/20/A0-rich | no C0–C4 LDA.L into residual |
+
+### False-code interiors — main residual story
+
+Per-bank composition (file banks, 64 KB each):
+
+| Bank | “code” | meta | unclaimed |
+|------|--------|------|-----------|
+| `$CA` | 52,374 (80%) | 5,395 | 6,996 |
+| `$CE` | 57,410 (88%) | 3,768 | 4,478 |
+| `$D7` | 56,613 (86%) | 3,444 | 5,424 |
+| `$DB` | 52,042 (79%) | 1,669 | **11,367** |
+
+These banks are **data-dense** in-game, yet ~80–90% is already labeled
+`implemented_code` via `code_spans`. That is the dominant remaining bulk: **false-positive
+code_spans covering tables/scripts/graphics**, not missing extract claims.
+
+Evidence:
+
+- `$CE62EE` 5B table (550 B, real loader `$C2EBDF`) sits **100% inside code_spans** —
+  zero residual free inside the validated record run.
+- `$CEDC45` targets: **1076 B** residual only as *partial* mid-record holes; 0 complete
+  free records (bodies mostly claimed as code).
+- Large residual ≥64 B in the four banks ≈ **20.5 KB**, almost all **interior holes**
+  (claimed code on both sides) of dense binary — not edge padding.
+- Global pattern: many high banks (`$D6–$DF`, `$E1`, …) show the same
+  code>45K + unc>3K profile.
+
+**Next lever is code_span reclassification / re-seeding**, not more extract fishing:
+trim false code spans so real table bodies become residual, then re-run loader-backed
+claims (same pattern that unlocked formPtr assoc halves and `$D7B200` head).
+
+Extract claims remain hard-gated: **must not overlap `code_spans`**. Verified this wave:
+`code ∩ extract = 0`, extract self-overlap `0`.
+
+### Tooling (this wave)
+
+- `src/tools/scan_unclaimed_absrefs.nim` — comment/operand abs-ref rank (noisy)
+- `src/tools/probe_dense_loaders.nim` / `probe_dense_loaders2.nim` — residual runs + gold opcode scan
+- `src/tools/probe_midtable_residual.nim` — C0–C4 bases with mid-window residual
+- `src/tools/gen_dense_claims.nim` — emit residual free-run spans
+- `src/tools/verify_extract_overlap.nim` — code_spans ∩ extract gate
+
+### Verification
+
+```
+nim r tests/test_baserom_extract.nim
+nim r src/tools/verify_extract_overlap.nim
+nim r src/tools/chunk_check.nim summary
+nim r src/decompbound.nim --compare
+```
