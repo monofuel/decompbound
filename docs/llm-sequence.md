@@ -40,8 +40,6 @@ These are the **next** goals after house exit. Order is story order.
 | **Skills** | `walkTo`, `escapeMenu`; no A while walking. |
 | **Status** | Proven seed + harness; outdoor fade load-state bug fixed (APU timers). |
 
-IRL n=1 done (photo kept local, not in git).
-
 ---
 
 ### 2. Pokey % (`pokey_pct`) — **DONE (n=2, 2026-07-10)**
