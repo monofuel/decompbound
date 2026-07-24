@@ -260,3 +260,100 @@ proc encode*(raw: openArray[uint8]): seq[uint8] =
 proc roundtrip*(data: openArray[uint8]): bool =
   ## Helper: returns true if decode(encode(data)) == data exactly.
   decode(encode(data)) == @data
+
+proc decodeWithConsumed*(compressed: openArray[uint8]): tuple[data: seq[uint8], consumed: int, clean: bool] =
+  ## Decode like `decode`, also reporting how many input bytes were consumed.
+  ## `clean` is true when the stream ended on the 0xFF terminator without
+  ## running out of input mid-command (well-defined stream length = consumed).
+  var i = 0
+  var decoded: seq[uint8] = @[]
+  while i < compressed.len:
+    let b = compressed[i]
+    i += 1
+    if b == TerminateByte:
+      return (decoded, i, true)
+    var cmd: uint8
+    var ln: int
+    if (b and LongMarker) == LongMarker:
+      cmd = (b shr 2) and 7
+      if i >= compressed.len:
+        return (decoded, i, false)
+      let lenHigh = int(b and LongLenHighMask)
+      let lenLow = int(compressed[i])
+      i += 1
+      ln = ((lenHigh shl 8) or lenLow) + 1
+    else:
+      cmd = b shr 5
+      ln = int(b and ShortLenMask) + 1
+    case cmd
+    of 0:
+      for _ in 0..<ln:
+        if i >= compressed.len:
+          return (decoded, i, false)
+        decoded.add(compressed[i])
+        i += 1
+    of 1:
+      if i >= compressed.len:
+        return (decoded, i, false)
+      let v = compressed[i]
+      i += 1
+      for _ in 0..<ln:
+        decoded.add(v)
+    of 2:
+      if i + 1 >= compressed.len:
+        return (decoded, i, false)
+      let v0 = compressed[i]
+      let v1 = compressed[i + 1]
+      i += 2
+      for _ in 0..<ln:
+        decoded.add(v0)
+        decoded.add(v1)
+    of 3:
+      if i >= compressed.len:
+        return (decoded, i, false)
+      var v = compressed[i]
+      i += 1
+      for _ in 0..<ln:
+        decoded.add(v)
+        v = (v + 1u8) and 0xFFu8
+    of 4, 7:
+      if i + 1 >= compressed.len:
+        return (decoded, i, false)
+      let off = (int(compressed[i]) shl 8) or int(compressed[i + 1])
+      i += 2
+      for k in 0..<ln:
+        let sidx = BackrefBase + off + k
+        if sidx >= 0 and sidx < decoded.len:
+          decoded.add(decoded[sidx])
+        else:
+          decoded.add(0u8)
+    of 5:
+      if i + 1 >= compressed.len:
+        return (decoded, i, false)
+      let off = (int(compressed[i]) shl 8) or int(compressed[i + 1])
+      i += 2
+      for k in 0..<ln:
+        let sidx = BackrefBase + off + k
+        if sidx >= 0 and sidx < decoded.len:
+          var v = decoded[sidx]
+          var r = 0u8
+          for _ in 0..<8:
+            r = (r shl 1) or (v and 1u8)
+            v = v shr 1
+          decoded.add(r)
+        else:
+          decoded.add(0u8)
+    of 6:
+      if i + 1 >= compressed.len:
+        return (decoded, i, false)
+      let off = (int(compressed[i]) shl 8) or int(compressed[i + 1])
+      i += 2
+      for k in 0..<ln:
+        let sidx = BackrefBase + off - k
+        if sidx >= 0 and sidx < decoded.len:
+          decoded.add(decoded[sidx])
+        else:
+          decoded.add(0u8)
+    else:
+      discard
+  (decoded, i, false)

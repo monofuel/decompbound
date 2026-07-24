@@ -159,24 +159,33 @@ ROM by the conductor):** the dispatch is **two tables**, split by opcode value a
   the addressed value (re-check assign-style ops against gold before relying on
   older “XOR + assign” notes).
 
-#### Declared in the decomp registry (data, not script content)
+#### Declared in the decomp registry (engine + tables, not script content)
 
-The action-script jump tables are now **project-owned declared data** in
+The action-script **fetch/dispatch loop** is hand-adopted snesAsm at
+[`src/decompbound/snes_src/action_script_fetch.nim`](../src/decompbound/snes_src/action_script_fetch.nim)
+(Goal 1.5 `ckImplementedCode`). The jump tables remain **project-owned declared
+data** in
 [`src/decompbound/snes_src/action_script_tables.nim`](../src/decompbound/snes_src/action_script_tables.nim)
-and registered via `adopted.nim` / `rom_chunks.nim` as `ckImplementedMeta`
-(pointer tables into our decompiled code — **not** dialogue or event bytes).
-Gold-gated like header/vectors.
+(`ckImplementedMeta` — pointer tables into our decompiled code, **not** dialogue
+or event bytes). Both are registered via `adopted.nim` / `rom_chunks.nim` and
+gold-gated like header/vectors.
 
 | Name | File offset | Len | SNES | Role |
 |------|-------------|-----|------|------|
+| `actionScriptFetch` | `0x9506` | 82 | `$C09506` | Entity tick: wait DEC or fetch/dispatch loop through RTS |
 | `actionScriptDispatchTable` | `0x9558` | 154 (77×u16) | `$C09558` | Low-path opcode → handler words (high-path `$C095E2` = last 8 words) |
 | `jmpTable8C65` | `0x8C65` | 8 (4×u16) | `$C08C65` | Companion jump table (convert_all seed) |
 | `jmpTableA1AE` | `0xA1AE` | 32 | `$C0A1AE` | Stride-4 word+pad table |
 | `jmpTableA350` | `0xA350` | 16 (8×u16) | `$C0A350` | Eight code pointers |
 
-Fetch loop (file `0x951E`): `LDA [$80],Y / INY / AND #$00FF / … / JSR ($9558,X)` —
-the opcode byte is consumed **before** the handler runs; handlers see only operands
-at `[$80],Y`.
+**Fetch loop** (file `0x9506`–`0x9557`, adopted): entry loads entity slot from DP
+`$8A`. If `$1372,X` (wait counter) ≠ 0 → `DEC` + `RTS`. Else load script PC
+(`$13FE,X` → Y) and bank (`$148A,X` → DP `$82`), then loop
+`LDA [$80],Y / INY / AND #$00FF`. Opcode `< $70`: `ASL / TAX / JSR ($9558,X)`.
+Opcode `≥ $70`: low nibble → `$1372,X`, high nibble `AND #$70 / LSR×3 / TAX /
+JSR ($95E2,X)`. After dispatch, zero wait → fetch next opcode; else save Y/`$82`
+and fall into the wait DEC. The opcode byte is consumed **before** the handler
+runs; handlers see only operands at `[$80],Y`.
 
 #### Operand widths (handler disasm, ✅ static)
 

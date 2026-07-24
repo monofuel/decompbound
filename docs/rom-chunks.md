@@ -18,7 +18,7 @@ That keeps agent inventory cheap when the generated tree is multi-megabyte.
 | Kind | Source | Done when |
 |------|--------|-----------|
 | `implemented_code` | `code_spans` + snes_src adoptions | Decomp image matches gold for the span. Counts as decompiled progress. |
-| `implemented_meta` | header, reset vectors, dispatch tables | Declared data matches gold. |
+| `implemented_meta` | header, reset vectors, dispatch tables, baserom extracts | Declared/extracted data matches gold. |
 | `unclaimed` | residual gaps | **Not** decompiled progress. Future: reclassify as code (disasm) or data (extract to gitignored paths only). |
 
 Copyrighted ROM **content** is never committed. Gold is read only from
@@ -49,6 +49,8 @@ make chunk-check-all
 ## Module
 
 - `src/decompbound/rom_chunks.nim` — partition + meta inventory + gold check
+- `src/decompbound/baserom_extract.nim` — gold-slice data claims (offset/length only; bytes from local baserom)
+- `src/tools/probe_gap_formats.nim` — probe unclaimed gaps for gfx_lz / APU package
 - `src/decompbound/generated/code_spans.nim` — offset/length only (from convert_all)
 - `src/tools/chunk_check.nim` — CLI
 - `tests/test_rom_chunks.nim` — structural + live gold

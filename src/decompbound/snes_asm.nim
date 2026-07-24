@@ -64,6 +64,7 @@ const
     "sr":     "amStackRelative",      # $sr,S
     "sry":    "amStackRelativeY",     # ($sr,S),Y
     "absind": "amAbsIndirect",        # ($abs)
+    "absindx": "amAbsIndirectX",      # ($abs,X) — JMP/JSR
   }.toTable
 
 proc immMode(mnemonic: string): string =

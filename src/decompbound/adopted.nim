@@ -11,7 +11,7 @@ import
               song_loader, queue_apu_cmd, wait_apu_idle, bg_layer_setup,
               obj_base, bg4_bases, clear_wram_block, ppu_color_math, ppu_windows,
               ppu_scroll, mode7_mul, hdma_channel, hw_multiply,
-              action_script_tables]
+              action_script_tables, action_script_fetch]
 
 proc allAdoptedRegions*(): seq[tuple[name: string, offset: int, data: seq[uint8]]] =
   ## Every hand-curated code region, assembled from named source.
@@ -99,6 +99,9 @@ proc allAdoptedRegions*(): seq[tuple[name: string, offset: int, data: seq[uint8]
   result.add (name: "hardwareMultiply",
               offset: HardwareMultiplyOffset,
               data: hardwareMultiply())
+  result.add (name: "actionScriptFetch",
+              offset: ActionScriptFetchOffset,
+              data: actionScriptFetch())
   # Script-engine dispatch tables (data, not snesAsm) — RE'd structure.
   result.add (name: "actionScriptDispatchTable",
               offset: ActionScriptDispatchOffset,

@@ -19072,7 +19072,8 @@ proc generateCode009231*(): seq[uint8] =
   result = assemble(nodes, 0xC09231'u32,
                     FlagState(m8: false, x8: false, emulation: false))
 
-## Region: file 0x009250-0x009557 (SNES $C09250), 776 bytes.
+## Region: file 0x009250-0x009505 (SNES $C09250), 694 bytes.
+## Tail 0x009506-0x009557 carved for adopted actionScriptFetch (snes_src).
 proc generateCode009250*(): seq[uint8] =
   ## Assemble the region at file 0x009250 from disassembled source.
   var nodes: seq[AsmNode]
@@ -19397,7 +19398,7 @@ proc generateCode009250*(): seq[uint8] =
   nodes.add instr("LSR", amAbsolute, 0x1A46)  # $C094E0: LSR $1A46
   nodes.add instr("LDA", amAbsoluteY, 0x125A)  # $C094E3: LDA $125A,Y
   nodes.add instr("STA", amAbsolute, 0xA58)  # $C094E6: STA $0A58
-  nodes.add instrTo("JSR", amAbsolute, "loc_C09506")  # $C094E9: JSR $9506
+  nodes.add instr("JSR", amAbsolute, 0x9506)  # $C094E9: JSR $9506  (adopted actionScriptFetch)
   nodes.add instr("LDY", amAbsolute, 0xA58)  # $C094EC: LDY $0A58
   nodes.add instrTo("BPL", amRelative8, "loc_C094D8")  # $C094EF: BPL -25
   nodes.add instr("LDX", amDirectPage, 0x88)  # $C094F1: LDX $88
@@ -19410,51 +19411,6 @@ proc generateCode009250*(): seq[uint8] =
   nodes.add instr("JSL", amAbsoluteLong, 0xC09D9E)  # $C09501: JSL $C09D9E
   nodes.add label("loc_C09505")
   nodes.add instr("RTS", amImplied)  # $C09505: RTS
-  nodes.add label("loc_C09506")
-  nodes.add instr("LDX", amDirectPage, 0x8A)  # $C09506: LDX $8A
-  nodes.add instr("LDA", amAbsoluteX, 0x1372)  # $C09508: LDA $1372,X
-  nodes.add instrTo("BNE", amRelative8, "loc_C09554")  # $C0950B: BNE +71
-  nodes.add instr("LDY", amAbsoluteX, 0x13FE)  # $C0950D: LDY $13FE,X
-  nodes.add instr("LDA", amAbsoluteX, 0x148A)  # $C09510: LDA $148A,X
-  nodes.add instr("STA", amDirectPage, 0x82)  # $C09513: STA $82
-  nodes.add instr("TXA", amImplied)  # $C09515: TXA
-  nodes.add instr("ASL", amAccumulator)  # $C09516: ASL A
-  nodes.add instr("ASL", amAccumulator)  # $C09517: ASL A
-  nodes.add instr("ASL", amAccumulator)  # $C09518: ASL A
-  nodes.add instr("ADC", amImmediateM, 0x15A2)  # $C09519: ADC #$15A2
-  nodes.add instr("STA", amDirectPage, 0x84)  # $C0951C: STA $84
-  nodes.add label("loc_C0951E")
-  nodes.add instr("LDA", amDpIndirectLongY, 0x80)  # $C0951E: LDA [$80],Y
-  nodes.add instr("INY", amImplied)  # $C09520: INY
-  nodes.add instr("AND", amImmediateM, 0xFF)  # $C09521: AND #$00FF
-  nodes.add instr("CMP", amImmediateM, 0x70)  # $C09524: CMP #$0070
-  nodes.add instrTo("BCS", amRelative8, "loc_C09530")  # $C09527: BCS +7
-  nodes.add instr("ASL", amAccumulator)  # $C09529: ASL A
-  nodes.add instr("TAX", amImplied)  # $C0952A: TAX
-  nodes.add instr("JSR", amAbsIndirectX, 0x9558)  # $C0952B: JSR ($9558,X)
-  nodes.add instrTo("BRA", amRelative8, "loc_C09544")  # $C0952E: BRA +20
-  nodes.add label("loc_C09530")
-  nodes.add instr("STA", amDirectPage, 0x90)  # $C09530: STA $90
-  nodes.add instr("AND", amImmediateM, 0xF)  # $C09532: AND #$000F
-  nodes.add instr("STA", amAbsoluteX, 0x1372)  # $C09535: STA $1372,X
-  nodes.add instr("LDA", amDirectPage, 0x90)  # $C09538: LDA $90
-  nodes.add instr("AND", amImmediateM, 0x70)  # $C0953A: AND #$0070
-  nodes.add instr("LSR", amAccumulator)  # $C0953D: LSR A
-  nodes.add instr("LSR", amAccumulator)  # $C0953E: LSR A
-  nodes.add instr("LSR", amAccumulator)  # $C0953F: LSR A
-  nodes.add instr("TAX", amImplied)  # $C09540: TAX
-  nodes.add instr("JSR", amAbsIndirectX, 0x95E2)  # $C09541: JSR ($95E2,X)
-  nodes.add label("loc_C09544")
-  nodes.add instr("LDX", amDirectPage, 0x8A)  # $C09544: LDX $8A
-  nodes.add instr("LDA", amAbsoluteX, 0x1372)  # $C09546: LDA $1372,X
-  nodes.add instrTo("BEQ", amRelative8, "loc_C0951E")  # $C09549: BEQ -45
-  nodes.add instr("TYA", amImplied)  # $C0954B: TYA
-  nodes.add instr("STA", amAbsoluteX, 0x13FE)  # $C0954C: STA $13FE,X
-  nodes.add instr("LDA", amDirectPage, 0x82)  # $C0954F: LDA $82
-  nodes.add instr("STA", amAbsoluteX, 0x148A)  # $C09551: STA $148A,X
-  nodes.add label("loc_C09554")
-  nodes.add instr("DEC", amAbsoluteX, 0x1372)  # $C09554: DEC $1372,X
-  nodes.add instr("RTS", amImplied)  # $C09557: RTS
   result = assemble(nodes, 0xC09250'u32,
                     FlagState(m8: false, x8: true, emulation: false))
 

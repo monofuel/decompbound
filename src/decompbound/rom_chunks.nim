@@ -14,7 +14,7 @@
 
 import
   std/[algorithm, os, strformat, strutils],
-  ./[common, adopted],
+  ./[common, adopted, baserom_extract],
   ./generated/code_spans
 
 type
@@ -66,7 +66,10 @@ proc classifyImplementedName*(name: string): ChunkKind =
      "actionScriptDispatchTable", "jmpTable8C65", "jmpTableA1AE", "jmpTableA350":
     ckImplementedMeta
   else:
-    ckImplementedCode
+    if name.startsWith("gfxLz_") or name.startsWith("apuPack"):
+      ckImplementedMeta
+    else:
+      ckImplementedCode
 
 proc chunkId*(kind: ChunkKind, name: string, offset, length: int): string =
   ## Stable chunk id: unique even when many regions share name "code".
@@ -152,10 +155,17 @@ proc collectImplementedSpanMeta*(): seq[
     let kind = classifyImplementedName(region.name)
     result.add (name: region.name, offset: region.offset,
                 length: region.data.len, kind: kind)
+  # Baserom extracts: offset/length only (no gold I/O). Content filled at
+  # build/check time from the local baserom via baserom_extract.nim.
+  for s in allBaseromExtractSpans():
+    result.add (name: s.name, offset: s.offset, length: s.length,
+                kind: ckImplementedMeta)
   for s in GeneratedCodeSpans:
     # convert_all carves adopted ranges out of traced code; skip if any
     # residual overlap appears after hand edits.
     if isAdoptedOffset(s.offset):
+      continue
+    if isBaseromExtractOffset(s.offset):
       continue
     result.add (name: "code", offset: s.offset, length: s.length,
                 kind: ckImplementedCode)

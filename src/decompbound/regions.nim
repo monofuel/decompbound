@@ -8,7 +8,7 @@
 ## Header and vectors are hand-maintained data declarations.
 
 import
-  ./[adopted, common, header, vectors],
+  ./[adopted, baserom_extract, common, header, vectors],
   ./generated/registry
 
 type
@@ -26,8 +26,13 @@ iterator eachRegion*(): RomRegion =
   for region in allAdoptedRegions():
     yield RomRegion(name: region.name, offset: region.offset,
                     data: region.data)
+  for region in allBaseromExtractRegions():
+    yield RomRegion(name: region.name, offset: region.offset,
+                    data: region.data)
   for (offset, data) in eachCodeRegion():
     if isAdoptedOffset(offset):
+      continue
+    if isBaseromExtractOffset(offset):
       continue
     yield RomRegion(name: "code", offset: offset, data: data)
 

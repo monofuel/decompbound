@@ -16,7 +16,7 @@ const
     (offset: 0x008FCD, length: 42),
     (offset: 0x009032, length: 505),
     (offset: 0x009231, length: 25),
-    (offset: 0x009250, length: 776),
+    (offset: 0x009250, length: 694),
     (offset: 0x0095F2, length: 2291),
     (offset: 0x009EEB, length: 560),
     (offset: 0x00A152, length: 92),
