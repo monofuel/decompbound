@@ -114,6 +114,7 @@ honest, and CoilSnake's docs are a cross-check, not a source to copy.
 | 💬 Scripts | Dialogue text (char table + control codes) + the event/script system | `docs/scripts.md` | text-log + a script dump |
 | 🗺️ Maps | Overworld tilemaps, tilesets, sectors, doors/warps, enemy placement | *(in this hub for now)* | `map_explore.nim` |
 | 📊 Game data | Enemy/item/PSI/character-growth/EXP/shop tables | *(in this hub for now)* | `sram_info`-style dump |
+| 🧩 ROM chunks | Full-image typed inventory + per-chunk gold check (sub-agent gate) | `docs/rom-chunks.md` | `chunk_check.nim` |
 
 ### 🗺️ Maps (track, not yet its own doc)
 

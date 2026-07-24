@@ -1,4 +1,4 @@
-.PHONY: help build compare test check clean regions boot screenshot intro title song vectors spc-vectors disasm play play-pokey archive archive-replays play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai llm-ai-display llm-ai-display-loop testrom script-dump gfx-roundtrip battle-bg trace inspect audio-check audio-diff jukebox-app
+.PHONY: help build compare test check clean regions boot screenshot intro title song vectors spc-vectors disasm play play-pokey archive archive-replays play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai llm-ai-display llm-ai-display-loop testrom script-dump gfx-roundtrip battle-bg trace inspect audio-check audio-diff jukebox-app chunk-summary chunk-check chunk-check-all
 
 # bash + pipefail: the test loop pipes nim through sed, and without
 # pipefail the pipeline's exit status is sed's (always 0), which turns
@@ -17,6 +17,9 @@ help:
 	@echo "  make compare      - build the decomp ROM and compare against gold"
 	@echo "  make check        - nim check main entrypoints + tests (no run)"
 	@echo "  make test         - run the full test suite"
+	@echo "  make chunk-summary - full-ROM typed chunk inventory (see docs/rom-chunks.md)"
+	@echo "  make chunk-check CHUNK=id - gold-check one chunk (sub-agent gate)"
+	@echo "  make chunk-check-all - gold-check every implemented chunk"
 	@echo "  make boot         - trace the real ROM booting on the emulator"
 	@echo "  make screenshot   - render the boot state to bin/screenshot.png"
 	@echo "  make play         - windowed interactive player (arrows/ZXAS/Enter/RShift/Space/N/F12/+/ - /Esc)"
@@ -268,7 +271,8 @@ test: nim.cfg $(LUA_LIB)
 check: nim.cfg
 	@fail=0; \
 	for f in src/decompbound.nim src/compare.nim \
-	         src/tools/play.nim src/tools/llm_ai.nim; do \
+	         src/tools/play.nim src/tools/llm_ai.nim \
+	         src/tools/chunk_check.nim; do \
 		echo "==> nim check $$f"; \
 		nim check $(NIM_TEST_FLAGS) "$$f" || fail=1; \
 	done; \
@@ -278,6 +282,17 @@ check: nim.cfg
 	done; \
 	if [ $$fail -eq 0 ]; then echo "==> make check OK"; fi; \
 	exit $$fail
+
+# Full-ROM typed chunks — per-chunk gold gate for sub-agents (docs/rom-chunks.md).
+CHUNK ?= header
+chunk-summary: nim.cfg
+	nim r $(NIM_TEST_FLAGS) src/tools/chunk_check.nim summary
+
+chunk-check: nim.cfg
+	nim r $(NIM_TEST_FLAGS) src/tools/chunk_check.nim check $(CHUNK)
+
+chunk-check-all: nim.cfg
+	nim r $(NIM_TEST_FLAGS) src/tools/chunk_check.nim check-all-implemented
 
 clean:
 	rm -f bin/Decompbound.smc bin/screenshot.png bin/intro.png bin/title.png bin/song.wav bin/frame_*.png
