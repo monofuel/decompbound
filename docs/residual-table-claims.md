@@ -1138,6 +1138,52 @@ nim r src/compare.nim
 
 All green this wave. No commit (per brief).
 
+## Residual wave105 — sandwich structure re-claim (2026-07-24)
+
+Inventory before: **13,459 B** unclaimed / 5,431 runs / max 19 (~99.57%).
+
+Non-sandwich structure gates (zero/const/far C0–EF/AS/SS/bit/plane/term/u8)
+were **drained** after wave104b. Pure 1-byte RTS/RTL sandwich seeds also **0**.
+Strict `probe_sandwich_continue` FULL-cover endsRun still **0** new seeds.
+
+### Wave105 (608 B / 115 spans)
+
+Reclaim **code|code sandwich free** that still matches established quality gates
+(seed path for pure stubs exhausted; these are structure tables, not forced code):
+
+| Family | Residual claimed |
+|--------|------------------|
+| term F0–FF singles min2 quality | **42 B** / 21 |
+| u8pair min3 @55% | **566 B** / 94 |
+
+**Compare after patch:** **99.59%** byte-exact (`3,132,877 / 3,145,728`), implemented
+regions **100.00% exact**. Prior **99.57%** (`3,132,269`). Residual free inventory
+**12,851 B** / 5,316 runs / max 19. sandwich free ~5.2 KB.
+
+### Honesty notes
+
+- No `residualFree_*`. No F0–FF as farPtr. No SS any-ended. No print70.
+- far3 packed leftovers are almost all bank `$F0–$FF` / lo==0 (rejected).
+- Prefer convert_all seeds for real code stubs — strict sandwich seed queue empty;
+  multi-byte RTS heads still fail FULL free cover.
+- `code ∩ extract = 0` verified.
+
+### Tooling
+
+- `src/tools/gen_residual_wave105.nim`
+- `src/tools/probe_w105.nim` / `probe_w105_seeds.nim`
+- `src/tools/patch_w105_extracts.nim` (gold-slice patch into `bin/Decompbound.smc`)
+
+### Verification
+
+```
+nim r tests/test_baserom_extract.nim
+nim r src/tools/verify_extract_overlap.nim
+nim r src/compare.nim
+```
+
+All green this wave. No commit (per brief).
+
 ## Honesty policy (2026-07-24)
 
 **Do not** claim residual free gaps as blind `residualFree_*` gold extracts.
