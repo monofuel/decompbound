@@ -24,9 +24,11 @@ to the gold bytes. Unsupervised “match rate” without the assembler DSL does 
 count.
 
 **Goal 2** is the playable Nim SNES emulator (pixie video, slappy audio, save
-states, `make play`). It has been exercised through **more than half the game**
-and is effectively **feature-complete** for that work — remaining issues are
-mostly minor fidelity bugs and broader playtesting, not missing subsystems.
+states, `make play`). It is **built for EarthBound only** — not a general SNES
+compatibility layer; other games are out of scope. It has been exercised through
+**more than half the game** and is effectively **feature-complete** for that
+work — remaining issues are mostly minor fidelity bugs and broader playtesting,
+not missing subsystems.
 
 **Goal 4** is the experimental agent track: an LLM authors Lua that drives the
 emulator (landmarks, routes, battles, knock arc, etc.). Fun and useful for RE
