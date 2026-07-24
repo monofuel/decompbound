@@ -1,94 +1,97 @@
 # decompbound
 
-Earthbound (SNES) decompilation project in Nim.
+EarthBound (SNES, US) decompilation project in **Nim**.
 
-The goal of this project is to build a Nim program that can eventually reproduce the Earthbound English US ROM exactly.
-This will be a very long and complex project. we just need to push the needle forward one byte at a time.
+The long game is a Nim project that can rebuild the English US ROM
+byte-for-byte — and, along the way, a real SNES emulator plus tools that make
+the reverse-engineering honest and fun. Progress is one verified region at a
+time; the gold ROM is always the referee.
 
-See `docs/goal.md` for the full scope, ordering, and verification rules. Short version:
+See **`docs/goal.md`** for the full scope, ordering, and verification rules.
 
-1. **Goal 1 (current):** a 65816 assembler + disassembler pair in Nim, derived from a single opcode table, verified by round-tripping the gold ROM's code regions.
-2. **Goal 2 (later):** an Earthbound-specific SNES emulator in Nim (pixie video) to close the loop — dynamic tracing for the disassembler, differential testing gold vs decomp.
-3. **Goal 3 (someday):** a verified native Nim reimplementation, migrated one subsystem at a time under emulator differential tests.
+## Goals
 
-store the comparison rom at `./bin/Earthbound (U) [!].smc`
-- sha256sum: `a8fe2226728002786d68c27ddddf0b90a894db52e4dfe268fdf72a68cae5f02e  bin/Earthbound (U) [!].smc`
+| | Goal | Status |
+|---|------|--------|
+| **1** | 65816 assembler + disassembler + byte-exact code regions (round-trip vs gold) | **In progress** — tooling works; coverage and adoption still growing |
+| **1.5** | Adoption: replace generated scaffolding with named, documented routines | **In progress** — see `docs/goal-1.5.md` |
+| **2** | EarthBound-focused SNES emulator in Nim (CPU, PPU, APU, play harness) | **Mostly done** — feature-complete for practical play; more testing still welcome |
+| **3** | Verified native Nim reimplementation (subsystem by subsystem under the emu) | Someday |
+| **4** | LLM plays EarthBound (Lua policy harness + story milestones) | **WIP** — see `docs/llm-plays.md` / `docs/llm-sequence.md` |
 
-## current state (2026-07-03)
+**Goal 1** is still the core decomp needle: decompiled code regions must assemble
+to the gold bytes. Unsupervised “match rate” without the assembler DSL does not
+count.
 
-- the compare harness works and writes `report.md`.
-- **implemented regions: 100% matched** (141,964/141,964 bytes incl. header —
-  4.5% of the ROM, every traced code region).
-- code regions are generated wholesale by `src/tools/convert_all.nim`: it
-  traces the ROM from its interrupt vectors and emits one assembler-DSL
-  module per code region into `src/decompbound/generated/` (266 modules,
-  ~66k instructions), with entry flag states the tracer actually observed.
-- regions live in a central registry (`src/decompbound/regions.nim`) shared by
-  the ROM builder and the compare harness; boundaries follow the control-flow
-  tracer's natural code regions, not arbitrary cuts.
-- the remaining 95% of the ROM is data (text, maps, sprites, music) plus code
-  reachable only through computed jumps — the current static-tracing frontier.
-- the shared opcode table exists (`src/decompbound/opcodes.nim`, all 256
-  opcodes); the assembler (`assembler.nim`) and disassembler (`disasm.nim`)
-  both derive from it. Round-trip + gold ROM tests in `tests/`.
-- all code regions are expressed as mnemonics generated from gold ROM
-  disassembly (`src/tools/gen_source.nim`); the 8 transcription bugs from the
-  byte-literal era are fixed. Header + vectors remain data declarations.
-- HiROM address mapping in `memmap.nim`; static tracing from the reset vector
-  discovers ~142KB of code (`src/tools/full_disasm.nim`).
-- next (goal-1.md work item 5): trace outward and convert the discovered
-  boot-path code, region by region.
-- exploration tools in `src/tools/` (disasm, full_disasm, gen_source,
-  map/sprite/music/sound explorers).
+**Goal 2** is the playable Nim SNES emulator (pixie video, slappy audio, save
+states, `make play`). It has been exercised through **more than half the game**
+and is effectively **feature-complete** for that work — remaining issues are
+mostly minor fidelity bugs and broader playtesting, not missing subsystems.
 
-## testing
+**Goal 4** is the experimental agent track: an LLM authors Lua that drives the
+emulator (landmarks, routes, battles, knock arc, etc.). Fun and useful for RE
+pressure tests; not a substitute for Goal 1.
 
-- `nim r src/decompbound.nim --compare`
-  - this will generate a decomp rom at `./bin/Decompbound.smc` and compare it to the gold master rom.
-- `nim r src/decompbound.nim` simply generates a decomp rom.
-- `nimble test` runs the test suite.
+## Current state (2026-07)
 
-## rules
+- **Decomp coverage:** ~**5.70%** of the ROM is byte-exact decompiled code
+  (`make compare` → `report.md`). Implemented regions are 100% exact within
+  themselves; coincidental zero-fill is tracked separately and is **not**
+  progress.
+- Code regions ship as bank modules under `src/decompbound/generated/`
+  (assembler DSL from the gold ROM via `convert_all` / tracing). Goal 1.5
+  peels understood routines into named modules (`snesAsm`, adopted helpers).
+- Shared **opcode table** (`opcodes.nim`); **assembler** + **disassembler**
+  derive from it; round-trip and unit tests in `tests/`.
+- **Emulator:** 65816, PPU (incl. Mode 7 / HDMA color math paths used by EB),
+  APU/SPC path, joypad, save-states / F12 state-screenshots, windowed player.
+  Human play past mid-game is the live proof.
+- **LLM-play:** two-clock harness (`make llm-ai`), Lua skills, story percents
+  (touch grass → Pokey → knock → …). Still WIP; docs under `docs/llm-*.md`.
+- Gold ROM (you supply it): `./bin/Earthbound (U) [!].smc`  
+  sha256: `a8fe2226728002786d68c27ddddf0b90a894db52e4dfe268fdf72a68cae5f02e`
 
-- **no raw byte literals in code regions.** code must be expressed as
-  mnemonics through the assembler (once it exists). if bytes can't be
-  expressed that way yet, declare the region as data with a TODO — never
-  hardcode "temporary" literals. this is what keeps the progress metric
-  honest (see `docs/goal.md`).
-- we should avoid magic bytes as much as possible and instead figure out what they are representing properly.
-  - all magic bytes must be accompanied by a TODO and comments.
-- all fixed assets should live in `src/assets` (music, sounds, sprites, graphics).
+## Quick start
 
-## bug fixes
+```bash
+# Put your legally obtained US ROM at:
+#   bin/Earthbound (U) [!].smc
 
-- we can control compilation with compile time `consts` and flags.
-- the default decompbound.nim should eventually get to reproducing the rom exactly.
-- however we can add compiler flags for fixing bugs.
+make compare          # build decomp ROM + compare vs gold → report.md
+make test             # unit suite (builds vendor/lua when needed)
+make play             # windowed emulator
+make llm-ai           # LLM-play harness (needs local model setup; see docs)
+```
 
-## later goals (notes)
+Other useful targets: `make help`, `make intro`, `make jukebox`, `make audio-check`.
 
-- pixie for graphics, shady for the whacky battle background shaders — this
-  belongs to the emulator (Goal 2) and native reimplementation (Goal 3), not
-  the current byte-exact work.
-- graphics probably as bitmaps, staying close to source material.
+## Rules (short)
+
+- **No raw byte literals in code regions.** Express code as mnemonics through
+  the assembler. Unknowns are declared **data** with TODOs — never fake progress
+  with copied hex.
+- Prefer real meaning over magic constants; magic that must land temporarily
+  needs a TODO + comment.
+- **Copyright hygiene:** the repo is asset-free. No ROM, save-states, SRAM,
+  screenshots of the game, or dialogue dumps. The user supplies the ROM; game
+  data is extracted at run time. See `AGENTS.md`.
 
 ## Docs
 
-- decompbound/docs/goal.md - project goals, ordering, and verification rules
-- decompbound/docs/goal-1.md - Goal 1 MVP definition: the boot path, as real assembly
-- decompbound/docs/goal-1.5.md - the adoption campaign: replacing generated scaffolding with understood, named code
-- decompbound/docs/audio.md - SNES/Earthbound audio, the standalone SPC player track, slappy tools
-- decompbound/docs/delegation.md - Grok 4.5 conductor + native sub-agents (agnt optional)
-- decompbound/docs/human-verify.md - **your** short playtest checklist (run / pass if)
-- decompbound/docs/llm-sequence.md - llm-ai story percents (tg → Pokey → Buzz Buzz → Sunrise MVP)
-- decompbound/docs/llm-plays.md - LLM play harness (two-clock Lua agent)
-- decompbound/docs/llm-contamination.md - awareness of LLM knowledge leakage into play runs
-- decompbound/docs/issues.md - known emulator fidelity issues (status board)
-- decompbound/docs/snes-asm.md
-- decompbound/docs/graphics.md
-- decompbound/docs/rom-format.md
-- decompbound/docs/state-screenshots.md - screenshots that embed a save-state (drag-drop restore) [design only]
+| Doc | What |
+|-----|------|
+| [docs/goal.md](docs/goal.md) | Goals, ordering, verification |
+| [docs/goal-1.md](docs/goal-1.md) | Goal 1 MVP (boot path as real asm) |
+| [docs/goal-1.5.md](docs/goal-1.5.md) | Adoption campaign |
+| [docs/decompilation.md](docs/decompilation.md) | How tracing / coverage works |
+| [docs/human-verify.md](docs/human-verify.md) | Playtest checklist for humans |
+| [docs/issues.md](docs/issues.md) | Known emulator / fidelity issues |
+| [docs/llm-plays.md](docs/llm-plays.md) | LLM-play harness (Goal 4) |
+| [docs/llm-sequence.md](docs/llm-sequence.md) | Story percent ladder |
+| [docs/audio.md](docs/audio.md) | Audio / SPC track |
+| [docs/delegation.md](docs/delegation.md) | Multi-agent work style |
+| [docs/state-screenshots.md](docs/state-screenshots.md) | F12 screenshots that embed save-state |
 
-- extensive docs on rom format: https://en.wikibooks.org/wiki/Super_NES_Programming/SNES_memory_map
-- extensive general docs on snes stuff https://wiki.superfamicom.org/
-- https://www.sneslab.net/wiki/Official_Documentation_Quick_Links
+External SNES references: [SNES memory map](https://en.wikibooks.org/wiki/Super_NES_Programming/SNES_memory_map),
+[superfamicom.org wiki](https://wiki.superfamicom.org/),
+[SnesLab quick links](https://www.sneslab.net/wiki/Official_Documentation_Quick_Links).
