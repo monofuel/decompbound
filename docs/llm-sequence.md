@@ -40,7 +40,7 @@ These are the **next** goals after house exit. Order is story order.
 | **Skills** | `walkTo`, `escapeMenu`; no A while walking. |
 | **Status** | Proven seed + harness; outdoor fade load-state bug fixed (APU timers). |
 
-IRL n=1: [media/IMG_20260520_201351_568.jpg](media/IMG_20260520_201351_568.jpg).
+IRL n=1 done (photo kept local, not in git).
 
 ---
 

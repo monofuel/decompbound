@@ -8,8 +8,7 @@ huge *volume* of EarthBound text — but see §1a: measured fidelity of that
 knowledge is **much lower than we first assumed**. We still want a full
 envelope so claims about “what the agent learned” stay honest.
 
-**n=1 field proof (real grass, not the ROM):**  
-[media/IMG_20260520_201351_568.jpg](media/IMG_20260520_201351_568.jpg)
+**n=1 field proof:** real grass (IRL), not the ROM — photo kept local, not in git.
 
 **Related:** [llm-plays.md](llm-plays.md) (harness design + what works),
 [llm-sequence.md](llm-sequence.md) (story percent ladder / Sunrise MVP),

@@ -10,7 +10,7 @@ See [Where it actually stands](#where-it-actually-stands--what-works-whats-next)
 for the honest state of the code. Off the critical path; sanctioned fun.
 Awareness of pre-training / seed / notes leakage: [llm-contamination.md](llm-contamination.md).  
 **Campaign / story percents (tg → Pokey → knock → Buzz Buzz → Sunrise MVP):** [llm-sequence.md](llm-sequence.md).  
-**n=1 touch grass (IRL):** [media/IMG_20260520_201351_568.jpg](media/IMG_20260520_201351_568.jpg).
+**n=1 touch grass:** done (IRL proof kept local — not committed).
 
 Give an LLM a way to *play* the game: it authors **Lua** that can read game
 memory (read-only), see the screen, and press buttons — but never write game
