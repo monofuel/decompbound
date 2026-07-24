@@ -162,15 +162,17 @@ proc collectImplementedSpanMeta*(): seq[
   for s in allBaseromExtractSpans():
     result.add (name: s.name, offset: s.offset, length: s.length,
                 kind: ckImplementedMeta)
+  var holes: seq[tuple[start: int, last: int]] = @[]
+  for r in adoptedRanges():
+    holes.add r
+  for r in baseromExtractRanges():
+    holes.add r
   for s in GeneratedCodeSpans:
-    # convert_all carves adopted ranges out of traced code; skip if any
-    # residual overlap appears after hand edits.
-    if isAdoptedOffset(s.offset):
-      continue
-    if isBaseromExtractOffset(s.offset):
-      continue
-    result.add (name: "code", offset: s.offset, length: s.length,
-                kind: ckImplementedCode)
+    # Carve adopted + baserom-extract ranges out of traced code spans so a
+    # mid-span data claim does not drop the remaining code tails.
+    for piece in carveSpanAroundHoles(s.offset, s.length, holes):
+      result.add (name: "code", offset: piece.offset, length: piece.length,
+                  kind: ckImplementedCode)
 
 proc allRomChunksMeta*(): seq[RomChunk] =
   ## Full-ROM inventory without assembling generated banks (built empty).

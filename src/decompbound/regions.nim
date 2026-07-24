@@ -29,12 +29,16 @@ iterator eachRegion*(): RomRegion =
   for region in allBaseromExtractRegions():
     yield RomRegion(name: region.name, offset: region.offset,
                     data: region.data)
+  var holes: seq[tuple[start: int, last: int]] = @[]
+  for r in adoptedRanges():
+    holes.add r
+  for r in baseromExtractRanges():
+    holes.add r
   for (offset, data) in eachCodeRegion():
-    if isAdoptedOffset(offset):
-      continue
-    if isBaseromExtractOffset(offset):
-      continue
-    yield RomRegion(name: "code", offset: offset, data: data)
+    for piece in carveSpanAroundHoles(offset, data.len, holes):
+      let rel = piece.offset - offset
+      yield RomRegion(name: "code", offset: piece.offset,
+                      data: data[rel ..< rel + piece.length])
 
 proc allRegions*(): seq[RomRegion] =
   ## Build every implemented region: curated adoptions, generated code
