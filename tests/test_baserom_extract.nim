@@ -68,7 +68,7 @@ block liveGoldSliceMatch:
   if not goldBaseromAvailable():
     echo "[test_baserom_extract] skip live gold (no baserom)"
   else:
-    discard readGoldBaseromBytes()
+    let gold = readGoldBaseromBytes()
     for s in allBaseromExtractSpans():
       let got = extractGoldSlice(s.offset, s.length)
       doAssert got.len == s.length
@@ -83,7 +83,7 @@ block liveGfxLzStreamLengths:
   if not goldBaseromAvailable():
     discard
   else:
-    discard readGoldBaseromBytes()
+    let gold = readGoldBaseromBytes()
     var n = 0
     for s in allBaseromExtractSpans():
       if s.kind != ekGfxLz:
@@ -134,7 +134,7 @@ block liveEnemyArrangementTable:
       PtrEntry = 4
       DataOff = 0x10BBAC
       DataEnd = 0x10C60D
-    discard readGoldBaseromBytes()
+    let gold = readGoldBaseromBytes()
     doAssert PtrOff + PtrCount * PtrEntry == DataOff
     var targets: seq[int] = @[]
     for i in 0..<PtrCount:
@@ -182,7 +182,7 @@ block liveFormationPointerTable:
       PtrOff = 0x10C60D
       PtrEntry = 8
       DataOff = 0x10D52D
-    discard readGoldBaseromBytes()
+    let gold = readGoldBaseromBytes()
     let ptrCount = (DataOff - PtrOff) div PtrEntry
     doAssert PtrOff + ptrCount * PtrEntry == DataOff
     doAssert ptrCount == 484
@@ -225,7 +225,7 @@ block liveScriptStreamClaims:
   if not goldBaseromAvailable():
     discard
   else:
-    discard readGoldBaseromBytes()
+    let gold = readGoldBaseromBytes()
     var n = 0
     var total = 0
     for s in allBaseromExtractSpans():
@@ -249,7 +249,7 @@ block liveActionScriptClaims:
   if not goldBaseromAvailable():
     discard
   else:
-    discard readGoldBaseromBytes()
+    let gold = readGoldBaseromBytes()
     var n = 0
     var total = 0
     for s in allBaseromExtractSpans():
@@ -274,7 +274,7 @@ block liveResidualFixedTables:
   if not goldBaseromAvailable():
     discard
   else:
-    discard readGoldBaseromBytes()
+    let gold = readGoldBaseromBytes()
     # Item table: Cookie id=88 price $7, Bread roll id=103 price $12, Hamburger id=90 $14
     const
       ItemBase = 0x155000
@@ -323,7 +323,7 @@ block liveU16PtrTableF59:
       PtrOff = 0x0F59F1
       BankBase = 0x0F0000
       N = 36
-    discard readGoldBaseromBytes()
+    let gold = readGoldBaseromBytes()
     var targets: seq[int] = @[]
     for i in 0..<N:
       let lo = int(gold[PtrOff + i * 2]) or (int(gold[PtrOff + i * 2 + 1]) shl 8)
@@ -344,7 +344,7 @@ block liveFfShortRecordStreams:
   if not goldBaseromAvailable():
     discard
   else:
-    discard readGoldBaseromBytes()
+    let gold = readGoldBaseromBytes()
     var n = 0
     var total = 0
     for s in allBaseromExtractSpans():
@@ -379,7 +379,7 @@ block liveCfProgramPool:
   if not goldBaseromAvailable():
     discard
   else:
-    discard readGoldBaseromBytes()
+    let gold = readGoldBaseromBytes()
     var n = 0
     var total = 0
     for s in allBaseromExtractSpans():
@@ -404,7 +404,7 @@ block liveCfMapPtrTable:
   if not goldBaseromAvailable():
     discard
   else:
-    discard readGoldBaseromBytes()
+    let gold = readGoldBaseromBytes()
     var n = 0
     var total = 0
     var targets: seq[int] = @[]
@@ -455,7 +455,7 @@ block liveCfMapRecStream:
   if not goldBaseromAvailable():
     discard
   else:
-    discard readGoldBaseromBytes()
+    let gold = readGoldBaseromBytes()
     doAssert isBaseromExtractOffset(0x0F71FB)
     var p = 0x0F71FB
     let hi = 0x0F71FB + 18
@@ -476,7 +476,7 @@ block liveCfObj12Records:
   if not goldBaseromAvailable():
     discard
   else:
-    discard readGoldBaseromBytes()
+    let gold = readGoldBaseromBytes()
     var n = 0
     var total = 0
     for s in allBaseromExtractSpans():
@@ -497,7 +497,7 @@ block liveEfSpriteGroupRecords:
   if not goldBaseromAvailable():
     discard
   else:
-    discard readGoldBaseromBytes()
+    let gold = readGoldBaseromBytes()
     const
       PtrBase = 0x2F133F
       BankBase = 0x2F0000
@@ -548,7 +548,7 @@ block liveAbsRefResidualTables:
   if not goldBaseromAvailable():
     discard
   else:
-    discard readGoldBaseromBytes()
+    let gold = readGoldBaseromBytes()
     # bitMask8 @0x04562F
     doAssert isBaseromExtractOffset(0x04562F)
     doAssert isBaseromExtractOffset(0x045636)
@@ -604,7 +604,7 @@ block liveDenseBankLoaderResidual:
   if not goldBaseromAvailable():
     discard
   else:
-    discard readGoldBaseromBytes()
+    let gold = readGoldBaseromBytes()
     # D7 map-attr residual holes in [$D7A800, $D7B200)
     var d7 = 0
     for s in allBaseromExtractSpans():
@@ -647,4 +647,48 @@ block liveDenseBankLoaderResidual:
         doAssert a0 >= a1, &"overlap {s.name} with code chunk 0x{c.offset:06X}"
     echo "[test_baserom_extract] dense-bank loader residual OK: d7MapAttr=",
       d7, " ca17=", ca, " cePtr=", ce, " B"
+
+block liveEfMidAndC4HitboxResidual:
+  ## EF sprite-group mid-record free holes + C4 $C42B0D hitbox residual.
+  if not goldBaseromAvailable():
+    discard
+  else:
+    let gold = readGoldBaseromBytes()
+    var ef = 0
+    var efN = 0
+    for s in allBaseromExtractSpans():
+      if s.name.startsWith("table_efSpriteMid_"):
+        ef += s.length
+        efN += 1
+        doAssert s.kind == ekTable
+        doAssert s.offset >= 0x2F1A7F and s.offset < 0x2F5000, s.name
+        doAssert s.length >= 2
+    doAssert ef == 1408, &"efSpriteMid residual want 1408 got {ef}"
+    doAssert efN >= 50
+    var c4 = 0
+    var c4N = 0
+    for s in allBaseromExtractSpans():
+      if s.name.startsWith("table_c4Hitbox_"):
+        c4 += s.length
+        c4N += 1
+        doAssert s.kind == ekTable
+        doAssert s.offset >= 0x042B51 and s.offset + s.length <= 0x042F45, s.name
+    doAssert c4 == 357, &"c4Hitbox residual want 357 got {c4}"
+    doAssert c4N == 6
+    # sample points
+    doAssert isBaseromExtractOffset(0x2F1FD1)
+    doAssert isBaseromExtractOffset(0x042D5F)
+    doAssert isBaseromExtractOffset(0x042D5F + 100)
+    # residual-only vs code chunks
+    for s in allBaseromExtractSpans():
+      if not (s.name.startsWith("table_efSpriteMid_") or s.name.startsWith("table_c4Hitbox_")):
+        continue
+      for c in allRomChunksMeta():
+        if c.kind != ckImplementedCode: continue
+        let a0 = max(s.offset, c.offset)
+        let a1 = min(s.offset + s.length, c.offset + c.length)
+        doAssert a0 >= a1, &"overlap {s.name} with code 0x{c.offset:06X}"
+    echo "[test_baserom_extract] EF mid + C4 hitbox residual OK: efMid=",
+      ef, " c4Hitbox=", c4, " total=", ef + c4, " B"
+
 

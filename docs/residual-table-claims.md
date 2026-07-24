@@ -278,3 +278,54 @@ nim r src/tools/verify_extract_overlap.nim
 nim r src/tools/chunk_check.nim summary
 nim r src/decompbound.nim --compare
 ```
+
+## Residual wave (EF mid-record + C4 hitbox) — 2026-07-24
+
+Method: loader-backed far-ptr tables with residual free holes (same mid-table
+pattern as `$D7A800` / `$CADCA1`). No code_span overlap; carving path unchanged.
+
+| Region | File range | Format | Residual claimed |
+|--------|------------|--------|------------------|
+| EF sprite-group mid-rec | `$EF133F` body gaps 25/27/41 | free fragments inside ptr-bounded records (prior wave took complete free recs only) | ****1408 B** (110 spans) |
+| C4 hitbox / sprite-pts | `$C42B0D` body | far-ptr table bank `$C4`; rec = `u8 count` + `u8` + `count×10`; loader `$C01EBF` `LDA #$2B0D` / `LDA #$00C4` then `count*10` alloc | **357 B** (6 spans) |
+
+**This wave residual = 1765 B.**
+
+**Compare after rebuild:** **96.23%** byte-exact inventory (`3,027,139 / 3,145,728` meta),
+implemented regions expected **100.00% exact**. Prior **96.17%** (`3,025,374`).
+Residual unclaimed **118,589** B (was 120,354).
+
+### RE notes
+
+- **EF mid-record:** table walk yields 464 far ptrs; **462** consecutive gaps are
+  exactly 25 / 27 / 41 (same structure as complete-record wave). Remaining residual
+  is holes *inside* records that straddle false-positive code_spans — claim free
+  only. Loaders unchanged (`$C01DF9` / `$C01E79` / `$C01FE0` / `$C07A8B` / `$C4B1D0`).
+- **C4 hitbox:** live disasm at `$C01EBF`:
+  `LDA #$2B0D; STA $06; LDA #$00C4; STA $08; … ASL×2; ADC count; ASL` → `count*10`
+  payload after 2-byte header. All 17 ptr-bounded lengths match `2+count*10`.
+  One fully free record (`0x042D5F+122`) plus mid-body free holes.
+- **`$CE62EE` (not claimed this wave):** 110×5B `[far][00][type1..6]` still sits
+  **547/550 B inside code_spans** (3 B free). Reclassifying as extract would
+  *carve* code (inventory already supports mid-span carve via
+  `carveSpanAroundHoles` in `collectImplementedSpanMeta` / `eachRegion`) but does
+  **not** raise residual % — code→meta swap only. Next lever for honest data
+  labels, not coverage.
+
+### False-code / carve status (still the main bulk story)
+
+Inventory already carves baserom extracts out of `GeneratedCodeSpans` for
+partition. `verify_extract_overlap` still reports raw `code_spans ∩ extract`
+before carve (gate for residual-only claims). Enabling mid-code extracts for
+tables like `$CE62EE` is therefore a **label honesty** change (meta instead of
+code) once we choose to claim them; build path already emits code tails around
+holes.
+
+### Verification
+
+```
+nim r tests/test_baserom_extract.nim
+nim r src/tools/verify_extract_overlap.nim
+nim r src/tools/chunk_check.nim summary
+nim r src/decompbound.nim --compare
+```
