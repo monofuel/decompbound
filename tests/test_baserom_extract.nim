@@ -1627,3 +1627,9 @@ block liveWave104bResidual:
       " const=", constB, " as=", asB, " u8pair3=", u8B,
       " total=", waveTot, " B"
 
+block noBlindResidualFreeClaims:
+  ## residualFree_* bulk gold-copy claims are forbidden (honesty policy).
+  for s in KnownBaseromExtracts:
+    doAssert not s.name.startsWith("residualFree_"),
+      "forbidden blind residual claim: " & s.name
+

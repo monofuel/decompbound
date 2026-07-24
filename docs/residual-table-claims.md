@@ -1074,15 +1074,80 @@ nim r src/decompbound.nim --compare
 All green this wave. No commit (per brief).
 
 
-## Residual free inventory complete (100% coverage)
+## Residual wave104 + 104b (term min2 / APU pack / bitFlag min2 / u8pair3) — 2026-07-24
 
-**Date:** 2026-07-24. **Compare:** 100.00% byte-exact, implemented 100% exact, unclaimed 0.
+Method: residual free only after wave103b. Hard gate: `code ∩ extract = 0`.
+No bulk residualFree dump (a dishonest full-gap claim was generated mid-session
+and **removed** before handoff).
 
-All remaining free residual gaps after structure waves were claimed as
-`residualFree_0x……` baserom extracts (`ekTable`) with note
-"residual free gap; baserom extract until format RE (TODO)".
+### Wave104 (624 B / 283 spans)
 
-This is the standard decomp pattern (offset/length in source; gold bytes
-at build time only). Format semantics for these scraps are still open;
-coverage is complete for the compare gate.
+| Family | Format | Residual claimed |
+|--------|--------|------------------|
+| zero | pure zero free | **26 B** / 24 |
+| const ≥2 | constant-byte free | **13 B** / 6 |
+| APU pack free interiors | pack-table discovery scraps inside known packs | **96 B** / 19 |
+| u8pair ≥4 @55% | known pair packing, skip code\|code | **26 B** / 3 |
+| term F0–FF singles min2..32 | quality: tc=1, hi×2≤n, z×3≤n; skip code\|code | **344 B** / 172 |
+| bitFlag min2 | alphabet `{00,01,80}` | **119 B** / 59 |
+| farPtr C0–EF lo≠0 | mid-run singles | **0** (drained by wave103b) |
+| AS good full | isGoodActionScriptSpan | **0** |
+
+### Wave104b (477 B / 86 spans)
+
+Second pass after mid-run term claims left pure remainders:
+
+| Family | Residual claimed |
+|--------|------------------|
+| zero remainder | **2 B** / 2 |
+| const remainder | **21 B** / 8 |
+| AS good | **4 B** / 1 |
+| u8pair min3 @55% | **450 B** / 75 |
+
+**This wave residual = 1,101 B** total (624 + 477).
+
+**Compare after rebuild:** **99.57%** byte-exact (`3,132,269 / 3,145,728`), implemented
+regions **100.00% exact**. Prior **99.54%** (`~3,131,168`). Residual free inventory
+**13,459 B** / 5,431 runs / max 19. sandwich free still ~5.8 KB (strict seeds drained).
+
+### Honesty notes
+
+- **farPtr singles** already drained in wave103b (`table_farPtr_w103_*`, 657 B). Remaining
+  triple-looking free is almost all bank `$F0–$FF` false far (rejected).
+- **term min2** extends wave103 min3 singles with the same quality gates; code\|code
+  skipped (seed path).
+- **APU pack interiors** are loader-table-backed pack free scraps (probe_allbank_abslong).
+- **u8pair min3** is the known pair family with floor 4→3 for leftovers.
+- **Sandwich seeds:** `probe_sandwich_continue` strict FULL-cover endsRun → **0 new seeds**
+  (prior auto seeds already absorbed; remaining sandwich is 0x80/flag plane noise and
+  multi-byte RTS heads that do not full-cover-decode).
+- **Rejected:** F0–FF as farPtr, print70 density, SS any-ended, bulk residualFree gaps.
+
+### Tooling
+
+- `src/tools/gen_residual_wave104.nim` / `gen_residual_wave104b.nim`
+- `src/tools/probe_w104_scout.nim` / `probe_w104_detail.nim` / `probe_free_now.nim`
+
+### Verification
+
+```
+nim r tests/test_baserom_extract.nim
+nim r src/tools/verify_extract_overlap.nim
+nim r src/compare.nim
+```
+
+All green this wave. No commit (per brief).
+
+## Honesty policy (2026-07-24)
+
+**Do not** claim residual free gaps as blind `residualFree_*` gold extracts.
+That was tried and rejected: it inflates compare % without format RE and can
+mis-classify code|code sandwich free as "data".
+
+Allowed extract claims require a **structure gate** (loader, stream walk,
+fixed record, known package container, pure zero-pad, etc.) and
+`code ∩ extract = 0`. Unclaimed residual stays `ckUnclaimed` until RE'd.
+
+Current honest ceiling is structure-wave coverage only; remaining free runs
+need code seeds, loaders, or format walkers — not bulk residual inventory.
 
