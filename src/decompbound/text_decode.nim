@@ -26,7 +26,7 @@ const
 # 1-byte sub-op as a first-order model — secondary $1E collectors may take more.
 # TODO: complete per-sub-op widths via live interpreter hook (docs/scripts.md).
 const
-  ControlOperandCounts: array[0x20, int] = [
+  ControlOperandCounts*: array[0x20, int] = [
     0, # 00: end (also special-cased as zero-byte in the fetch loop)
     0, # 01: line / window helper (JSR $04B5); no stream operands
     0, # 02: prompt/suspend (RTL out of interpreter at $C18B0A); no stream ops
@@ -141,3 +141,76 @@ proc decodeText*(rom: openArray[uint8], offset: int): string =
   if safety >= MaxBytes:
     resultStr.add "[truncated]"
   return resultStr
+
+
+const
+  ## Max single 0x00-terminated stream length for residual script claims.
+  ScriptStreamMaxLen* = 512
+  ## Quality gates for residual script_stream extract claims (structure only).
+  ScriptStreamMinGlyphs* = 6
+  ScriptStreamMinLen* = 8
+  ScriptStreamMinGlyphRatio* = 0.45
+
+type
+  ## One terminator-bounded walk result (no decoded text).
+  ScriptStreamWalk* = object
+    length*: int
+    glyphs*: int
+    controls*: int
+    badGlyphs*: int
+    ended*: bool
+
+proc walkScriptStream*(rom: openArray[uint8]; start, limit: int): ScriptStreamWalk =
+  ## Walk one CC-aware text stream from start until 0x00 or limit/max.
+  ## Uses ControlOperandCounts; does not produce dialogue text.
+  result = ScriptStreamWalk()
+  var pos = start
+  while pos < limit and (pos - start) < ScriptStreamMaxLen:
+    let b = rom[pos]
+    inc pos
+    if b == 0:
+      result.ended = true
+      result.length = pos - start
+      return
+    if b < ControlThreshold:
+      result.controls += 1
+      let nOps = ControlOperandCounts[b]
+      for i in 0 ..< nOps:
+        if pos >= limit:
+          result.length = pos - start
+          return
+        inc pos
+    else:
+      let chVal = int(b) - TextEncodingOffset
+      if chVal >= 0x20 and chVal <= 0x7E:
+        result.glyphs += 1
+      else:
+        result.badGlyphs += 1
+  result.length = pos - start
+
+proc isGoodScriptStream*(w: ScriptStreamWalk): bool =
+  ## True when a walk is a claimable residual text stream (structure gates).
+  if not w.ended or w.length < ScriptStreamMinLen:
+    return false
+  if w.badGlyphs != 0:
+    return false
+  if w.glyphs < ScriptStreamMinGlyphs:
+    return false
+  let total = w.glyphs + w.controls
+  if total == 0:
+    return false
+  if w.glyphs.float / total.float < ScriptStreamMinGlyphRatio:
+    return false
+  result = true
+
+proc consumeScriptStreamRun*(rom: openArray[uint8]; start, length: int): int =
+  ## Cover [start, start+length) with consecutive good streams; return consumed.
+  ## Returns length on full cover, else the offset reached relative to start.
+  let limit = start + length
+  var pos = start
+  while pos < limit:
+    let w = walkScriptStream(rom, pos, limit)
+    if not isGoodScriptStream(w):
+      return pos - start
+    pos += w.length
+  result = pos - start

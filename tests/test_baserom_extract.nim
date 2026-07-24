@@ -3,7 +3,9 @@
 
 import
   std/[algorithm, strformat],
-  decompbound/[baserom_extract, common, gfx_lz, rom_chunks]
+  decompbound/[baserom_extract, common, gfx_lz, rom_chunks, text_decode]
+
+echo "[test_baserom_extract] begin"
 
 block extractMetaStructural:
   ## Claims are non-empty, in-bounds, non-overlapping, unique names.
@@ -118,3 +120,125 @@ block liveApuPackageGap:
     let termRel = 0x2B520A - GapOff
     doAssert slice[termRel] == 0 and slice[termRel + 1] == 0
     echo "[test_baserom_extract] APU package gap container checks OK"
+
+block liveEnemyArrangementTable:
+  ## Overworld enemy-arrangement: 203×4 far ptrs @0x10B880 → records @0x10BBAC.
+  ## Record = u16 meta0 + u16 meta1 + n×(u8 weight, u16 group); body len % 3 == 0;
+  ## weight sums are 0, 8, or 16. Table ends where formation ptrs begin (0x10C60D).
+  if not goldBaseromAvailable():
+    discard
+  else:
+    const
+      PtrOff = 0x10B880
+      PtrCount = 203
+      PtrEntry = 4
+      DataOff = 0x10BBAC
+      DataEnd = 0x10C60D
+    let gold = readGoldBaseromBytes()
+    doAssert PtrOff + PtrCount * PtrEntry == DataOff
+    var targets: seq[int] = @[]
+    for i in 0..<PtrCount:
+      let o = PtrOff + i * PtrEntry
+      let lo = int(gold[o]) or (int(gold[o + 1]) shl 8)
+      let bank = int(gold[o + 2])
+      doAssert bank == 0xD0, &"arr ptr[{i}] bank ${bank:02X}"
+      doAssert gold[o + 3] == 0
+      let fo = 0x100000 + lo
+      targets.add fo
+      doAssert fo >= DataOff and fo < DataEnd, &"arr ptr[{i}] fo=0x{fo:06X}"
+    for i in 1..<targets.len:
+      doAssert targets[i] >= targets[i - 1]
+    var sumOk = 0
+    for i in 0..<targets.len:
+      let fo = targets[i]
+      let hi = if i + 1 < targets.len: targets[i + 1] else: DataEnd
+      let recLen = hi - fo
+      doAssert recLen >= 4, &"arr rec[{i}] short"
+      doAssert (recLen - 4) mod 3 == 0, &"arr rec[{i}] body not ×3"
+      var wsum = 0
+      let n = (recLen - 4) div 3
+      for j in 0..<n:
+        wsum += int(gold[fo + 4 + 3 * j])
+      doAssert wsum in [0, 8, 16], &"arr rec[{i}] weight sum {wsum}"
+      sumOk += 1
+    doAssert sumOk == PtrCount
+    # Focus gaps claimed as ekTable
+    doAssert isBaseromExtractOffset(0x10BEC5)
+    doAssert isBaseromExtractOffset(0x10C2DF)
+    var tableBytes = 0
+    for s in allBaseromExtractSpans():
+      if s.kind == ekTable and s.offset >= PtrOff and s.offset < DataEnd:
+        tableBytes += s.length
+    doAssert tableBytes >= 1000, &"expected enemy-arr table claims, got {tableBytes}"
+    echo "[test_baserom_extract] enemy arrangement table OK: ",
+      PtrCount, " ptrs, ", sumOk, " records, claimed≥", tableBytes
+
+block liveFormationPointerTable:
+  ## Battle formation index: 484×8 entries @0x10C60D → FF-terminated data @0x10D52D.
+  if not goldBaseromAvailable():
+    discard
+  else:
+    const
+      PtrOff = 0x10C60D
+      PtrEntry = 8
+      DataOff = 0x10D52D
+    let gold = readGoldBaseromBytes()
+    let ptrCount = (DataOff - PtrOff) div PtrEntry
+    doAssert PtrOff + ptrCount * PtrEntry == DataOff
+    doAssert ptrCount == 484
+    var targets: seq[int] = @[]
+    for i in 0..<ptrCount:
+      let o = PtrOff + i * PtrEntry
+      let lo = int(gold[o]) or (int(gold[o + 1]) shl 8)
+      doAssert gold[o + 2] == 0xD0
+      doAssert gold[o + 3] == 0
+      targets.add(0x100000 + lo)
+    for i in 1..<targets.len:
+      doAssert targets[i] >= targets[i - 1]
+    doAssert targets[0] == DataOff
+    var ffOk = 0
+    for i in 0..<targets.len - 1:
+      let fo = targets[i]
+      let hi = targets[i + 1]
+      var sawFf = false
+      for j in fo..<hi:
+        if gold[j] == 0xFF:
+          sawFf = true
+          break
+      doAssert sawFf, &"formation[{i}] @0x{fo:06X} missing 0xFF"
+      ffOk += 1
+    # last record has FF within a short window
+    block:
+      var saw = false
+      for j in targets[^1] ..< targets[^1] + 32:
+        if gold[j] == 0xFF:
+          saw = true
+          break
+      doAssert saw
+    doAssert isBaseromExtractOffset(0x10CBF4) or isBaseromExtractOffset(0x10C615)
+    echo "[test_baserom_extract] formation pointer table OK: ",
+      ptrCount, " entries, ", ffOk, " FF-terminated spans"
+
+
+block liveScriptStreamClaims:
+  ## Every ekScriptStream claim is fully covered by consecutive good CC walks.
+  if not goldBaseromAvailable():
+    discard
+  else:
+    let gold = readGoldBaseromBytes()
+    var n = 0
+    var total = 0
+    for s in allBaseromExtractSpans():
+      if s.kind != ekScriptStream:
+        continue
+      let consumed = consumeScriptStreamRun(gold, s.offset, s.length)
+      doAssert consumed == s.length,
+        &"{s.name}: script run covered {consumed}/{s.length}"
+      doAssert gold[s.offset + s.length - 1] == 0,
+        &"{s.name}: must end on 0x00 terminator"
+      n += 1
+      total += s.length
+    doAssert n > 0
+    doAssert total > 10_000
+    echo "[test_baserom_extract] script_stream claims verified: ", n,
+      " spans, ", total, " bytes"

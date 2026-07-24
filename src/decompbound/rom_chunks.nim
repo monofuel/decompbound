@@ -66,7 +66,9 @@ proc classifyImplementedName*(name: string): ChunkKind =
      "actionScriptDispatchTable", "jmpTable8C65", "jmpTableA1AE", "jmpTableA350":
     ckImplementedMeta
   else:
-    if name.startsWith("gfxLz_") or name.startsWith("apuPack"):
+    if name.startsWith("gfxLz_") or name.startsWith("apuPack") or
+       name.startsWith("table_") or name.startsWith("zeroPad_") or
+       name.startsWith("scriptStream_"):
       ckImplementedMeta
     else:
       ckImplementedCode

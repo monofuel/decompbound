@@ -205,14 +205,19 @@ of SRAM. Round-trip DoD: decode a table → re-encode → byte-exact.
   power vs element) and the record *count* aren't pinned — 53×15 would overrun
   the EXP table at `0x158F51` (only ~51 fit), so the width/count needs a dynamic
   trace. Learn-set is embedded in the same table.
-- **Battle-groups / enemy formations** — the formations data table at file
-  `0x10D74C` with its pointer/index table at `0x10C80D` (8-byte entries: a far
-  pointer + a count/assoc word, e.g. `b1 d6 d0 00 00 00 00 03`). Formations are
-  **variable-length**, `0xFF`-terminated (e.g. `00 01 03 00 01 de 00 ff` at the
-  data base — small bytes are enemy IDs/counts). **Confirmed:** the pointer entries
-  are 8 bytes (a 24-bit far pointer into the formation block + a 4-byte count/assoc
-  word); formations are variable-length, `0xFF`-terminated lists of enemy
-  descriptors.
+- **Battle-groups / enemy formations** — **pointer/index table** at file
+  `0x10C60D` (SNES `$D0C60D`), **484 × 8-byte** entries (24-bit far ptr bank `$D0`
+  + 4-byte assoc; e.g. mid-table `b1 d6 d0 00 00 00 00 03`), abutting **formation
+  data** at `0x10D52D` (earlier note `0x10C80D`/`0x10D74C` was mid-table). Each
+  formation is **variable-length**, `0xFF`-terminated (e.g. `01 9f 00 ff`). All
+  483 consecutive spans validate byte-exact against next-ptr lengths.
+- **Overworld enemy arrangements** — **203 × 4-byte** far-ptr table at file
+  `0x10B880` (bank `$D0`) → records at `0x10BBAC..0x10C60D` (abuts formation
+  ptrs). Record layout: `u16 meta0`, `u16 meta1` (rate/flags; often `00 00` +
+  small rate, or mirrored bytes like `3c 3c`), then `n × (u8 weight, u16le
+  enemy_group_id)` with **weight sums ∈ {0, 8, 16}** and body length `3n`.
+  Focus unclaimed residuals at `0x10BEC5` / `0x10C2DF` are mid-table body
+  (claimed as `ekTable` extracts).
 - **Shops** — the store-inventory table at file `0x1578B2`, 66 entries × 7 bytes,
   each entry 7 `u8` item-IDs (`0` = empty slot) into the item table; prices come
   from the item table, not per-shop. Verified byte-exact (shop 0
