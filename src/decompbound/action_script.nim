@@ -1,8 +1,11 @@
 ## Entity action-script bytecode walker (structure only).
 ##
 ## Operand widths reverse-engineered from the `$C09558` dispatch handlers
-## (docs/scripts.md). Used to claim residual unclaimed ROM as `ekActionScript`
-## without embedding script content — offset/length + structural gates only.
+## (docs/scripts.md; re-verified 2026-07-24 against `code_bank00` generateCode0095F2
+## bodies — stream INY only, excluding call-stack INYs). All low-path ops
+## `0x00`–`0x4C` have known widths. Used to claim residual unclaimed ROM as
+## `ekActionScript` without embedding script content — offset/length + structural
+## gates only.
 ##
 ## Safe claim unit: a linear walk of known-width ops that ends on a control
 ## transfer (GOTO/GOSUB/halt/high-path) and includes signature ops `0x06` WAIT,
@@ -11,9 +14,9 @@
 
 const
   ## Minimum bytes for a residual action-script claim span.
-  ActionScriptMinLen* = 9
+  ActionScriptMinLen* = 6
   ## Minimum signature ops (WAIT/GOTO/GOSUB/FAR CALL) inside a claim.
-  ActionScriptMinSig* = 2
+  ActionScriptMinSig* = 1
   ## Max ops in one linear walk (safety bound).
   ActionScriptMaxOps* = 512
   ## Valid far-call bank range (HiROM game banks).

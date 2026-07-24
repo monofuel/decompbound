@@ -1,26 +1,26 @@
 # Decompilation Progress Report
 
-Generated: 2026-07-24 04:13:38
+Generated: 2026-07-24 04:56:48
 
 ## Git Information
 
-- Commit: `cdc070f4d3c846eec1f64e240b501ffa099f9454`
+- Commit: `ac0e90d6823a31125e65b10b0fd9a23e9afac34d`
 - Dirty: true
 
 ## ROM Comparison
 
 **Decomp coverage** = byte-exact decompiled bytes as a fraction of the whole ROM. This is the number to drive up.
 
-- **Decompiled (byte-exact): 3,013,405 / 3,145,728 = 95.79% of ROM**
-- Implemented regions: 3,013,405 bytes, 3,013,405 exact (100.00% of implemented — the byte-exact gate)
+- **Decompiled (byte-exact): 3,021,917 / 3,145,728 = 96.06% of ROM**
+- Implemented regions: 3,021,917 bytes, 3,021,917 exact (100.00% of implemented — the byte-exact gate)
 
 ### Coincidental matches (not progress)
 
 Bytes that agree with gold but were never decompiled — mostly zero-fill where both ROMs are blank. Tracked only to keep the raw-match number honest.
 
-- Coincidental matches: 10,973 (10,622 zero-fill + 351 non-zero)
-- Raw byte matches (inflated, incl. coincidental): 3,024,378 / 3,145,728
-- Non-matching bytes: 121,350
+- Coincidental matches: 10,040 (10,040 zero-fill + 0 non-zero)
+- Raw byte matches (inflated, incl. coincidental): 3,031,957 / 3,145,728
+- Non-matching bytes: 113,771
 
 ## Header Comparison
 

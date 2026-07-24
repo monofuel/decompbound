@@ -398,3 +398,96 @@ block liveCfProgramPool:
     doAssert total >= 400, &"expected ≥400 cfProg bytes, got {total}"
     echo "[test_baserom_extract] CF program pool residual OK: ", n,
       " spans, ", total, " bytes"
+
+block liveCfMapPtrTable:
+  ## Bank $CF holey u16 map-pointer residual → count+4n placement records.
+  if not goldBaseromAvailable():
+    discard
+  else:
+    let gold = readGoldBaseromBytes()
+    var n = 0
+    var total = 0
+    var targets: seq[int] = @[]
+    for s in allBaseromExtractSpans():
+      if s.kind != ekTable or not s.name.startsWith("table_cfMapPtr_"):
+        continue
+      doAssert s.length mod 2 == 0, s.name
+      var prev = -1
+      var nPtr = 0
+      for j in 0..<(s.length div 2):
+        let v = int(gold[s.offset + j * 2]) or (int(gold[s.offset + j * 2 + 1]) shl 8)
+        if v == 0:
+          continue
+        doAssert v >= 0x7000 and v < 0xA000, &"{s.name} bad ptr ${v:04X}"
+        if prev >= 0:
+          doAssert v >= prev, &"{s.name} non-mono"
+        prev = v
+        nPtr += 1
+        targets.add(0x0F0000 + v)
+      doAssert nPtr >= 2, s.name
+      n += 1
+      total += s.length
+    doAssert n >= 10, &"expected ≥10 cfMapPtr claims, got {n}"
+    doAssert total >= 200, &"expected ≥200 cfMapPtr bytes, got {total}"
+    # Target records: u16 n + n×4, abut next unique target when sorted.
+    targets.sort()
+    var uniq: seq[int] = @[]
+    for t in targets:
+      if uniq.len == 0 or t != uniq[^1]:
+        uniq.add t
+    var ok = 0
+    for i in 0..<uniq.len:
+      let fo = uniq[i]
+      let count = int(gold[fo]) or (int(gold[fo + 1]) shl 8)
+      doAssert count >= 1 and count <= 64, &"bad count @0x{fo:06X}"
+      let recLen = 2 + count * 4
+      if i + 1 < uniq.len:
+        doAssert uniq[i + 1] >= fo + recLen, &"overlap @0x{fo:06X}"
+      ok += 1
+    doAssert ok == uniq.len
+    doAssert isBaseromExtractOffset(0x0F6B0D)
+    doAssert isBaseromExtractOffset(0x0F6BD7)
+    echo "[test_baserom_extract] CF map ptr table OK: ", n, " spans, ",
+      total, " B, ", uniq.len, " targets"
+
+block liveCfMapRecStream:
+  ## count+4n residual placement stream @0x0F71FB.
+  if not goldBaseromAvailable():
+    discard
+  else:
+    let gold = readGoldBaseromBytes()
+    doAssert isBaseromExtractOffset(0x0F71FB)
+    var p = 0x0F71FB
+    let hi = 0x0F71FB + 18
+    var recs = 0
+    while p + 2 <= hi:
+      let count = int(gold[p]) or (int(gold[p + 1]) shl 8)
+      doAssert count >= 1 and count <= 32
+      let L = 2 + count * 4
+      doAssert p + L <= hi
+      p += L
+      recs += 1
+    doAssert p == hi
+    doAssert recs == 3
+    echo "[test_baserom_extract] CF map recstream OK: ", recs, " records"
+
+block liveCfObj12Records:
+  ## 12-byte CF object/config residual ending in far ptr bank $C6-$C9.
+  if not goldBaseromAvailable():
+    discard
+  else:
+    let gold = readGoldBaseromBytes()
+    var n = 0
+    var total = 0
+    for s in allBaseromExtractSpans():
+      if s.kind != ekTable or not s.name.startsWith("table_cfObj12_"):
+        continue
+      doAssert s.length == 12, s.name
+      doAssert gold[s.offset] <= 3'u8, s.name
+      let bank = gold[s.offset + 11]
+      doAssert bank >= 0xC6 and bank <= 0xC9, &"{s.name} bank ${bank:02X}"
+      n += 1
+      total += s.length
+    doAssert n >= 20, &"expected ≥20 cfObj12 claims, got {n}"
+    doAssert total >= 240, &"expected ≥240 cfObj12 bytes, got {total}"
+    echo "[test_baserom_extract] CF obj12 records OK: ", n, " spans, ", total, " B"
