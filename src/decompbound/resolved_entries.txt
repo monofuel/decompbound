@@ -25767,3 +25767,23 @@ C16124 0
 C2A0EF 0
 C07D1C 0
 
+# Residual free code holes: clean REP #$31 / JSR;RTL stubs (2026-07-24 convert_all seed wave)
+# High-confidence only; byte-verified disasm; free residual outside code_spans.
+C28D3A 0
+C28E3B 0
+C29D7A 0
+C47369 0
+C02C83 0
+C04049 0
+C0D195 0
+C10078 0
+C10C4F 0
+C29033 0
+C15C36 0
+C2C145 0
+C0865B 0
+C08799 0
+C087A7 0
+
+# Residual free REP;RTL continuation after seed wave (file 0x029036+3)
+C29036 0
