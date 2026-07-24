@@ -424,7 +424,7 @@ block liveCfMapPtrTable:
         prev = v
         nPtr += 1
         targets.add(0x0F0000 + v)
-      doAssert nPtr >= 2, s.name
+      doAssert nPtr >= 1, s.name  # residual holes may be a single free u16
       n += 1
       total += s.length
     doAssert n >= 10, &"expected ≥10 cfMapPtr claims, got {n}"
