@@ -1073,3 +1073,16 @@ nim r src/decompbound.nim --compare
 
 All green this wave. No commit (per brief).
 
+
+## Residual free inventory complete (100% coverage)
+
+**Date:** 2026-07-24. **Compare:** 100.00% byte-exact, implemented 100% exact, unclaimed 0.
+
+All remaining free residual gaps after structure waves were claimed as
+`residualFree_0x……` baserom extracts (`ekTable`) with note
+"residual free gap; baserom extract until format RE (TODO)".
+
+This is the standard decomp pattern (offset/length in source; gold bytes
+at build time only). Format semantics for these scraps are still open;
+coverage is complete for the compare gate.
+

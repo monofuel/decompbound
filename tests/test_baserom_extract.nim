@@ -1498,3 +1498,132 @@ block liveWave103Residual:
       " bitMask=", maskB, " cfRec5=", cfB, " bitFlag3=", bitB,
       " zero=", zeroB, " total=", waveTot, " B"
 
+block liveWave104Residual:
+  ## Residual wave104: zero/const/apu/u8pair/term min2/bitFlag min2 free-only.
+  if not goldBaseromAvailable():
+    discard
+  else:
+    let gold = readGoldBaseromBytes()
+    var zeroB, constB, apuB, u8B, termB, bitB, farB, asB = 0
+    let chunks = allRomChunksMeta()
+    for s in allBaseromExtractSpans():
+      let isW =
+        s.name.startsWith("zero_wave104_") or
+        s.name.startsWith("table_constFill_w104_") or
+        s.name.startsWith("apuPack_w104_") or
+        s.name.startsWith("table_u8pair4_w104_") or
+        s.name.startsWith("table_term1_w104_") or
+        s.name.startsWith("table_bitFlag_w104_") or
+        s.name.startsWith("table_farPtr_w104_") or
+        s.name.startsWith("as_wave104_")
+      if not isW:
+        continue
+      for c in chunks:
+        if c.kind != ckImplementedCode:
+          continue
+        let a0 = max(s.offset, c.offset)
+        let a1 = min(s.offset + s.length, c.offset + c.length)
+        doAssert a0 >= a1, &"overlap {s.name} with code 0x{c.offset:06X}"
+      if s.name.startsWith("zero_wave104_"):
+        zeroB += s.length
+        doAssert s.kind == ekZeroPad
+        for j in 0 ..< s.length:
+          doAssert gold[s.offset + j] == 0
+      elif s.name.startsWith("table_constFill_w104_"):
+        constB += s.length
+        let v = gold[s.offset]
+        for j in 0 ..< s.length:
+          doAssert gold[s.offset + j] == v
+      elif s.name.startsWith("apuPack_w104_"):
+        apuB += s.length
+        doAssert s.kind == ekApuPackage
+        doAssert s.length >= 4
+      elif s.name.startsWith("table_u8pair4_w104_"):
+        u8B += s.length
+        doAssert s.length >= 8 and s.length mod 2 == 0
+      elif s.name.startsWith("table_term1_w104_"):
+        termB += s.length
+        doAssert s.length >= 2 and s.length <= 32
+        let term = gold[s.offset + s.length - 1]
+        doAssert term >= 0xF0
+        var tc = 0
+        for j in 0 ..< s.length:
+          if gold[s.offset + j] == term: tc += 1
+        doAssert tc == 1, s.name
+      elif s.name.startsWith("table_bitFlag_w104_"):
+        bitB += s.length
+        doAssert s.length >= 2
+        var nz = 0
+        for j in 0 ..< s.length:
+          let b = gold[s.offset + j]
+          doAssert b in [0x00u8, 0x01u8, 0x80u8], s.name
+          if b != 0: nz += 1
+        doAssert nz >= 1, s.name
+      elif s.name.startsWith("table_farPtr_w104_"):
+        farB += s.length
+        doAssert s.length mod 3 == 0 and s.length >= 3
+        for i in 0 ..< (s.length div 3):
+          let b = gold[s.offset + i*3 + 2]
+          let lo = gold[s.offset + i*3].int or (gold[s.offset + i*3 + 1].int shl 8)
+          doAssert b >= 0xC0 and b <= 0xEF and lo != 0, s.name
+      elif s.name.startsWith("as_wave104_"):
+        asB += s.length
+        doAssert isGoodActionScriptSpan(gold, s.offset, s.length), s.name
+
+    let waveTot = zeroB + constB + apuB + u8B + termB + bitB + farB + asB
+    doAssert waveTot >= 500, &"wave104 total {waveTot}"
+    doAssert zeroB >= 20, &"zero {zeroB}"
+    doAssert apuB >= 90, &"apu {apuB}"
+    doAssert termB >= 300, &"term {termB}"
+    doAssert bitB >= 100, &"bitFlag {bitB}"
+    echo "[test_baserom_extract] wave104 residual OK: zero=", zeroB,
+      " const=", constB, " apu=", apuB, " u8pair=", u8B,
+      " term=", termB, " bitFlag=", bitB, " farPtr=", farB,
+      " as=", asB, " total=", waveTot, " B"
+
+block liveWave104bResidual:
+  ## Residual wave104b: zero/const/as/u8pair3 free remainders.
+  if not goldBaseromAvailable():
+    discard
+  else:
+    let gold = readGoldBaseromBytes()
+    var zeroB, constB, asB, u8B = 0
+    let chunks = allRomChunksMeta()
+    for s in allBaseromExtractSpans():
+      let isW =
+        s.name.startsWith("zero_wave104b_") or
+        s.name.startsWith("table_constFill_w104b_") or
+        s.name.startsWith("as_wave104b_") or
+        s.name.startsWith("table_u8pair3_w104b_")
+      if not isW:
+        continue
+      for c in chunks:
+        if c.kind != ckImplementedCode:
+          continue
+        let a0 = max(s.offset, c.offset)
+        let a1 = min(s.offset + s.length, c.offset + c.length)
+        doAssert a0 >= a1, &"overlap {s.name} with code 0x{c.offset:06X}"
+      if s.name.startsWith("zero_wave104b_"):
+        zeroB += s.length
+        doAssert s.kind == ekZeroPad
+        for j in 0 ..< s.length:
+          doAssert gold[s.offset + j] == 0
+      elif s.name.startsWith("table_constFill_w104b_"):
+        constB += s.length
+        let v = gold[s.offset]
+        for j in 0 ..< s.length:
+          doAssert gold[s.offset + j] == v
+      elif s.name.startsWith("as_wave104b_"):
+        asB += s.length
+        doAssert isGoodActionScriptSpan(gold, s.offset, s.length), s.name
+      elif s.name.startsWith("table_u8pair3_w104b_"):
+        u8B += s.length
+        doAssert s.length >= 6 and s.length mod 2 == 0
+
+    let waveTot = zeroB + constB + asB + u8B
+    doAssert waveTot >= 400, &"wave104b total {waveTot}"
+    doAssert u8B >= 400, &"u8pair3 {u8B}"
+    echo "[test_baserom_extract] wave104b residual OK: zero=", zeroB,
+      " const=", constB, " as=", asB, " u8pair3=", u8B,
+      " total=", waveTot, " B"
+
