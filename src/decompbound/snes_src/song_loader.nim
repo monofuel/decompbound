@@ -9,7 +9,7 @@
 ## RTS helper at $C4FB42 (still generated); gold-gated by tests/test_regions.nim.
 
 import
-  ./snes_asm
+  ../snes_asm
 
 const
   LoadSongOffset* = 0x04FBBD

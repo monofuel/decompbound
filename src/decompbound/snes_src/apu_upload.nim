@@ -8,7 +8,7 @@
 ## Gold-gated by tests/test_regions.nim.
 
 import
-  ./snes_asm
+  ../snes_asm
 
 const
   ApuUploadOffset* = 0x00AB06

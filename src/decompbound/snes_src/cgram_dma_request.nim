@@ -7,7 +7,7 @@
 ## (adopted.nim); gold-gated by tests/test_regions.nim.
 
 import
-  ./snes_asm
+  ../snes_asm
 
 const
   CgramDmaRequestOffset* = 0x00856B

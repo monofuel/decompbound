@@ -6,7 +6,7 @@
 ## gold-gated by tests/test_regions.nim.
 
 import
-  ./snes_asm
+  ../snes_asm
 
 const
   FlushBg3VofsOffset* = 0x00AD9F

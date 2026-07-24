@@ -14,7 +14,7 @@
 ## covered by one region). This is the first mid-region Goal 1.5 adoption.
 
 import
-  ./snes_asm
+  ../snes_asm
 
 const
   RngAdvanceOffset* = 0x008E9A

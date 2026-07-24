@@ -7,7 +7,7 @@
 ## tests/test_regions.nim.
 
 import
-  ./snes_asm
+  ../snes_asm
 
 const
   SetObjBaseOffset* = 0x008D92

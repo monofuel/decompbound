@@ -9,7 +9,7 @@
 ## tests/test_regions.nim.
 
 import
-  ./snes_asm
+  ../snes_asm
 
 const
   SetBgModeOffset* = 0x008D79

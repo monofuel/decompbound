@@ -7,7 +7,7 @@
 ## gold-gated by tests/test_regions.nim.
 
 import
-  ./snes_asm
+  ../snes_asm
 
 const
   Mode7MulBySineOffset* = 0x00B400

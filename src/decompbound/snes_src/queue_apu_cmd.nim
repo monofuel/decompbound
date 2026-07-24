@@ -9,7 +9,7 @@
 ## wait-idle ($C0ABC6); gold-gated by tests/test_regions.nim.
 
 import
-  ./snes_asm
+  ../snes_asm
 
 const
   QueueApuCmdOffset* = 0x00ABE0

@@ -4,7 +4,7 @@
 ## same `AsmNode` list + `assemble()` machinery Goal 1 verified, so it adds ZERO
 ## new verification surface. Each adopted region still round-trips byte-exact
 ## against gold (`tests/test_regions.nim`), which is what makes adoption
-## un-fakeable. See `src/decompbound/sram_piracy.nim` for a worked region.
+## un-fakeable. See `src/decompbound/snes_src/sram_piracy.nim` for a worked region.
 ##
 ## Grammar (incremental — extend the marker/immediate tables as regions need
 ## more modes; every addition is gold-gated):

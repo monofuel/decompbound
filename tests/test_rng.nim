@@ -8,7 +8,7 @@
 
 import
   std/unittest,
-  ../src/decompbound/rng,
+  ../src/decompbound/snes_src/rng,
   ../src/decompbound/regions
 
 const

@@ -42,7 +42,8 @@ pressure tests; not a substitute for Goal 1.
   progress.
 - Code regions ship as bank modules under `src/decompbound/generated/`
   (assembler DSL from the gold ROM via `convert_all` / tracing). Goal 1.5
-  peels understood routines into named modules (`snesAsm`, adopted helpers).
+  peels understood routines into named `snesAsm` modules under
+  `src/decompbound/snes_src/` (registered via `adopted.nim`).
 - Shared **opcode table** (`opcodes.nim`); **assembler** + **disassembler**
   derive from it; round-trip and unit tests in `tests/`.
 - **Emulator:** 65816, PPU (incl. Mode 7 / HDMA color math paths used by EB),

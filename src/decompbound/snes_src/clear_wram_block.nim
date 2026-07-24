@@ -7,7 +7,7 @@
 ## tests/test_regions.nim.
 
 import
-  ./snes_asm
+  ../snes_asm
 
 const
   ClearWramBlock280COffset* = 0x000000

@@ -1,4 +1,4 @@
-.PHONY: help build compare test clean regions boot screenshot intro title song vectors spc-vectors disasm play play-pokey archive archive-replays play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai llm-ai-display llm-ai-display-loop testrom script-dump gfx-roundtrip battle-bg trace inspect audio-check audio-diff jukebox-app
+.PHONY: help build compare test check clean regions boot screenshot intro title song vectors spc-vectors disasm play play-pokey archive archive-replays play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai llm-ai-display llm-ai-display-loop testrom script-dump gfx-roundtrip battle-bg trace inspect audio-check audio-diff jukebox-app
 
 # bash + pipefail: the test loop pipes nim through sed, and without
 # pipefail the pipeline's exit status is sed's (always 0), which turns
@@ -15,6 +15,7 @@ LUA_LIB := vendor/lua/liblua.a
 help:
 	@echo "decompbound targets:"
 	@echo "  make compare      - build the decomp ROM and compare against gold"
+	@echo "  make check        - nim check main entrypoints + tests (no run)"
 	@echo "  make test         - run the full test suite"
 	@echo "  make boot         - trace the real ROM booting on the emulator"
 	@echo "  make screenshot   - render the boot state to bin/screenshot.png"
@@ -260,6 +261,22 @@ test: nim.cfg $(LUA_LIB)
 	for pid in $$pids; do \
 		wait $$pid || fail=1; \
 	done; \
+	exit $$fail
+
+# Fast compile-only gate (same idea as racha/satisfactory_tools/coworld):
+# `nim check` entrypoints + unit tests without executing them.
+check: nim.cfg
+	@fail=0; \
+	for f in src/decompbound.nim src/compare.nim \
+	         src/tools/play.nim src/tools/llm_ai.nim; do \
+		echo "==> nim check $$f"; \
+		nim check $(NIM_TEST_FLAGS) "$$f" || fail=1; \
+	done; \
+	for f in tests/test_*.nim; do \
+		echo "==> nim check $$f"; \
+		nim check $(NIM_TEST_FLAGS) "$$f" || fail=1; \
+	done; \
+	if [ $$fail -eq 0 ]; then echo "==> make check OK"; fi; \
 	exit $$fail
 
 clean:

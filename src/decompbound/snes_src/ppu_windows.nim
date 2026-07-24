@@ -6,7 +6,7 @@
 ## the region registry (adopted.nim); gold-gated by tests/test_regions.nim.
 
 import
-  ./snes_asm
+  ../snes_asm
 
 const
   ConfigurePpuWindowsOffset* = 0x00B047

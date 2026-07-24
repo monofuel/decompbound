@@ -8,7 +8,7 @@
 ## writeApuPort* siblings; gold-gated by tests/test_regions.nim.
 
 import
-  ./snes_asm
+  ../snes_asm
 
 const
   WaitApuIdleClearSongOffset* = 0x00ABC6

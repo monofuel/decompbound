@@ -3,7 +3,7 @@
 ## generated regions. See docs/goal-1.5.md.
 
 import
-  ./snes_asm
+  ../snes_asm
 
 const
   SramPiracyCheckOffset* = 0x00A11C

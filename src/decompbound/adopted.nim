@@ -1,15 +1,16 @@
 ## Hand-curated ROM regions that replace generated scaffolding.
-## convert_all.nim carves these byte-ranges OUT of the traced code, so a curated
-## module can sit MID-region (not only on a region boundary) and re-generation
-## can never clobber it. Generated scaffold and adopted source therefore never
-## overlap (tests/test_regions.nim enforces no-overlap + byte-exactness).
-## See docs/goal-1.5.md.
+## Source lives under `snes_src/` (snesAsm modules; not named `asm/` — that's a
+## Nim keyword). convert_all.nim carves these byte-ranges OUT of the traced
+## code, so a curated module can sit MID-region (not only on a region boundary)
+## and re-generation can never clobber it. Generated scaffold and adopted source
+## therefore never overlap (tests/test_regions.nim enforces no-overlap +
+## byte-exactness). See docs/goal-1.5.md.
 
 import
-  ./[sram_piracy, rng, apu_upload, cgram_dma_request, apu_port_io,
-     song_loader, queue_apu_cmd, wait_apu_idle, bg_layer_setup,
-     obj_base, bg4_bases, clear_wram_block, ppu_color_math, ppu_windows,
-     ppu_scroll, mode7_mul, hdma_channel, hw_multiply]
+  ./snes_src/[sram_piracy, rng, apu_upload, cgram_dma_request, apu_port_io,
+              song_loader, queue_apu_cmd, wait_apu_idle, bg_layer_setup,
+              obj_base, bg4_bases, clear_wram_block, ppu_color_math, ppu_windows,
+              ppu_scroll, mode7_mul, hdma_channel, hw_multiply]
 
 proc allAdoptedRegions*(): seq[tuple[name: string, offset: int, data: seq[uint8]]] =
   ## Every hand-curated code region, assembled from named source.

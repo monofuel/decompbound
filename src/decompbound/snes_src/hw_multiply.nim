@@ -7,7 +7,7 @@
 ## gold-gated by tests/test_regions.nim.
 
 import
-  ./snes_asm
+  ../snes_asm
 
 const
   HardwareMultiplyOffset* = 0x008FF7
