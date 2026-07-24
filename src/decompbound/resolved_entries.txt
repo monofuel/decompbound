@@ -25787,3 +25787,11 @@ C087A7 0
 
 # Residual free REP;RTL continuation after seed wave (file 0x029036+3)
 C29036 0
+
+# Sandwich free → code (curated, probe_sandwich_continue) 2026-07-24
+# Hand-verified: FULL free cover, endsRun, real neighbors (not 80-plane false code).
+C0CEB4 0  # file 0x00CEB4+2 BRA → PLD;RTL free epilogue
+C0CEBC 0  # file 0x00CEBC+2 PLD;RTL function epilogue
+C0A11B 0  # file 0x00A11B+1 RTS stub after JMP
+D962B0 0  # file 0x1962B0+3 JMP skipped-over by prior BRA
+E6044F 0  # file 0x26044F+2 PHX;RTS sandwich stub
