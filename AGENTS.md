@@ -3,6 +3,18 @@
 - Earthbound (SNES) decompilation project in Nim.
 - This will be a complex and open ended progress, you will need to get creative and may have to make tools to help.
 
+## Tools vs probes (keep `src/tools/` clean)
+
+| Path | What goes here |
+|------|----------------|
+| **`src/tools/`** | Product tools only (`play`, `llm_ai`, `story_percents`, extractors, …). Ship-quality. |
+| **`src/probes/`** | One-off RE digs, LLM-play experiments, `probe_*.nim`, fixture `synth_*.nim`. Agents create digs **here only**. |
+
+- Run digs: `nim r src/probes/probe_foo.nim`
+- Digs import product modules via `../tools/[…]` and `../decompbound/[…]`.
+- When a dig graduates to product: move logic into `src/tools/` (or `src/decompbound/`), add a real test, delete or slim the probe.
+- Do **not** dump new probes next to `play.nim` / `llm_ai.nim`.
+
 ## Delegate via Grok 4.5 sub-agents — and be proactive about it
 
 Most substantive work should be **fanned out to Grok Build native sub-agents**

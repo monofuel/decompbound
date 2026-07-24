@@ -168,7 +168,7 @@ Two complementary channels, sent every LLM tick:
   a random townie), so perception can label the scene. In EarthBound each
   overworld entity spawns from a sprite/TPT (text-pointer) entry — that index is
   the identity.
-- **Progress:** `src/tools/probe_entity_id.nim` dumps active slots + auto-scans
+- **Progress:** `src/probes/probe_entity_id.nim` dumps active slots + auto-scans
   for slot-structured arrays. Confirmed from real data: in `home_door.state` the
   **door blocker is entity slot 4** at (0x0A60,0x0158). The numeric identity
   byte itself is not yet pinned (the auto-scan surfaced mostly position-derived

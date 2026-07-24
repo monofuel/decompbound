@@ -210,5 +210,5 @@ Store states privately in `decompbound_secret/states/` (see
   `eb93a14`; baseline `0bdad72`)
 - Savestate format: [`docs/state-screenshots.md`](state-screenshots.md)
 - Code: `src/tools/story_percents.nim`, `src/tools/llm_mock_policies.nim`,
-  `src/tools/touch_grass.nim`, `src/tools/probe_pokey_*.nim`
+  `src/tools/touch_grass.nim`, `src/probes/probe_pokey_*.nim`
 - Memory: `legitimate-play-no-glitch`, `player-is-slot-24`

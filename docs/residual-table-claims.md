@@ -265,8 +265,8 @@ Extract claims remain hard-gated: **must not overlap `code_spans`**. Verified th
 ### Tooling (this wave)
 
 - `src/tools/scan_unclaimed_absrefs.nim` — comment/operand abs-ref rank (noisy)
-- `src/tools/probe_dense_loaders.nim` / `probe_dense_loaders2.nim` — residual runs + gold opcode scan
-- `src/tools/probe_midtable_residual.nim` — C0–C4 bases with mid-window residual
+- `src/probes/probe_dense_loaders.nim` / `probe_dense_loaders2.nim` — residual runs + gold opcode scan
+- `src/probes/probe_midtable_residual.nim` — C0–C4 bases with mid-window residual
 - `src/tools/gen_dense_claims.nim` — emit residual free-run spans
 - `src/tools/verify_extract_overlap.nim` — code_spans ∩ extract gate
 
@@ -406,7 +406,7 @@ lever is **code_span reclassification**, not more extract fishing on free residu
 
 ### Tooling
 
-- `src/tools/probe_residual_expand.nim` — re-walk known families + top residual runs
+- `src/probes/probe_residual_expand.nim` — re-walk known families + top residual runs
 
 ### Verification
 
@@ -468,7 +468,7 @@ into code_spans. `consumeScriptStreamRun` residual-only fails those (test
 
 ### Tooling
 
-- `src/tools/probe_allbank_abslong.nim` — all-bank AbsoluteLong → residual + pack discovery
+- `src/probes/probe_allbank_abslong.nim` — all-bank AbsoluteLong → residual + pack discovery
 - `src/tools/gen_allbank_wave_claims.nim` — emit this wave’s spans
 - `src/tools/verify_extract_overlap.nim` — code_spans ∩ extract gate
 
@@ -534,7 +534,7 @@ All green this wave. No commit (per brief).
 ### Tooling
 
 - `src/tools/gen_residual_wave97.nim` — emit this wave’s residual-only spans
-- `src/tools/probe_ffrec_residual.nim` — ffRec residual scout
+- `src/probes/probe_ffrec_residual.nim` — ffRec residual scout
 
 ## Residual wave98 (fe/fd/seqE0/plane/cmd/AS/u16) — 2026-07-24
 
@@ -586,7 +586,7 @@ Residual unclaimed **~62k** B inventory (was **94,328**). **Δ +31,913 B**.
 ### Tooling
 
 - `src/tools/gen_residual_wave98.nim` — emit this wave’s residual-only spans
-- `src/tools/probe_wave98.nim` / `probe_wave98_max.nim` / `probe_seq_quality.nim` — scouts
+- `src/probes/probe_wave98.nim` / `probe_wave98_max.nim` / `probe_seq_quality.nim` — scouts
 
 ### Verification
 
@@ -647,7 +647,7 @@ Residual unclaimed **26,438** B (was **62,415**). **Δ +35,977 B**.
 ### Tooling
 
 - `src/tools/gen_residual_wave99.nim` — emit this wave’s residual-only spans
-- `src/tools/probe_wave99.nim` / `probe_wave99b.nim` / `probe_wave99c.nim` — scouts
+- `src/probes/probe_wave99.nim` / `probe_wave99b.nim` / `probe_wave99c.nim` — scouts
 
 ### Verification
 
@@ -705,7 +705,7 @@ Residual unclaimed **17,151 B** (was **26,438**). **Δ +9,287 B**.
 ### Tooling
 
 - `src/tools/gen_residual_wave100.nim` / `gen_residual_wave100b.nim`
-- `src/tools/probe_wave100.nim` / `probe_residual_hard.nim` — scouts
+- `src/probes/probe_wave100.nim` / `probe_residual_hard.nim` — scouts
 
 ### Verification
 
@@ -848,7 +848,7 @@ regions **100.00% exact**. Prior baseline **99.45%** (`3,128,577` implied by
 ### Tooling
 
 - `src/tools/gen_residual_wave101.nim` — emitter
-- `src/tools/probe_final_residual.nim` / `probe_claimable_now.nim` — residual scouts
+- `src/probes/probe_final_residual.nim` / `probe_claimable_now.nim` — residual scouts
 
 ### Verification
 
@@ -992,9 +992,9 @@ formPtr, item/shop/EXP, C5 body, APU pack free, C0–C4 AbsoluteLong into free).
 
 ### Tooling
 
-- `src/tools/probe_w102.nim` / `probe_w102_strict.nim` / `probe_w102_claimable.nim`
-- `src/tools/probe_final_residual.nim` / `probe_claimable_now.nim` / `probe_top_gaps.nim`
-- `src/tools/probe_cf_cluster.nim` — CF free-cluster map
+- `src/probes/probe_w102.nim` / `probe_w102_strict.nim` / `probe_w102_claimable.nim`
+- `src/probes/probe_final_residual.nim` / `probe_claimable_now.nim` / `probe_top_gaps.nim`
+- `src/probes/probe_cf_cluster.nim` — CF free-cluster map
 
 ### Verification
 
@@ -1061,7 +1061,7 @@ scraps. Next coverage lever is still **code_span reseed** (~6.9 KB code\|code sa
 
 ### Tooling
 
-- `src/tools/probe_w103.nim` / `probe_w103_deep.nim` / `probe_w103_claim.nim`
+- `src/probes/probe_w103.nim` / `probe_w103_deep.nim` / `probe_w103_claim.nim`
 
 ### Verification
 
@@ -1126,7 +1126,7 @@ regions **100.00% exact**. Prior **99.54%** (`~3,131,168`). Residual free invent
 ### Tooling
 
 - `src/tools/gen_residual_wave104.nim` / `gen_residual_wave104b.nim`
-- `src/tools/probe_w104_scout.nim` / `probe_w104_detail.nim` / `probe_free_now.nim`
+- `src/probes/probe_w104_scout.nim` / `probe_w104_detail.nim` / `probe_free_now.nim`
 
 ### Verification
 
@@ -1171,7 +1171,7 @@ regions **100.00% exact**. Prior **99.57%** (`3,132,269`). Residual free invento
 ### Tooling
 
 - `src/tools/gen_residual_wave105.nim`
-- `src/tools/probe_w105.nim` / `probe_w105_seeds.nim`
+- `src/probes/probe_w105.nim` / `probe_w105_seeds.nim`
 - `src/tools/patch_w105_extracts.nim` (gold-slice patch into `bin/Decompbound.smc`)
 
 ### Verification
@@ -1311,7 +1311,7 @@ Prior **99.59%** (`3,132,886`). Unclaimed residual **12,838 B** (was **12,842**)
 
 ### Tooling
 
-- `src/tools/probe_incomplete_records.nim` / `probe_table_straddle.nim`
+- `src/probes/probe_incomplete_records.nim` / `probe_table_straddle.nim`
 - `src/tools/gen_carve_incomplete.nim`
 - `src/tools/patch_w106b_extracts.nim`
 - `src/tools/verify_extract_overlap.nim` — carved-view gate
@@ -1379,7 +1379,7 @@ are largely drained at this quality bar.
 ### Tooling
 
 - `src/tools/gen_residual_wave107.nim` / `patch_w107_extracts.nim`
-- `src/tools/probe_w107.nim` / `probe_ce62ee.nim` / `probe_w106_gates.nim`
+- `src/probes/probe_w107.nim` / `probe_ce62ee.nim` / `probe_w106_gates.nim`
 
 ### Verification
 
