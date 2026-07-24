@@ -216,8 +216,8 @@ function update()
   -- forward trail so followTrail seats it (a naive onett_to_crater reverse local-
   -- mins on the climb: knock=10 stall 2026-07-17). Same points as the old inline
   -- _knockTrail, now single-sourced with the Agent.
-  -- At the front door post-meteor a police officer stands ON the door tile
-  -- ("[redacted dialogue]"). That tile
+  -- At the front door post-meteor the door NPC stands ON the door tile
+  -- (talk to them to enter — live dialogue, not hardcoded). That tile
   -- is therefore unreachable, so followTrail's last waypoint never "arrives"
   -- and doorEnter's exact-pixel Up+A recipe can never seat. The real entry is
   -- to TALK to the cop: once near the door, face it (Up) and press A;

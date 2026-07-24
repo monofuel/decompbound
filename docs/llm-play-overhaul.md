@@ -142,7 +142,7 @@ Two complementary channels, sent every LLM tick:
      ],
      "exits": [{"dir": "W", "kind": "road"}, {"dir": "N", "kind": "path_up"}],
      "landmarks": [{"name": "meteor_crater", "dir": "N"}],
-     "on_screen_text": "[redacted dialogue]",
+     "on_screen_text": "<live dialogue buffer>",
      "menu": {"open": false}
    }
    ```

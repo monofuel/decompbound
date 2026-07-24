@@ -7,7 +7,7 @@
 ## cast we KNOW, so we can pin the identity array by cross-referencing:
 ##   pokey_free            -> Pokey stands next to Ness at the meteor
 ##   home_downstairs_night -> Mom + Tracy present (slots ~3-9)
-##   home_door             -> the mystery door NPC ("[redacted dialogue]")
+##   home_door             -> the door NPC (Mom; talk-to-enter)
 ## If the door NPC's identity value == Mom's value in the downstairs state, the
 ## "cop" label was wrong. If it matches nothing / a distinct cop sprite, note it.
 import

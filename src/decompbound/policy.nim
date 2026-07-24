@@ -41,7 +41,7 @@ const
   MinTextRun = 3
 
   # Dialogue stream reader (getDialogueText). Verified 2026-07-10 against
-  # ebSt "[redacted]" + pokey TAS: far ptr at $7E96C5 is the live script
+  # Known dialogue screenstate + pokey TAS: far ptr at $7E96C5 is the live script
   # cursor; window slots $8650/$8654 gate "is a window open" (0xFF = free).
   # TODO(magic): $96C5 stream cursor — confirm writer in text interpreter;
   # party name block $99CE is first PC name (ASCII+0x30, 5 chars) from WRAM dump.
