@@ -61,6 +61,7 @@ pressure tests; not a substitute for Goal 1.
 #   bin/Earthbound (U) [!].smc
 
 make compare          # build decomp ROM + compare vs gold → report.md
+make check            # nim check entrypoints + tests (compile only)
 make test             # unit suite (builds vendor/lua when needed)
 make play             # windowed emulator
 make llm-ai           # LLM-play harness (needs local model setup; see docs)
