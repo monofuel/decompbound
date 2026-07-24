@@ -221,27 +221,41 @@ block liveFormationPointerTable:
 
 
 block liveScriptStreamClaims:
-  ## Every ekScriptStream claim is fully covered by consecutive good CC walks.
+  ## Full streams end on 0x00; residual prefixes (script_ssPrefix_*) are free-only
+  ## heads of a good full CC walk that continues into claimed inventory.
   if not goldBaseromAvailable():
     discard
   else:
     let gold = readGoldBaseromBytes()
     var n = 0
     var total = 0
+    var prefixes = 0
     for s in allBaseromExtractSpans():
       if s.kind != ekScriptStream:
         continue
-      let consumed = consumeScriptStreamRun(gold, s.offset, s.length)
-      doAssert consumed == s.length,
-        &"{s.name}: script run covered {consumed}/{s.length}"
-      doAssert gold[s.offset + s.length - 1] == 0,
-        &"{s.name}: must end on 0x00 terminator"
+      if s.name.startsWith("script_ssPrefix_"):
+        let wFree = walkScriptStream(gold, s.offset, s.offset + s.length)
+        doAssert wFree.badGlyphs == 0, &"{s.name}: bad glyphs in free prefix"
+        doAssert not wFree.ended, &"{s.name}: prefix should not end in free"
+        doAssert wFree.length == s.length, &"{s.name}: free walk {wFree.length}/{s.length}"
+        doAssert wFree.glyphs >= ScriptStreamMinGlyphs
+        let wFull = walkScriptStream(gold, s.offset, min(s.offset + ScriptStreamMaxLen, gold.len))
+        doAssert isGoodScriptStream(wFull), &"{s.name}: full stream not good"
+        doAssert wFull.length > s.length, &"{s.name}: full must extend past free"
+        prefixes += 1
+      else:
+        let consumed = consumeScriptStreamRun(gold, s.offset, s.length)
+        doAssert consumed == s.length,
+          &"{s.name}: script run covered {consumed}/{s.length}"
+        doAssert gold[s.offset + s.length - 1] == 0,
+          &"{s.name}: must end on 0x00 terminator"
       n += 1
       total += s.length
     doAssert n > 0
     doAssert total > 10_000
+    doAssert prefixes >= 50, &"expected ≥50 residual prefixes, got {prefixes}"
     echo "[test_baserom_extract] script_stream claims verified: ", n,
-      " spans, ", total, " bytes"
+      " spans, ", total, " bytes (prefixes=", prefixes, ")"
 
 
 block liveActionScriptClaims:
@@ -356,7 +370,7 @@ block liveFfShortRecordStreams:
       while i < hi:
         let rs = i
         var found = false
-        while i < hi and i - rs < 24:
+        while i < hi and i - rs < 33:
           if gold[i] == 0xFF:
             found = true
             i += 1
@@ -364,13 +378,13 @@ block liveFfShortRecordStreams:
           i += 1
         doAssert found, &"{s.name}: missing FF in record @0x{rs:06X}"
         let L = i - rs
-        doAssert L >= 2 and L <= 16, &"{s.name}: bad rec len {L}"
+        doAssert L >= 2 and L <= 32, &"{s.name}: bad rec len {L}"
         recs += 1
       doAssert recs >= 1
       n += 1
       total += s.length
     doAssert n >= 6, &"expected ≥6 ffRec claims, got {n}"
-    doAssert total >= 400, &"expected ≥400 ffRec bytes, got {total}"
+    doAssert total >= 8000, &"expected ≥8000 ffRec bytes, got {total}"
     echo "[test_baserom_extract] FF short-record streams OK: ", n,
       " spans, ", total, " bytes"
 
@@ -636,11 +650,12 @@ block liveDenseBankLoaderResidual:
         doAssert s.length mod 2 == 0
     doAssert ce == 8
     # Residual-only: claims must not already be implemented_code chunks
+    let denseChunks = allRomChunksMeta()
     for s in allBaseromExtractSpans():
       if not (s.name.startsWith("table_d7MapAttr_") or s.name.startsWith("table_ca17_") or
           s.name == "table_cePtr_0x0EDD15"):
         continue
-      for c in allRomChunksMeta():
+      for c in denseChunks:
         if c.kind != ckImplementedCode: continue
         let a0 = max(s.offset, c.offset)
         let a1 = min(s.offset + s.length, c.offset + c.length)
@@ -680,10 +695,11 @@ block liveEfMidAndC4HitboxResidual:
     doAssert isBaseromExtractOffset(0x042D5F)
     doAssert isBaseromExtractOffset(0x042D5F + 100)
     # residual-only vs code chunks
+    let efChunks = allRomChunksMeta()
     for s in allBaseromExtractSpans():
       if not (s.name.startsWith("table_efSpriteMid_") or s.name.startsWith("table_c4Hitbox_")):
         continue
-      for c in allRomChunksMeta():
+      for c in efChunks:
         if c.kind != ckImplementedCode: continue
         let a0 = max(s.offset, c.offset)
         let a1 = min(s.offset + s.length, c.offset + c.length)
@@ -745,3 +761,73 @@ block liveResidualExpandC5ApuCf:
     echo "[test_baserom_extract] residual expand C5/APU/CF OK: c5Body=",
       c5, " apuInt=", apuNew, " cfObj=", cf, " total=", c5 + apuNew + cf, " B"
 
+
+block liveWave97Residual:
+  ## Residual wave97: script prefixes + far3 + zRec + w4hi0 (ffRec via liveFf).
+  if not goldBaseromAvailable():
+    discard
+  else:
+    let gold = readGoldBaseromBytes()
+    var ssN, farN, zN, w4N = 0
+    var ssB, farB, zB, w4B = 0
+    var samples: seq[BaseromExtractSpan] = @[]
+    for s in allBaseromExtractSpans():
+      if s.name.startsWith("script_ssPrefix_"):
+        ssN += 1
+        ssB += s.length
+        doAssert s.kind == ekScriptStream
+        samples.add s
+      elif s.name.startsWith("table_far3_"):
+        farN += 1
+        farB += s.length
+        doAssert s.kind == ekTable
+        doAssert s.length mod 3 == 0 and s.length >= 12
+        for i in 0 ..< (s.length div 3):
+          let bk = gold[s.offset + i * 3 + 2].int
+          doAssert bk >= 0xC0 and bk <= 0xEF, &"{s.name}: bad bank"
+        samples.add s
+      elif s.name.startsWith("table_zRec_"):
+        zN += 1
+        zB += s.length
+        doAssert s.kind == ekTable
+        var i = s.offset
+        let hi = s.offset + s.length
+        var recs = 0
+        while i < hi:
+          let rs = i
+          var found = false
+          while i < hi and i - rs < 12:
+            if gold[i] == 0:
+              found = true
+              i += 1
+              break
+            i += 1
+          doAssert found, &"{s.name}: missing 00 @0x{rs:06X}"
+          let L = i - rs
+          doAssert L >= 2 and L <= 12
+          recs += 1
+        doAssert recs >= 3
+        samples.add s
+      elif s.name.startsWith("table_w4hi0_"):
+        w4N += 1
+        w4B += s.length
+        doAssert s.kind == ekTable
+        doAssert s.length mod 4 == 0 and s.length >= 16
+        for i in 0 ..< (s.length div 4):
+          doAssert gold[s.offset + i * 4 + 3] == 0
+        samples.add s
+    doAssert ssN >= 50 and ssB >= 2000, &"ssPrefix ssN={ssN} ssB={ssB}"
+    doAssert farN >= 10 and farB >= 200, &"far3 farN={farN} farB={farB}"
+    doAssert zN >= 3 and zB >= 200, &"zRec zN={zN} zB={zB}"
+    doAssert w4N >= 1 and w4B >= 16, &"w4hi0 w4N={w4N} w4B={w4B}"
+    let chunks = allRomChunksMeta()
+    for s in samples:
+      for c in chunks:
+        if c.kind != ckImplementedCode:
+          continue
+        let a0 = max(s.offset, c.offset)
+        let a1 = min(s.offset + s.length, c.offset + c.length)
+        doAssert a0 >= a1, &"overlap {s.name} with code 0x{c.offset:06X}"
+    echo "[test_baserom_extract] wave97 residual OK: ssPrefix=", ssB,
+      " far3=", farB, " zRec=", zB, " w4hi0=", w4B,
+      " total=", ssB + farB + zB + w4B, " B"

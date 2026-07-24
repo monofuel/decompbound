@@ -482,3 +482,56 @@ nim r src/decompbound.nim --compare
 ```
 
 All green this wave. No commit (per brief).
+
+## Residual wave97 (ffRec≤32 + ssPrefix + far3 + zRec + w4hi0) — 2026-07-24
+
+Method: residual free only. Expand FF short-record max from 16→32 (multi + quality
+single); claim cross-boundary CC script prefixes that are free heads of a good full
+stream ending in claimed inventory; far-ptr 3B chains; 00-term printable multi;
+4B words with high byte 0. Hard gate: `code ∩ extract = 0`.
+
+| Family | Format | Residual claimed |
+|--------|--------|------------------|
+| ffRec expand | FF-term recs 2..32 B (multi ≥2 + single ≥3, quality gates) | **8143 B** |
+| ssPrefix | free CC prefix of `isGoodScriptStream` full walk into claimed | **2619 B** (155 spans) |
+| far3 | ≥4× 3B far ptrs bank `$C0–$EF` | **615 B** |
+| zRec | 00-term printable short recs ≥3 (2..12 B) | **617 B** |
+| w4hi0 | 4B words high byte 0, ≥4 words, full free run | **68 B** |
+
+**This wave residual = 12062 B** (681 spans).
+
+**Compare after rebuild:** **97.00%** byte-exact (`3,051,400 / 3,145,728`),
+implemented regions **100.00% exact**. Prior **96.62%** (`3,039,338`).
+Residual unclaimed **94,328 B** inventory (was **106,390**). **Δ +12,062 B**.
+
+### RE notes
+
+- **ffRec:** prior wave drained 2..16 multi-rec globally. Remaining free packs as
+  slightly longer FF-term records (up to 32) plus isolated quality singles
+  (exactly one trailing `FF`, not E0-heavy / zero-heavy). Same structural family
+  as `$CE` ffRec; test gate raised to `L ≤ 32`.
+- **ssPrefix:** ~2.6 KB residual free is the *prefix* of good CC streams that
+  terminate past free into `code_spans`/meta. Claim residual-only; full walk must
+  pass `isGoodScriptStream`. `liveScriptStreamClaims` accepts `script_ssPrefix_*`
+  without requiring terminator inside the free span.
+- **far3 / zRec / w4hi0:** structure-only residual packing (no new AbsoluteLong
+  load bases into residual free this wave — high-bank hits still look like
+  false-positive disasm).
+- **Drained under current gates:** zero-pad, pack-table APU free, full script
+  streams in free, action-script, gfx_lz, multi ffRec max16.
+
+### Verification
+
+```
+nim r tests/test_baserom_extract.nim
+nim r src/tools/verify_extract_overlap.nim
+nim r src/tools/chunk_check.nim summary
+nim r src/decompbound.nim --compare
+```
+
+All green this wave. No commit (per brief).
+
+### Tooling
+
+- `src/tools/gen_residual_wave97.nim` — emit this wave’s residual-only spans
+- `src/tools/probe_ffrec_residual.nim` — ffRec residual scout
