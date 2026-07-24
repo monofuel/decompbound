@@ -8,7 +8,7 @@
 
 import
   std/[algorithm, os, strformat, strutils, tables],
-  ../decompbound/[adopted, assembler, disasm, memmap, opcodes, sourcegen]
+  ../decompbound/[adopted, assembler, baserom_extract, disasm, memmap, opcodes, sourcegen]
 
 const
   OutputDir = "src/decompbound/generated"
@@ -87,24 +87,25 @@ proc main() =
   let analysis = analyzeControlFlow(rom, entryPoints, @[HeaderRegion],
                                     seedFlags = seedFlags)
 
-  # Adopted byte-ranges: curated modules (adopted.nim) own these spans. Carve
-  # them OUT of the traced code so a hand-written region can sit MID-region, not
-  # only on a boundary. Generated scaffold and adopted source never overlap;
-  # the enclosing traced region simply splits around the adopted span.
+  # Adopted byte-ranges + baserom extracts: carve OUT of traced code so curated
+  # modules and gold-slice data claims never overlap generated code_spans.
   let adopted = adoptedRanges()
-  proc isAdopted(off: int): bool =
+  let extractHoles = baseromExtractRanges()
+  proc isCarved(off: int): bool =
     for r in adopted:
+      if off >= r.start and off <= r.last: return true
+    for r in extractHoles:
       if off >= r.start and off <= r.last: return true
     false
 
-  # Group contiguous code bytes into regions, breaking at adopted boundaries.
+  # Group contiguous code bytes into regions, breaking at carved boundaries.
   var regions: seq[tuple[start: int, length: int]]
   var i = 0
   while i < analysis.byteTypes.len:
-    if analysis.byteTypes[i] == Code and not isAdopted(i):
+    if analysis.byteTypes[i] == Code and not isCarved(i):
       let start = i
       while i < analysis.byteTypes.len and analysis.byteTypes[i] == Code and
-            not isAdopted(i):
+            not isCarved(i):
         inc i
       regions.add (start: start, length: i - start)
     else:

@@ -25795,3 +25795,22 @@ C0CEBC 0  # file 0x00CEBC+2 PLD;RTL function epilogue
 C0A11B 0  # file 0x00A11B+1 RTS stub after JMP
 D962B0 0  # file 0x1962B0+3 JMP skipped-over by prior BRA
 E6044F 0  # file 0x26044F+2 PHX;RTS sandwich stub
+
+# Sandwich free → code (probe_sandwich_continue) auto
+D5289E 3  # sandwich 0x15289E+2 BRA
+D8AB10 0  # sandwich 0x18AB10+2 BRA
+D9C0FB 0  # sandwich 0x19C0FB+2 BRA
+D9FAE7 0  # sandwich 0x19FAE7+2 BRA
+E0A239 0  # sandwich 0x20A239+2 BRA
+E0D69D 3  # sandwich 0x20D69D+2 BRA
+CD65DA 1  # sandwich 0x0D65DA+1 RTS
+D2E0B9 0  # sandwich 0x12E0B9+1 RTS
+D3A3A1 0  # sandwich 0x13A3A1+1 RTS
+D41E21 0  # sandwich 0x141E21+1 RTS
+D43CF3 0  # sandwich 0x143CF3+1 RTS
+D50035 0  # sandwich 0x150035+1 RTS
+D382F3 0  # sandwich 0x1382F3+3 BRL
+D74664 0  # sandwich 0x174664+3 JMP
+D863CF 0  # sandwich 0x1863CF+3 BRL
+D864AB 0  # sandwich 0x1864AB+3 BRL
+E7964B 3  # sandwich 0x27964B+3 JML

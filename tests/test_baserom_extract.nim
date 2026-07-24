@@ -1425,3 +1425,76 @@ block liveWave102Residual:
     echo "[test_baserom_extract] wave102 residual OK: zero=", zeroB,
       " as=", asB, " fix4=", fixB, " gfx=", gfxB, " total=", waveTot, " B"
 
+block liveWave103Residual:
+  ## Residual wave103: plane50 even-prefix + bitMask + cfRec5 + bitFlag min3 + zero.
+  if not goldBaseromAvailable():
+    discard
+  else:
+    let gold = readGoldBaseromBytes()
+    var planeB, maskB, cfB, bitB, zeroB = 0
+    let chunks = allRomChunksMeta()
+    for s in allBaseromExtractSpans():
+      let isW =
+        s.name.startsWith("table_plane50_w103_") or
+        s.name.startsWith("table_bitMask_w103_") or
+        s.name.startsWith("table_cfRec5_w103_") or
+        s.name.startsWith("table_bitFlag_w103_") or
+        s.name.startsWith("zero_wave103_")
+      if not isW:
+        continue
+      for c in chunks:
+        if c.kind != ckImplementedCode:
+          continue
+        let a0 = max(s.offset, c.offset)
+        let a1 = min(s.offset + s.length, c.offset + c.length)
+        doAssert a0 >= a1, &"overlap {s.name} with code 0x{c.offset:06X}"
+      if s.name.startsWith("table_plane50_w103_"):
+        planeB += s.length
+        doAssert s.length >= 8 and s.length mod 2 == 0, s.name
+        var eq = 0
+        let pairs = s.length div 2
+        for i in 0 ..< pairs:
+          if gold[s.offset + i * 2] == gold[s.offset + i * 2 + 1]:
+            eq += 1
+        doAssert eq * 100 >= pairs * 50, s.name
+      elif s.name.startsWith("table_bitMask_w103_"):
+        maskB += s.length
+        doAssert s.length >= 4
+        var seen: seq[uint8] = @[]
+        for j in 0 ..< s.length:
+          let b = gold[s.offset + j]
+          doAssert b in [0x01u8, 0x02u8, 0x04u8, 0x08u8, 0x10u8, 0x20u8, 0x40u8, 0x80u8], s.name
+          doAssert b notin seen, s.name
+          seen.add b
+      elif s.name.startsWith("table_cfRec5_w103_"):
+        cfB += s.length
+        doAssert s.length >= 5 and s.length mod 5 == 0, s.name
+        for i in 0 ..< (s.length div 5):
+          let o = s.offset + i * 5
+          doAssert gold[o] == 0x0A and gold[o+1] == 0x01 and
+            gold[o+2] == 0x00 and gold[o+3] == 0x80, s.name
+      elif s.name.startsWith("table_bitFlag_w103_"):
+        bitB += s.length
+        doAssert s.length >= 3, s.name
+        var nz = 0
+        for j in 0 ..< s.length:
+          let b = gold[s.offset + j]
+          doAssert b in [0x00u8, 0x01u8, 0x80u8], s.name
+          if b != 0: nz += 1
+        doAssert nz >= 1, s.name
+      elif s.name.startsWith("zero_wave103_"):
+        zeroB += s.length
+        doAssert s.kind == ekZeroPad
+        for j in 0 ..< s.length:
+          doAssert gold[s.offset + j] == 0
+
+    let waveTot = planeB + maskB + cfB + bitB + zeroB
+    doAssert waveTot >= 180, &"wave103 total {waveTot}"
+    doAssert planeB >= 40, &"plane50 {planeB}"
+    doAssert bitB >= 140, &"bitFlag3 {bitB}"
+    doAssert maskB >= 4, &"bitMask {maskB}"
+    doAssert cfB >= 5, &"cfRec5 {cfB}"
+    echo "[test_baserom_extract] wave103 residual OK: plane50=", planeB,
+      " bitMask=", maskB, " cfRec5=", cfB, " bitFlag3=", bitB,
+      " zero=", zeroB, " total=", waveTot, " B"
+

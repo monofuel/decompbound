@@ -1005,3 +1005,71 @@ nim r src/decompbound.nim --compare
 ```
 
 All green this wave. No commit (per brief).
+
+## Residual wave103 (plane50 even-prefix + bitMask + cfRec5 + bitFlag min3) — 2026-07-24
+
+Method: residual free only after wave102. Extend known table families with
+slightly broader packing gates that prior waves left on the table because of
+even-length / min-count floors. Hard gate: `code ∩ extract = 0`.
+
+Also re-scanned AbsoluteLong loaders from **all** banks `$C0–$EF` into residual
+free (gold opcodes `AF`/`BF`/… in `code_spans` only).
+
+| Family | Format | Residual claimed |
+|--------|--------|------------------|
+| plane50 even-prefix | free runs with even prefix ≥8, ≥50% equal adj pairs (prior plane25 needed full even run ≥12) | **42 B** / 5 |
+| bitMask powers-of-two | distinct `{01,02,04,08,10,20,40,80}` set ≥4 (same family as `$C4562F`) | **4 B** / 1 (`0x17A595`) |
+| cfRec5 | complete `0A 01 00 80 + u8` records (extends `table_cfRec5_0x0F30F7`) | **5 B** / 1 |
+| bitFlag min3 | ternary `{00,01,80}` free ≥3 (wave101 used ≥4) | **144 B** / 48 |
+| zero scrap | pure zero free | **1 B** / 1 |
+
+**This wave residual = 196 B** in 56 spans.
+
+**Compare after rebuild:** **99.54%** byte-exact (`3,131,172 / 3,145,728`), implemented regions
+**100.00% exact**. Prior **99.50%** (`3,129,995`). Residual free inventory ~**15,527 B**. **Δ +196 B** extract (+1,177 B compare inventory drift from prior baseline).
+
+### AbsoluteLong inventory (all banks → residual free)
+
+| Metric | Value |
+|--------|-------|
+| AbsLong ops landing in residual free | 273 hits / 163 runs |
+| of which `LDA.L` / `LDA.L,X` | **20** |
+| C0–C4 `LDA.L/X` into free | **0** |
+| C0–CF `LDA.L/X` into free | **5** (all false-positive or mid-table scrap) |
+
+Notable residual LDA targets (not solid new table bases):
+
+| Target free | Size | Src | Verdict |
+|-------------|------|-----|---------|
+| `$CF3101` `0x0F3101+4` | 4 | `$CE@0x0E8F10` `LDA.L,X` | mid-record hole after `table_cfRec5_0x0F30F7`; free is incomplete 4/5 of `0A 01 00 80 xx` |
+| `$17A598` in `0x17A595+4` | 4 | `$C7@0x07AFDA` | claimed as bitMask (`20 10 80 40`); loader site looks data-as-code adjacent |
+| `$16F7F7+9` | 9 | `$CE@0x0E024F` | claimed plane50 even-prefix 8; high-bank site FP-ish |
+| `$E2AAAB` / `$C72D95` / others | 1–3 | high banks | single-byte / noise; no fixed record walk |
+
+**Conclusion:** loader-linked residual table bases are **drained**. Remaining AbsLong
+hits into free are high-bank false-positive disassembly or incomplete mid-record
+scraps. Next coverage lever is still **code_span reseed** (~6.9 KB code\|code sandwich).
+
+### Honesty notes
+
+- plane50 uses a **stricter** pair ratio (50%) than wave100 plane25, but allows
+  **even prefixes** of odd free runs (prior gate required full-run even ≥12).
+- bitFlag min3 is the same alphabet as wave101; only the free-run floor drops
+  4→3 for leftover `$D8` scraps. Expanded alphabets (`{00,80,90}` etc.) still
+  rejected without a loader model.
+- No new density-only families.
+
+### Tooling
+
+- `src/tools/probe_w103.nim` / `probe_w103_deep.nim` / `probe_w103_claim.nim`
+
+### Verification
+
+```
+nim r tests/test_baserom_extract.nim
+nim r src/tools/verify_extract_overlap.nim
+nim r src/decompbound.nim --compare
+```
+
+All green this wave. No commit (per brief).
+
