@@ -1327,3 +1327,69 @@ nim r src/compare.nim
 
 All green this wave. No commit (per brief). No `residualFree_*`.
 
+
+## Residual wave107 — structure expand + CE62EE false-code reclass (2026-07-24)
+
+Inventory before: **12,838 B** unclaimed / ~5,316 runs / max 19 (~99.59%).
+
+Method: expand known structure gates slightly with strong quality; reclass the
+loader-backed `$CE62EE` 5B×110 table that sits almost entirely inside false-
+positive `code_spans`. No `residualFree_*`. Hard gate: carved `code ∩ extract = 0`.
+
+### Free residual structure claims (1,553 B / 382 spans)
+
+| Family | Gate | Residual claimed |
+|--------|------|------------------|
+| u8pair min2 @70% | extends wave105 min3@55%; require ≥70% pairs with a lo-byte ≤0x50; nz ≥ half | **1,232 B** / 308 |
+| plane50 even-prefix ≥6 | wave103 used ≥8; 50% equal adjacent pairs on even prefix | **168 B** / 28 |
+| loplane 00–1F | n≥4, ≥2 distinct values, not pure zero | **66 B** / 12 |
+| term F0–FF clean body | min2, unique term tail, anti-opcode head, quality (hi/z caps) | **64 B** / 29 |
+| bitMask distinct ≥3 | powers-of-two alphabet; wave103 used ≥4 | **15 B** / 3 |
+| xxFF pairs | full free cover of `xx FF` pairs, ≥1 non-zero lo | **8 B** / 2 |
+
+### CE62EE carve (550 B / 1 span — label honesty + 3 B free)
+
+| Span | Range | Free | False-code | Notes |
+|------|-------|------|------------|-------|
+| `table_ce5far_carve_w107_0x0E62EE` | +550 | **3** | 547 | 110×`[far][00][type1..6]`; loader `$C2EBDF` `LDA.L,X`; lo==0 null far allowed (2 recs); free hole mid-table at `0x0E62FE+3` |
+
+**This wave residual free = 1,556 B** (1,553 structure + 3 CE62EE hole).
+**Code→meta reclass = 547 B** (does not raise residual % by itself; honesty).
+
+### Rejected
+
+- far3/ce5far free+false-code mid-stream scraps (still match CMP/BEQ / JML ops).
+- u8pair min2@50% without 70% quality (too weak).
+- Bulk residualFree inventory dump.
+- Pure sandwich RTL seeds still drained (strict FULL-cover endsRun = 0 new).
+
+### Compare after patch
+
+**99.64%** byte-exact (`3,134,446 / 3,145,728`), implemented regions **100.00% exact**.
+Prior **99.59%** (`3,132,890`). Unclaimed residual **11,282 B** / 4,943 runs.
+Δ **+1,556 B** residual free (compare exact +1,556).
+
+### Remaining free residual
+
+~**11.3 KB** free residual remains (max still ~19 B). Dominant bulk is still
+code|code sandwich (~4.6 KB) needing code seeds / convert_all, plus high-bank
+dense binary without loader-backed fixed records. Structure gates for free-only
+are largely drained at this quality bar.
+
+### Tooling
+
+- `src/tools/gen_residual_wave107.nim` / `patch_w107_extracts.nim`
+- `src/tools/probe_w107.nim` / `probe_ce62ee.nim` / `probe_w106_gates.nim`
+
+### Verification
+
+```
+nim r tests/test_baserom_extract.nim
+nim r src/tools/verify_extract_overlap.nim
+nim r src/tools/verify_residual_gates.nim
+nim r src/tools/chunk_check.nim summary
+nim r src/compare.nim
+```
+
+All green this wave. No commit (per brief). No `residualFree_*`.
+

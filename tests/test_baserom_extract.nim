@@ -1664,6 +1664,77 @@ block liveWave106bCarve:
     doAssert hit3101, "CF3101 complete rec not claimed"
     echo "[test_baserom_extract] wave106b carve OK: cfRec5 carve=", carveB, " B"
 
+
+block liveWave107Structure:
+  ## Wave107: expanded structure gates on free residual + CE62EE false-code reclass.
+  if not goldBaseromAvailable():
+    discard
+  else:
+    let gold = readGoldBaseromBytes()
+    var u8B, planeB, loB, termB, maskB, xxB, ceB = 0
+    let chunks = allRomChunksMeta()
+    for s in allBaseromExtractSpans():
+      if "_w107_" notin s.name and "carve_w107" notin s.name:
+        continue
+      # Free-only claims must not overlap inventory code; CE62EE carve is carved-view.
+      for c in chunks:
+        if c.kind != ckImplementedCode:
+          continue
+        let a0 = max(s.offset, c.offset)
+        let a1 = min(s.offset + s.length, c.offset + c.length)
+        doAssert a0 >= a1, &"overlap {s.name} with code 0x{c.offset:06X}"
+      if s.name.startsWith("table_u8pair2_w107_"):
+        u8B += s.length
+        doAssert s.length >= 4 and s.length mod 2 == 0, s.name
+        let nRec = s.length div 2
+        var ok = 0
+        for i in 0 ..< nRec:
+          let a = gold[s.offset + i * 2]
+          let b = gold[s.offset + i * 2 + 1]
+          if a <= 0x50 or b <= 0x50:
+            ok += 1
+        doAssert ok * 100 >= nRec * 70, s.name
+      elif s.name.startsWith("table_plane50_w107_"):
+        planeB += s.length
+        doAssert s.length >= 6 and s.length mod 2 == 0, s.name
+      elif s.name.startsWith("table_loplane_w107_"):
+        loB += s.length
+        doAssert s.length >= 4, s.name
+        for j in 0 ..< s.length:
+          doAssert gold[s.offset + j] <= 0x1F, s.name
+      elif s.name.startsWith("table_term1_w107_"):
+        termB += s.length
+        doAssert s.length >= 2, s.name
+        let t = gold[s.offset + s.length - 1]
+        doAssert t >= 0xF0, s.name
+      elif s.name.startsWith("table_bitMask_w107_"):
+        maskB += s.length
+        doAssert s.length >= 3, s.name
+      elif s.name.startsWith("table_xxFF_w107_"):
+        xxB += s.length
+        doAssert s.length >= 2 and s.length mod 2 == 0, s.name
+        for i in 0 ..< (s.length div 2):
+          doAssert gold[s.offset + i * 2 + 1] == 0xFF, s.name
+      elif s.name.startsWith("table_ce5far_carve_w107_"):
+        ceB += s.length
+        doAssert s.offset == 0x0E62EE and s.length == 550, s.name
+        for r in 0 ..< 110:
+          let o = s.offset + r * 5
+          doAssert gold[o + 2] >= 0xC0 and gold[o + 2] <= 0xEF, s.name
+          doAssert gold[o + 3] == 0, s.name
+          doAssert gold[o + 4] >= 1 and gold[o + 4] <= 6, s.name
+      else:
+        doAssert false, "unexpected w107 name " & s.name
+
+    let freeStruct = u8B + planeB + loB + termB + maskB + xxB
+    doAssert freeStruct >= 1500, &"wave107 free structure {freeStruct}"
+    doAssert u8B >= 1200, &"u8pair2 {u8B}"
+    doAssert ceB == 550, &"CE62EE carve {ceB}"
+    echo "[test_baserom_extract] wave107 OK: u8pair2=", u8B,
+      " plane50=", planeB, " loplane=", loB, " term=", termB,
+      " bitMask=", maskB, " xxFF=", xxB, " ce5far=", ceB,
+      " freeStruct=", freeStruct, " B"
+
 block noBlindResidualFreeClaims:
   ## residualFree_* bulk gold-copy claims are forbidden (honesty policy).
   for s in KnownBaseromExtracts:
