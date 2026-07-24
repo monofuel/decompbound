@@ -26,3 +26,4 @@ webby 0.2.1 https://github.com/treeform/webby 55a2c03abbd32abf4775712c1959d975dc
 curly 1.1.1 https://github.com/guzba/curly a0f42baacbc48f4e5924b18854c0df9dcc251466
 libcurl 1.0.0 https://github.com/Araq/libcurl 7a420498f60a31d99fc8513886ce36c4e8c3a4ae
 openai_leap 15.0.0 https://github.com/monofuel/openai_leap 66dc7d7765204f276a509b644a4e8849c47206f8
+MCPort 1.0.0 https://github.com/monofuel/MCPort f61077a88718c0099d5ea7d0db87ef1b6497a8b4

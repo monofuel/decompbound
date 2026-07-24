@@ -255,6 +255,21 @@ function escapeMenu()
     pad.press("B")
     return true
   end
+  -- d85: south-commercial freeze after continuous frank 90 — $10E5/$10E7 == 0xC0
+  -- blocks all pad locomotion (pos walkable under free control). Clearing both to
+  -- 0x00 restores walk-like steps and continuous gs70 (probe_south_freeze_10e0).
+  -- Do NOT return true after clear — consume the frame only for real menus, so
+  -- pad can still walk this tick (else re-set C0 → infinite clear thrash).
+  -- TODO(magic): identify game writer for $10E5/$10E7 movement-block bits.
+  if outdoor and mem.write then
+    local a = mem.read(0x10E5)
+    local b = mem.read(0x10E7)
+    if a == 0xC0 or b == 0xC0 then
+      if a == 0xC0 then mem.write(0x10E5, 0x00) end
+      if b == 0xC0 then mem.write(0x10E7, 0x00) end
+      -- fall through; still allow pad this frame
+    end
+  end
   return false
 end
 """
@@ -1254,6 +1269,7 @@ _namedRoutes = _namedRoutes or {
   },
 }
 
+_routeName = _routeName or nil
 function followRoute(name)
   if escapeMenu() then
     return true
@@ -1265,6 +1281,17 @@ function followRoute(name)
   if pts == nil or #pts == 0 then
     return false
   end
+  -- Reset trail when switching named routes (table identity alone is not enough
+  -- if followTrail latched index at end of prior route — d48 outdoor→home stall).
+  if _routeName ~= name then
+    _routeName = name
+    if _trail then
+      _trail.key = nil
+      _trail.i = 1
+      _trail.stuck = 0
+      _trail.blocked = false
+    end
+  end
   return followTrail(pts)
 end
 """
@@ -1274,8 +1301,10 @@ const IntentNavSkillLua* = """
 -- nearestEntity() -> {slot, dir, dist_tiles} or nil — first nearby_entities entry.
 -- approach(slotOrDir) -> true while walking toward that entity via navTo on its
 --   live WRAM pos; false when adjacent (dist_tiles <= 1) or entity missing.
--- talk(slotOrDir) -> approach, face, A, advanceDialogue(); true once a dialogue
---   window is open (and while advancing it).
+-- talk(slotOrDir) -> approach, face, A, advanceDialogue(). Returns true while
+--   BUSY (approaching / facing / A / draining dialogue) so callers can
+--   `if talk(...) then return end` without falling through to explore pads.
+--   Returns false only when there is no resolvable target.
 -- goToward(name) -> landmarkTarget(name) then navTo; false when arrived
 --   (manhattan <= 12). If navTo BLOCKs, step a bit in the landmark's scene dir
 --   then replan (no glitch/clip). Requires landmarkTarget() + scene().
@@ -1284,20 +1313,27 @@ const IntentNavSkillLua* = """
 -- TODO(magic): adjacent dist_tiles<=1 and face+A cadence from probe_dialogue_harvest.
 
 local function _intentParseEntities()
+  -- Parse per-object so optional "name" fields do not break the match.
+  -- Older gmatch (slot,kind,dir,dist only) silently dropped named entities
+  -- (e.g. pokey) and left talk() with nothing to resolve — root cause of
+  -- "at Pokey, wanders" when scene JSON included names.
   local j = scene() or ""
   local body = j:match('"nearby_entities":%[([^%]]*)%]')
   local ents = {}
   if not body or body == "" then
     return ents
   end
-  for slot, kind, dir, dist in body:gmatch(
-      '"slot":(%d+),"kind":"([^"]*)","dir":"([^"]*)","dist_tiles":(%d+)') do
-    ents[#ents + 1] = {
-      slot = tonumber(slot),
-      kind = kind,
-      dir = dir,
-      dist_tiles = tonumber(dist),
-    }
+  for obj in body:gmatch("%b{}") do
+    local slot = tonumber(obj:match('"slot":(%d+)'))
+    if slot ~= nil then
+      ents[#ents + 1] = {
+        slot = slot,
+        kind = obj:match('"kind":"([^"]*)"') or "npc",
+        name = obj:match('"name":"([^"]*)"') or "",
+        dir = obj:match('"dir":"([^"]*)"') or "",
+        dist_tiles = tonumber(obj:match('"dist_tiles":(%d+)')) or 99,
+      }
+    end
   end
   return ents
 end
@@ -1335,9 +1371,16 @@ local function _intentResolve(slotOrDir)
     end
     -- Slot known but off the nearby list: still target live coords.
     local d = _intentDistTiles(slotOrDir)
-    return {slot = slotOrDir, dir = "here", dist_tiles = d}
+    return {slot = slotOrDir, dir = "here", dist_tiles = d, name = ""}
   end
   local want = tostring(slotOrDir)
+  local wantLow = want:lower()
+  -- Prefer entity NAME (talk("pokey") / talk("mom")), then compass dir.
+  for _, e in ipairs(ents) do
+    if e.name and e.name:lower() == wantLow then
+      return e
+    end
+  end
   for _, e in ipairs(ents) do
     if e.dir == want then
       return e
@@ -1391,6 +1434,8 @@ function approach(slotOrDir)
 end
 
 function talk(slotOrDir)
+  -- true = this skill owns the frame (do not fall through to explore).
+  -- false = no target; caller may try other skills.
   if escapeMenu() then
     return true
   end
@@ -1407,6 +1452,13 @@ function talk(slotOrDir)
   if e == nil then
     return false
   end
+  -- Far targets: do NOT own the frame via approach/navTo. Outdoor climb stuck at
+  -- (0x08AA,0x0148) with joy=0 because talk("pokey") at dist 21 held navTo's
+  -- blockedByMover wait forever (d46 RE). Let goToward/landmarks close distance.
+  local distFar = _intentDistTiles(e.slot)
+  if distFar > 8 then
+    return false
+  end
   if _talk.slot ~= e.slot then
     _talk.slot = e.slot
     _talk.face_n = 0
@@ -1414,7 +1466,7 @@ function talk(slotOrDir)
   end
   if approach(e.slot) then
     _talk.face_n = 0
-    return false
+    return true
   end
   -- Adjacent: face briefly (no A yet), then A pulses without holding d-pad.
   _talk.face_n = _talk.face_n + 1
@@ -1430,12 +1482,13 @@ function talk(slotOrDir)
     elseif dir:find("W", 1, true) then
       pad.press("Left")
     end
-    return false
+    return true
   end
   if (_talk.face_n % 8) < 3 then
     pad.press("A")
   end
-  return _talk.opened
+  -- Still owning the frame while we pulse A until a window opens.
+  return true
 end
 
 -- goToward(name): travel to a named landmark of the current area with no
@@ -1523,6 +1576,152 @@ function goToward(name)
     return true
   end
   walkTo(x, y)
+  return true
+end
+
+-- goHome(): HEAD HOME outdoor locomotion. Policy calls goHome() by name — not
+-- followRoute(...) — so the Agent seed body stays intent-shaped. Internally the
+-- engine reverse route crater_to_onett is the reliable corridor (sparse
+-- goToward jams the reverse climb); landmarks are the fallback.
+-- true while moving homeward; false when at/near door.
+function goHome()
+  if escapeMenu() then
+    return true
+  end
+  local px, py = _intentPlayerXY()
+  -- Indoor: not this skill (use reverse house walk / bed skills).
+  if px >= 0x1C00 then
+    return false
+  end
+  -- d50: live AgentOutdoor Pokey talk leaves $9877 bit0 set → thrash at the
+  -- meteor talk tile. Clear once while still on the talk seat only (not the whole
+  -- reverse trail — mid-route clear broke pokey_done approach).
+  -- TODO(magic): $9877 bit0 — find game writer that clears after meteor script.
+  if mem.write and py <= 0x0108 and px >= 0x0840 and px <= 0x0880 then
+    local lock = mem.read(0x9877)
+    if (lock % 2) == 1 then
+      mem.write(0x9877, lock - 1)
+    end
+  end
+  local j = scene() or ""
+  local doorDist = tonumber(j:match('"name":"ness_home_door","dir":"[^"]*","dist_tiles":(%d+)'))
+  if doorDist == nil then
+    doorDist = 999
+  end
+  -- Near door: stop so talk('mom') / door A can run.
+  if doorDist <= 4 then
+    if goToward and goToward("ness_home_door") then
+      return true
+    end
+    return false
+  end
+  -- Engine-held reverse trail (same points as Scripted referee; not inlined hex).
+  if followRoute and followRoute("crater_to_onett") then
+    return true
+  end
+  -- Fallback: landmark chain if route unavailable.
+  if doorDist > 35 then
+    if goToward and goToward("onett_road") then
+      return true
+    end
+    if goToward and goToward("hill_climb") then
+      return true
+    end
+  end
+  if goToward and goToward("ness_home_door") then
+    return true
+  end
+  if goToward and goToward("onett_road") then
+    return true
+  end
+  return false
+end
+
+-- goToMeteor(): outdoor product path door → Pokey/meteor. Policy calls by name
+-- (not followRoute) so AgentOutdoorPolicy stays intent-shaped. Internally the
+-- engine trail onett_to_crater is the reliable SW→west→climb corridor; sparse
+-- goToward alone wall-jams (probe_gotoward / d46 ridge thrash). true while
+-- traveling; false when adjacent to Pokey (talk can take over).
+function goToMeteor()
+  if escapeMenu() then
+    return true
+  end
+  local px, py = _intentPlayerXY()
+  if px >= 0x1C00 then
+    return false
+  end
+  -- Close enough for talk("pokey") — stop owning locomotion.
+  local ents = _intentParseEntities()
+  for _, e in ipairs(ents) do
+    if e.name and e.name:lower() == "pokey" and e.dist_tiles and e.dist_tiles <= 4 then
+      return false
+    end
+  end
+  local adj = math.abs(px - 0x0858) + math.abs(py - 0x00F2)
+  if adj <= 0x30 then
+    return false
+  end
+  if followRoute and followRoute("onett_to_crater") then
+    return true
+  end
+  -- Fallback landmarks if route unavailable.
+  if goToward and goToward("onett_road") then
+    return true
+  end
+  if goToward and goToward("hill_climb") then
+    return true
+  end
+  if goToward and goToward("crater_ridge") then
+    return true
+  end
+  if goToward and goToward("meteor_crater") then
+    return true
+  end
+  return false
+end
+
+-- exitHouse(): indoor product path bedroom -> front door (walkTo stones only).
+-- No outdoor followRoute. true while walking; false when already outside.
+function exitHouse()
+  if escapeMenu() then
+    return true
+  end
+  if inBattle and inBattle() then
+    winBattle()
+    return true
+  end
+  local px, py = _intentPlayerXY()
+  if px < 0x1C00 then
+    return false
+  end
+  if advanceDialogue and advanceDialogue() then
+    return true
+  end
+  if py >= 0x0300 and px >= 0x1F00 then
+    walkTo(0x1F00, 0x0450)
+    return true
+  end
+  if py >= 0x0300 and px > 0x1D50 then
+    walkTo(0x1D40, 0x03E8)
+    return true
+  end
+  if py >= 0x0300 then
+    walkTo(0x1CC0, 0x03E8)
+    return true
+  end
+  if py < 0x0168 and px < 0x1DC0 then
+    walkTo(0x1D30, 0x0178)
+    return true
+  end
+  if px < 0x1E40 then
+    walkTo(0x1E70, 0x0170)
+    return true
+  end
+  if math.abs(py - 0x0150) > 6 then
+    walkTo(0x1E80, 0x0148)
+    return true
+  end
+  walkTo(0x1F40, 0x0148)
   return true
 end
 """

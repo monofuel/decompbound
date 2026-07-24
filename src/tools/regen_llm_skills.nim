@@ -34,6 +34,10 @@ proc main() =
   if "nearestEntity" notin seed or "function approach" notin seed or
       "function talk" notin seed or "function goToward" notin seed:
     raise newException(ValueError, "skills seed missing intent-nav verbs")
+  if "function goHome" notin seed or "function exitHouse" notin seed:
+    raise newException(ValueError, "skills seed missing goHome/exitHouse")
+  if "function goToMeteor" notin seed:
+    raise newException(ValueError, "skills seed missing goToMeteor")
 
 when isMainModule:
   main()

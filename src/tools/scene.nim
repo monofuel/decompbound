@@ -13,7 +13,7 @@ import
   ./touch_grass
 
 const
-  # Entity IDENTITY (RE'd 2026-07-16, see docs/memory-map.md + probe_entity_names.nim):
+  # Entity IDENTITY (RE'd 2026-07-16, see docs/memory-map.md + src/probes/probe_entity_names.nim):
   # $2CD6 = sprite-group ID (the "who"); when $FFFF, fall back to $29CA sprite ptr.
   SpriteGroupBase = 0x2CD6
   SpritePtrBase   = 0x29CA
@@ -68,6 +68,14 @@ const
       ("hill_climb",     0x05F8, 0x0148),  # west, base of the climb north
       ("crater_ridge",   0x078F, 0x00B1),  # the ridge just before the crater
       ("meteor_crater",  0x0858, 0x00F2),  # Pokey + the cops are here
+      # Day-1 downtown / Frank approach (probe_frank_route 2026-07-24):
+      # south onett_to_crater detour, not west-from-door (wall at 0x08F8,0x015F).
+      ("onett_downtown", 0x09E0, 0x024E),  # frank 60 south-road band
+      ("onett_south",    0x09B8, 0x02A0),  # frank 80 / giant_step approach
+      ("onett_arcade",   0x09C0, 0x02A0),  # frank 90 arcade/police strip (night wall)
+      ("onett_police",   0x0880, 0x0280),  # captain_strong west edge (soft)
+      ("giant_west",     0x08F0, 0x0280),  # giant_step 70 police-west (d64 continuous)
+
     ],
   }.toTable
 

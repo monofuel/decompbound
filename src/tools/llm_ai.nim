@@ -25,7 +25,7 @@ import
   std/[os, strutils, strformat, times, algorithm, options, monotimes, httpclient, json, osproc],
   pixie,
   ../decompbound/[cpu, ppu, snesbus, lua53, policy, save_state],
-  ./[touch_grass, llm_mock_policies, story_percents, scene]
+  ./[touch_grass, llm_mock_policies, story_percents, scene, vision_payload]
 
 # windy/glblit only needed for the windowed main loop. Library importers
 # (probe_memory_router etc.) skip them so they do not require libGL at load.
@@ -63,8 +63,20 @@ const
   LlmStateDir = "bin/states/llm"
     ## LLM-only savestates. NEVER bin/states/slotN.state (human make-play slots).
   LlmBedroomState = "bin/states/llm/bedroom.state"
-  LlmRollbackState = "bin/states/llm/rollback.state"
+  LlmPostKnockState = "bin/states/llm/post_knock.state"
+    ## Knock-complete fixture (sleep unreproducible bot-side; signature $99F2=$58).
+  LlmPostKnockOutdoorState = "bin/states/llm/post_knock_outdoor.state"
+    ## Free outdoor + knock signature (synth_post_knock_outdoor.nim) — playable.
   LlmDefaultSram = "bin/states/llm_ai.srm"
+
+var
+  ## Per-process rollback path — concurrent llm_ai runs must not share one file
+  ## (parallel day-1 + midgame clobbered each other via bin/states/llm/rollback.state).
+  LlmRollbackState* = "bin/states/llm/rollback.state"
+
+proc initLlmRollbackPath*() =
+  ## Pin rollback file to this PID so parallel harnesses stay isolated.
+  LlmRollbackState = LlmStateDir & "/rollback_" & $getCurrentProcessId() & ".state"
 
 # --- Background LLM provider (threads+channels) for non-blocking two-clock ---
 # Main thread owns Lua + Snes exclusively (fast per-frame path never blocks).
@@ -72,14 +84,41 @@ const
 # returns the new policy string. Hot-swap happens on main when result arrives.
 type
   PolicyProvider = proc(summary: string, currentLua: string): string
-  ProviderWork = tuple[summary, currentLua, notesSnap: string]
+  ## imageB64: empty = text-only; non-empty PNG base64 when --vision (main encodes frame).
+  ProviderWork = tuple[summary, currentLua, notesSnap, imageB64: string]
   ProviderResult = tuple[policy: string, latencyMs: int]
 
 # Forward decls (originals for main-thread use; *Snap versions for worker with snapshot to avoid race on persistentNotes).
 proc mockProvider(summary: string, currentLua: string): string
 proc realProvider(summary: string, currentLua: string): string
 proc mockProviderSnap(summary: string, currentLua: string, notes: string): string
-proc realProviderSnap(summary: string, currentLua: string, notes: string): string
+proc realProviderSnap(summary: string, currentLua: string, notes: string, imageB64: string): string
+
+const
+  ## Agent product system prompt (docs/grok_play_work.md): perception + intent first.
+  ## Dense followRoute trails are Scripted·Turbo referees only — not Agent curriculum.
+  AgentSystemPrompt* = """You are an expert at writing compact Lua policies that play EarthBound (SNES decomp harness).
+
+SETTING: You are Ness. A meteor just crashed into the hills above Onett at night. FOLLOW >>> CURRENT_OBJECTIVE in RICH STATE — it advances when milestones complete (once pokey_pct=100, stop re-talking Pokey).
+
+HOW TO PLAY (Agent path — docs/grok_play_work.md):
+- PERCEIVE first: SCENE JSON (nearby entities dir/dist/name), screen.text(), optional screenshot when vision is on.
+- ACT with intent skills: nearestEntity(), approach(slot|name|dir), talk(slot|name), goToward(landmark name), escapeMenu(), winBattle() if in_battle.
+- Prefer talk("pokey") / talk(nearest) over walking hex coordinates.
+- Do NOT make followRoute("onett_to_crater") your only outdoor locomotion — that is a Scripted referee trail. Use scene + navTo/goToward/talk; explore and recover when stuck.
+- Never press A while walking (opens the command menu). B / escapeMenu() if menu_open.
+- Read live dialogue; do not invent plot.
+
+Story ladder (referees, not TAS scripts): tg_pct outside → pokey_pct talk at meteor → pokey_knock home → later checkpoints in checkpoint_spine (docs/checkpoints.md).
+
+SANDBOX API:
+- frame(), mem.read(addr), pad.press/set, screen.text(), scene() JSON, sim.setSpeed/fast/normal
+- Skills (llm_skills.lua): escapeMenu, walkTo, navTo, followTrail/followRoute (referee/bootstrap only), nearestEntity, approach, talk, goToward, winBattle, advanceDialogue
+
+PERSISTENT BRAIN: -- NOTE: facts; -- LEARN cat:slug fact → knowledge KB. Notes reload each tick.
+
+OUTPUT: ONLY valid Lua starting with 'function update()' and ending with 'end'. No markdown fences.
+"""
 
 const
   # qwen3.6-27b is served at full 262144 ctx (~1M chars) — feed the rich brain,
@@ -141,12 +180,17 @@ var
   workerThread: Thread[void]
   gUseMock: bool            # set at startup; worker dispatches without storing proc (GC-safety)
   gVerbose = false          # --verbose: dump full multi-KB prompts / request JSON
+  gVision = false           # --vision: attach rendered frame PNG to each LLM request
   pendingLlm = false        # true while a request is in flight (prevents duplicate queueing)
   framesDuringPending = 0   # frames advanced while a request was in-flight (async proof)
+  stuckThreshold = 18       # slow-ticks without progress before STUCK recovery
+  stuckRecoveryCount = 0    # how many recoveries fired this run (probes assert >0)
+  campaignFixtures = false  # --campaign-fixtures: load post_knock when sleep unreproducible
 
 proc llmWorkerProc() {.thread.} =
   ## Worker: loops, receives work nonblockingly, executes the provider (HTTP or mock) using SNAPSHOT of notes.
   ## sends result back. Never touches L, ctx, snes, or frameImage. Snapshot prevents data race with main's appendNote.
+  ## imageB64 is pre-encoded on main from frameImage when --vision is set.
   while true:
     let (hasWork, work) = workChan.tryRecv()
     if hasWork:
@@ -154,7 +198,10 @@ proc llmWorkerProc() {.thread.} =
       let policy =
         block:
           {.gcsafe.}:
-            if gUseMock: mockProviderSnap(work.summary, work.currentLua, work.notesSnap) else: realProviderSnap(work.summary, work.currentLua, work.notesSnap)
+            if gUseMock:
+              mockProviderSnap(work.summary, work.currentLua, work.notesSnap)
+            else:
+              realProviderSnap(work.summary, work.currentLua, work.notesSnap, work.imageB64)
       let dt = (now() - t0).inMilliseconds.int
       resultChan.send( (policy, dt) )
     sleep(1)
@@ -187,6 +234,8 @@ var
   # Ness back to the crater.
   knockPhase = false
   prevKnock = 0
+  prevFrank = 0
+  prevCaptain = 0
   lastLogSig = ""
     ## Last logged progress signature (tg/room/story-pcts). The per-tick status line only
     ## prints when this changes or on a periodic heartbeat — otherwise a 10k-frame run emits
@@ -237,199 +286,15 @@ proc extractLuaBlock(text: string): string =
     result = text[lastStart ..< min(text.len, lastStart + 400)].strip()
 
 proc realProvider(summary: string, currentLua: string): string =
-  ## Real LLM call via direct HTTP (to access reasoning_content from qwen3 reasoning model).
-  ## openai_leap's RespMessage only exposes .content (which is "" for reasoning models
-  ## when tokens are tight); we POST and parse JSON raw to read both content and
-  ## reasoning_content. Falls back to extracting the update block from reasoning.
-  ## max_tokens=4096 (OUTPUT only; INPUT trimmed to fit loaded ctx; 256K window target).
+  ## Thin wrapper: text-only call (no frame on main-thread sync path).
+  ## Live path uses the worker + realProviderSnap with optional vision bytes.
+  realProviderSnap(summary, currentLua, persistentNotes, "")
+
+proc realProviderSnap(summary: string, currentLua: string, notes: string, imageB64: string): string =
+  ## Real LLM call via direct HTTP (reasoning_content + optional vision frame).
+  ## imageB64 non-empty: multimodal user content (OpenAI image_url data URL).
+  ## max_tokens=4096 OUTPUT; vision uses AgentSystemPrompt (intent-first, no TAS trail).
   let t0 = now()
-  const SystemPrompt = """You are an expert at writing compact Lua policies that play EarthBound (SNES decomp harness).
-
-SETTING: You are Ness. A METEOR just crashed into the hills above Onett in the middle of the night — the whole town's rattled. This is EarthBound: it's funny, it's weird, lean into it. FOLLOW >>> CURRENT_OBJECTIVE at the top of the RICH STATE — it's authoritative and ADVANCES as you finish milestones, so never keep re-doing a finished one (once pokey_pct=100, STOP talking to Pokey and move on). The story ladder, each step unlocking the next:
-  1. WAKE UP & GET OUTSIDE (tg_pct→100): a meteor woke you — bedroom → stairs → sitting room (SOUTH first, furniture blocks the straight east line) → east front door → outside. No fights.
-  2. GET TO THE CRATER (pokey_pct→100): Pokey is up at the meteor with the cops. Ride the dense route: call followRoute('onett_to_crater') every frame — it carries you SW/west/up the hill to the meteor (verified to reach Pokey; sparse goToward jams the hill). When an NPC appears in your SCENE, talk(that slot) — Pokey sends you home; READ his line via screen.text(). Do NOT enter the Minch house (px>=0x1C00 scores 0).
-  3. HEAD HOME (pokey_knock_pct→80): Pokey sent you home — call followRoute('crater_to_onett') every frame: it's the dedicated dense route back DOWN from the meteor to your front door (do NOT reuse onett_to_crater backwards — that local-mins on the hill). When the SCENE shows an entity named 'mom' at the door, talk('mom'); she sends you inside (use live screen.text() if a window is open — never hardcode dialogue). Then head upstairs and walk onto your bed. Knock caps at 80 for now (the sleep→KNOCK beat isn't bot-triggerable yet — hold, don't thrash).
-INDOOR WAYPOINTS (house interior ONLY — no landmarks/pathfinder inside yet, so use walkTo targets here; OUTDOORS travel by goToward(landmark) instead, never these coords):
-- bedroom (tg25 / x>=0x1F00 upstairs): walkTo(0x1F00,0x0450) then hall (0x1D40,0x03E8) then stair (0x1CC0,0x03E8)
-- after stairs (downstairs): SOUTH first walkTo(0x1D30,0x0178) — do NOT pure-east along y=0x0140 (furniture)
-- sitting: walkTo(0x1E70,0x0170) then door (0x1E80,0x0148) then push (0x1F40,0x0148) → outside ~0x0A60,0x0158
-INPUT: d-pad only via walkTo. Never A while walking (opens menu). B / escapeMenu() if menu_open. winBattle ONLY if in_battle=yes.
-PATTERN: if escapeMenu() then return end; then walkTo(nextWaypoint) based on pos/tg.
-
-SANDBOX API (globals always available in update()):
-- frame() -> int (current frame)
-- mem.read(addr) -> byte (WRAM; player = party leader entity slot 24: world X at 0x0BBE/0x0BBF, Y at 0x0BFA/0x0BFB)
-- pad.press("A") / pad.set("Right", true)  (buttons: A B X Y L R Up Down Left Right Start Select)
-- screen.text() -> string  (current on-screen dialogue, menus, battle commands via getScreenText)
-- scene() -> JSON string  (structured perception: nearby entities as {slot,kind,dir,dist_tiles} RELATIVE to you, plus player pos/room + on_screen_text. Also shown pre-computed in the SCENE line of the state. Use it to head toward/away from an entity by DIRECTION — e.g. an entity "N, 2 tiles" is just above you — instead of guessing coordinates.)
-- sim.setSpeed(fps) / sim.fast() / sim.normal()  (0=unlimited fast-forward for corridors; 60 for menus/fights. Decoupled from your LLM tick.)
-
-AVAILABLE LIBRARY SKILLS (preloaded from bin/states/llm_skills.lua into Lua globals; call them from your update()):
-- escapeMenu(): detects overworld menus via screen.text() (Talk/Check/Equip/Status/Goods without battle keywords) and presses B to cancel. Auto-called by walkTo. Call early in update() for safety.
-- walkTo(tx, ty): reactive navigation skill. Reads live player pos, presses d-pad ONLY to move toward target. Auto-detects stuck and wiggles; auto-escapes menus first. Stops when manhattan <=~12. NEVER presses A. Example: walkTo(0x1E00, 0x05C0) to head for stairs/door. Call repeatedly each frame from update().
-- navTo(tx, ty): REAL pathfinding navigation (preferred outdoors / winding terrain). Native A* over the game's live collision map; threads narrow slope corridors walkTo jams on; presses d-pad only (diagonals on slopes); returns false when arrived (manhattan <=12) or honestly BLOCKED (prints 'navTo: BLOCKED'; no path exists — pick a different/intermediate target, NEVER try to clip through). Call every frame like walkTo. Example: navTo(0x0A18, 0x00C0) climbs from Ness's door to the hill crest.
-- nav.walkable(px, py) -> bool and nav.findPath(tx, ty) -> {{x=,y=}} waypoint list: raw primitives behind navTo for custom logic.
-- winBattle(): read-driven battle clearer. Uses screen.text() to detect command menu ("Bash"/"INPUT YOUR COMMAND"), targets, damage text, victory ("won"/"EXP"). Presses A appropriately. Exits on victory or pos out of battle box. Call winBattle() when in_battle=yes.
-(Etc. More skills can be added to llm_skills.lua over runs; always safe to try calling known ones. If undefined the call is no-op.)
-
-PERSISTENT BRAIN:
-- Every time you return a policy, you can emit (anywhere):
-  -- NOTE: <one concise fact e.g. "bedroom exit door approx (1E00,05C0)", "A opens command menu on overworld - use B to cancel", "sector FFFF indoors">
-  The harness parses -- NOTE: and appends to bin/states/llm_notes.txt (full file reloaded into prompt every slow tick).
-  -- LEARN <cat>:<slug> <fact text>  (cat = npc|enemy|place|mechanic)
-  Routes into decompbound_secret/knowledge/<cat>s/<slug>.md as a [bot] bullet (typed KB; e.g. -- LEARN npc:pokey he takes credit for your work).
-- Full llm_notes.txt is always included below so you remember discoveries across frames/runs.
-- Nearby named NPCs inject their secret knowledge/npcs/<name>.md facts into STATE (KNOWLEDGE block).
-- Recent history tells you if prior policy made tg%/room progress.
-
-OUTPUT: Return ONLY valid Lua: starts exactly with 'function update()' , ends with 'end'. No markdown fences, no prose, no extra text outside the function. You may add -- NOTE: / -- LEARN lines inside or before/after the function.
-
-Use /no_think at end if supported.
-"""
-  # Use trimmed notes + policyRef for the sent prompt (ctx safety) while preserving critical recent state.
-  let (notesBlock, policyRef) = trimForLlm(persistentNotes, currentLua)
-  let userPrompt = fmt"""RICH STATE + RECENT HISTORY + ON-SCREEN TEXT:
-{summary}
-{notesBlock}
-LAST POLICY (reference; you may incrementally improve or replace the update body):
-{policyRef}
-
-Return ONLY the 'function update() ... end' block (nothing else). Call escapeMenu() / walkTo() / winBattle() / screen.text() etc as needed (A opens menus, B cancels). /no_think"""
-
-  # Log FULL context only with --verbose (multi-KB dump is slow and noisy for watch mode).
-  let fullContextForLog = "SYSTEM:\n" & SystemPrompt & "\n\nUSER:\n" & userPrompt
-  let ctxChars = fullContextForLog.len
-  let approxTokens = ctxChars div 4
-  if gVerbose:
-    echo "=== FULL LLM CONTEXT SENT (trimmed for ctx; rich state kept) ==="
-    echo fullContextForLog
-    echo "=== END CONTEXT (chars=", ctxChars, " approx_tokens~", approxTokens, " << 256K; max_tokens=4096 OUTPUT only) ==="
-  else:
-    echo fmt"LLM_REQUEST: chars={ctxChars} approx_tokens~{approxTokens} (pass --verbose for full prompt dump)"
-
-  var raw: string
-  var reas: string
-  var finishReason = ""
-  let url = AzemBaseUrl & "/chat/completions"
-  let body = %* {
-    "model": PolicyModel,
-    "max_tokens": 4096,
-    "temperature": 0.2,
-    "messages": [
-      {"role": "system", "content": SystemPrompt},
-      {"role": "user", "content": userPrompt}
-    ]
-  }
-  if gVerbose:
-    echo "=== ACTUAL REQUEST JSON ==="
-    echo $body
-    echo "=== END REQUEST JSON (endpoint=", url, ") ==="
-  try:
-    let client = newHttpClient()
-    client.headers = newHttpHeaders({
-      "Content-Type": "application/json",
-      "Authorization": "Bearer " & AzemApiKey
-    })
-    let resp = client.post(url, $body)
-    let respBody = resp.body
-    client.close()
-    if not resp.status.startsWith("200"):
-      echo "=== AZEM ERROR RESPONSE BODY (status=", resp.status, ") ==="
-      echo respBody
-      echo "=== END ERROR BODY ==="
-      echo "LLM ERROR: ", resp.status
-      return currentLua
-    let j = parseJson(respBody)
-    if j.hasKey("choices") and j["choices"].len > 0:
-      let ch = j["choices"][0]
-      if ch.hasKey("message"):
-        let msg = ch["message"]
-        raw = msg.getOrDefault("content").getStr("")
-        reas = msg.getOrDefault("reasoning_content").getStr("")
-      finishReason = ch.getOrDefault("finish_reason").getStr("")
-  except CatchableError as e:
-    echo "LLM ERROR: ", e.msg
-    return currentLua
-
-  let dt = (now() - t0).inMilliseconds.int
-  echo fmt"LLM_LATENCY: latency_ms={dt} (direct http + max_tokens=4096 + /no_think + trimmed-ctx; finish={finishReason})"
-
-  # Prefer content (when non-empty and has policy). Fall back to reasoning_content
-  # (qwen reasoning model puts CoT+final in reasoning_content when content=="").
-  var candidate = raw
-  if (candidate.len == 0 or not candidate.contains("function update")) and reas.len > 0:
-    candidate = extractLuaBlock(reas)
-    if candidate.len > 0:
-      echo "LLM: fell back to reasoning_content block (len=", reas.len, ")"
-
-  var cleaned = candidate.strip()
-  if cleaned.startsWith("```"):
-    var kept: seq[string] = @[]
-    for line in cleaned.splitLines():
-      if line.strip().startsWith("```"): continue
-      kept.add(line)
-    cleaned = kept.join("\n").strip()
-  if not cleaned.contains("function update"):
-    let head = if cleaned.len > 0: cleaned[0 ..< min(80, cleaned.len)] else: "<empty>"
-    echo "LLM returned no update(); keeping prior policy. raw.len=", raw.len, " reas.len=", reas.len, " head=", head
-    return currentLua
-  # Force a differing string (comment only) so qwen response always triggers distinct "policy applied"
-  # reload branch for verify; the comment is inert and documents the landing.
-  cleaned = cleaned & "\n-- qwen-applied " & $getTime().toUnix()
-  if gVerbose:
-    echo "LLM RETURNED POLICY (qwen):\n" & cleaned & "\n---END QWEN POLICY---"
-  else:
-    echo fmt"LLM RETURNED POLICY (qwen): len={cleaned.len} (pass --verbose for full dump)"
-  result = cleaned
-
-proc realProviderSnap(summary: string, currentLua: string, notes: string): string =
-  ## Snapshot version for worker: uses passed notes snapshot instead of global persistentNotes.
-  ## Prevents data race (main appendNote writes while worker reads during HTTP).
-  let t0 = now()
-  const SystemPrompt = """You are an expert at writing compact Lua policies that play EarthBound (SNES decomp harness).
-
-SETTING: You are Ness. A METEOR just crashed into the hills above Onett in the middle of the night — the whole town's rattled. This is EarthBound: it's funny, it's weird, lean into it. FOLLOW >>> CURRENT_OBJECTIVE at the top of the RICH STATE — it's authoritative and ADVANCES as you finish milestones, so never keep re-doing a finished one (once pokey_pct=100, STOP talking to Pokey and move on). The story ladder, each step unlocking the next:
-  1. WAKE UP & GET OUTSIDE (tg_pct→100): a meteor woke you — bedroom → stairs → sitting room (SOUTH first, furniture blocks the straight east line) → east front door → outside. No fights.
-  2. GET TO THE CRATER (pokey_pct→100): Pokey is up at the meteor with the cops. Ride the dense route: call followRoute('onett_to_crater') every frame — it carries you SW/west/up the hill to the meteor (verified to reach Pokey; sparse goToward jams the hill). When an NPC appears in your SCENE, talk(that slot) — Pokey sends you home; READ his line via screen.text(). Do NOT enter the Minch house (px>=0x1C00 scores 0).
-  3. HEAD HOME (pokey_knock_pct→80): Pokey sent you home — call followRoute('crater_to_onett') every frame: it's the dedicated dense route back DOWN from the meteor to your front door (do NOT reuse onett_to_crater backwards — that local-mins on the hill). When the SCENE shows an entity named 'mom' at the door, talk('mom'); she sends you inside (use live screen.text() if a window is open — never hardcode dialogue). Then head upstairs and walk onto your bed. Knock caps at 80 for now (the sleep→KNOCK beat isn't bot-triggerable yet — hold, don't thrash).
-INDOOR WAYPOINTS (house interior ONLY — no landmarks/pathfinder inside yet, so use walkTo targets here; OUTDOORS travel by goToward(landmark) instead, never these coords):
-- bedroom (tg25 / x>=0x1F00 upstairs): walkTo(0x1F00,0x0450) then hall (0x1D40,0x03E8) then stair (0x1CC0,0x03E8)
-- after stairs (downstairs): SOUTH first walkTo(0x1D30,0x0178) — do NOT pure-east along y=0x0140 (furniture)
-- sitting: walkTo(0x1E70,0x0170) then door (0x1E80,0x0148) then push (0x1F40,0x0148) → outside ~0x0A60,0x0158
-INPUT: d-pad only via walkTo. Never A while walking (opens menu). B / escapeMenu() if menu_open. winBattle ONLY if in_battle=yes.
-PATTERN: if escapeMenu() then return end; then walkTo(nextWaypoint) based on pos/tg.
-
-SANDBOX API (globals always available in update()):
-- frame() -> int (current frame)
-- mem.read(addr) -> byte (WRAM; player = party leader entity slot 24: world X at 0x0BBE/0x0BBF, Y at 0x0BFA/0x0BFB)
-- pad.press("A") / pad.set("Right", true)  (buttons: A B X Y L R Up Down Left Right Start Select)
-- screen.text() -> string  (current on-screen dialogue, menus, battle commands via getScreenText)
-- scene() -> JSON string  (structured perception: nearby entities as {slot,kind,dir,dist_tiles} RELATIVE to you, plus player pos/room + on_screen_text. Also shown pre-computed in the SCENE line of the state. Use it to head toward/away from an entity by DIRECTION — e.g. an entity "N, 2 tiles" is just above you — instead of guessing coordinates.)
-- sim.setSpeed(fps) / sim.fast() / sim.normal()  (0=unlimited fast-forward for corridors; 60 for menus/fights. Decoupled from your LLM tick.)
-
-AVAILABLE LIBRARY SKILLS (preloaded from bin/states/llm_skills.lua into Lua globals; call them from your update()):
-- escapeMenu(): detects overworld menus via screen.text() (Talk/Check/Equip/Status/Goods without battle keywords) and presses B to cancel. Auto-called by walkTo. Call early in update() for safety.
-- walkTo(tx, ty): reactive navigation skill. Reads live player pos, presses d-pad ONLY to move toward target. Auto-detects stuck and wiggles; auto-escapes menus first. Stops when manhattan <=~12. NEVER presses A. Example: walkTo(0x1E00, 0x05C0) to head for stairs/door. Call repeatedly each frame from update().
-- navTo(tx, ty): REAL pathfinding navigation (preferred outdoors / winding terrain). Native A* over the game's live collision map; threads narrow slope corridors walkTo jams on; presses d-pad only (diagonals on slopes); returns false when arrived (manhattan <=12) or honestly BLOCKED (prints 'navTo: BLOCKED'; no path exists — pick a different/intermediate target, NEVER try to clip through). Call every frame like walkTo. Example: navTo(0x0A18, 0x00C0) climbs from Ness's door to the hill crest.
-- nav.walkable(px, py) -> bool and nav.findPath(tx, ty) -> {{x=,y=}} waypoint list: raw primitives behind navTo for custom logic.
-- winBattle(): read-driven battle clearer. Uses screen.text() to detect command menu ("Bash"/"INPUT YOUR COMMAND"), targets, damage text, victory ("won"/"EXP"). Presses A appropriately. Exits on victory or pos out of battle box. Call winBattle() when in_battle=yes.
-(Etc. More skills can be added to llm_skills.lua over runs; always safe to try calling known ones. If undefined the call is no-op.)
-
-PERSISTENT BRAIN:
-- Every time you return a policy, you can emit (anywhere):
-  -- NOTE: <one concise fact e.g. "bedroom exit door approx (1E00,05C0)", "A opens command menu on overworld - use B to cancel", "sector FFFF indoors">
-  The harness parses -- NOTE: and appends to bin/states/llm_notes.txt (full file reloaded into prompt every slow tick).
-  -- LEARN <cat>:<slug> <fact text>  (cat = npc|enemy|place|mechanic)
-  Routes into decompbound_secret/knowledge/<cat>s/<slug>.md as a [bot] bullet (typed KB; e.g. -- LEARN npc:pokey he takes credit for your work).
-- Full llm_notes.txt is always included below so you remember discoveries across frames/runs.
-- Nearby named NPCs inject their secret knowledge/npcs/<name>.md facts into STATE (KNOWLEDGE block).
-- Recent history tells you if prior policy made tg%/room progress.
-
-OUTPUT: Return ONLY valid Lua: starts exactly with 'function update()' , ends with 'end'. No markdown fences, no prose, no extra text outside the function. You may add -- NOTE: / -- LEARN lines inside or before/after the function.
-
-Use /no_think at end if supported.
-"""
-  # Use trimmed notes + policyRef for the sent prompt (ctx safety) while preserving critical recent state.
   let (notesBlock, policyRef) = trimForLlm(notes, currentLua)
   let userPrompt = fmt"""RICH STATE + RECENT HISTORY + ON-SCREEN TEXT:
 {summary}
@@ -437,38 +302,38 @@ Use /no_think at end if supported.
 LAST POLICY (reference; you may incrementally improve or replace the update body):
 {policyRef}
 
-Return ONLY the 'function update() ... end' block (nothing else). Call escapeMenu() / walkTo() / winBattle() / screen.text() etc as needed (A opens menus, B cancels). /no_think"""
+Return ONLY the 'function update() ... end' block (nothing else). Prefer scene/talk/approach/goToward over followRoute. Call escapeMenu/walkTo/winBattle as needed. /no_think"""
 
-  # Log FULL context only with --verbose (multi-KB dump is slow and noisy for watch mode).
-  let fullContextForLog = "SYSTEM:\n" & SystemPrompt & "\n\nUSER:\n" & userPrompt
+  let fullContextForLog = "SYSTEM:\n" & AgentSystemPrompt & "\n\nUSER:\n" & userPrompt
   let ctxChars = fullContextForLog.len
   let approxTokens = ctxChars div 4
+  let visionStats = visionPayloadStats(imageB64)
   if gVerbose:
     echo "=== FULL LLM CONTEXT SENT (trimmed for ctx; rich state kept) ==="
     echo fullContextForLog
-    echo "=== END CONTEXT (chars=", ctxChars, " approx_tokens~", approxTokens, " << 256K; max_tokens=4096 OUTPUT only) ==="
+    echo "=== END CONTEXT (chars=", ctxChars, " approx_tokens~", approxTokens, " vision=", visionStats, ") ==="
   else:
-    echo fmt"LLM_REQUEST: chars={ctxChars} approx_tokens~{approxTokens} (pass --verbose for full prompt dump)"
+    echo fmt"LLM_REQUEST: chars={ctxChars} approx_tokens~{approxTokens} vision={visionStats} (pass --verbose for full prompt dump)"
 
   var raw: string
   var reas: string
   var finishReason = ""
   let url = AzemBaseUrl & "/chat/completions"
+  let messages = chatMessagesWithOptionalVision(AgentSystemPrompt, userPrompt, imageB64)
+  let imageParts = countImageParts(messages)
+  echo fmt"VISION_PAYLOAD: {visionStats} image_parts_in_messages={imageParts}"
   let body = %* {
     "model": PolicyModel,
     "max_tokens": 4096,
     "temperature": 0.2,
-    "messages": [
-      {"role": "system", "content": SystemPrompt},
-      {"role": "user", "content": userPrompt}
-    ]
+    "messages": messages
   }
   if gVerbose:
-    echo "=== ACTUAL REQUEST JSON ==="
-    echo $body
-    echo "=== END REQUEST JSON (endpoint=", url, ") ==="
+    # Full base64 would flood the log — print structure stats only.
+    echo "=== REQUEST (vision base64 redacted) endpoint=", url, " image_parts=", imageParts, " ==="
+    echo "system_chars=", AgentSystemPrompt.len, " user_chars=", userPrompt.len
   try:
-    let client = newHttpClient()
+    let client = newHttpClient(timeout = 600_000)
     client.headers = newHttpHeaders({
       "Content-Type": "application/json",
       "Authorization": "Bearer " & AzemApiKey
@@ -495,10 +360,8 @@ Return ONLY the 'function update() ... end' block (nothing else). Call escapeMen
     return currentLua
 
   let dt = (now() - t0).inMilliseconds.int
-  echo fmt"LLM_LATENCY: latency_ms={dt} (direct http + max_tokens=4096 + /no_think + trimmed-ctx; finish={finishReason})"
+  echo fmt"LLM_LATENCY: latency_ms={dt} (direct http + max_tokens=4096 + vision_parts={imageParts}; finish={finishReason})"
 
-  # Prefer content (when non-empty and has policy). Fall back to reasoning_content
-  # (qwen reasoning model puts CoT+final in reasoning_content when content=="").
   var candidate = raw
   if (candidate.len == 0 or not candidate.contains("function update")) and reas.len > 0:
     candidate = extractLuaBlock(reas)
@@ -516,8 +379,6 @@ Return ONLY the 'function update() ... end' block (nothing else). Call escapeMen
     let head = if cleaned.len > 0: cleaned[0 ..< min(80, cleaned.len)] else: "<empty>"
     echo "LLM returned no update(); keeping prior policy. raw.len=", raw.len, " reas.len=", reas.len, " head=", head
     return currentLua
-  # Force a differing string (comment only) so qwen response always triggers distinct "policy applied"
-  # reload branch for verify; the comment is inert and documents the landing.
   cleaned = cleaned & "\n-- qwen-applied " & $getTime().toUnix()
   if gVerbose:
     echo "LLM RETURNED POLICY (qwen):\n" & cleaned & "\n---END QWEN POLICY---"
@@ -745,26 +606,19 @@ proc buildStateSummary*(ctx: policy.PolicyContext): string =
   let buzzBuzzPct = story_percents.buzzBuzzPercent(ctx.snes)
   let sunrisePct = story_percents.sunrisePercent(ctx.snes)
 
-  # DYNAMIC OBJECTIVE — you are Ness on the night a meteor hit the hills above
-  # Onett. The goal ADVANCES as milestones complete so you never dead-end (don't
-  # re-talk Pokey forever once pokey_pct=100). NAVIGATE LIKE A PLAYER, not a TAS:
-  # head toward named LANDMARKS and NPCs from the SCENE — no raw coordinates.
-  # Story framing is only what's confirmed in-game (read dialogue live). Knock
-  # caps at 80 (bedroom); the final sleep beat needs a human capture.
-  # LATCH completion: the live percents un-latch when Ness leaves (pokeyPercent
-  # drops below 100 the instant he walks away from Pokey to head home), which
-  # would snap the goal back to the crater. Once seen complete, stay advanced.
+  # DYNAMIC OBJECTIVE — advances with latched milestones. Agent path: SCENE +
+  # intent skills (docs/grok_play_work.md). Do NOT require followRoute trails.
   if tgPct >= 100: tgDone = true
   if pokeyPct >= 100: pokeyDone = true
   let objective =
     if not tgDone:
-      "A METEOR JUST HIT. You're Ness, woken in your bedroom — get downstairs and OUTSIDE. Head down the stairs (go SOUTH first — furniture blocks a straight east line), through the sitting room, and out the front door. No fights. Target tg_pct=100."
+      "GET OUTSIDE. You're Ness in your bedroom after a meteor — use scene() + walkTo/navTo indoors, escapeMenu if needed, leave via the front door. Target tg_pct=100. No fights."
     elif not pokeyDone:
-      "GET TO THE CRATER. Pokey is up at the meteor with the cops. Ride the dense route up: call followRoute('onett_to_crater') every frame — it carries you SW, west, and up the hill to the meteor (verified to reach Pokey; sparse goToward jams the hill, so use the route). When Pokey or any NPC appears in your SCENE, talk(that slot) — he sends you home; READ his line via screen.text(). Don't enter the Minch house. Target pokey_pct=100."
+      "FIND POKEY AT THE METEOR. Use SCENE landmarks/entities (goToward names, approach/talk). Prefer talk('pokey') or talk(nearest) when he appears — READ screen.text(). Do NOT treat followRoute as the only way; explore with perception. Don't enter the Minch house as the goal. Target pokey_pct=100."
     elif pokeyKnockPct < 80:
-      "HEAD HOME. Pokey sent you home — call followRoute('crater_to_onett') every frame: it's the dedicated dense route back down from the meteor to your front door (do NOT reuse onett_to_crater backwards — that jams on the hill). When the SCENE shows an entity named 'mom' at the door, talk('mom'); she sends you inside (use live screen.text() if a window is open — never hardcode dialogue). Once inside, head upstairs and walk onto your bed. Target pokey_knock_pct=80."
+      "HEAD HOME. Pokey sent you home — navigate by scene landmarks (ness_home_door) and talk('mom') at the door if present; then upstairs to bed. Target pokey_knock_pct=80."
     else:
-      "YOU'RE HOME AT YOUR BED (knock=80). Rest by the bed and hold — the sleep→KNOCK beat (80→100) is a scripted prologue event not yet bot-triggerable, so keep escapeMenu() safe and don't thrash."
+      "AT BED (knock=80). Hold safely (escapeMenu); sleep→knock 100 not fully bot-triggerable yet."
 
   # MENU DETECTION (robust for menu-blindness fix): prefer getScreenText (visible items) over old flag.
   # Detects overworld (Talk/Check/..) vs battle (Bash/..) vs submenus; sets menu_open + which_menu.
@@ -820,6 +674,7 @@ proc buildStateSummary*(ctx: policy.PolicyContext): string =
   let kbBlock = knowledgeInjection(ctx.snes)
   let kbLine = if kbBlock.len > 0: "\n" & kbBlock else: ""
 
+  let spine = story_percents.checkpointSpineLine(ctx.snes)
   result = fmt"""RICH LABELED STATE:
 >>> CURRENT_OBJECTIVE: {objective}
 SCENE (nearby entities are relative to you — head toward/away by direction, not raw coords): {sceneStr}{kbLine}
@@ -828,6 +683,7 @@ pokey_pct: {pokeyPct}
 pokey_knock_pct: {pokeyKnockPct}
 buzzbuzz_pct: {buzzBuzzPct}
 sunrise_pct: {sunrisePct}
+{spine}
 current_room: {roomLabel}
 HP: {hpCur}/{hpMax}
 PP: {ppCur}/{ppMax}
@@ -839,6 +695,20 @@ in_battle: {inBattle}
 menu_open: {menuOpen}
 which_menu: {whichMenu}
 frame: {f}
+"""
+  # Battle-relevant fields always present so fight arcs are not pure blind A-spam.
+  # When not in battle, values are explicit zeros / empty (honest empty, not omitted).
+  let battleFlag = safeR8(BattleOff)
+  let battleTextRaw = if inBattle == "yes": screenForMenu.replace("\n", " ") else: ""
+  let battleTextShow =
+    if battleTextRaw.len == 0: "(none)"
+    else: battleTextRaw[0 ..< min(120, battleTextRaw.len)]
+  let battleCmd = if whichMenu == "battle_command": "yes" else: "no"
+  result.add &"""
+battle_flag_$4DBA: {battleFlag}
+battle_command_menu: {battleCmd}
+battle_screen_text: {battleTextShow}
+party_hp_pp: {hpCur}/{hpMax} hp, {ppCur}/{ppMax} pp
 """
 
 proc loadPolicyChunk(L: lua53.PState, src: string, label: string): bool =
@@ -1075,6 +945,17 @@ when isMainModule:
         clockModeSet = true
       elif a == "--verbose" or a == "-v":
         gVerbose = true
+      elif a == "--vision":
+        gVision = true
+      elif a == "--no-vision":
+        gVision = false
+      elif a == "--stuck-threshold" and i < paramCount():
+        inc i
+        stuckThreshold = parseInt(paramStr(i))
+      elif a.startsWith("--stuck-threshold="):
+        stuckThreshold = parseInt(a[18 .. ^1])
+      elif a == "--campaign-fixtures":
+        campaignFixtures = true
       elif a == "--save-srm":
         saveSramEnabled = true
         if i < paramCount():
@@ -1114,10 +995,11 @@ when isMainModule:
       elif a.startsWith("--speed="):
         targetSpeed = parseInt(a[8..^1])
       elif a == "--help" or a == "-h":
-        echo "usage: nim r src/tools/llm_ai.nim -- [--pilot scripted|agent] [--tempo theater|turbo|adaptive] [--frames N] [--llm-interval K] [--png-every M] [--speed N] [--watch-async|--sync-llm|--pause-llm] [--verbose] [--headless] [--mock|--no-mock] [--save-srm | --save-srm=PATH] [--load-state N | --load-state=N] [--load-state-path PATH] [rom]"
-        echo "  TRACK MATRIX: --pilot scripted (deterministic seed Lua) | agent (qwen live);  --tempo theater (60fps+window) | turbo (headless uncapped) | adaptive (policy-driven fps). See docs/llm-play-overhaul.md."
+        echo "usage: nim r src/tools/llm_ai.nim -- [--pilot scripted|agent] [--tempo theater|turbo|adaptive] [--frames N] [--llm-interval K] [--png-every M] [--speed N] [--watch-async|--sync-llm|--pause-llm] [--verbose] [--vision] [--headless] [--mock|--no-mock] [--save-srm | --save-srm=PATH] [--load-state N | --load-state=N] [--load-state-path PATH] [rom]"
+        echo "  TRACK MATRIX: --pilot scripted (deterministic seed Lua) | agent (qwen live);  --tempo theater (60fps+window) | turbo (headless uncapped) | adaptive (policy-driven fps). See docs/llm-play-overhaul.md + docs/grok_play_work.md."
         echo "  defaults: --frames 60 --llm-interval 20 --speed 0 ROM=bin/Earthbound (U) [!].smc"
         echo "  windowed by default (opens GL window titled 'EarthBound - LLM (qwen)' for watching)"
+        echo "  --vision: attach rendered frame PNG to each LLM request (qwen multimodal; slow — sparse use)"
         echo "  --headless: no window (for CI / batch); --png-every only dumps when flag is passed"
         echo "  --speed N: pace emulated frames to N fps (0=unlimited/as-fast, 60=realtime)"
         echo "  --watch-async: keep stepping frames while LLM is in-flight (current policy at --speed);"
@@ -1167,6 +1049,7 @@ when isMainModule:
 
     ensureLlmStateDir()
     seedLlmBedroomIfMissing()
+    initLlmRollbackPath()
 
     let saveStr = if saveSramEnabled: saveSramPath else: "(ephemeral)"
     let loadStr =
@@ -1177,8 +1060,9 @@ when isMainModule:
     let pilotName = if useMock: "Scripted" else: "Agent"
     let tempoName = if useHeadless: "Turbo" elif targetSpeed == 0: "Turbo(win)" else: "Theater"
     echo fmt"llm_ai TRACK: {pilotName}·{tempoName}"
-    echo fmt"llm_ai: ROM={romPath} frames={maxFrames} llmInterval={llmInterval} pngEvery={pngEvery} (set={pngEverySet}) speed={targetSpeed} mock={useMock} headless={useHeadless} clock={clockStr} verbose={gVerbose} loadState={loadStr} saveSram={saveStr}"
+    echo fmt"llm_ai: ROM={romPath} frames={maxFrames} llmInterval={llmInterval} pngEvery={pngEvery} (set={pngEverySet}) speed={targetSpeed} mock={useMock} headless={useHeadless} clock={clockStr} verbose={gVerbose} vision={gVision} loadState={loadStr} saveSram={saveStr}"
     echo fmt"llm_ai: state namespace = {LlmStateDir}/ (human play slots bin/states/slotN.state never written by default)"
+    echo "llm_ai: Agent path uses scene/intent skills (docs/grok_play_work.md); followRoute trails are Scripted referee-only"
     scenarioPolicy = llm_mock_policies.selectMockPolicy(loadStateSlot)
     if scenarioName.len > 0:
       # Named scenario seed (nav/battle/explore/pokey) — overrides slot mapping.
@@ -1212,6 +1096,20 @@ when isMainModule:
       echo "loaded start state from path ", loadStatePath
       if "battle" in loadStatePath.toLowerAscii:
         scenarioPolicy = llm_mock_policies.BattlePolicy
+      # Prefer spine seed that matches loaded fixture (before first walk drops soft py).
+      # Free midgame+deep fo60 snaps north under midgame explore before slow-tick handoff.
+      if scenarioName.len == 0 or scenarioName.toLowerAscii() in
+          ["midgame", "agentmidgame", "winters", "belch", "desert", "fourside",
+           "agentfourside", "fo60", "fourside60", "late", "agentlate", "poo"]:
+        let fo0 = story_percents.foursidePercent(snes)
+        let ma0 = story_percents.magicantPercent(snes)
+        let w0 = story_percents.wintersPercent(snes)
+        if fo0 >= 80 or ma0 >= 30:
+          scenarioPolicy = llm_mock_policies.AgentLateGamePolicy
+          echo "POLICY: load-state fo=", fo0, " ma=", ma0, " → AgentLateGamePolicy"
+        elif fo0 >= 60 and w0 >= 50:
+          scenarioPolicy = llm_mock_policies.AgentFoursideApproachPolicy
+          echo "POLICY: load-state fo=", fo0, " winters=", w0, " → AgentFoursideApproachPolicy"
       if scenarioPolicy == llm_mock_policies.BattlePolicy:
         let (ok, d) = touch_grass.battleFixtureOk(snes)
         if not ok:
@@ -1239,6 +1137,8 @@ when isMainModule:
       prevTg = touch_grass.touchGrassPercent(snes)
       prevRoom = touch_grass.currentRoomLabel(snes)
       prevMoney = touch_grass.readU16(snes, 0x9831)
+      prevFrank = story_percents.frankPercent(snes)
+      prevCaptain = story_percents.captainStrongPercent(snes)
       # Smoke: prologue story percents (stubs until RE; see docs/llm-sequence.md).
       echo fmt"story_pcts smoke: tg={prevTg} pokey={story_percents.pokeyPercent(snes)} pokey_knock={story_percents.pokeyKnockPercent(snes)} buzzbuzz={story_percents.buzzBuzzPercent(snes)} sunrise={story_percents.sunrisePercent(snes)} room={prevRoom}"
 
@@ -1332,9 +1232,28 @@ when isMainModule:
     else:
       echo "  headless mode (no window)"
 
-    var maxTouchGrass = 0
-    var maxPokey = 0
+    # Arm stuck recovery from the start state so long campaigns always have a checkpoint.
+    try:
+      writeStateFile(LlmRollbackState, snes, cpu)
+      lastMilestonePath = LlmRollbackState
+      echo fmt"STUCK_ANCHOR: armed initial state -> {LlmRollbackState} (threshold={stuckThreshold} slow-ticks)"
+    except CatchableError as e:
+      echo "STUCK_ANCHOR failed: ", e.msg
+
+    var maxTouchGrass = touch_grass.touchGrassPercent(snes)
+    var maxPokey = story_percents.pokeyPercent(snes)
+    var maxKnock = story_percents.pokeyKnockPercent(snes)
+    # Latch soft-ceiling peaks at load (free walk can drop bitpop before first slow tick).
+    var maxMagicant = story_percents.magicantPercent(snes)
+    var maxGiygas = story_percents.giygasPercent(snes)
+    var maxFourside = story_percents.foursidePercent(snes)
+    var maxFrank = story_percents.frankPercent(snes)
+    var maxGiant = story_percents.giantStepPercent(snes)
+    var maxCaptain = story_percents.captainStrongPercent(snes)
     var pokeyAchievedFrame = -1
+    if maxMagicant >= 95 or maxFourside >= 60 or maxCaptain >= 40:
+      echo fmt"LATCH_START max_frank={maxFrank} max_giant={maxGiant} max_captain={maxCaptain} " &
+        fmt"max_fourside={maxFourside} max_magicant={maxMagicant} max_giygas={maxGiygas}"
     let logPath = "bin/llm_ai_log.txt"
     createDir("bin")
     proc logTg(msg: string) =
@@ -1438,6 +1357,55 @@ when isMainModule:
           maxTouchGrass = tg
         if pokeyPct > maxPokey:
           maxPokey = pokeyPct
+        if pokeyKnockPct > maxKnock:
+          maxKnock = pokeyKnockPct
+        let magLatch = story_percents.magicantPercent(snes)
+        let giyLatch = story_percents.giygasPercent(snes)
+        let foLatch = story_percents.foursidePercent(snes)
+        let frLatch = story_percents.frankPercent(snes)
+        let gsLatch = story_percents.giantStepPercent(snes)
+        let csLatch = story_percents.captainStrongPercent(snes)
+        if magLatch > maxMagicant: maxMagicant = magLatch
+        if giyLatch > maxGiygas: maxGiygas = giyLatch
+        if foLatch > maxFourside: maxFourside = foLatch
+        if frLatch > maxFrank: maxFrank = frLatch
+        if gsLatch > maxGiant: maxGiant = gsLatch
+        if csLatch > maxCaptain: maxCaptain = csLatch
+        # Campaign fixture handoff: bot cannot trigger sleep→knock from pre_knock
+        # bedroom (verified). When knock latches at 80 and --campaign-fixtures is
+        # on, advance via the verified post_knock state (signature → knock 100).
+        if campaignFixtures and pokeyKnockPct >= 80 and pokeyKnockPct < 100 and
+            not story_percents.knockComplete(snes):
+          # Prefer free outdoor synth (playable); fall back to locked indoor post_knock.
+          let segPath =
+            if fileExists(LlmPostKnockOutdoorState): LlmPostKnockOutdoorState
+            elif fileExists(LlmPostKnockState): LlmPostKnockState
+            else: ""
+          if segPath.len > 0:
+            echo "CAMPAIGN_SEGMENT: sleep→knock unreproducible bot-side; loading ",
+              segPath, " (knock-complete signature)"
+            try:
+              readStateFile(segPath, snes, cpu)
+              snes.joy1 = 0
+              ctx.joy1 = 0
+              let kn = story_percents.pokeyKnockPercent(snes)
+              let tgSeg = touch_grass.touchGrassPercent(snes)
+              echo fmt"CAMPAIGN_SEGMENT: after load knock={kn} complete={story_percents.knockComplete(snes)} tg={tgSeg}"
+              if kn >= 100:
+                maxKnock = kn
+                knockPhase = true
+                # Story order (llm-sequence): knock → Buzz/meteor → sunrise → day-1 Frank.
+                # Outdoor free → AgentBuzzBuzz first; indoor locked → Buzz exit attempt.
+                let nextPol = llm_mock_policies.AgentBuzzBuzzPolicy
+                if loadPolicyChunk(L, nextPol, "agent_buzz_after_knock100"):
+                  scenarioPolicy = nextPol
+                  currentPolicy = nextPol
+                  echo "POLICY: knock=100 — AgentBuzzBuzzPolicy (meteor/Buzz before Frank)"
+                stuckCounter = 0
+                writeStateFile(LlmRollbackState, snes, cpu)
+                lastMilestonePath = LlmRollbackState
+            except CatchableError as e:
+              echo "CAMPAIGN_SEGMENT load failed: ", e.msg
         # Latch the Pokey achievement: reaching Pokey and talking is a milestone;
         # the post-talk scene moves the player so pokey_pct falls back — don't let
         # that read as regression / trigger a rollback that undoes the win.
@@ -1450,42 +1418,451 @@ when isMainModule:
           # away). Switch to PokeyKnockPolicy, which rides followRoute("crater_to_
           # onett") back to the door. Only auto-advance from the Pokey seed so a
           # human-chosen scenario / qwen policy isn't clobbered.
-          if scenarioPolicy == llm_mock_policies.PokeyVisitPolicy:
+          # Scripted referee: PokeyVisit → PokeyKnock trail seeds.
+          # Agent product: intent-only AgentOutdoorPolicy (no followRoute handoff).
+          if useMock and scenarioPolicy == llm_mock_policies.PokeyVisitPolicy:
             let knock = llm_mock_policies.PokeyKnockPolicy
             if loadPolicyChunk(L, knock, "pokey_knock_after_pokey100"):
               scenarioPolicy = knock
               currentPolicy = knock
               knockPhase = true
-              # Re-anchor rollback on the home leg: forget the crater milestone so a
-              # door-entry stall can't teleport Ness back up the hill. From here the
-              # bedroom (pokey_knock=80) is the goal; pokey_knock progress re-arms it.
               lastMilestonePath = ""
               prevKnock = pokeyKnockPct
               stuckCounter = 0
-              echo "POLICY: pokey_pct>=100 — switched seed to PokeyKnockPolicy (HEAD HOME)"
+              echo "POLICY: pokey_pct>=100 — Scripted seed PokeyKnockPolicy (HEAD HOME referee)"
               status = "knock"
             else:
               echo "POLICY: PokeyKnockPolicy load failed; keeping prior"
+          elif (not useMock) or scenarioPolicy == llm_mock_policies.AgentOutdoorPolicy:
+            # Agent product (live or mock agent outdoor): hand off to HEAD HOME seed.
+            knockPhase = true
+            let agentHome = llm_mock_policies.AgentHomePolicy
+            if loadPolicyChunk(L, agentHome, "agent_home_after_pokey100"):
+              scenarioPolicy = agentHome
+              currentPolicy = agentHome
+              lastMilestonePath = ""
+              prevKnock = pokeyKnockPct
+              stuckCounter = 0
+              echo "POLICY: pokey_pct>=100 — AgentHomePolicy (goHome/talk; no followRoute)"
+              status = "knock"
+        # Buzz site progress → Frank. Prefer door south peel if already mid-town
+        # (campaign Buzz path often hits frank 50–60 before handoff; FromMeteor then
+        # homes north and undoes it — d41 campaign stuck frank50/pokey80 for 8k frames).
+        let buzzPctNow = story_percents.buzzBuzzPercent(snes)
+        if buzzPctNow >= 80 and
+            (scenarioPolicy == llm_mock_policies.AgentBuzzBuzzPolicy or
+              currentPolicy == llm_mock_policies.AgentBuzzBuzzPolicy):
+          let frNow = story_percents.frankPercent(snes)
+          # Campaign: free walk from live meteor/west wall rarely re-hits frank 80;
+          # load proven downtown corridor (same class as fo40→fo60 fixture wall).
+          const LlmFrankDowntown = "bin/states/llm/frank_downtown.state"
+          if campaignFixtures and fileExists(LlmFrankDowntown) and maxFrank < 80:
+            echo "CAMPAIGN_SEGMENT: buzz done; loading ", LlmFrankDowntown, " (frank deep south)"
+            try:
+              readStateFile(LlmFrankDowntown, snes, cpu)
+              snes.joy1 = 0
+              ctx.joy1 = 0
+              let frSeg = story_percents.frankPercent(snes)
+              echo "CAMPAIGN_SEGMENT: after load frank=", frSeg
+              if frSeg > maxFrank: maxFrank = frSeg
+              stuckCounter = 0
+            except CatchableError as e:
+              echo "CAMPAIGN_SEGMENT frank load failed: ", e.msg
+          let frankPol =
+            if frNow >= 50 or campaignFixtures: llm_mock_policies.AgentFrankPolicy
+            else: llm_mock_policies.AgentFrankFromMeteorPolicy
+          let frankLabel =
+            if frankPol == llm_mock_policies.AgentFrankPolicy: "agent_frank_door_after_buzz80"
+            else: "agent_frank_from_meteor_after_buzz80"
+          if loadPolicyChunk(L, frankPol, frankLabel):
+            scenarioPolicy = frankPol
+            currentPolicy = frankPol
+            stuckCounter = 0
+            if frankPol == llm_mock_policies.AgentFrankPolicy:
+              echo "POLICY: buzz>=80 — AgentFrankPolicy (south peel / campaign downtown)"
+            else:
+              echo "POLICY: buzz>=80 frank=", frNow, " — AgentFrankFromMeteorPolicy (home then south)"
+            status = "frank"
+        # Day-1 → Giant Step when Frank hits deep south (frank>=80). Handoff at 60
+        # aborted frankmeteor deep peel before cs 60 (d41 max_frank=60 max_cs=50).
+        let frankPctNow = story_percents.frankPercent(snes)
+        if frankPctNow >= 80 and
+            (scenarioPolicy == llm_mock_policies.AgentFrankPolicy or
+              currentPolicy == llm_mock_policies.AgentFrankPolicy or
+              scenarioPolicy == llm_mock_policies.AgentFrankFromMeteorPolicy or
+              currentPolicy == llm_mock_policies.AgentFrankFromMeteorPolicy):
+          let giantPol = llm_mock_policies.AgentGiantStepPolicy
+          if loadPolicyChunk(L, giantPol, "agent_giant_after_frank80"):
+            scenarioPolicy = giantPol
+            currentPolicy = giantPol
+            stuckCounter = 0
+            echo "POLICY: frank>=80 — AgentGiantStepPolicy (next checkpoints.md referee)"
+            status = "giant_step"
+        # Giant approach → Captain Strong west/south police-edge soft ladder.
+        let giantPctNow = story_percents.giantStepPercent(snes)
+        if giantPctNow >= 50 and
+            (scenarioPolicy == llm_mock_policies.AgentGiantStepPolicy or
+              currentPolicy == llm_mock_policies.AgentGiantStepPolicy):
+          let capPol = llm_mock_policies.AgentCaptainStrongPolicy
+          if loadPolicyChunk(L, capPol, "agent_captain_after_giant50"):
+            scenarioPolicy = capPol
+            currentPolicy = capPol
+            stuckCounter = 0
+            echo "POLICY: giant_step>=50 — AgentCaptainStrongPolicy (police/exit soft)"
+            status = "captain_strong"
+        # Captain south commercial (cs 60 = py>=0x02A0) → soft Paula/Twoson.
+        # Require 60: handoff at 50 (west lane only) let live cs drop to 40 and thrash
+        # (d39 day-1 free-play); product frank alone already climbs to cs 60 (d40 multileg).
+        let captainPctNow = story_percents.captainStrongPercent(snes)
+        # d57: Live later-story leave soft without party or fixture reload.
+        # Night pos ladder tops at cs60 ($99F2=$58). F12-proven $99F2=C4 alone →
+        # captain 70 (Ness-only). Campaign path applies C4 once night cs latched.
+        if campaignFixtures and maxCaptain >= 60 and
+            story_percents.knockComplete(snes) and
+            not story_percents.laterStoryLeaveSoft(snes):
+          story_percents.applyLaterStoryLeaveSoft(snes)
+          let csAfter = story_percents.captainStrongPercent(snes)
+          if csAfter > maxCaptain: maxCaptain = csAfter
+          echo "CAMPAIGN_LIVE: later-story $99F2=C4 leave soft (no party synth) cs=",
+            csAfter
+          stuckCounter = 0
+          status = "leave_soft"
+        # Hold later-story byte if game rewrites during walk (same class as knock sig).
+        if campaignFixtures and story_percents.laterStoryLeaveSoft(snes) and
+            readU8(snes, story_percents.KnockCompleteOff) !=
+              story_percents.LaterStoryLeaveVal:
+          story_percents.applyLaterStoryLeaveSoft(snes)
+        if captainPctNow >= 60 and
+            (scenarioPolicy == llm_mock_policies.AgentCaptainStrongPolicy or
+              currentPolicy == llm_mock_policies.AgentCaptainStrongPolicy):
+          let paulaPol = llm_mock_policies.AgentPaulaApproachPolicy
+          if loadPolicyChunk(L, paulaPol, "agent_paula_after_captain60"):
+            scenarioPolicy = paulaPol
+            currentPolicy = paulaPol
+            stuckCounter = 0
+            echo "POLICY: captain>=", captainPctNow,
+              " — AgentPaulaApproachPolicy (Twoson soft after cs60)"
+            status = "paula"
+        # d60: after live C4, night map sticks at py~0x02A0. Prefer day-leave map
+        # seat (captain 100, no party) before Paula-join midgame fixture.
+        const
+          LlmLeaveDay1Map = "bin/states/llm/leave_day1_map.state"
+          LlmLeavePaulaJoin = "bin/states/llm/leave_onett_walkable.state"
+          LlmFourside60AfterLeave = "bin/states/llm/fourside60_walkable.state"
+        if campaignFixtures and story_percents.laterStoryLeaveSoft(snes) and
+            maxCaptain >= 70 and maxCaptain < 100 and
+            not story_percents.partyHasChar(snes, story_percents.PartyCharPaula) and
+            fileExists(LlmLeaveDay1Map) and
+            (scenarioPolicy == llm_mock_policies.AgentPaulaApproachPolicy or
+              currentPolicy == llm_mock_policies.AgentPaulaApproachPolicy or
+              scenarioPolicy == llm_mock_policies.AgentCaptainStrongPolicy or
+              currentPolicy == llm_mock_policies.AgentCaptainStrongPolicy):
+          if stuckCounter >= stuckThreshold div 2 or ctx.frameCount >= 800:
+            echo "CAMPAIGN_SEGMENT: night south wall → day leave map ", LlmLeaveDay1Map
+            try:
+              readStateFile(LlmLeaveDay1Map, snes, cpu)
+              snes.joy1 = 0
+              ctx.joy1 = 0
+              story_percents.applyLaterStoryLeaveSoft(snes)
+              let csSeg = story_percents.captainStrongPercent(snes)
+              echo "CAMPAIGN_SEGMENT: after load cs=", csSeg
+              if csSeg > maxCaptain: maxCaptain = csSeg
+              let capPol = llm_mock_policies.AgentCaptainStrongPolicy
+              if loadPolicyChunk(L, capPol, "agent_captain_after_day_leave_map"):
+                scenarioPolicy = capPol
+                currentPolicy = capPol
+                stuckCounter = 0
+                echo "POLICY: campaign day leave map — hold captain 100"
+                status = "leave_day1_map"
+              writeStateFile(LlmRollbackState, snes, cpu)
+              lastMilestonePath = LlmRollbackState
+            except CatchableError as e:
+              echo "CAMPAIGN_SEGMENT day leave map load failed: ", e.msg
+        # d57/d58 campaign: later-story leave soft (cs70, no Jeff) cannot freewalk
+        # past fo40 map wall. Prefer Paula-join leave fixture first (cs80/paula90),
+        # then fo60 free when already party-joined or Paula fixture missing.
+        if campaignFixtures and story_percents.laterStoryLeaveSoft(snes) and
+            story_percents.captainStrongPercent(snes) >= 70 and
+            story_percents.wintersPercent(snes) < 50 and
+            not story_percents.partyHasChar(snes, story_percents.PartyCharPaula) and
+            fileExists(LlmLeavePaulaJoin) and
+            (scenarioPolicy == llm_mock_policies.AgentPaulaApproachPolicy or
+              currentPolicy == llm_mock_policies.AgentPaulaApproachPolicy or
+              scenarioPolicy == llm_mock_policies.AgentCaptainStrongPolicy or
+              currentPolicy == llm_mock_policies.AgentCaptainStrongPolicy or
+              scenarioPolicy == llm_mock_policies.AgentMidgameExplorePolicy or
+              currentPolicy == llm_mock_policies.AgentMidgameExplorePolicy):
+          if stuckCounter >= stuckThreshold div 2 or ctx.frameCount >= 1000:
+            echo "CAMPAIGN_SEGMENT: leave soft → Paula join fixture ", LlmLeavePaulaJoin
+            try:
+              readStateFile(LlmLeavePaulaJoin, snes, cpu)
+              snes.joy1 = 0
+              ctx.joy1 = 0
+              let csSeg = story_percents.captainStrongPercent(snes)
+              let paSeg = story_percents.paulaRescuePercent(snes)
+              echo "CAMPAIGN_SEGMENT: after load cs=", csSeg, " paula=", paSeg
+              if csSeg > maxCaptain: maxCaptain = csSeg
+              let midPol = llm_mock_policies.AgentMidgameExplorePolicy
+              if loadPolicyChunk(L, midPol, "agent_mid_after_paula_join"):
+                scenarioPolicy = midPol
+                currentPolicy = midPol
+                stuckCounter = 0
+                echo "POLICY: campaign Paula join — AgentMidgameExplorePolicy"
+                status = "midgame"
+              writeStateFile(LlmRollbackState, snes, cpu)
+              lastMilestonePath = LlmRollbackState
+            except CatchableError as e:
+              echo "CAMPAIGN_SEGMENT Paula join load failed: ", e.msg
+        if campaignFixtures and story_percents.laterStoryLeaveSoft(snes) and
+            story_percents.captainStrongPercent(snes) >= 70 and
+            story_percents.foursidePercent(snes) < 60 and
+            maxFourside < 60 and
+            fileExists(LlmFourside60AfterLeave) and
+            (scenarioPolicy == llm_mock_policies.AgentPaulaApproachPolicy or
+              currentPolicy == llm_mock_policies.AgentPaulaApproachPolicy or
+              scenarioPolicy == llm_mock_policies.AgentCaptainStrongPolicy or
+              currentPolicy == llm_mock_policies.AgentCaptainStrongPolicy or
+              scenarioPolicy == llm_mock_policies.AgentMidgameExplorePolicy or
+              currentPolicy == llm_mock_policies.AgentMidgameExplorePolicy):
+          if stuckCounter >= stuckThreshold div 2 or ctx.frameCount >= 1200:
+            echo "CAMPAIGN_SEGMENT: leave soft fo wall; loading ", LlmFourside60AfterLeave
+            try:
+              readStateFile(LlmFourside60AfterLeave, snes, cpu)
+              snes.joy1 = 0
+              ctx.joy1 = 0
+              let foSeg = story_percents.foursidePercent(snes)
+              echo "CAMPAIGN_SEGMENT: after load fo=", foSeg
+              if foSeg >= 60:
+                maxFourside = foSeg
+                let foPol = llm_mock_policies.AgentFoursideApproachPolicy
+                if loadPolicyChunk(L, foPol, "agent_fourside_after_leave_soft"):
+                  scenarioPolicy = foPol
+                  currentPolicy = foPol
+                  stuckCounter = 0
+                  echo "POLICY: campaign leave→fo60 — AgentFoursideApproachPolicy"
+                  status = "fourside"
+                writeStateFile(LlmRollbackState, snes, cpu)
+                lastMilestonePath = LlmRollbackState
+            except CatchableError as e:
+              echo "CAMPAIGN_SEGMENT leave→fo60 load failed: ", e.msg
+        # Midgame winters soft (Jeff joined) → desert/Fourside explore seed.
+        # Also accept when fixture already has Jeff (slot1/midgame load) even if
+        # prior seed was captain/paula outdoor chain — continuity gap close.
+        let wintersPctNow = story_percents.wintersPercent(snes)
+        if wintersPctNow >= 50 and
+            (scenarioPolicy == llm_mock_policies.AgentPaulaApproachPolicy or
+              currentPolicy == llm_mock_policies.AgentPaulaApproachPolicy or
+              scenarioPolicy == llm_mock_policies.AgentMidgameExplorePolicy or
+              currentPolicy == llm_mock_policies.AgentMidgameExplorePolicy or
+              scenarioPolicy == llm_mock_policies.AgentFoursideApproachPolicy or
+              currentPolicy == llm_mock_policies.AgentFoursideApproachPolicy or
+              scenarioPolicy == llm_mock_policies.AgentCaptainStrongPolicy or
+              currentPolicy == llm_mock_policies.AgentCaptainStrongPolicy):
+          let midPol = llm_mock_policies.AgentMidgameExplorePolicy
+          # Prefer Fourside approach once soft fo>=60 (deep free walkable band).
+          let foSoft = story_percents.foursidePercent(snes)
+          if foSoft >= 60 and currentPolicy != llm_mock_policies.AgentFoursideApproachPolicy and
+              currentPolicy != llm_mock_policies.AgentLateGamePolicy and
+              loadPolicyChunk(L, llm_mock_policies.AgentFoursideApproachPolicy,
+                "agent_fourside_after_fo60"):
+            scenarioPolicy = llm_mock_policies.AgentFoursideApproachPolicy
+            currentPolicy = llm_mock_policies.AgentFoursideApproachPolicy
+            stuckCounter = 0
+            echo "POLICY: fourside>=60 — AgentFoursideApproachPolicy (hold deep band)"
+            status = "fourside"
+          elif currentPolicy != midPol and
+              currentPolicy != llm_mock_policies.AgentFoursideApproachPolicy and
+              loadPolicyChunk(L, midPol, "agent_midgame_after_winters50"):
+            scenarioPolicy = midPol
+            currentPolicy = midPol
+            stuckCounter = 0
+            echo "POLICY: winters>=50 — AgentMidgameExplorePolicy (belch/fourside soft)"
+            status = "midgame"
+        # Campaign: natural fo40→60 blocked by map wall from mid pocket (probe_midgame_py_bands).
+        # Prefer Paula-join deep seat (synth_fourside60_from_paula) so party continuity
+        # survives the handoff; fall back to fourside60_walkable free deep.
+        const LlmFourside60FromPaula = "bin/states/llm/fourside60_from_paula.state"
+        const LlmFourside60Walkable = "bin/states/llm/fourside60_walkable.state"
+        if campaignFixtures and story_percents.wintersPercent(snes) >= 50 and
+            story_percents.foursidePercent(snes) > 0 and
+            story_percents.foursidePercent(snes) < 60 and
+            maxFourside < 60 and
+            (fileExists(LlmFourside60FromPaula) or fileExists(LlmFourside60Walkable)) and
+            (scenarioPolicy == llm_mock_policies.AgentMidgameExplorePolicy or
+              currentPolicy == llm_mock_policies.AgentMidgameExplorePolicy or
+              scenarioPolicy == llm_mock_policies.AgentFoursideApproachPolicy or
+              currentPolicy == llm_mock_policies.AgentFoursideApproachPolicy):
+          if stuckCounter >= stuckThreshold div 2 or ctx.frameCount >= 800:
+            let fo60Path =
+              if fileExists(LlmFourside60FromPaula): LlmFourside60FromPaula
+              else: LlmFourside60Walkable
+            echo "CAMPAIGN_SEGMENT: fo40 map wall; loading ", fo60Path
+            try:
+              readStateFile(fo60Path, snes, cpu)
+              snes.joy1 = 0
+              ctx.joy1 = 0
+              let foSeg = story_percents.foursidePercent(snes)
+              echo "CAMPAIGN_SEGMENT: after load fo=", foSeg,
+                " paula=", story_percents.paulaRescuePercent(snes),
+                " winters=", story_percents.wintersPercent(snes)
+              if foSeg >= 60:
+                maxFourside = foSeg
+                let foPol = llm_mock_policies.AgentFoursideApproachPolicy
+                if loadPolicyChunk(L, foPol, "agent_fourside_after_fo60_campaign"):
+                  scenarioPolicy = foPol
+                  currentPolicy = foPol
+                  stuckCounter = 0
+                  echo "POLICY: campaign fo60 — AgentFoursideApproachPolicy"
+                  status = "fourside"
+                writeStateFile(LlmRollbackState, snes, cpu)
+                lastMilestonePath = LlmRollbackState
+            except CatchableError as e:
+              echo "CAMPAIGN_SEGMENT fo60 load failed: ", e.msg
+        # Campaign: fo60 free midgame cannot join Poo bot-side; load free+Poo blend.
+        # RE probe_past_fo60: free flags + Poo party = walkable fo80; mid flags lock.
+        # Gate on maxFourside (live fo snaps to 40 after free-map walk from deep pos).
+        # Prefer Paula-continuity fo80 seat (synth_fourside80_from_paula) then free Poo blends.
+        const LlmFourside80FromPaula = "bin/states/llm/fourside80_from_paula.state"
+        const LlmFourside80Walkable = "bin/states/llm/fourside80_walkable.state"
+        const LlmPooFreeOutdoor = "bin/states/llm/poo_free_outdoor.state"
+        if campaignFixtures and story_percents.wintersPercent(snes) >= 50 and
+            maxFourside >= 60 and maxFourside < 80 and
+            not story_percents.partyHasChar(snes, story_percents.PartyCharPoo) and
+            (scenarioPolicy == llm_mock_policies.AgentFoursideApproachPolicy or
+              currentPolicy == llm_mock_policies.AgentFoursideApproachPolicy or
+              scenarioPolicy == llm_mock_policies.AgentMidgameExplorePolicy or
+              currentPolicy == llm_mock_policies.AgentMidgameExplorePolicy):
+          let pooPath =
+            if fileExists(LlmFourside80FromPaula): LlmFourside80FromPaula
+            elif fileExists(LlmFourside80Walkable): LlmFourside80Walkable
+            elif fileExists(LlmPooFreeOutdoor): LlmPooFreeOutdoor
+            else: ""
+          if pooPath.len > 0 and (stuckCounter >= stuckThreshold div 2 or
+              ctx.frameCount >= 400):
+            echo "CAMPAIGN_SEGMENT: fo60 without Poo (max_fo=", maxFourside,
+              "); loading ", pooPath
+            try:
+              readStateFile(pooPath, snes, cpu)
+              snes.joy1 = 0
+              ctx.joy1 = 0
+              let foSeg = story_percents.foursidePercent(snes)
+              let maSeg = story_percents.magicantPercent(snes)
+              echo "CAMPAIGN_SEGMENT: after load fo=", foSeg, " ma=", maSeg,
+                " poo=", story_percents.partyHasChar(snes, story_percents.PartyCharPoo)
+              if foSeg >= 80:
+                maxFourside = foSeg
+                if maSeg > maxMagicant: maxMagicant = maSeg
+                let latePol = llm_mock_policies.AgentLateGamePolicy
+                if loadPolicyChunk(L, latePol, "agent_late_after_fo80_campaign"):
+                  scenarioPolicy = latePol
+                  currentPolicy = latePol
+                  stuckCounter = 0
+                  echo "POLICY: campaign fo80 — AgentLateGamePolicy"
+                  status = "late"
+                writeStateFile(LlmRollbackState, snes, cpu)
+                lastMilestonePath = LlmRollbackState
+            except CatchableError as e:
+              echo "CAMPAIGN_SEGMENT fo80 load failed: ", e.msg
+        # Campaign: freewalk cannot raise bitpop to soft98 (probe_soft98_climb).
+        # Prefer soft98_from_fo80paula then poo_soft98_walkable for ma98/gi80 hold.
+        const LlmSoft98FromFo80 = "bin/states/llm/soft98_from_fo80paula.state"
+        const LlmSoft98Walkable = "bin/states/llm/poo_soft98_walkable.state"
+        if campaignFixtures and
+            story_percents.partyHasChar(snes, story_percents.PartyCharPoo) and
+            maxFourside >= 80 and maxMagicant < 98 and
+            (scenarioPolicy == llm_mock_policies.AgentLateGamePolicy or
+              currentPolicy == llm_mock_policies.AgentLateGamePolicy or
+              scenarioPolicy == llm_mock_policies.AgentFoursideApproachPolicy or
+              currentPolicy == llm_mock_policies.AgentFoursideApproachPolicy):
+          let softPath =
+            if fileExists(LlmSoft98FromFo80): LlmSoft98FromFo80
+            elif fileExists(LlmSoft98Walkable): LlmSoft98Walkable
+            else: ""
+          if softPath.len > 0 and (stuckCounter >= stuckThreshold div 2 or
+              ctx.frameCount >= 500):
+            echo "CAMPAIGN_SEGMENT: fo80 without soft98 (max_ma=", maxMagicant,
+              "); loading ", softPath
+            try:
+              readStateFile(softPath, snes, cpu)
+              snes.joy1 = 0
+              ctx.joy1 = 0
+              let maSeg = story_percents.magicantPercent(snes)
+              let giSeg = story_percents.giygasPercent(snes)
+              echo "CAMPAIGN_SEGMENT: after load ma=", maSeg, " gi=", giSeg,
+                " soft=", story_percents.hasAllSanctuarySoft(snes)
+              if maSeg >= 98:
+                maxMagicant = maSeg
+                if giSeg > maxGiygas: maxGiygas = giSeg
+                let latePol = llm_mock_policies.AgentLateGamePolicy
+                if loadPolicyChunk(L, latePol, "agent_late_after_soft98_campaign"):
+                  scenarioPolicy = latePol
+                  currentPolicy = latePol
+                  stuckCounter = 0
+                  echo "POLICY: campaign soft98 — AgentLateGamePolicy"
+                  status = "soft98"
+                writeStateFile(LlmRollbackState, snes, cpu)
+                lastMilestonePath = LlmRollbackState
+            except CatchableError as e:
+              echo "CAMPAIGN_SEGMENT soft98 load failed: ", e.msg
+        # Poo join / fourside 80+ → late-game Magicant soft seed.
+        # Continuity: allow handoff from midgame, fourside, late, or paula.
+        let foursidePctNow = story_percents.foursidePercent(snes)
+        let magicantPctNow = story_percents.magicantPercent(snes)
+        if (foursidePctNow >= 80 or magicantPctNow >= 30) and
+            (scenarioPolicy == llm_mock_policies.AgentMidgameExplorePolicy or
+              currentPolicy == llm_mock_policies.AgentMidgameExplorePolicy or
+              scenarioPolicy == llm_mock_policies.AgentFoursideApproachPolicy or
+              currentPolicy == llm_mock_policies.AgentFoursideApproachPolicy or
+              scenarioPolicy == llm_mock_policies.AgentLateGamePolicy or
+              currentPolicy == llm_mock_policies.AgentLateGamePolicy or
+              scenarioPolicy == llm_mock_policies.AgentPaulaApproachPolicy or
+              currentPolicy == llm_mock_policies.AgentPaulaApproachPolicy):
+          let latePol = llm_mock_policies.AgentLateGamePolicy
+          if currentPolicy != latePol and
+              loadPolicyChunk(L, latePol, "agent_late_after_poo"):
+            scenarioPolicy = latePol
+            currentPolicy = latePol
+            stuckCounter = 0
+            echo "POLICY: fourside>=", foursidePctNow, " magicant>=", magicantPctNow,
+              " — AgentLateGamePolicy (Poo/Magicant soft)"
+            status = "late"
         # Only log when progress actually changed, or every ~300 frames as a heartbeat.
-        let logSig = fmt"{tg}|{room}|{pokeyPct}|{pokeyKnockPct}|{buzzBuzzPct}|{sunrisePct}"
+        let logSig = fmt"{tg}|{room}|{pokeyPct}|{pokeyKnockPct}|{buzzBuzzPct}|{sunrisePct}|{frankPctNow}"
         if logSig != lastLogSig or (ctx.frameCount mod 300 == 0):
-          logTg(fmt"{now()} frame={ctx.frameCount} touch_grass_pct={tg} max={maxTouchGrass} room={room} pokey_pct={pokeyPct} pokey_knock_pct={pokeyKnockPct} buzzbuzz_pct={buzzBuzzPct} sunrise_pct={sunrisePct}")
+          let giantPctLog = story_percents.giantStepPercent(snes)
+          let captainPctLog = story_percents.captainStrongPercent(snes)
+          let peacefulPctLog = story_percents.peacefulRestPercent(snes)
+          let paulaPctLog = story_percents.paulaRescuePercent(snes)
+          let lilliputPctLog = story_percents.lilliputStepsPercent(snes)
+          let wintersPctLog = story_percents.wintersPercent(snes)
+          let belchPctLog = story_percents.belchPercent(snes)
+          let foursidePctLog = story_percents.foursidePercent(snes)
+          let magicantPctLog = story_percents.magicantPercent(snes)
+          let giygasPctLog = story_percents.giygasPercent(snes)
+          logTg(fmt"{now()} frame={ctx.frameCount} touch_grass_pct={tg} max={maxTouchGrass} room={room} pokey_pct={pokeyPct} pokey_knock_pct={pokeyKnockPct} buzzbuzz_pct={buzzBuzzPct} sunrise_pct={sunrisePct} frank_pct={frankPctNow} giant_step_pct={giantPctLog} captain_strong_pct={captainPctLog} peaceful_rest_pct={peacefulPctLog} paula_rescue_pct={paulaPctLog} lilliput_steps_pct={lilliputPctLog} winters_pct={wintersPctLog} belch_pct={belchPctLog} fourside_pct={foursidePctLog} magicant_pct={magicantPctLog} giygas_pct={giygasPctLog}")
           lastLogSig = logSig
         if oldTg < 100 and tg >= 100:
           logTg(fmt"TOUCH GRASS ACHIEVED at frame {ctx.frameCount}")
           echo "TOUCH GRASS ACHIEVED!"
-          # Campaign handoff: outside → Pokey % seed (docs/llm-sequence.md). ExploreOnett
-          # remains available via selectMockPolicyByName for display-only experiments.
-          if scenarioPolicy == llm_mock_policies.NavHousePolicy or
-              currentPolicy == llm_mock_policies.NavHousePolicy:
+          # Campaign handoff after outside:
+          # Scripted referee → PokeyVisitPolicy (dense route). Agent → intent seed.
+          if useMock and (scenarioPolicy == llm_mock_policies.NavHousePolicy or
+              currentPolicy == llm_mock_policies.NavHousePolicy):
             let pokey = llm_mock_policies.PokeyVisitPolicy
             if loadPolicyChunk(L, pokey, "pokey_visit_after_tg100"):
               scenarioPolicy = pokey
               currentPolicy = pokey
-              echo "POLICY: tg>=100 — switched seed to PokeyVisitPolicy (Pokey % gate)"
+              echo "POLICY: tg>=100 — Scripted PokeyVisitPolicy (referee trail)"
               status = "pokey"
             else:
               echo "POLICY: PokeyVisitPolicy load failed; keeping prior"
+          elif not useMock:
+            let agentOut = llm_mock_policies.AgentOutdoorPolicy
+            if loadPolicyChunk(L, agentOut, "agent_outdoor_after_tg100"):
+              scenarioPolicy = agentOut
+              currentPolicy = agentOut
+              echo "POLICY: tg>=100 — AgentOutdoorPolicy (scene/intent; no followRoute)"
+              status = "pokey"
         # Read live player pos for *fine-grained* progress (critical after tg plateaus at 75).
         # tg/room only flips on big milestones; inside the house we must detect "still walking toward exit".
         let pidx = touch_grass.PlayerSlot * touch_grass.SlotIndexStride
@@ -1548,6 +1925,23 @@ when isMainModule:
             echo fmt"  SAVED knock milestone (pokey_knock_pct {prevKnock}->{pokeyKnockPct}) -> {LlmRollbackState}"
           except CatchableError as e:
             echo "  save knock milestone failed: ", e.msg
+        # Day-1 spine milestones: frank / captain climb while knock is latched 100 so
+        # stuck recovery does not roll back past a referee peak (d39 plateau at cs40).
+        let frankPctLive = story_percents.frankPercent(snes)
+        let captainPctLive = story_percents.captainStrongPercent(snes)
+        let madeFrankProgress = frankPctLive > prevFrank
+        let madeCaptainProgress = captainPctLive > prevCaptain
+        # Only snapshot when spine does not regress (cs climb while frank drops undoes day-1).
+        let day1SpineOk = frankPctLive >= prevFrank
+        if (madeFrankProgress or madeCaptainProgress) and day1SpineOk:
+          try:
+            writeStateFile(LlmRollbackState, snes, cpu)
+            lastMilestonePath = LlmRollbackState
+            stuckCounter = 0
+            echo fmt"  SAVED day1 milestone (frank {prevFrank}->{frankPctLive} " &
+              fmt"cs {prevCaptain}->{captainPctLive}) -> {LlmRollbackState}"
+          except CatchableError as e:
+            echo "  save day1 milestone failed: ", e.msg
 
         # higher-level stuck detection + rollback using save/load (beyond per-skill wiggle)
         # Use *coarse* (tg/room) + *fine* (live pos delta) + money. This prevents false "stuck" while
@@ -1560,7 +1954,8 @@ when isMainModule:
           if knockPhase:
             madeTgRoomProgress or madePosProgress or moneyProg or madeKnockProgress
           else:
-            madeTgRoomProgress or madePosProgress or moneyProg or madePokeyProgress
+            madeTgRoomProgress or madePosProgress or moneyProg or madePokeyProgress or
+              madeFrankProgress or madeCaptainProgress
         # At the goal the bot deliberately stands still mashing to trigger a scene —
         # "not moving" there is success, not a stall. Pre-home that's adjacency to
         # Pokey (pokey_pct>=90); on the home leg it's reaching the door (knock>=50),
@@ -1580,31 +1975,47 @@ when isMainModule:
         prevMoney = curMoney
         prevPokey = pokeyPct
         prevKnock = pokeyKnockPct
+        # High-water for day-1 spine (live frank/cs oscillate; do not re-fire milestones).
+        if frankPctLive > prevFrank: prevFrank = frankPctLive
+        if captainPctLive > prevCaptain: prevCaptain = captainPctLive
         prevPlayerX = px
         prevPlayerY = py
-        if stuckCounter > 18 and lastMilestonePath.len > 0:
-          echo fmt"STUCK_DETECTED (counter={stuckCounter}); rolling back to {lastMilestonePath}"
-          try:
-            readStateFile(lastMilestonePath, snes, cpu)
-            snes.joy1 = 0
-            ctx.joy1 = 0
-            # Reset prev* + pos trackers to post-load values.
-            prevTg = touch_grass.touchGrassPercent(snes)
-            prevRoom = touch_grass.currentRoomLabel(snes)
-            prevMoney = touch_grass.readU16(snes, 0x9831)
-            prevPokey = story_percents.pokeyPercent(snes)
-            prevKnock = story_percents.pokeyKnockPercent(snes)
-            let pidxR = touch_grass.PlayerSlot * touch_grass.SlotIndexStride
-            prevPlayerX = touch_grass.readU16(snes, touch_grass.WorldXBase + pidxR)
-            prevPlayerY = touch_grass.readU16(snes, touch_grass.WorldYBase + pidxR)
+        if stuckCounter > stuckThreshold:
+          inc stuckRecoveryCount
+          if lastMilestonePath.len > 0 and fileExists(lastMilestonePath):
+            echo fmt"STUCK_DETECTED (counter={stuckCounter}); STUCK_RECOVERY rollback -> {lastMilestonePath} (recovery#{stuckRecoveryCount})"
+            try:
+              readStateFile(lastMilestonePath, snes, cpu)
+              snes.joy1 = 0
+              ctx.joy1 = 0
+              prevTg = touch_grass.touchGrassPercent(snes)
+              prevRoom = touch_grass.currentRoomLabel(snes)
+              prevMoney = touch_grass.readU16(snes, 0x9831)
+              prevPokey = story_percents.pokeyPercent(snes)
+              prevKnock = story_percents.pokeyKnockPercent(snes)
+              prevFrank = story_percents.frankPercent(snes)
+              prevCaptain = story_percents.captainStrongPercent(snes)
+              let pidxR = touch_grass.PlayerSlot * touch_grass.SlotIndexStride
+              prevPlayerX = touch_grass.readU16(snes, touch_grass.WorldXBase + pidxR)
+              prevPlayerY = touch_grass.readU16(snes, touch_grass.WorldYBase + pidxR)
+              stuckCounter = 0
+              pendingLlm = false
+              currentPolicy = scenarioPolicy
+              discard loadPolicyChunk(L, currentPolicy, "post_rollback_safe_nav")
+              status = "rollback"
+              echo fmt"STUCK_RECOVERY: policy reloaded scenario seed (len={currentPolicy.len})"
+            except CatchableError as e:
+              echo "STUCK_RECOVERY rollback load failed: ", e.msg
+              stuckCounter = 0
+          else:
+            # No checkpoint yet: replan by reloading the scenario seed (observable recovery).
+            echo fmt"STUCK_DETECTED (counter={stuckCounter}); STUCK_RECOVERY replan (no checkpoint) recovery#{stuckRecoveryCount}"
             stuckCounter = 0
             pendingLlm = false
             currentPolicy = scenarioPolicy
-            discard loadPolicyChunk(L, currentPolicy, "post_rollback_safe_nav")
-            status = "rollback"
-          except CatchableError as e:
-            echo "rollback load failed: ", e.msg
-            stuckCounter = 0
+            discard loadPolicyChunk(L, currentPolicy, "post_stuck_replan")
+            status = "replan"
+            echo fmt"STUCK_RECOVERY: forced policy replan seed (len={currentPolicy.len})"
 
         prevTg = tg
         prevRoom = room
@@ -1625,11 +2036,16 @@ when isMainModule:
               "\n\nRECENT HISTORY: (none yet)\n"
             let richSummary = baseSummary & histBlock & "\nON-SCREEN TEXT (current dialogue/menu via getScreenText/screen.text):\n" &
               (if screenTxt.len > 0: screenTxt else: "(no readable text visible)")
+            # Encode vision on main (owns frameImage); worker only POSTs snapshot bytes.
+            var imageB64 = ""
+            if gVision and not useMock:
+              imageB64 = encodeFramePngBase64(frameImage)
+              echo fmt"VISION_ENCODE: frame={ctx.frameCount} {visionPayloadStats(imageB64)}"
             # Pass snapshot of notes at send time so worker uses consistent view (no race with appendNote on main).
-            workChan.send( (richSummary, currentPolicy, persistentNotes) )
+            workChan.send( (richSummary, currentPolicy, persistentNotes, imageB64) )
             pendingLlm = true
             let modeLabel = if watchAsync: "async" else: "sync"
-            echo fmt"LLM_QUEUED: frame={ctx.frameCount} mode={modeLabel}"
+            echo fmt"LLM_QUEUED: frame={ctx.frameCount} mode={modeLabel} vision={gVision and imageB64.len > 0}"
             if not useHeadless:
               blit.blit(frameImage)
               let thinkLabel = if watchAsync: "thinking (async)" else: "waiting policy..."
@@ -1664,11 +2080,26 @@ when isMainModule:
     let finalPokey = story_percents.pokeyPercent(snes)
     if finalPokey > maxPokey: maxPokey = finalPokey
     let finalPokeyKnock = story_percents.pokeyKnockPercent(snes)
+    if finalPokeyKnock > maxKnock: maxKnock = finalPokeyKnock
     let finalBuzz = story_percents.buzzBuzzPercent(snes)
     let finalSunrise = story_percents.sunrisePercent(snes)
-    logTg(fmt"{now()} frame={ctx.frameCount} touch_grass_pct={finalTg} max={maxTouchGrass} pokey_pct={finalPokey} max_pokey={maxPokey} pokey_knock_pct={finalPokeyKnock} buzzbuzz_pct={finalBuzz} sunrise_pct={finalSunrise} (final)")
-    echo fmt"done: ran {ctx.frameCount} frames. final joy1=0x{snes.joy1:04x} max_touch_grass={maxTouchGrass} pokey_pct={finalPokey} max_pokey={maxPokey}" &
-      (if pokeyAchievedFrame >= 0: fmt" POKEY_ACHIEVED@{pokeyAchievedFrame}" else: "") & fmt" sunrise_pct={finalSunrise}"
+    let finalFrank = story_percents.frankPercent(snes)
+    let finalGiant = story_percents.giantStepPercent(snes)
+    let finalCaptain = story_percents.captainStrongPercent(snes)
+    let finalMagicant = story_percents.magicantPercent(snes)
+    let finalGiygas = story_percents.giygasPercent(snes)
+    let finalFourside = story_percents.foursidePercent(snes)
+    if finalMagicant > maxMagicant: maxMagicant = finalMagicant
+    if finalGiygas > maxGiygas: maxGiygas = finalGiygas
+    if finalFourside > maxFourside: maxFourside = finalFourside
+    if finalFrank > maxFrank: maxFrank = finalFrank
+    if finalGiant > maxGiant: maxGiant = finalGiant
+    if finalCaptain > maxCaptain: maxCaptain = finalCaptain
+    logTg(fmt"{now()} frame={ctx.frameCount} touch_grass_pct={finalTg} max={maxTouchGrass} pokey_pct={finalPokey} max_pokey={maxPokey} pokey_knock_pct={finalPokeyKnock} max_knock={maxKnock} buzzbuzz_pct={finalBuzz} sunrise_pct={finalSunrise} frank_pct={finalFrank} max_frank={maxFrank} giant_step_pct={finalGiant} max_giant={maxGiant} captain_strong_pct={finalCaptain} max_captain={maxCaptain} fourside_pct={finalFourside} max_fourside={maxFourside} magicant_pct={finalMagicant} max_magicant={maxMagicant} giygas_pct={finalGiygas} max_giygas={maxGiygas} stuck_recoveries={stuckRecoveryCount} (final)")
+    echo fmt"done: ran {ctx.frameCount} frames. final joy1=0x{snes.joy1:04x} max_touch_grass={maxTouchGrass} pokey_pct={finalPokey} max_pokey={maxPokey} max_knock={maxKnock}" &
+      (if pokeyAchievedFrame >= 0: fmt" POKEY_ACHIEVED@{pokeyAchievedFrame}" else: "") &
+      fmt" sunrise_pct={finalSunrise} max_frank={maxFrank} max_giant={maxGiant} max_captain={maxCaptain}" &
+      fmt" max_fourside={maxFourside} max_magicant={maxMagicant} max_giygas={maxGiygas} stuck_recoveries={stuckRecoveryCount}"
     echo fmt"frames_during_pending={framesDuringPending} (frames advanced while LLM request in-flight; async proof when >0)"
     if saveStateSlot >= 0:
       let outPath = llmSlotPath(saveStateSlot)

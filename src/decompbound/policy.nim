@@ -480,21 +480,38 @@ proc getPolicyCtx*(L: lua53.PState): PolicyContext {.inline.} =
   L.pop(1)
   cast[PolicyContext](p)
 
+proc memWramEff(a: int): int =
+  ## Resolve Lua mem addr to a WRAM bus index ($7E/$7F only).
+  if (a and 0xFF0000) in [0x7E0000, 0x7F0000]:
+    result = a and 0xFFFFFF
+  else:
+    result = 0x7E0000 or (a and 0x1FFFF)
+
 proc memRead*(L: lua53.PState): cint {.cdecl.} =
   ## Lua binding: mem.read(addr) returns byte from WRAM only (read-only).
   ## Accepts either offset into $7E0000 or full 24-bit address in $7E/$7F.
   ## Outside WRAM returns 0 (no MMIO side effects, per design).
   let ctx = getPolicyCtx(L)
-  var a = L.toInteger(1).int
-  let eff = if (a and 0xFF0000) in [0x7E0000, 0x7F0000]:
-      a and 0xFFFFFF
-    else:
-      0x7E0000 or (a and 0x1FFFF)
+  let a = L.toInteger(1).int
+  let eff = memWramEff(a)
   if eff < 0 or eff >= ctx.snes.bus.mem.len:
     L.pushinteger(0)
     return 1
   L.pushinteger(ctx.snes.bus.mem[eff].int)
   return 1
+
+proc memWrite*(L: lua53.PState): cint {.cdecl.} =
+  ## Lua binding: mem.write(addr, byte) — WRAM only ($7E/$7F).
+  ## For engine skill recovery after RE'd soft-locks (e.g. goHome $9877 bit0).
+  ## Not a general cheat API: pad-first; write only when a probe names the bit.
+  let ctx = getPolicyCtx(L)
+  let a = L.toInteger(1).int
+  let v = L.toInteger(2).int and 0xFF
+  let eff = memWramEff(a)
+  if eff < 0 or eff >= ctx.snes.bus.mem.len:
+    return 0
+  ctx.snes.bus.mem[eff] = uint8(v)
+  return 0
 
 proc isSystemBank(bank: int): bool {.inline.} =
   ## True for banks that host low-RAM mirrors + the $2000-$5FFF port window.
@@ -910,13 +927,14 @@ proc simNormal*(L: lua53.PState): cint {.cdecl.} =
   return 0
 
 proc setupPolicyApi*(L: lua53.PState, ctx: PolicyContext) =
-  ## Expose the read-only + input-only sandboxed surface to Lua.
-  ## mem.read (WRAM-only, unchanged), snes.read / snes.readRange (full-bus, side-effect-free),
+  ## Expose the sandboxed surface to Lua.
+  ## mem.read / mem.write (WRAM-only; write for engine recovery after RE'd locks),
+  ## snes.read / snes.readRange (full-bus, side-effect-free),
   ## nav.walkable / nav.findPath (native hitbox collision + BFS pathfinding),
   ## screen.{width,height,pixel,text,dialogue,inBattle,battleText}, pad.{set,press},
   ## frame, sim.{setSpeed,fast,normal}.
   ## screen.text() returns dialogue stream, battle WRAM window text, or tilemap scan.
-  ## snes.* peeks ROM/WRAM mirrors without touching MMIO (ports return 0). Writes stay pad-only.
+  ## snes.* peeks ROM/WRAM mirrors without touching MMIO (ports return 0).
   ## nav.* plans over WRAM $7EE000 via $C05F33 (file 0x005F33 / gate 0x0029CC); findPath starts
   ## from live player slot-24 pos. sim.* controls targetFps in ctx (llm_ai loop; llm_play unaffected).
   # Store ctx in Lua registry under string key so callbacks can retrieve without upvalues.
@@ -926,6 +944,8 @@ proc setupPolicyApi*(L: lua53.PState, ctx: PolicyContext) =
   L.newtable()
   L.pushcfunction(memRead)
   L.setfield(-2, "read".cstring)
+  L.pushcfunction(memWrite)
+  L.setfield(-2, "write".cstring)
   L.setglobal("mem".cstring)
   # snes (full-bus read-only; prerequisite for Lua map/collision navigation)
   L.newtable()

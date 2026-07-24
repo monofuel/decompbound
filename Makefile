@@ -1,4 +1,4 @@
-.PHONY: help build compare test check clean regions boot screenshot intro title song vectors spc-vectors disasm play play-pokey archive archive-replays play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai llm-ai-display llm-ai-display-loop testrom script-dump gfx-roundtrip battle-bg trace inspect audio-check audio-diff jukebox-app chunk-summary chunk-check chunk-check-all
+.PHONY: help build compare test check clean regions boot screenshot intro title song vectors spc-vectors disasm play play-pokey archive archive-replays play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai llm-ai-scripted llm-ai-scripted-campaign llm-ai-display llm-ai-display-loop mcp testrom script-dump gfx-roundtrip battle-bg trace inspect audio-check audio-diff jukebox-app chunk-summary chunk-check chunk-check-all
 
 # bash + pipefail: the test loop pipes nim through sed, and without
 # pipefail the pipeline's exit status is sed's (always 0), which turns
@@ -23,6 +23,7 @@ help:
 	@echo "  make boot         - trace the real ROM booting on the emulator"
 	@echo "  make screenshot   - render the boot state to bin/screenshot.png"
 	@echo "  make play         - windowed interactive player (arrows/ZXAS/Enter/RShift/Space/N/F12/+/ - /Esc)"
+	@echo "  make mcp          - Goal 5 playthrough co-pilot MCP (http://localhost:4343/mcp)"
 	@echo "  make intro        - screenshot the 'War Against Giygas' title card"
 	@echo "  make title        - screenshot deep into the attract sequence"
 	@echo "  make frames       - render reference frames to bin/frame_<N>.png"
@@ -129,6 +130,11 @@ gamepad-test: nim.cfg
 sram: nim.cfg
 	nim r -d:release src/tools/sram_info.nim $(ARGS)
 
+# Goal 5 playthrough co-pilot: MCPort HTTP MCP (party HP/PP from .srm).
+# Docs: docs/mcp-server.md. Port 4343 avoids FFXIV MCP on 4242.
+mcp: nim.cfg
+	nim r -d:release src/tools/decompbound_mcp.nim
+
 # Serve docs/ locally (HTML docs + diagrams) via Mummy. Open http://localhost:8080/
 # Override the port with: make serve PORT=9000
 PORT ?= 8080
@@ -182,6 +188,33 @@ llm-ai: nim.cfg
 	  echo "seeded bin/states/llm/bedroom.state from game_start.state"; \
 	fi
 	nim r src/tools/llm_ai.nim -- --no-mock --load-state-path bin/states/llm/bedroom.state --speed 60 --watch-async --frames 20000 $(ARGS) "$(ROM)"
+
+# Deterministic seed Lua (no qwen). Same Agent* policies product tests exercise.
+# Prologue only from bedroom — stalls at bed/sleep (knock soft 80) without campaign seats.
+# Watch overnight product work past knock: make llm-ai-scripted-campaign
+llm-ai-scripted: nim.cfg
+	@mkdir -p bin bin/states/llm
+	@if [ ! -f bin/states/llm/bedroom.state ] && [ -f bin/states/game_start.state ]; then \
+	  cp bin/states/game_start.state bin/states/llm/bedroom.state; \
+	  echo "seeded bin/states/llm/bedroom.state from game_start.state"; \
+	fi
+	@echo "llm-ai-scripted: --mock (deterministic seeds, no qwen). Ctrl+C quit."
+	nim r src/tools/llm_ai.nim -- --mock --pilot scripted --tempo theater \
+	  --load-state-path bin/states/llm/bedroom.state --speed 60 --watch-async \
+	  --frames 20000 $(ARGS) "$(ROM)"
+
+# Same as llm-ai-scripted but --campaign-fixtures (seat jumps over sleep + later walls).
+# This is the windowed view of the product soft spine (leave / fo / soft98 handoffs).
+llm-ai-scripted-campaign: nim.cfg
+	@mkdir -p bin bin/states/llm
+	@if [ ! -f bin/states/llm/bedroom.state ] && [ -f bin/states/game_start.state ]; then \
+	  cp bin/states/game_start.state bin/states/llm/bedroom.state; \
+	  echo "seeded bin/states/llm/bedroom.state from game_start.state"; \
+	fi
+	@echo "llm-ai-scripted-campaign: --mock + campaign seats (no qwen). Ctrl+C quit."
+	nim r src/tools/llm_ai.nim -- --mock --pilot scripted --tempo theater \
+	  --campaign-fixtures --load-state-path bin/states/llm/bedroom.state \
+	  --speed 60 --watch-async --frames 999999 $(ARGS) "$(ROM)"
 
 # Always-on house-display: same as llm-ai but huge frame cap. LLM state namespace only.
 # Prefer `make llm-ai-display-loop` for crash-restart + logging.
@@ -272,7 +305,7 @@ check: nim.cfg
 	@fail=0; \
 	for f in src/decompbound.nim src/compare.nim \
 	         src/tools/play.nim src/tools/llm_ai.nim \
-	         src/tools/chunk_check.nim; do \
+	         src/tools/chunk_check.nim src/tools/decompbound_mcp.nim; do \
 		echo "==> nim check $$f"; \
 		nim check $(NIM_TEST_FLAGS) "$$f" || fail=1; \
 	done; \

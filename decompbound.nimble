@@ -14,3 +14,4 @@ requires "paddy >= 0.1.0"
 requires "slappy"
 requires "mummy"
 requires "openai_leap"   # LLM client for the LLM-plays / llm-remix agent bridge
+requires "MCPort"        # Goal 5 playthrough co-pilot MCP (same stack as FFXIV MCP)

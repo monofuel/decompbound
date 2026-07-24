@@ -18,6 +18,7 @@ See **`docs/goal.md`** for the full scope, ordering, and verification rules.
 | **2** | EarthBound-focused SNES emulator in Nim (CPU, PPU, APU, play harness) | **Mostly done** — feature-complete for practical play; more testing still welcome |
 | **3** | Verified native Nim reimplementation (subsystem by subsystem under the emu) | Someday |
 | **4** | LLM plays EarthBound (Lua policy harness + story milestones) | **WIP** — see `docs/llm-plays.md` / `docs/llm-sequence.md` |
+| **5** | MCP playthrough co-pilot (help *your* save — not the agent player) | **MVP** — `make mcp`, `docs/mcp-server.md` |
 
 **Goal 1** is still the core decomp needle: decompiled code regions must assemble
 to the gold bytes. Unsupervised “match rate” without the assembler DSL does not
@@ -33,6 +34,11 @@ not missing subsystems.
 **Goal 4** is the experimental agent track: an LLM authors Lua that drives the
 emulator (landmarks, routes, battles, knock arc, etc.). Fun and useful for RE
 pressure tests; not a substitute for Goal 1.
+
+**Goal 5** is the opposite product shape: *you* play; chat tools (MCP via
+MCPort) read your playthrough (battery save today — party HP/PP) so an LLM can
+answer grounded questions like “what’s everyone’s HP?” or later “what heals
+sunstroke on *this* party.” See `docs/mcp-server.md`.
 
 ## Current state (2026-07)
 
@@ -51,6 +57,8 @@ pressure tests; not a substitute for Goal 1.
   Human play past mid-game is the live proof.
 - **LLM-play:** two-clock harness (`make llm-ai`), Lua skills, story percents
   (touch grass → Pokey → knock → …). Still WIP; docs under `docs/llm-*.md`.
+- **MCP co-pilot (Goal 5):** `make mcp` → HTTP MCP on `:4343`, tool
+  `get_party_vitals` from the battery `.srm` (`docs/mcp-server.md`).
 - Gold ROM (you supply it): `./bin/Earthbound (U) [!].smc`  
   sha256: `a8fe2226728002786d68c27ddddf0b90a894db52e4dfe268fdf72a68cae5f02e`
 
@@ -64,7 +72,10 @@ make compare          # build decomp ROM + compare vs gold → report.md
 make check            # nim check entrypoints + tests (compile only)
 make test             # unit suite (builds vendor/lua when needed)
 make play             # windowed emulator
-make llm-ai           # LLM-play harness (needs local model setup; see docs)
+make llm-ai           # live qwen Agent (needs local model)
+make llm-ai-scripted  # deterministic seed Lua, no qwen (watch product seeds)
+make llm-ai-scripted-campaign  # same + campaign seats past sleep/walls
+make mcp              # Goal 5 playthrough co-pilot MCP (http://localhost:4343/mcp)
 ```
 
 Other useful targets: `make help`, `make intro`, `make jukebox`, `make audio-check`.
@@ -92,6 +103,7 @@ Other useful targets: `make help`, `make intro`, `make jukebox`, `make audio-che
 | [docs/issues.md](docs/issues.md) | Known emulator / fidelity issues |
 | [docs/llm-plays.md](docs/llm-plays.md) | LLM-play harness (Goal 4) |
 | [docs/llm-sequence.md](docs/llm-sequence.md) | Story percent ladder |
+| [docs/mcp-server.md](docs/mcp-server.md) | MCP playthrough co-pilot (Goal 5) |
 | [docs/audio.md](docs/audio.md) | Audio / SPC track |
 | [docs/delegation.md](docs/delegation.md) | Multi-agent work style |
 | [docs/state-screenshots.md](docs/state-screenshots.md) | F12 screenshots that embed save-state |
