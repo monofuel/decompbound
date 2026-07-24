@@ -1627,6 +1627,43 @@ block liveWave104bResidual:
       " const=", constB, " as=", asB, " u8pair3=", u8B,
       " total=", waveTot, " B"
 
+
+block liveWave106bCarve:
+  ## Wave106b: free incomplete known records completed by false-code bytes.
+  ## Extract may overlap raw code_spans; inventory carves them out.
+  if not goldBaseromAvailable():
+    discard
+  else:
+    let gold = readGoldBaseromBytes()
+    var carveB = 0
+    let chunks = allRomChunksMeta()
+    for s in allBaseromExtractSpans():
+      if "carve_w106b" notin s.name:
+        continue
+      # Inventory code must not overlap (carved view).
+      for c in chunks:
+        if c.kind != ckImplementedCode:
+          continue
+        let a0 = max(s.offset, c.offset)
+        let a1 = min(s.offset + s.length, c.offset + c.length)
+        doAssert a0 >= a1, &"carved overlap {s.name} with code 0x{c.offset:06X}"
+      doAssert s.name.startsWith("table_cfRec5_carve_w106b_"), s.name
+      doAssert s.length >= 5 and s.length mod 5 == 0, s.name
+      for i in 0 ..< (s.length div 5):
+        let o = s.offset + i * 5
+        doAssert gold[o] == 0x0A and gold[o+1] == 0x01 and
+          gold[o+2] == 0x00 and gold[o+3] == 0x80, s.name
+      carveB += s.length
+      # free residual inside this claim (unclaimed before claim is gone; just count)
+    doAssert carveB >= 35, &"wave106b carve total {carveB}"
+    # CF3101 incomplete free site is covered
+    var hit3101 = false
+    for s in allBaseromExtractSpans():
+      if s.offset <= 0x0F3101 and s.offset + s.length >= 0x0F3106:
+        hit3101 = true
+    doAssert hit3101, "CF3101 complete rec not claimed"
+    echo "[test_baserom_extract] wave106b carve OK: cfRec5 carve=", carveB, " B"
+
 block noBlindResidualFreeClaims:
   ## residualFree_* bulk gold-copy claims are forbidden (honesty policy).
   for s in KnownBaseromExtracts:

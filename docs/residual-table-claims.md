@@ -1254,3 +1254,76 @@ nim r src/compare.nim
 - Free residual inventory still **12,851 B**.
 
 No extract edits. No commit (per brief).
+
+## Residual wave106b — free incomplete + false-code complete records (2026-07-24)
+
+Method: find free residual that is an **incomplete known record** because 1–4
+adjacent inventory-code bytes are false-positive `code_spans`. Claim the
+**complete** record as extract over free+false-code; inventory already carves
+extracts out of code via `carveSpanAroundHoles` in `collectImplementedSpanMeta`
+(and `convert_all` carves on regen). No `residualFree_*`.
+
+### Carve path confirmation
+
+| Path | Behavior |
+|------|----------|
+| `collectImplementedSpanMeta` | YES — carves `baseromExtractRanges` (+adopted) out of `GeneratedCodeSpans` |
+| `regions.nim` / build | YES — same carve |
+| `convert_all` | YES — skips carved bytes when grouping code regions |
+| `verify_extract_overlap` | Gates **carved** code∩extract=0; raw overlap allowed for intentional carves |
+
+So extracts **may** overlap raw `code_spans` in the source list; inventory carves.
+`verify_extract_overlap` no longer fails on raw-only overlap.
+
+### Example (task seed)
+
+`$CF3101` free `0x0F3101+4` = incomplete 4/5 of `0A 01 00 80 xx` because 5th
+byte `17` was labeled code. Sequential CF table continues through false-code
+islands around `table_cfRec5_0x0F30F7` / `table_cfRec5_w103_0x0F2962`.
+
+### Claims this wave (40 B / 4 spans)
+
+| Span | Range | Free | False-code | Notes |
+|------|-------|------|------------|-------|
+| `table_cfRec5_carve_w106b_0x0F295D` | +5 | 0 | 5 | pure false-code head id `0B` |
+| `table_cfRec5_carve_w106b_0x0F2967` | +10 | 0 | 10 | ids `0D..0E` |
+| `table_cfRec5_carve_w106b_0x0F30ED` | +10 | 0 | 10 | ids `13..14` |
+| `table_cfRec5_carve_w106b_0x0F3101` | +15 | **4** | 11 | ids `17..19`; completes CF3101 free hole |
+
+**Residual free claimed: 4 B.** False-code → meta reclass: **36 B** (label honesty,
+not residual %).
+
+### Rejected as carve candidates
+
+- **far3 free+1 bank:** many match JML/JSL operands or BNE/BCS mid-streams
+  (`5C 6D C3…`, `D0 03…`). Not claimed without multi-rec table proof.
+- **CE-style 5B far+00+type islands:** matches real `CMP #imm; BEQ` sequences
+  (`C9 00 xx F0`). Rejected.
+- **termFF free-majority + code FF tail:** residual gain ~144 B available but
+  several heads still opcode-like (`A5`, `C2`, `D0`); deferred for stricter
+  anti-opcode / multi-rec gates.
+
+### Compare after patch
+
+**99.59%** byte-exact (`3,132,890 / 3,145,728`), implemented regions **100.00% exact**.
+Prior **99.59%** (`3,132,886`). Unclaimed residual **12,838 B** (was **12,842**).
+Δ **+4 B** residual free.
+
+### Tooling
+
+- `src/tools/probe_incomplete_records.nim` / `probe_table_straddle.nim`
+- `src/tools/gen_carve_incomplete.nim`
+- `src/tools/patch_w106b_extracts.nim`
+- `src/tools/verify_extract_overlap.nim` — carved-view gate
+
+### Verification
+
+```
+nim r tests/test_baserom_extract.nim
+nim r src/tools/verify_extract_overlap.nim
+nim r src/tools/chunk_check.nim summary
+nim r src/compare.nim
+```
+
+All green this wave. No commit (per brief). No `residualFree_*`.
+

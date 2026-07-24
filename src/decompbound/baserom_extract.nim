@@ -4,9 +4,10 @@
 ##
 ## Prefer residual unclaimed only. Inventory/build carve extract ranges out of
 ## GeneratedCodeSpans via carveSpanAroundHoles (adopted-style), so a mid-code
-## data claim is technically supported — but verify_extract_overlap still gates
-## residual-only waves that must not sit inside raw code_spans. New claims this
-## wave stay residual free.
+## data claim is supported for free+false-code complete-record carves (wave106b).
+## verify_extract_overlap gates the carved inventory view (raw code∩extract may
+## be non-zero for intentional carves). Residual-only waves still avoid raw
+## code_spans; carve waves reclassify false-positive code bytes as extract.
 ## Never commit the extracted bytes. See AGENTS.md copyright hygiene.
 
 import
@@ -72539,6 +72540,35 @@ const
     length: 6,
     kind: ekTable,
     note: "u8 pair residual (≥3 recs, ≥55% lo-byte≤0x50); free only"),
+  # --- residual wave106b: incomplete free + false-code complete records ---
+  # Inventory/build carve these out of GeneratedCodeSpans via carveSpanAroundHoles.
+  # convert_all also carves on regen; verify_extract_overlap uses carved view.
+  BaseromExtractSpan(
+    name: "table_cfRec5_carve_w106b_0x0F295D",
+    offset: 0x0F295D,
+    length: 5,
+    kind: ekTable,
+    note: "cfRec5 0A01 0080+u8 pure false-code island head (id 0B); wave106b carve"),
+  BaseromExtractSpan(
+    name: "table_cfRec5_carve_w106b_0x0F2967",
+    offset: 0x0F2967,
+    length: 10,
+    kind: ekTable,
+    note: "cfRec5 0A01 0080+u8 pure false-code island (ids 0D..0E); wave106b carve"),
+  BaseromExtractSpan(
+    name: "table_cfRec5_carve_w106b_0x0F30ED",
+    offset: 0x0F30ED,
+    length: 10,
+    kind: ekTable,
+    note: "cfRec5 0A01 0080+u8 pure false-code island (ids 13..14); wave106b carve"),
+  BaseromExtractSpan(
+    name: "table_cfRec5_carve_w106b_0x0F3101",
+    offset: 0x0F3101,
+    length: 15,
+    kind: ekTable,
+    note: "cfRec5 complete free incomplete 4/5 + 1B false code + 2 more recs (ids 17..19); AbsoluteLong $CF3101; wave106b carve"),
+  # WAVE106b TOTAL: 40 B in 4 spans (free residual 4 B + false-code reclass 36 B)
+  # residual free claimed: 4 B at 0x0F3101; code→meta honesty on sequential CF table
   # WAVE105 TOTAL residual: 608 B in 115 spans
   # breakdown: term1=42/21 u8pair3=566/94
   # residual left after wave105: 12851 B in 5316 runs (sandwich ~5225)
