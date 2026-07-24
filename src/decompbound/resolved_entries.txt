@@ -25814,3 +25814,9 @@ D74664 0  # sandwich 0x174664+3 JMP
 D863CF 0  # sandwich 0x1863CF+3 BRL
 D864AB 0  # sandwich 0x1864AB+3 BRL
 E7964B 3  # sandwich 0x27964B+3 JML
+
+# Real free code tails (meta|code / hand-disasm) 2026-07-24
+# Full free cover, ends RTL/RTS, left meta instruction-aligned (not split opcodes).
+C0922F 0  # file 0x00922F+2 TYA;RTL after JSL thunk chain
+C16170 0  # file 0x016170+2 PLD;RTS function epilogue (after LDA #0)
+C16EBA 0  # file 0x016EBA+5 LDA #0;PLD;RTS function epilogue

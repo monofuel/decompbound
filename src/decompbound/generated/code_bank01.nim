@@ -12613,10 +12613,12 @@ proc generateCode010000*(): seq[uint8] =
   result = assemble(nodes, 0xC10000'u32,
                     FlagState(m8: false, x8: false, emulation: false))
 
-## Region: file 0x016172-0x016BA3 (SNES $C16172), 2610 bytes.
-proc generateCode016172*(): seq[uint8] =
-  ## Assemble the region at file 0x016172 from disassembled source.
+## Region: file 0x016170-0x016BA3 (SNES $C16170), 2612 bytes.
+proc generateCode016170*(): seq[uint8] =
+  ## Assemble the region at file 0x016170 from disassembled source.
   var nodes: seq[AsmNode]
+  nodes.add instr("PLD", amImplied)  # $C16170: PLD
+  nodes.add instr("RTS", amImplied)  # $C16171: RTS
   nodes.add instr("REP", amImmediate8, 0x31)  # $C16172: REP #$31
   nodes.add instr("PHD", amImplied)  # $C16174: PHD
   nodes.add instr("PHA", amImplied)  # $C16175: PHA
@@ -13992,13 +13994,16 @@ proc generateCode016172*(): seq[uint8] =
   nodes.add label("loc_C16BA2")
   nodes.add instr("PLD", amImplied)  # $C16BA2: PLD
   nodes.add instr("RTS", amImplied)  # $C16BA3: RTS
-  result = assemble(nodes, 0xC16172'u32,
+  result = assemble(nodes, 0xC16170'u32,
                     FlagState(m8: false, x8: false, emulation: false))
 
-## Region: file 0x016EBF-0x023114 (SNES $C16EBF), 49750 bytes.
-proc generateCode016EBF*(): seq[uint8] =
-  ## Assemble the region at file 0x016EBF from disassembled source.
+## Region: file 0x016EBA-0x023114 (SNES $C16EBA), 49755 bytes.
+proc generateCode016EBA*(): seq[uint8] =
+  ## Assemble the region at file 0x016EBA from disassembled source.
   var nodes: seq[AsmNode]
+  nodes.add instr("LDA", amImmediateM, 0x0)  # $C16EBA: LDA #$0000
+  nodes.add instr("PLD", amImplied)  # $C16EBD: PLD
+  nodes.add instr("RTS", amImplied)  # $C16EBE: RTS
   nodes.add instr("REP", amImmediate8, 0x31)  # $C16EBF: REP #$31
   nodes.add instr("PHD", amImplied)  # $C16EC1: PHD
   nodes.add instr("PHA", amImplied)  # $C16EC2: PHA
@@ -38863,6 +38868,6 @@ proc generateCode016EBF*(): seq[uint8] =
   nodes.add instr("JML", amAbsoluteLong, 0x5F5D)  # $C2310E: JML $005F5D  (target outside ROM)
   nodes.add instr("STA", amDirectPage, 0x6A)  # $C23112: STA $6A
   nodes.add instr("RTL", amImplied)  # $C23114: RTL
-  result = assemble(nodes, 0xC16EBF'u32,
+  result = assemble(nodes, 0xC16EBA'u32,
                     FlagState(m8: false, x8: false, emulation: false))
 

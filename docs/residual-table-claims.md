@@ -1197,3 +1197,60 @@ fixed record, known package container, pure zero-pad, etc.) and
 Current honest ceiling is structure-wave coverage only; remaining free runs
 need code seeds, loaders, or format walkers — not bulk residual inventory.
 
+
+## Residual wave106 — AbsoluteLong loaders dig (2026-07-24)
+
+Inventory before: **12,851 B** unclaimed / 5,316 runs / max 19 (~99.59%).
+
+Task: AbsoluteLong loaders into free residual only; claim free with **proven
+record sizes** only. No `residualFree_*` bulk.
+
+### Scan results
+
+| Metric | Value |
+|--------|-------|
+| Free residual | **12,851 B** / 5,316 runs / max 19 |
+| code\|code sandwich free | **~5,225 B** |
+| All AbsLong ops → free | 59 hits / 47 runs |
+| of which `LDA.L` / `LDA.L,X` only | **5 hits / 3 runs** |
+| C0–C4 `LDA.L/X` → free | **0** |
+| Known loader-table extents complete free | **0 B** |
+| Multi-target LDA common-delta (≥3 tgts, delta hits≥2) | **0 B** |
+| APU pack free interiors ≥4 B | **0 B** (scraps are 1–2 B) |
+| CADCA1 17B / D7 map-attr / CEDC45 u16 / CE62EE 5B / EF 25·27·41 mid-table complete free | **0 B** |
+
+### Residual LDA.L targets (all rejected)
+
+| Target free | Size | Src | Verdict |
+|-------------|------|-----|---------|
+| `$CF3101` `0x0F3101+4` | 4 | `$CE@0x0E8F10` `LDA.L,X` | incomplete 4/5 of `0A 01 00 80 xx`; 5th byte `17` is **code** at `0x0F3105`. Site region looks data-as-code (sequential `xx id bank` words). Not a complete free record; cannot claim without code reclass |
+| `$C72D95` `0x072D94+3` | 3 | `$D6@0x160BDF/E7` `LDA.L` ×2 | mid-meta sandwich scrap; no proven rec size / multi-target stride |
+| `$E2AAAB` `0x22AAAA+3` | 3 | `$CF@0x0FF93A/9F` `LDA.L` ×2 | code\|code sandwich; loader sites look data-as-code (`AF AB AA E2` pattern); no fixed record walk |
+
+ASL/ADC scale fishing over all `LDA.L,X` produced many **false** free hits far past documented table extents (e.g. `$CEDC45+k·2` past the 126-entry window). Rejected without extent + structure proof.
+
+### Claim this wave
+
+**0 B.** Loader-backed residual table bases remain drained (same conclusion as
+wave103 AbsoluteLong inventory; reconfirmed post-wave105).
+
+### Honesty notes
+
+- No `residualFree_*`. No incomplete mid-record scraps. No density-only.
+- Next levers: **code_span reseed** on ~5.2 KB sandwich free; false code that
+  splits complete records (e.g. `0x0F3105`); format walkers not AbsoluteLong.
+
+### Verification
+
+```
+nim r tests/test_baserom_extract.nim
+nim r src/tools/verify_extract_overlap.nim
+nim r src/compare.nim
+```
+
+- `code ∩ extract = 0`
+- Compare: **99.59%** byte-exact (`3,132,877 / 3,145,728`), implemented regions
+  **100.00% exact** (unchanged).
+- Free residual inventory still **12,851 B**.
+
+No extract edits. No commit (per brief).

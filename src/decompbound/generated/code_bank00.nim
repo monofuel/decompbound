@@ -19042,10 +19042,12 @@ proc generateCode009032*(): seq[uint8] =
   result = assemble(nodes, 0xC09032'u32,
                     FlagState(m8: false, x8: false, emulation: false))
 
-## Region: file 0x009231-0x009249 (SNES $C09231), 25 bytes.
-proc generateCode009231*(): seq[uint8] =
-  ## Assemble the region at file 0x009231 from disassembled source.
+## Region: file 0x00922F-0x009249 (SNES $C0922F), 27 bytes.
+proc generateCode00922F*(): seq[uint8] =
+  ## Assemble the region at file 0x00922F from disassembled source.
   var nodes: seq[AsmNode]
+  nodes.add instr("TYA", amImplied)  # $C0922F: TYA
+  nodes.add instr("RTL", amImplied)  # $C09230: RTL
   nodes.add instr("JSL", amAbsoluteLong, 0xC0915B)  # $C09231: JSL $C0915B
   nodes.add instr("TYA", amImplied)  # $C09235: TYA
   nodes.add instr("RTL", amImplied)  # $C09236: RTL
@@ -19062,7 +19064,7 @@ proc generateCode009231*(): seq[uint8] =
   nodes.add instr("DEY", amImplied)  # $C09246: DEY
   nodes.add instrTo("BPL", amRelative8, "loc_C09242")  # $C09247: BPL -7
   nodes.add instr("RTL", amImplied)  # $C09249: RTL
-  result = assemble(nodes, 0xC09231'u32,
+  result = assemble(nodes, 0xC0922F'u32,
                     FlagState(m8: false, x8: false, emulation: false))
 
 ## Region: file 0x009250-0x009505 (SNES $C09250), 694 bytes.
