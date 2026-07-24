@@ -857,3 +857,151 @@ nim r tests/test_baserom_extract.nim
 nim r src/tools/verify_extract_overlap.nim
 nim r src/decompbound.nim --compare
 ```
+
+## Residual wave102 (exact-gate scraps after 99.50%) — 2026-07-24
+
+Baseline free residual: **15,763 B** in 5,573 runs (max run 19 B).
+Hard gate: free residual only, zero `code_spans` overlap.
+
+### Known-walker re-scan (post-wave101)
+
+| Gate (prior-wave exact) | Leftover | Notes |
+|-------------------------|----------|-------|
+| pure zero free | **7 B / 6** | claimed |
+| AS good head / full | **6 B / 1** | claimed (`0x1B0730`) |
+| const ≥2 non-zero | 0 | drained |
+| term F0–FF multi/single | 0 | drained |
+| u8pair ≥4 @55% | 0 | drained |
+| far3 pure rem align 0–2 | 0 | drained |
+| bitFlag `{00,01,80}` ≥4 | 0 | drained |
+| print70 ≥6 | 0 | drained |
+| plane25 | 0 | drained |
+| smooth1 ≥45% | 0 | drained |
+| SS `isGoodScriptStream` | 0 | drained |
+| countN mid-scan | 0 | drained |
+| fix3 ≥40% bank/type | 0 | drained |
+| fix4 ≥40% bank@+3 ≥3 recs | **12 B / 1** | claimed (`0x1F1602`) |
+| gfx_lz clean full free run | **5 B / 1** | claimed (`0x11ECB1`); skipped partial mid-hole `0x1144C9` (consume 4/5) |
+| far3 head-chain ≥1 | 0 | drained |
+| AS FAR incomplete fullish | 0 good | walks end mid-op / fail `isGoodActionScriptSpan` |
+| C0–C4 `LDA.L` into free | **0 hits** | loader-linked residual bases drained |
+
+| Family | Claim | Residual claimed |
+|--------|-------|------------------|
+| Pure zero free runs | `ekZeroPad` `zero_wave102_*` | 7 B / 6 |
+| Action-script good head | `ekActionScript` `as_wave102_*` | 6 B / 1 |
+| fix4 bank@+3 ≥40% | `ekTable` `table_fix4_w102_*` | 12 B / 1 |
+| gfx_lz full free run | `ekGfxLz` `gfxLz_wave102_*` | 5 B / 1 |
+
+**This wave residual = 30 B** in 9 spans.
+
+**Compare after rebuild:** **99.50%** byte-exact (`3,129,995 / 3,145,728`), implemented
+regions **100.00% exact**. Prior **99.50%** (`3,129,965`). Δ **+30 B** (still rounds to 99.50%).
+
+### Honesty notes — not claimed
+
+- **Expanded alphabets** bank `$D8` (`{00,01,03,80,90}` ~155 B; `{00,80,90}` ~70 B):
+  density-only without a loader-backed field model. Wave101 already took ternary
+  `{00,01,80}`; adding `0x90`/`0x03` without RE is bulk-scraping.
+- **SS ended any / AS any-ended** (~1 KB): fail quality / good-span gates; prior
+  waves rejected the same class.
+- **Mid-run far3 singles** (~1 KB packed): not pure free-run remainder.
+- **Single-byte free** (~1.9 KB): non-zero noise; pure zeros already drained.
+- **CF cluster `0x0FB207+~1K`**: shredded mid-record scraps (`01 D7 00 04 08`
+  heads) between prior AS/countN/far3/zero claims — structure is *already
+  over-partitioned*; re-claiming fragments needs record reassembly RE, not
+  another density gate.
+- **15 B twins `0x0739AC` / `0x073A68`**: identical bodies between script streams;
+  **zero** AbsoluteLong loaders into those file offs (all-bank gold scan).
+
+### Residual free after wave102
+
+| Metric | Value |
+|--------|-------|
+| Free residual | **15,733 B** |
+| Free runs | **5,565** |
+| Max free run | **19 B** |
+| code\|code sandwich | **6,929 B / 2,359 runs** |
+| Implemented exact | **100.00%** |
+
+#### Top 30 free gaps
+
+| File | Size | Neighbors | Head (hex) | Why unclaimed |
+|------|------|-----------|------------|---------------|
+| `0x058262` | 19 | meta\|meta | `01 70 77 A4 8A 7E…` | high entropy; fails all structure gates |
+| `0x06D7EE` | 19 | meta\|meta | `15 AD 17 B4 15 56…` | path-like; no term / stride / count header |
+| `0x16E954` | 19 | meta\|meta | `B3 1B B3 1B 00 00…` | mixed pair+pad |
+| `0x171745` | 19 | meta\|meta | `19 25 19 1A 25 19…` | low-range fails print/smooth/u8pair |
+| `0x1789E9` | 19 | meta\|meta | `00 50 50 50 40 50…` | sparse; no exact count*stride |
+| `0x0C1567` | 17 | **code\|code** | `21 32 21 6E 21 29…` | mid-code hole — needs code seed, not extract |
+| `0x0E6D2E` | 17 | meta\|meta | `00 68 96 99 AE 67…` | smooth columns fail ≥45% |
+| `0x1754EC` | 16 | meta\|meta | `D4 50 64 40 D0 A0…` | dense binary |
+| `0x206D93` | 16 | meta\|meta | `93 A1 83 BD 9F A1…` | glyph soup; SS quality fail |
+| `0x0739AC` / `0x073A68` | 15 | meta\|meta | `15 E1 91 15 CD 5E…` (identical) | no loader; SS neighbors |
+| `0x073C13` | 15 | meta\|meta | `70 79 97 9E 9F A2…` | same band |
+| `0x0DD76E` | 15 | meta\|code | `E0 24 01 01 7F 4F…` | dense |
+| `0x19BA26` | 15 | meta\|meta | `52 C8 00 20 86 52…` | dense |
+| `0x1D6DCF` | 15 | meta\|meta | `FB FB FF FF 88 12…` | FF-heavy but not clean multi-rec term |
+| `0x1E8248` | 14 | meta\|meta | `BF EF AF CF 8F C7…` | dense |
+| `0x02AE00` / `0x02AE40` | 13 | meta\|meta | `6B C2 22 77 6E C2…` | **code-shaped** (RTL/`C2`); reseed, not extract |
+| `0x073194` | 13 | meta\|code | `10 0F 50 96 16 63…` | SS scrap |
+| `0x08170D` | 13 | meta\|meta | `10 3C 70 72 16 54…` | SS scrap |
+| `0x0921B5` | 13 | meta\|code | `70 17 3D 50 A0 A2…` | SS scrap |
+| `0x0A27A7` | 13 | meta\|meta | `80 FC 8F 72 3F D8…` | dense |
+| `0x1603F6` | 13 | code\|meta | `00 00 A7 B7 44 45…` | tile-like |
+| `0x166D30` | 13 | meta\|meta | `93 97 96 A8 C8 1B…` | dense |
+| `0x16EA79` | 13 | meta\|meta | `AC 45 47 B0 AE AB…` | dense |
+| `0x1753F7` | 13 | meta\|meta | `00 90 A0 B0 A0 A0…` | plane-ish but fails plane25 |
+| `0x19A456` | 13 | meta\|meta | `9A 2F 45 95 2E A0…` | dense |
+| `0x1A88F8` | 13 | meta\|meta | `77 5F 5B BD 56 1F…` | dense |
+| `0x1B4A41` | 13 | meta\|meta | `00 15 88 42 19 00…` | dense |
+| `0x1BB02E` | 13 | meta\|meta | `46 84 31 2B 0C 59…` | dense |
+
+#### Bank residual leaders
+
+| Bank | Residual B | Character |
+|------|------------|-----------|
+| `$D8` (0x18) | 1467 | largest; shredded bit/plane scraps after bitFlag |
+| `$CF` (0x0F) | 762 | map/obj mid-record fragments |
+| `$D4` (0x14) | 685 | tile/attr-like |
+| `$D6` (0x16) | 667 | dense micro-holes |
+| `$DB` (0x1B) | 653 | was bulk; now micro-holes |
+
+### Exhausted under current honest extract gates
+
+zero-pad, const≥2, ff/fe/fd/F0–FF term, SS good, AS MinLen4 good-span,
+u8pair ≥4 @55%, countN mid-scan, fix3/4 ≥40%, far3 pure rem + head-chain ≥1,
+print70, plane25, smooth1, bitFlag `{00,01,80}`, gfx_lz clean full free,
+loader-backed dense tables (CADCA1, D7 attr, EF sprite-group, C4 hitbox,
+formPtr, item/shop/EXP, C5 body, APU pack free, C0–C4 AbsoluteLong into free).
+
+**~99.50% is the honest extract ceiling under current walkers.** Remaining
+~15.7 KB is max-19 B scraps: ~44% code\|code sandwich (needs **code seeds** /
+`convert_all`), rest mid-meta fragments and bank `$D8` plane noise.
+
+### Next high-leverage paths (not this wave)
+
+1. **Code-seed wave** — free runs between code with real 65816 prologues/RTL
+   (`0x02AE00` family, `0x0C1567`, ~7 KB sandwich) → `observed_entries` /
+   `resolved_entries` → re-`convert_all`.
+2. **CF record reassembly** — undo over-partition around `0x0FB207` once a
+   single loader-backed record size is proven (likely larger than current
+   countN/far3 scrap claims).
+3. **SS width RE** — 15 B twins between `scriptStream_*` need handler re-width,
+   not looser glyph ratios.
+
+### Tooling
+
+- `src/tools/probe_w102.nim` / `probe_w102_strict.nim` / `probe_w102_claimable.nim`
+- `src/tools/probe_final_residual.nim` / `probe_claimable_now.nim` / `probe_top_gaps.nim`
+- `src/tools/probe_cf_cluster.nim` — CF free-cluster map
+
+### Verification
+
+```
+nim r tests/test_baserom_extract.nim
+nim r src/tools/verify_extract_overlap.nim
+nim r src/decompbound.nim --compare
+```
+
+All green this wave. No commit (per brief).

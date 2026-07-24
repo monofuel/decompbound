@@ -1369,3 +1369,59 @@ block liveWave101Residual:
       " const=", constB, " far3=", farB, " bitFlag=", bitB,
       " total=", waveTot, " B"
 
+block liveWave102Residual:
+  ## Residual wave102: zero/as/fix4/gfx full-run scraps free-only.
+  if not goldBaseromAvailable():
+    discard
+  else:
+    let gold = readGoldBaseromBytes()
+    var zeroB, asB, fixB, gfxB = 0
+    let chunks = allRomChunksMeta()
+    for s in allBaseromExtractSpans():
+      let isW =
+        s.name.startsWith("zero_wave102_") or
+        s.name.startsWith("as_wave102_") or
+        s.name.startsWith("table_fix4_w102_") or
+        s.name.startsWith("gfxLz_wave102_")
+      if not isW:
+        continue
+      for c in chunks:
+        if c.kind != ckImplementedCode:
+          continue
+        let a0 = max(s.offset, c.offset)
+        let a1 = min(s.offset + s.length, c.offset + c.length)
+        doAssert a0 >= a1, &"overlap {s.name} with code 0x{c.offset:06X}"
+      if s.name.startsWith("zero_wave102_"):
+        zeroB += s.length
+        doAssert s.kind == ekZeroPad
+        for j in 0 ..< s.length:
+          doAssert gold[s.offset + j] == 0
+      elif s.name.startsWith("as_wave102_"):
+        asB += s.length
+        doAssert isGoodActionScriptSpan(gold, s.offset, s.length), s.name
+      elif s.name.startsWith("table_fix4_w102_"):
+        fixB += s.length
+        doAssert s.length >= 12 and s.length mod 4 == 0
+        let nRec = s.length div 4
+        var banks = 0
+        for i in 0 ..< nRec:
+          if gold[s.offset + i * 4 + 3] >= 0xC0:
+            banks += 1
+        doAssert banks * 5 >= nRec * 2, s.name
+      elif s.name.startsWith("gfxLz_wave102_"):
+        gfxB += s.length
+        doAssert s.kind == ekGfxLz
+        let slice = gold[s.offset ..< s.offset + s.length]
+        let (data, consumed, clean) = decodeWithConsumed(slice)
+        doAssert clean and consumed == s.length, s.name
+        doAssert data.len >= 16, s.name
+
+    let waveTot = zeroB + asB + fixB + gfxB
+    doAssert waveTot >= 25, &"wave102 total {waveTot}"
+    doAssert zeroB >= 6, &"zero {zeroB}"
+    doAssert asB >= 6, &"as {asB}"
+    doAssert fixB >= 12, &"fix4 {fixB}"
+    doAssert gfxB >= 5, &"gfx {gfxB}"
+    echo "[test_baserom_extract] wave102 residual OK: zero=", zeroB,
+      " as=", asB, " fix4=", fixB, " gfx=", gfxB, " total=", waveTot, " B"
+

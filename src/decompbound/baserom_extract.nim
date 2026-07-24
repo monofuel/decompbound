@@ -67502,6 +67502,65 @@ const
   # breakdown: as=28/6 asHead=14/3 bitFlag=906/169 const=22/11 far3=258/86 term1=26/6 u8pair=22/2 zero=26/22
   # residual left after wave101: 15849 B in 5588 runs
   # expected coverage ~99.50%
+
+  # --- residual wave102: final exact-gate scraps (zero/as/fix4/gfx full-run) ---
+  BaseromExtractSpan(
+    name: "zero_wave102_0x115DE8",
+    offset: 0x115DE8,
+    length: 1,
+    kind: ekZeroPad,
+    note: "Zero-pad residual free; free only"),
+  BaseromExtractSpan(
+    name: "zero_wave102_0x14DF5F",
+    offset: 0x14DF5F,
+    length: 1,
+    kind: ekZeroPad,
+    note: "Zero-pad residual free; free only"),
+  BaseromExtractSpan(
+    name: "zero_wave102_0x1A9F07",
+    offset: 0x1A9F07,
+    length: 2,
+    kind: ekZeroPad,
+    note: "Zero-pad residual free; free only"),
+  BaseromExtractSpan(
+    name: "zero_wave102_0x1D771D",
+    offset: 0x1D771D,
+    length: 1,
+    kind: ekZeroPad,
+    note: "Zero-pad residual free; free only"),
+  BaseromExtractSpan(
+    name: "zero_wave102_0x1E2ADB",
+    offset: 0x1E2ADB,
+    length: 1,
+    kind: ekZeroPad,
+    note: "Zero-pad residual free; free only"),
+  BaseromExtractSpan(
+    name: "zero_wave102_0x1E6C48",
+    offset: 0x1E6C48,
+    length: 1,
+    kind: ekZeroPad,
+    note: "Zero-pad residual free; free only"),
+  BaseromExtractSpan(
+    name: "as_wave102_0x1B0730",
+    offset: 0x1B0730,
+    length: 6,
+    kind: ekActionScript,
+    note: "Action-script residual good head (isGoodActionScriptSpan); free only"),
+  BaseromExtractSpan(
+    name: "table_fix4_w102_0x1F1602",
+    offset: 0x1F1602,
+    length: 12,
+    kind: ekTable,
+    note: "Fixed 4B residual (≥40% bank@+3, ≥3 recs, wave100b gate); free only"),
+  BaseromExtractSpan(
+    name: "gfxLz_wave102_0x11ECB1",
+    offset: 0x11ECB1,
+    length: 5,
+    kind: ekGfxLz,
+    note: "gfx_lz residual full free run; clean terminate; free only"),
+  # WAVE102 TOTAL residual: 30 B in 9 spans (zero=7/6 as=6/1 fix4=12/1 gfx=5/1)
+  # residual left after wave102: ~15733 B
+  # expected coverage still ~99.50%
   ]
 
 proc resolveGoldBaseromPath*(): string =
