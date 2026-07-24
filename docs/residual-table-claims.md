@@ -659,3 +659,131 @@ nim r src/decompbound.nim --compare
 ```
 
 All green this wave. No commit (per brief).
+
+## Residual wave100 + 100b (term/print/u8pair/far3 scraps) — 2026-07-24
+
+Method: residual free only after wave99. Structure gates loosened moderately
+(not density-noise). Hard gate: `code ∩ extract = 0`.
+
+### wave100
+
+| Family | Format | Residual claimed |
+|--------|--------|------------------|
+| term F0–FF multi+single | FF-family short-recs 2..48; quality singles 4..32 | **1728 B** |
+| u8pair55 | 2B recs ≥6, ≥55% field ≤0x50 | **740 B** |
+| print70 | printable/EB glyph ≥70% ≥8 B | **1118 B** |
+| fix3/4/5col | fixed-width bank/type/col gates | **768 B** |
+| countN | u8/u16 count + stride, min5 ≥30% fill | **395 B** |
+| zero/const/smooth/plane/as | prior families residual scraps | **575 B** |
+
+**wave100 total = 5324 B** (871 spans).
+
+### wave100b
+
+| Family | Format | Residual claimed |
+|--------|--------|------------------|
+| u8pair4 | ≥4 recs, ≥55% field ≤0x50 | **1108 B** |
+| far3 ≥1 | 3B far ptr bank `$C0–$EF`, lo≠0 | **903 B** |
+| print70 ≥6 | printable/EB glyph | **851 B** |
+| const/zero | fill scraps | **490 B** |
+| fix3/4 + countN4 + plane | loosened min recs | **611 B** |
+
+**wave100b total = 3963 B** (888 spans).
+
+**Session total residual claimed = 9287 B.**
+
+**Compare after rebuild:** **99.45%** byte-exact (`3,128,577 / 3,145,728`),
+implemented regions **100.00% exact**. Prior **99.16%** (`3,119,290`).
+Residual unclaimed **17,151 B** (was **26,438**). **Δ +9,287 B**.
+
+### Overlap / exactness
+
+- `verify_extract_overlap`: `code ∩ extract = 0`, extract self-overlap `0`.
+- `test_baserom_extract` liveWave100 + liveWave100b + prior blocks green.
+- Implemented regions **100.00% exact** (byte-exact gate).
+
+### Tooling
+
+- `src/tools/gen_residual_wave100.nim` / `gen_residual_wave100b.nim`
+- `src/tools/probe_wave100.nim` / `probe_residual_hard.nim` — scouts
+
+### Verification
+
+```
+nim r tests/test_baserom_extract.nim
+nim r src/tools/verify_extract_overlap.nim
+nim r src/tools/chunk_check.nim summary
+nim r src/decompbound.nim --compare
+```
+
+All green this wave. No commit (per brief).
+
+## Hard residual remaining (~17,151 B) — why not claimed
+
+Inventory after wave100b: **5799 free runs**, **max free run = 19 B**.
+Byte size mix: **1 B = 1872**, **2–3 B = 5077**, **4–7 B = 8780**,
+**8–11 B = 874**, **12–15 B = 387**, **16+ B = 161**. Almost all residual is
+sub-table scrap between already-claimed meta/code.
+
+### Top free runs (cannot claim under honest structure)
+
+| File | Size | Neighbors | Head (hex) | Why unclaimed |
+|------|------|-----------|------------|---------------|
+| `0x058262` | 19 | meta\|meta | `01 70 77 A4 8A 7E 83 A4…` | High unique entropy (16/19); fails u8pair/fix/term/AS/SS |
+| `0x06D7EE` | 19 | meta\|meta | `15 AD 17 B4 15 56 16 67…` | Path/coord-like but no terminator, no fixed stride, no count header match |
+| `0x16E954` | 19 | meta\|meta | `B3 1B B3 1B 00 00 B4 9A…` | Mixed pair + pad; short for fixNcol; not plane/cmd density |
+| `0x171745` | 19 | meta\|meta | `19 25 19 1A 25 19 25 1B…` | Low-range but fails print70 / smooth1 / u8pair55 gates |
+| `0x1789E9` | 19 | meta\|meta | `00 50 50 50 40 50 00 6A…` | Sparse zeros + mid bytes; no count*stride exact pack |
+| `0x0C1567` | 17 | **code\|code** | `21 32 21 6E 21 29 60 2F…` | Mid-code island (false-negative code_span hole); not extract |
+| `0x0E6D2E` | 17 | meta\|meta | `00 68 96 99 AE 67 95 9C…` | Smoothish columns fail ≥45% smooth1 / col cover |
+| `0x1754EC` | 16 | meta\|meta | `D4 50 64 40 D0 A0 AF A1…` | Dense binary; no far bank column, no term |
+| `0x206D93` | 16 | meta\|meta | `93 A1 83 BD 9F A1 41 9F…` | High-bank glyph soup; SS walk fails quality |
+| `0x0739AC` / `0x073A68` | 15 | meta\|meta | `15 E1 91 15 CD 5E…` (dup) | Repeated 15-byte pattern — needs loader-linked record size |
+| `0x02AE00` / `0x02AE40` | 13 | meta\|meta | `6B C2 22 77 6E C2 20…` | RTL/`C2` soup — looks like **code mid-stream**, not table |
+
+### Code-like residual (not extract)
+
+A few free scraps decode as 65816 prologues outside `code_spans`:
+
+| File | Size | Bytes | Notes |
+|------|------|-------|-------|
+| `0x028D3A` | 7 | `C2 31 22 .. C2 6B` | `REP #$31; JSL …; REP; RTL`-shaped |
+| `0x028E3B` | 7 | same family | same |
+| `0x029D7A` | 7 | same family | same |
+| `0x047369` | 7 | same family | same |
+
+**~28 B** total of clear `C2 31` code-shaped free. Claiming these as `ekTable` would
+be dishonest; they need **code_span reseed / trim**, not extract. AS FAR-CALL heads
+(`42 xx xx C0…`) also appear as ~54 B of incomplete walks that fail
+`isGoodActionScriptSpan` (no terminal / bad width).
+
+### Bank residual leaders (post-wave100b)
+
+| Bank | Residual B | Character |
+|------|------------|-----------|
+| `$D8` | 2375 | largest; shredded interior holes in dense binary |
+| `$CF` | 774 | map/config scrap after prior CF claims |
+| `$D4` | 739 | tile/attr-like high entropy |
+| `$DB` | 689 | was top bulk; now micro-holes only |
+| `$D6` | 670 | same pattern |
+
+### What would unlock the rest
+
+1. **code_span reclassification** — dominant lever: banks still ~80% labeled
+   `implemented_code` while holding data; mid-code holes like `0x0C1567` and the
+   `C2 31` stubs are the honest next claims as *code*, not extract.
+2. **Loader-linked record sizes** for repeated 15 B patterns at `$C7` (`0x0739AC`
+   family) once a low-bank AbsoluteLong base is proven.
+3. **Operand-width completion** for AS / text CC so incomplete FAR-CALL heads and
+   short CC scraps pass structural walks.
+4. Further density-only gates (cover ≤25%, single-byte “structure”) are **not**
+   honest RE — residual would inflate without format truth.
+
+### Exhausted under current honest gates
+
+zero-pad, const-fill, ff/fe/fd/F0–FF term multi+quality single, ss full
+`isGoodScriptStream`, AS MinLen4, u8pair ≥4 @55%, countN min4 ≥30% fill, fix3/4
+bank/type ≥40%, far3 ≥1 bank `$C0–$EF`, print70 ≥6, plane25 ≥8, smooth1 ≥12,
+gfx_lz, APU pack free interiors, loader-backed dense tables (CADCA1, D7 attr,
+EF sprite-group, C4 hitbox, formPtr, item/shop/EXP).
+
