@@ -70,24 +70,35 @@ Two grok digs, both spot-verified:
 Confirmed by decoding two independent blocks to clean English (file `0x63040` →
 "INPUT YOUR COMMAND.", `0x45B67` → "PSI info.Unconscious"). Line break = `0x00`.
 
-**Control-code / event dispatch — located.** The interpreter's opcode dispatch is
-at SNES **`$C179AA`** (file `0x179AA`: a `REP #$31` + `TXA` + CMP-chain switch).
-The high control codes **0x1B–0x28** form a chain of `CMP #$00xx / BNE / JMP
-handler` at file **`0x17A05`+** (e.g. `0x17A0D` = `C9 1C 00 D0 03 4C D9 7A`,
-verified). A second sub-dispatch handles low values 0x00–0x0B at file `0x17B56`.
-Common exit: `PLD; RTS` at `0x17B55`.
+**Text control-code VMs — primary + secondary (dig 2026-07-24).** There is a
+**primary** dispatch and a set of **secondary** sub-op VMs; `$C179AA` is not the
+top-level switch.
+
+- **Primary** at SNES **`$C1890E`** (file `0x1890E`): CMP chain for CCs
+  `0x00–0x14` and `0x18–0x1F`. Glyph path continues at `$C18B04`. CCs `0x15–0x17`
+  are pre-dispatch dialogue-pointer table lookups (`$C18815` / `$C1886F` /
+  `$C188C8`) before the main switch.
+- **Secondary installers:** primary `0x18–0x1F` write a collector address into
+  `$1E` (e.g. `0x19` → `$C18ACC` does `LDY #$79AA; STY $1E`), so the next stream
+  byte is handled by a sub-op VM.
+- **Secondary `$C179AA`** (file `0x179AA`, family for primary `0x19`): `REP #$31`
+  + `TXA` + sparse CMP chain for sub-ops `02,04,05,10,11,14,16,18–28`; unknown →
+  `LDA #0`. Exit `PLD; RTS` at `$C17B54`/`$C17B55`. Handlers `0x1B–0x28` mostly
+  load a next-collector immediate (0 stream operands at this layer); `0x1E`/`0x1F`
+  call helpers (`JSR $AD26` / `$AD02`) that consume operands (widths still TODO).
+- Other secondary bases (files): `0x1790B` (`0x18`), `0x17B56` (`0x1A`),
+  `0x17C36` (`0x1B`), `0x17D94` (`0x1C`), `0x17F11` (`0x1D`), `0x1811F` (`0x1E`),
+  `0x181BB` (`0x1F`).
 
 **Operand model.** The interpreter walks a byte stream via a far pointer held in a
 struct (indexed by Y / dp), reading operands then advancing by the opcode's width
 and writing the pointer back (e.g. op `0x02` advances +4: `ADC #$0004` near
 `0x17C9D`).
 
-**The frontier (needs the dynamic hook).** The per-opcode *semantics* — which byte
-is give-item vs set-flag vs start-battle vs teleport — are delegated to the
-returned handlers, invisible in the dispatch alone. Pinning them down wants the
-live interpreter hook (`docs/text-log.md`): watch real script bytes decode as the
-game runs. The dispatch + encoding + operand mechanics are the solid foundation;
-the opcode meanings are the next dig.
+**The frontier (needs the dynamic hook).** Story semantics (give-item, battle,
+teleport, party, flags) live in the text-CC secondary handlers, not the
+action-script table. Pinning meanings wants the live interpreter hook
+(`docs/text-log.md`). Dispatch layout + encoding are the solid foundation.
 
 **Two more layers located (verified byte-exact):**
 
@@ -111,10 +122,10 @@ There are **two** interpreters, and they are NOT the same VM:
 - **Entity action-script VM** — dispatch `$C0952B` → jump table `$C09558`
   (`JSR ($9558,X)`), opcodes `0x00–0x4C`. Drives NPC/entity behaviour, movement,
   animation, doors, and cutscene sequencing via the `[$80],Y` stream.
-- **Text control-code VM** — `$C179AA` / `$C1890E` (documented above). This is
-  where the *story* "event language" lives: give-item, start-battle, teleport,
-  party change, dialogue-flag ops. **Still the frontier** — do not attribute
-  those to the action-script table.
+- **Text control-code VM** — primary `$C1890E`, secondaries including `$C179AA`
+  (documented above). This is where the *story* "event language" lives:
+  give-item, start-battle, teleport, party change, dialogue-flag ops. **Still
+  the frontier** — do not attribute those to the action-script table.
 
 **Verified byte-exact (✅ — grok dig 2026-07-21, every table byte re-read from the
 ROM by the conductor):** the dispatch is **two tables**, split by opcode value at
@@ -143,8 +154,44 @@ ROM by the conductor):** the dispatch is **two tables**, split by opcode value a
   `GOTO $A076` (op `0x19`, +2, target = the block's own start → loops).
   `encode(decode(bytes)) == bytes`; do NOT linear-decode past a `0x19` (the
   following bytes are other scripts — you must follow the jump).
-- **Bitop sub-ops** (op `0x0D` → `$C09ABD`, static-disasm verified):
-  0=`*addr &= mask`, 1=`*addr |= mask`, 2=`*addr ^= mask`, 3=`*addr = mask`.
+- **Bitop sub-ops** (op `0x0D` → jump words at `$C09ABD`, static-disasm verified):
+  targets `$9AC5` / `$9ACC` / `$9AD3` / `$9ADB` = **AND / ORA / ADC / EOR** on
+  the addressed value (re-check assign-style ops against gold before relying on
+  older “XOR + assign” notes).
+
+#### Declared in the decomp registry (data, not script content)
+
+The action-script jump tables are now **project-owned declared data** in
+[`src/decompbound/snes_src/action_script_tables.nim`](../src/decompbound/snes_src/action_script_tables.nim)
+and registered via `adopted.nim` / `rom_chunks.nim` as `ckImplementedMeta`
+(pointer tables into our decompiled code — **not** dialogue or event bytes).
+Gold-gated like header/vectors.
+
+| Name | File offset | Len | SNES | Role |
+|------|-------------|-----|------|------|
+| `actionScriptDispatchTable` | `0x9558` | 154 (77×u16) | `$C09558` | Low-path opcode → handler words (high-path `$C095E2` = last 8 words) |
+| `jmpTable8C65` | `0x8C65` | 8 (4×u16) | `$C08C65` | Companion jump table (convert_all seed) |
+| `jmpTableA1AE` | `0xA1AE` | 32 | `$C0A1AE` | Stride-4 word+pad table |
+| `jmpTableA350` | `0xA350` | 16 (8×u16) | `$C0A350` | Eight code pointers |
+
+Fetch loop (file `0x951E`): `LDA [$80],Y / INY / AND #$00FF / … / JSR ($9558,X)` —
+the opcode byte is consumed **before** the handler runs; handlers see only operands
+at `[$80],Y`.
+
+#### Operand widths (handler disasm, ✅ static)
+
+Verified from gold-gated `code_bank00` disasm of the dispatch targets (M/X=16).
+Instruction bytes reconstructed from the project opcode table (same encodings the
+assembler emits against gold).
+
+| Op | Handler | Ops | Meaning (width) | Evidence (file / instr bytes) |
+|----|---------|-----|-----------------|-------------------------------|
+| **`0x06`** | `$C096C3` (table word 6) | **1** | **WAIT** u8 frames → `$1372,X` | file `0x96C3`: `A6 8A` `LDX $8A`; `B7 80` `LDA [$80],Y`; `29 FF 00` `AND #$00FF`; `9D 72 13` `STA $1372,X`; `C8` `INY`; `60` `RTS`. One stream byte, one `INY`. |
+| **`0x19`** | `$C09649` (table word 25) | **2** | **GOTO** abs16 → replace script PC (Y) | file `0x9649`: `B7 80` `LDA [$80],Y`; `A8` `TAY`; `60` `RTS`. 16-bit load (M=0) becomes the new Y; no `INY` (control transfer, not linear advance). |
+| **`0x42`** | `$C0993D` (table word 66) | **3** | **FAR CALL** — word+bank to `$0A5A`/`$0A5C`, then `JSL $C09D9E` | file `0x993D`: `B7 80` `LDA [$80],Y`; `8D 5A 0A` `STA $0A5A`; `C8 C8` `INY×2`; `B7 80` `LDA [$80],Y`; `C8` `INY`; `8D 5C 0A` `STA $0A5C`; … `22 9E 9D C0` `JSL $C09D9E`. Three stream bytes total. |
+
+These widths match the idle-loop round-trip block at file `0x3A076` above. Do not
+linear-scan past `0x19`.
 
 **Tentative (🟡 — from a PARTIAL live trace; only ~12 of 77 ops fired in idle
 Onett):** rough semantics clusters seen so far — `0x06` wait, `0x19` goto,

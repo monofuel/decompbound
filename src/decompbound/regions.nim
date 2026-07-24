@@ -17,17 +17,22 @@ type
     offset*: int
     data*: seq[uint8]
 
+iterator eachRegion*(): RomRegion =
+  ## Stream every implemented region without retaining all assembled bytes.
+  yield RomRegion(name: "header", offset: HiRomHeaderOffset,
+                   data: generateEarthboundHeader())
+  yield RomRegion(name: "resetVectors", offset: ResetVectorOffset,
+                   data: generateResetVectors())
+  for region in allAdoptedRegions():
+    yield RomRegion(name: region.name, offset: region.offset,
+                    data: region.data)
+  for (offset, data) in eachCodeRegion():
+    if isAdoptedOffset(offset):
+      continue
+    yield RomRegion(name: "code", offset: offset, data: data)
+
 proc allRegions*(): seq[RomRegion] =
   ## Build every implemented region: curated adoptions, generated code
   ## assembled from disassembled mnemonics, plus header and vector data.
-  result.add RomRegion(name: "header", offset: HiRomHeaderOffset,
-                       data: generateEarthboundHeader())
-  result.add RomRegion(name: "resetVectors", offset: ResetVectorOffset,
-                       data: generateResetVectors())
-  for region in allAdoptedRegions():
-    result.add RomRegion(name: region.name, offset: region.offset,
-                         data: region.data)
-  for (offset, data) in allCodeRegions():
-    if isAdoptedOffset(offset):
-      continue
-    result.add RomRegion(name: "code", offset: offset, data: data)
+  for region in eachRegion():
+    result.add region

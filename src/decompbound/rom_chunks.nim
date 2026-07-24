@@ -1,21 +1,27 @@
 ## Full-ROM partition into typed chunks for per-chunk gold checks.
 ##
-## Implemented spans come from the region registry (`allRegions()`). Residual
-## gaps cover every other file byte so sub-agents can name one chunk and run a
-## single-range verification without a full `make compare`.
+## Inventory metadata (list/summary) is built from lightweight spans:
+## `generated/code_spans.nim` + adopted sizes + header/vectors. That path must
+## never import bank modules or assemble millions of instructions.
+##
+## Per-chunk gold checks fill `built` from the project decomp ROM
+## (`bin/Decompbound.smc`) when present so agents can verify without
+## re-assembling every bank. Full live assemble still goes through `allRegions`
+## in regions.nim / `make build`.
 ##
 ## Copyrighted ROM *content* is never stored here — only offsets, lengths, and
 ## kinds. Gold comparison reads the local gitignored baserom at check time.
 
 import
   std/[algorithm, os, strformat, strutils],
-  ./[common, regions]
+  ./[common, adopted],
+  ./generated/code_spans
 
 type
   ChunkKind* = enum
     ## Assemblable code from generated banks or snes_src adoptions.
     ckImplementedCode
-    ## Declared non-code implemented bytes (header, vectors).
+    ## Declared non-code implemented bytes (header, vectors, tables).
     ckImplementedMeta
     ## Not yet claimed by the decomp builder. May hold code or copyrighted data
     ## in gold; does not count as decompiled progress until reclassified.
@@ -30,10 +36,11 @@ type
     ## Human-facing done criteria for this kind (agent brief text).
     doneCriteria*: string
     ## When kind is implemented, the project-built bytes for this span.
-    ## Empty for unclaimed gaps (never hold gold asset payloads).
+    ## Empty for unclaimed gaps and for metadata-only inventory rows.
     built*: seq[uint8]
 
 const
+  DecompRomPath* = "bin/Decompbound.smc"
   DoneImplementedCode* =
     "Assemble from project source; every byte in [offset, offset+length) " &
     "must match the local gold ROM. Counts toward make compare decompiled %."
@@ -52,10 +59,11 @@ proc doneCriteriaFor(kind: ChunkKind): string =
   of ckImplementedMeta: DoneImplementedMeta
   of ckUnclaimed: DoneUnclaimed
 
-proc classifyImplementedName(name: string): ChunkKind =
+proc classifyImplementedName*(name: string): ChunkKind =
   ## Map registry region names to chunk kinds.
   case name
-  of "header", "resetVectors":
+  of "header", "resetVectors",
+     "actionScriptDispatchTable", "jmpTable8C65", "jmpTableA1AE", "jmpTableA350":
     ckImplementedMeta
   else:
     ckImplementedCode
@@ -132,15 +140,56 @@ proc partitionFromSpans*(
       result[i].id = id
     seen.add id
 
-proc allRomChunks*(): seq[RomChunk] =
-  ## Full inventory: every byte of the 3MB file image, from the live registry.
+proc collectImplementedSpanMeta*(): seq[
+    tuple[name: string, offset: int, length: int, kind: ChunkKind]] =
+  ## Offset/length inventory without bank-module imports or full code assemble.
+  ## Header, vectors, adopted (small assemble), and generated code_spans.
+  result.add (name: "header", offset: HiRomHeaderOffset, length: HeaderSize,
+              kind: ckImplementedMeta)
+  result.add (name: "resetVectors", offset: ResetVectorOffset,
+              length: ResetVectorSize, kind: ckImplementedMeta)
+  for region in allAdoptedRegions():
+    let kind = classifyImplementedName(region.name)
+    result.add (name: region.name, offset: region.offset,
+                length: region.data.len, kind: kind)
+  for s in GeneratedCodeSpans:
+    # convert_all carves adopted ranges out of traced code; skip if any
+    # residual overlap appears after hand edits.
+    if isAdoptedOffset(s.offset):
+      continue
+    result.add (name: "code", offset: s.offset, length: s.length,
+                kind: ckImplementedCode)
+
+proc allRomChunksMeta*(): seq[RomChunk] =
+  ## Full-ROM inventory without assembling generated banks (built empty).
+  ## Safe for list/summary and for intentional-coverage maps in compare.
   var spans: seq[tuple[name: string, offset: int, length: int, kind: ChunkKind,
                        built: seq[uint8]]]
-  for region in allRegions():
-    let kind = classifyImplementedName(region.name)
-    spans.add (name: region.name, offset: region.offset,
-               length: region.data.len, kind: kind, built: region.data)
+  for s in collectImplementedSpanMeta():
+    spans.add (name: s.name, offset: s.offset, length: s.length, kind: s.kind,
+               built: @[])
   result = partitionFromSpans(spans, EarthboundRomSize)
+
+proc allRomChunks*(): seq[RomChunk] =
+  ## Alias for metadata inventory. Built bytes are filled at check time from
+  ## the decomp ROM (see fillBuiltFromDecompRom) so agents never re-assemble
+  ## every bank module for list/check.
+  result = allRomChunksMeta()
+
+proc fillBuiltFromDecompRom*(chunk: var RomChunk,
+    decompPath: string = DecompRomPath) =
+  ## Load project-built bytes for an implemented chunk from the decomp image.
+  if chunk.kind == ckUnclaimed:
+    return
+  if not fileExists(decompPath):
+    raise newException(IOError, &"decomp ROM missing at {decompPath} (run make build)")
+  let decomp = readFile(decompPath)
+  if decomp.len != EarthboundRomSize:
+    raise newException(IOError,
+      &"decomp ROM size {decomp.len} != {EarthboundRomSize}")
+  chunk.built = newSeq[uint8](chunk.length)
+  for i in 0..<chunk.length:
+    chunk.built[i] = decomp[chunk.offset + i].uint8
 
 proc findChunk*(chunks: seq[RomChunk], id: string): RomChunk =
   ## Look up a chunk by id; raises if missing.
@@ -224,16 +273,26 @@ proc checkChunkAgainstGold*(
 
 proc checkChunkAgainstGoldFile*(
     chunk: RomChunk,
-    goldPath: string = "bin/Earthbound (U) [!].smc"): ChunkCheckResult =
-  ## Load local gold (gitignored) and check one chunk.
+    goldPath: string = "bin/Earthbound (U) [!].smc",
+    decompPath: string = DecompRomPath): ChunkCheckResult =
+  ## Load local gold and fill built from decomp ROM when needed, then check.
   if not fileExists(goldPath):
     result.chunk = chunk
     result.status = ccsNoGold
     result.mismatchOffset = -1
     result.message = &"chunk {chunk.id}: gold ROM missing at {goldPath}"
     return
+  var c = chunk
+  if c.kind != ckUnclaimed and c.built.len != c.length:
+    if not fileExists(decompPath):
+      result.chunk = c
+      result.status = ccsMissingBuilt
+      result.mismatchOffset = -1
+      result.message = &"chunk {c.id}: no built bytes and decomp ROM missing at {decompPath}"
+      return
+    fillBuiltFromDecompRom(c, decompPath)
   let gold = readFile(goldPath)
-  result = checkChunkAgainstGold(chunk, gold)
+  result = checkChunkAgainstGold(c, gold)
 
 proc kindName*(k: ChunkKind): string =
   ## Stable string for CLI/docs.

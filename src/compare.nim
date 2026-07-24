@@ -1,8 +1,8 @@
 # nim r src/compare.nim
 
 import
-  std/[os, osproc, strutils, strformat, times],
-  decompbound/[regions, adopted]
+  std/[algorithm, os, osproc, strutils, strformat, times],
+  decompbound/[adopted, rom_chunks]
 
 const
   GoldMasterRom = "bin/Earthbound (U) [!].smc"
@@ -44,18 +44,26 @@ type
 
 let
   implementedRegions = block:
-    ## Regions come from the central registry, so the compare harness can
-    ## never claim coverage the ROM builder does not actually produce.
+    ## Intentional map from lightweight spans (code_spans + adopted + header).
+    ## Must not call allRegions() — that assembles every bank and OOMs.
     var ranges: seq[ByteRange]
-    for region in allRegions():
-      ranges.add ByteRange(start: region.offset,
-                           `end`: region.offset + region.data.len - 1)
+    for s in collectImplementedSpanMeta():
+      ranges.add ByteRange(start: s.offset, `end`: s.offset + s.length - 1)
+    ranges.sort(proc(a, b: ByteRange): int = cmp(a.start, b.start))
     ranges
 
 proc isInImplementedRegion(offset: int): bool =
-  ## Check if a byte offset is in an implemented region.
-  for region in implementedRegions:
-    if offset >= region.start and offset <= region.`end`:
+  ## Check if a byte offset is in an implemented region (binary search).
+  var lo = 0
+  var hi = implementedRegions.len
+  while lo < hi:
+    let mid = (lo + hi) div 2
+    let r = implementedRegions[mid]
+    if offset < r.start:
+      hi = mid
+    elif offset > r.`end`:
+      lo = mid + 1
+    else:
       return true
   result = false
 

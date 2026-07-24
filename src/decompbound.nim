@@ -12,11 +12,12 @@ proc generateRom(): string =
   ## Generate the decomp ROM from our reverse-engineered code and data.
   ## Every region comes from the central registry: code regions are
   ## assembled from disassembled mnemonics, data regions are declared data.
+  ## Regions stream one at a time so assembled bank bytes are not retained.
   var rom = newString(EarthboundRomSize)
   for i in 0..<rom.len:
     rom[i] = '\x00'
 
-  for region in allRegions():
+  for region in eachRegion():
     for i in 0..<region.data.len:
       rom[region.offset + i] = region.data[i].char
 

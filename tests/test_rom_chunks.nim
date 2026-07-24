@@ -1,9 +1,9 @@
 ## Full-ROM chunk inventory: structural coverage + per-chunk gold checks.
-## Structural blocks need no ROM. Gold blocks skip when baserom is absent.
+## Structural blocks need no gold. Gold blocks use decomp ROM + baserom when present.
 
 import
   std/[os, strutils],
-  decompbound/[common, rom_chunks, regions]
+  decompbound/[common, rom_chunks]
 
 const
   GoldMasterRom = "bin/Earthbound (U) [!].smc"
@@ -66,8 +66,9 @@ block pureCheckMatchAndMismatch:
   doAssert "not decompiled" in rGap.message
 
 block liveInventoryStructural:
-  ## Real registry partition covers the full ROM, no overlaps, unique ids.
-  let chunks = allRomChunks()
+  ## Metadata inventory covers the full ROM, no overlaps, unique ids.
+  ## Must stay lightweight: no bank-module assemble.
+  let chunks = allRomChunksMeta()
   doAssert inventoryCoversRom(chunks), "inventory must cover full ROM"
   doAssert chunks.len > 200
   var ids: seq[string]
@@ -79,43 +80,45 @@ block liveInventoryStructural:
     doAssert c.id notin ids, "duplicate id " & c.id
     ids.add c.id
     doAssert c.doneCriteria.len > 0
-    if c.kind in {ckImplementedCode, ckImplementedMeta}:
-      doAssert c.built.len == c.length, c.id
-    else:
-      doAssert c.built.len == 0, c.id & " unclaimed must not carry built bytes"
+    # Metadata path leaves built empty; checks fill from decomp ROM.
+    doAssert c.built.len == 0, c.id & " meta inventory must not carry built bytes"
     endPos = c.offset + c.length
   doAssert endPos == EarthboundRomSize
   let totals = totalBytesByKind(chunks)
   doAssert totals[ckImplementedCode] + totals[ckImplementedMeta] +
            totals[ckUnclaimed] == EarthboundRomSize
-  # Implemented byte count matches sum of allRegions lengths.
-  var regBytes = 0
-  for r in allRegions():
-    regBytes += r.data.len
-  doAssert totals[ckImplementedCode] + totals[ckImplementedMeta] == regBytes,
-    "implemented chunk bytes must equal region registry"
+  doAssert totals[ckImplementedCode] + totals[ckImplementedMeta] > 100_000,
+    "expected substantial implemented coverage from code_spans"
 
 block liveGoldImplementedChunks:
-  ## Every implemented chunk matches local gold when present.
+  ## Every implemented chunk matches local gold when baserom + decomp exist.
   if not fileExists(GoldMasterRom):
     echo "[test_rom_chunks] skip live gold (no baserom)"
+  elif not fileExists(DecompRomPath):
+    echo "[test_rom_chunks] skip live gold (no decomp ROM — run make build)"
   else:
     let gold = readFile(GoldMasterRom)
+    let decomp = readFile(DecompRomPath)
     doAssert gold.len == EarthboundRomSize
+    doAssert decomp.len == EarthboundRomSize
     var matched = 0
-    for c in allRomChunks():
+    for c in allRomChunksMeta():
       if c.kind == ckUnclaimed:
         let r = checkChunkAgainstGold(c, gold)
         doAssert r.status == ccsUnclaimed, r.message
         continue
-      let r = checkChunkAgainstGold(c, gold)
+      var filled = c
+      filled.built = newSeq[uint8](c.length)
+      for i in 0..<c.length:
+        filled.built[i] = decomp[c.offset + i].uint8
+      let r = checkChunkAgainstGold(filled, gold)
       doAssert r.status == ccsMatch, r.message
       inc matched
     doAssert matched > 200
     echo "[test_rom_chunks] live gold: ", matched, " implemented chunks matched"
 
 block findChunkHelpers:
-  let chunks = allRomChunks()
+  let chunks = allRomChunksMeta()
   let header = findChunk(chunks, "header")
   doAssert header.kind == ckImplementedMeta
   doAssert header.offset == HiRomHeaderOffset

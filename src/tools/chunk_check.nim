@@ -47,8 +47,8 @@ proc parseKind(s: string): ChunkKind =
     raise newException(ValueError, "unknown kind: " & s)
 
 proc cmdSummary() =
-  ## Print inventory size totals by kind.
-  let chunks = allRomChunks()
+  ## Print inventory size totals by kind (metadata only — no bank assemble).
+  let chunks = allRomChunksMeta()
   doAssert inventoryCoversRom(chunks)
   let totals = totalBytesByKind(chunks)
   var nCode, nMeta, nUncl = 0
@@ -65,8 +65,8 @@ proc cmdSummary() =
     &"({100.0 * float(totals[ckImplementedCode] + totals[ckImplementedMeta]) / float(EarthboundRomSize):.2f}% of ROM)"
 
 proc cmdList(kindFilter: string) =
-  ## List chunk ids (optionally filtered by kind).
-  let chunks = allRomChunks()
+  ## List chunk ids (optionally filtered by kind). Metadata only.
+  let chunks = allRomChunksMeta()
   var want: set[ChunkKind] = {ckImplementedCode, ckImplementedMeta, ckUnclaimed}
   if kindFilter.len > 0:
     want = {parseKind(kindFilter)}
@@ -82,26 +82,37 @@ proc statusExitCode(st: ChunkCheckStatus): int =
   of ccsNoGold, ccsBadGoldSize: 3
 
 proc cmdCheck(id: string) =
-  ## Check one chunk against gold when applicable.
-  let chunks = allRomChunks()
-  let chunk = findChunk(chunks, id)
+  ## Check one chunk against gold (built from decomp ROM when needed).
+  let chunks = allRomChunksMeta()
+  var chunk = findChunk(chunks, id)
   let r = checkChunkAgainstGoldFile(chunk, GoldPath)
   echo r.message
   quit(statusExitCode(r.status))
 
 proc cmdCheckAllImplemented() =
-  ## Gold-check every implemented chunk; fail on first mismatch.
+  ## Gold-check every implemented chunk against decomp ROM; fail on first mismatch.
   if not fileExists(GoldPath):
     echo &"gold ROM missing at {GoldPath}"
     quit(3)
+  if not fileExists(DecompRomPath):
+    echo &"decomp ROM missing at {DecompRomPath} (run make build)"
+    quit(2)
   let gold = readFile(GoldPath)
-  let chunks = allRomChunks()
+  let decomp = readFile(DecompRomPath)
+  if gold.len != EarthboundRomSize or decomp.len != EarthboundRomSize:
+    echo "ROM size mismatch for gold/decomp"
+    quit(3)
+  let chunks = allRomChunksMeta()
   var ok, fail, skip = 0
   for c in chunks:
     if c.kind == ckUnclaimed:
       inc skip
       continue
-    let r = checkChunkAgainstGold(c, gold)
+    var filled = c
+    filled.built = newSeq[uint8](c.length)
+    for i in 0..<c.length:
+      filled.built[i] = decomp[c.offset + i].uint8
+    let r = checkChunkAgainstGold(filled, gold)
     if r.status == ccsMatch:
       inc ok
     else:

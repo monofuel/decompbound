@@ -144,7 +144,7 @@ proc main() =
         rom, region.start, region.length, procName, entryFlags)
       moduleSrc.add source
       moduleSrc.add "\n"
-      regionEntries.add &"  result.add (offset: 0x{region.start:06X}, data: {procName}())"
+      regionEntries.add &"  yield (offset: 0x{region.start:06X}, data: {procName}())"
       totalBytes += region.length
       totalInstructions += instructions
       discard covered
@@ -161,11 +161,29 @@ proc main() =
     let sep = if i < moduleNames.len - 1: "," else: ""
     registry.add &"  ./{name}{sep}\n"
   registry.add "\n"
-  registry.add "proc allCodeRegions*(): seq[tuple[offset: int, data: seq[uint8]]] =\n"
-  registry.add "  ## Every traced code region, assembled from mnemonics.\n"
+  registry.add "iterator eachCodeRegion*(): tuple[offset: int, data: seq[uint8]] =\n"
+  registry.add "  ## Yield each traced code region, assembled one at a time.\n"
   for entry in regionEntries:
     registry.add entry & "\n"
+  registry.add "\n"
+  registry.add "proc allCodeRegions*(): seq[tuple[offset: int, data: seq[uint8]]] =\n"
+  registry.add "  ## Every traced code region, assembled from mnemonics.\n"
+  registry.add "  for item in eachCodeRegion():\n"
+  registry.add "    result.add item\n"
   writeFile(OutputDir / "registry.nim", registry)
+
+  # Lightweight spans (offset+length only) so list/summary/compare intentional
+  # maps never import bank modules or assemble millions of instructions.
+  var spansMod = ""
+  spansMod.add "## Lightweight code-region spans (no bank imports). Generated; do not edit.\n"
+  spansMod.add "## Used by list/summary inventory paths that must not assemble.\n"
+  spansMod.add "\n"
+  spansMod.add "const\n"
+  spansMod.add "  GeneratedCodeSpans* = [\n"
+  for region in regions:
+    spansMod.add &"    (offset: 0x{region.start:06X}, length: {region.length}),\n"
+  spansMod.add "  ]\n"
+  writeFile(OutputDir / "code_spans.nim", spansMod)
 
   # The frontier: every computed/indirect jump static tracing stops at.
   # These are the doors the code map cannot open without the Goal 2

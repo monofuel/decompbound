@@ -10,7 +10,8 @@ import
   ./snes_src/[sram_piracy, rng, apu_upload, cgram_dma_request, apu_port_io,
               song_loader, queue_apu_cmd, wait_apu_idle, bg_layer_setup,
               obj_base, bg4_bases, clear_wram_block, ppu_color_math, ppu_windows,
-              ppu_scroll, mode7_mul, hdma_channel, hw_multiply]
+              ppu_scroll, mode7_mul, hdma_channel, hw_multiply,
+              action_script_tables]
 
 proc allAdoptedRegions*(): seq[tuple[name: string, offset: int, data: seq[uint8]]] =
   ## Every hand-curated code region, assembled from named source.
@@ -98,6 +99,19 @@ proc allAdoptedRegions*(): seq[tuple[name: string, offset: int, data: seq[uint8]
   result.add (name: "hardwareMultiply",
               offset: HardwareMultiplyOffset,
               data: hardwareMultiply())
+  # Script-engine dispatch tables (data, not snesAsm) — RE'd structure.
+  result.add (name: "actionScriptDispatchTable",
+              offset: ActionScriptDispatchOffset,
+              data: actionScriptDispatchTable())
+  result.add (name: "jmpTable8C65",
+              offset: JmpTable8C65Offset,
+              data: jmpTable8C65())
+  result.add (name: "jmpTableA1AE",
+              offset: JmpTableA1AEOffset,
+              data: jmpTableA1AE())
+  result.add (name: "jmpTableA350",
+              offset: JmpTableA350Offset,
+              data: jmpTableA350())
 
 proc adoptedRanges*(): seq[tuple[start: int, last: int]] =
   ## Inclusive file-offset spans owned by curated modules, derived from the
