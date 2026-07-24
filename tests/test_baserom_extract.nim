@@ -2,8 +2,8 @@
 ## Structural checks always run. Live gold checks run when baserom is present.
 
 import
-  std/[algorithm, strformat],
-  decompbound/[baserom_extract, common, gfx_lz, rom_chunks, text_decode]
+  std/[algorithm, strformat, strutils],
+  decompbound/[action_script, baserom_extract, common, gfx_lz, rom_chunks, text_decode]
 
 echo "[test_baserom_extract] begin"
 
@@ -241,4 +241,135 @@ block liveScriptStreamClaims:
     doAssert n > 0
     doAssert total > 10_000
     echo "[test_baserom_extract] script_stream claims verified: ", n,
+      " spans, ", total, " bytes"
+
+
+block liveActionScriptClaims:
+  ## Every ekActionScript claim is fully covered by good action-script walks.
+  if not goldBaseromAvailable():
+    discard
+  else:
+    let gold = readGoldBaseromBytes()
+    var n = 0
+    var total = 0
+    for s in allBaseromExtractSpans():
+      if s.kind != ekActionScript:
+        continue
+      doAssert isGoodActionScriptSpan(gold, s.offset, s.length),
+        &"{s.name}: action-script span failed structural gates"
+      n += 1
+      total += s.length
+    doAssert n > 0
+    doAssert total > 1000
+    # Documented idle block at file 0x3A076 (may sit in implemented_code).
+    doAssert isIdleActionBlock(gold, 0x3A076)
+    let idle = walkActionScript(gold, 0x3A076, 0x3A076 + 9)
+    doAssert isGoodActionScriptWalk(idle)
+    doAssert idle.length == 9
+    echo "[test_baserom_extract] action_script claims verified: ", n,
+      " spans, ", total, " bytes"
+
+block liveResidualFixedTables:
+  ## Residual unclaimed ekTable claims for item/shop/EXP/formPtr (2026-07-24 wave).
+  if not goldBaseromAvailable():
+    discard
+  else:
+    let gold = readGoldBaseromBytes()
+    # Item table: Cookie id=88 price $7, Bread roll id=103 price $12, Hamburger id=90 $14
+    const
+      ItemBase = 0x155000
+      ItemRec = 0x27
+    doAssert (int(gold[ItemBase + 88 * ItemRec + 0x1A]) or
+      (int(gold[ItemBase + 88 * ItemRec + 0x1B]) shl 8)) == 7
+    doAssert (int(gold[ItemBase + 103 * ItemRec + 0x1A]) or
+      (int(gold[ItemBase + 103 * ItemRec + 0x1B]) shl 8)) == 12
+    doAssert (int(gold[ItemBase + 90 * ItemRec + 0x1A]) or
+      (int(gold[ItemBase + 90 * ItemRec + 0x1B]) shl 8)) == 14
+    doAssert isBaseromExtractOffset(0x155C55)
+    # Shops: residual gaps claimed
+    doAssert isBaseromExtractOffset(0x1578B8)
+    doAssert isBaseromExtractOffset(0x1578D7)
+    const ShopBase = 0x1578B2
+    doAssert gold[ShopBase + 6] == 0xD1  # shop0 last slot
+    # EXP tables: 4×0x190 blocks; levels 0..97 non-decreasing (tail is padding).
+    const ExpBase = 0x158F51
+    for ch in 0..2:
+      var prev = 0'u32
+      let b = ExpBase + ch * 0x190
+      for lv in 0..97:
+        let o = b + lv * 4
+        let v = uint32(gold[o]) or (uint32(gold[o + 1]) shl 8) or
+          (uint32(gold[o + 2]) shl 16) or (uint32(gold[o + 3]) shl 24)
+        doAssert lv == 0 or v >= prev, &"exp char{ch} lv{lv}"
+        prev = v
+    doAssert isBaseromExtractOffset(0x1591F8)
+    # formPtr residual assoc halves
+    doAssert isBaseromExtractOffset(0x10C634)
+    var formResidual = 0
+    for s in allBaseromExtractSpans():
+      if s.kind == ekTable and s.name.startsWith("table_formPtr_") and
+          s.offset >= 0x10C60D and s.offset < 0x10D52D:
+        formResidual += s.length
+    doAssert formResidual >= 900, &"formPtr residual claims {formResidual}"
+    echo "[test_baserom_extract] residual fixed tables OK: formPtr residual≥",
+      formResidual
+
+block liveU16PtrTableF59:
+  ## 36 bank-local u16 ptrs @0x0F59F1 → records @0x0F6075 with prefix 49 80 5d 00.
+  if not goldBaseromAvailable():
+    discard
+  else:
+    const
+      PtrOff = 0x0F59F1
+      BankBase = 0x0F0000
+      N = 36
+    let gold = readGoldBaseromBytes()
+    var targets: seq[int] = @[]
+    for i in 0..<N:
+      let lo = int(gold[PtrOff + i * 2]) or (int(gold[PtrOff + i * 2 + 1]) shl 8)
+      targets.add(BankBase + lo)
+    for i in 1..<targets.len:
+      doAssert targets[i] >= targets[i - 1]
+    doAssert targets[0] == 0x0F6075
+    for i in 0..<min(8, targets.len):
+      doAssert gold[targets[i]] == 0x49
+      doAssert gold[targets[i] + 1] == 0x80
+      doAssert gold[targets[i] + 2] == 0x5d
+      doAssert gold[targets[i] + 3] == 0x00
+    doAssert isBaseromExtractOffset(PtrOff)
+    echo "[test_baserom_extract] u16 ptr table @0x0F59F1 OK: ", N, " entries"
+
+block liveFfShortRecordStreams:
+  ## FF-terminated short-record residual claims in bank $CE.
+  if not goldBaseromAvailable():
+    discard
+  else:
+    let gold = readGoldBaseromBytes()
+    var n = 0
+    var total = 0
+    for s in allBaseromExtractSpans():
+      if s.kind != ekTable or not s.name.startsWith("table_ffRec_"):
+        continue
+      var i = s.offset
+      let hi = s.offset + s.length
+      var recs = 0
+      while i < hi:
+        let rs = i
+        var found = false
+        while i < hi and i - rs < 24:
+          if gold[i] == 0xFF:
+            found = true
+            i += 1
+            break
+          i += 1
+        doAssert found, &"{s.name}: missing FF in record @0x{rs:06X}"
+        let L = i - rs
+        doAssert L >= 2 and L <= 16, &"{s.name}: bad rec len {L}"
+        recs += 1
+      doAssert recs >= 1
+      n += 1
+      total += s.length
+    doAssert n >= 6, &"expected ≥6 ffRec claims, got {n}"
+    doAssert total >= 400, &"expected ≥400 ffRec bytes, got {total}"
+    echo "[test_baserom_extract] FF short-record streams OK: ", n,
       " spans, ", total, " bytes"

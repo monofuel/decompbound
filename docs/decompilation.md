@@ -218,6 +218,11 @@ of SRAM. Round-trip DoD: decode a table → re-encode → byte-exact.
   enemy_group_id)` with **weight sums ∈ {0, 8, 16}** and body length `3n`.
   Focus unclaimed residuals at `0x10BEC5` / `0x10C2DF` are mid-table body
   (claimed as `ekTable` extracts).
+  **Residual wave 2026-07-24:** remaining formPtr assoc gaps (~672 B), item/shop/EXP
+  mid-table residuals, u16 ptr table `@0x0F59F1` (36× bank `$CF` → prefix
+  `49 80 5d 00`), and FF-terminated short-record streams in bank `$CE` claimed as
+  `ekTable` (see `docs/residual-table-claims.md`).
+
 - **Shops** — the store-inventory table at file `0x1578B2`, 66 entries × 7 bytes,
   each entry 7 `u8` item-IDs (`0` = empty slot) into the item table; prices come
   from the item table, not per-shop. Verified byte-exact (shop 0

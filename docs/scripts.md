@@ -202,6 +202,16 @@ assembler emits against gold).
 These widths match the idle-loop round-trip block at file `0x3A076` above. Do not
 linear-scan past `0x19`.
 
+#### Residual action-script data claims (`ekActionScript`)
+
+Residual unclaimed spans that fully decode under the known-width walker in
+[`src/decompbound/action_script.nim`](../src/decompbound/action_script.nim) are
+claimed as baserom extracts (`ekActionScript`) — **offset/length only**, never
+script content. Safe unit: consecutive good walks ending on a control transfer
+(GOTO/GOSUB/halt/high-path) with signature ops `0x06` / `0x19` / `0x1A` / `0x42`
+(classic idle: `42 xx xx bb 06 ww 19 tt tt`). Unknown ops and bad FAR CALL banks
+reject the walk. Gold-gated in `tests/test_baserom_extract.nim`.
+
 **Tentative (🟡 — from a PARTIAL live trace; only ~12 of 77 ops fired in idle
 Onett):** rough semantics clusters seen so far — `0x06` wait, `0x19` goto,
 `0x42` far-call (`$C09D9E` anim/interaction kernel), conditionals sourced from

@@ -50,6 +50,7 @@ make chunk-check-all
 
 - `src/decompbound/rom_chunks.nim` — partition + meta inventory + gold check
 - `src/decompbound/baserom_extract.nim` — gold-slice data claims (offset/length only; bytes from local baserom)
+- `src/decompbound/action_script.nim` — entity action-script bytecode walker for `ekActionScript` residual claims
 - `src/tools/probe_gap_formats.nim` — probe unclaimed gaps for gfx_lz / APU package
 - `src/decompbound/generated/code_spans.nim` — offset/length only (from convert_all)
 - `src/tools/chunk_check.nim` — CLI
