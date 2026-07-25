@@ -26,9 +26,11 @@ proc assertSaneMember(m: PartyMemberVitals, label: string) =
   ## Require decoded name + level/HP ranges used by play co-pilot consumers.
   doAssert m.name.len > 0 and m.name != "(empty)", &"{label}: bad name {m.name}"
   doAssert m.level >= 1 and m.level <= 99, &"{label}: level {m.level}"
-  doAssert m.hpMax > 0 and m.hpMax <= 999, &"{label}: hpMax {m.hpMax}"
+  # HP/PP are u16 and CAN legitimately exceed 999 (UI shows 3 digits but the
+  # value works — docs/gameplay/stats.md); only the storage width bounds them.
+  doAssert m.hpMax > 0 and m.hpMax <= 0xFFFF, &"{label}: hpMax {m.hpMax}"
   doAssert m.hp > 0 and m.hp <= m.hpMax, &"{label}: hp {m.hp}/{m.hpMax}"
-  doAssert m.pp >= 0 and m.pp <= m.ppMax and m.ppMax <= 999,
+  doAssert m.pp >= 0 and m.pp <= m.ppMax and m.ppMax <= 0xFFFF,
     &"{label}: pp {m.pp}/{m.ppMax}"
   doAssert m.exp >= 0, &"{label}: exp {m.exp}"
   doAssert m.stats.offense > 0 and m.stats.defense > 0,

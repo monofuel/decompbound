@@ -14,7 +14,15 @@ layout persisted to SRAM — see `docs/sram-format.md`):
 | `+$1C..$22` | Same seven, **base** (no equipment) | ✅ same |
 
 Derived stats HP-max/PP-max are separate **u16** fields (`+$0A` / `+$0C`), so
-they do *not* share the byte-width cliff below (they cap at 999 by game logic).
+they do *not* share the byte-width cliff below — the storage ceiling is 65535.
+
+🟡 **community (monofuel, 2026-07-24):** HP/PP **can exceed 999 and keep
+working** — the battle/status UI only renders three digits so the display
+glitches, but the underlying value is honored in combat. Consistent with the
+u16 storage; the 999 "cap" is a *display* convention, not a stored clamp.
+**TODO:** verify on our emulator (boost past 999, screenshot the UI glitch,
+confirm damage/PSI math uses the real value) — would double as a rendering
+accuracy test.
 
 ## Every stat is one unsigned byte — the 255 rollover
 

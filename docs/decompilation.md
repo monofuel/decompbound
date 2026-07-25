@@ -195,8 +195,17 @@ of SRAM. Round-trip DoD: decode a table → re-encode → byte-exact.
   ptr `$06/$08` = `$D55000`). **Name** is EB-encoded text at `+0x00` (id0=`Null`,
   id1=`Franklin badge`). **Price** is u16 LE at **`+0x1A`** (Cookie id=88 → `$7`,
   Bread roll id=103 → `$12`, Hamburger id=90 → `$14`) — not `+0x00` (older note
-  was wrong). Type/equip flag byte at `+0x19`; more equip fields `+0x1C`… still
-  soft.
+  was wrong). Type/equip flag byte at `+0x19`. Equip fields (pinned 2026-07-24
+  by cross-checking 9 weapon records against community stat sheets — every
+  value matched except the Sword of Kings, below): **`+0x1C`** who-can-equip
+  bitmask (`01`=Ness `02`=Paula `04`=Jeff `08`=Poo), **`+0x1F`** offense u8
+  (Cracked bat 4, Gutsy 100, Casey 125, Gaia Beam 125…), **`+0x21`** guts u8
+  (Gutsy 127, Magic pan 100), **`+0x22`** miss-chance numerator /16 (Casey 12,
+  Magic pan 4, normal bats 1, Jeff's guns 0 = never miss). `+0x1D` (`$EF`
+  everywhere sampled) and `+0x20` still soft. **Anomaly:** Sword of Kings
+  (id `0x23`) has `+0x1F`=10 but `+0x20`=30 where community says +30 offense —
+  either Poo-type equips read a different field or the community number is
+  folklore; needs a trace of the equip-stat routine for type-`08` items.
 - **PSI table** — located at file `0x158C50` (SNES `$D58C50`), ~15-byte records
   directly before the EXP table; verified byte-exact, with PSI Rockin α's PP=10
   (`0x0A`) present. Fields (per grok, tentative): name idx, greek tier, type,
