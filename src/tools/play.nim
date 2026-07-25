@@ -841,8 +841,15 @@ void main() {
           # NMI fires at vblank start (line 224), AFTER the visible scanlines are
           # drawn — so the game's vblank handler updates scroll/CGRAM/HDMA for the
           # NEXT frame, not mid-render (which flickered the top lines + the iris).
-          if l == 224 and (snes.nmitimen and 0x80) != 0:
-            cpu.nmiPending = true
+          if l == 224:
+            # Sprites render from OAM as it stands at the END of the visible
+            # frame, BEFORE the NMI handler DMAs next frame's positions in —
+            # else sprites lead the BG by one frame (1px ghosting when moving,
+            # 1px seams sliding behind foreground tiles).
+            ppu.renderSprites(snes, frameImage)
+            ppu.overlayForegroundBg(snes, frameImage)
+            if (snes.nmitimen and 0x80) != 0:
+              cpu.nmiPending = true
           for i in 0 ..< InstrPerLine:
             cpu.step(snes.bus)
             if cpu.stopped:
@@ -878,10 +885,8 @@ void main() {
           pcm[off + 2] = (rgt and 0xFF).uint8
           pcm[off + 3] = ((rgt shr 8) and 0xFF).uint8
           smp += 1
-        ppu.renderSprites(snes, frameImage)
-        # High-priority BG (foreground tiles, dialogue/HUD, battle UI) interleaves
-        # in front of the sprites the priority ladder places behind it.
-        ppu.overlayForegroundBg(snes, frameImage)
+        # (Sprites + foreground-BG interleave were rendered at line 224 above,
+        # from pre-NMI OAM — see the vblank comment in the scanline loop.)
         # Once armed, wait for a frame where HDMA is actually active (the battle
         # screen split) so the capture is useful; fall back after ~180 frames so
         # non-HDMA scenes (e.g. the top-line flicker) still get a trace.

@@ -1009,8 +1009,14 @@ proc stepOneFrame*(snes: SnesBus, cpu: var Cpu, image: Image) =
     image.fill(backdrop)
   var l = 0
   while l < 262:
-    if l == 224 and (snes.nmitimen and 0x80) != 0:
-      cpu.nmiPending = true
+    if l == 224:
+      # Sprites must render from OAM as it stands at the END of the visible
+      # frame, BEFORE the game's NMI handler DMAs next frame's positions in —
+      # else sprites lead the background by one frame (1px ghost when moving).
+      ppu.renderSprites(snes, image)
+      ppu.overlayForegroundBg(snes, image)
+      if (snes.nmitimen and 0x80) != 0:
+        cpu.nmiPending = true
     for i in 0 ..< InstrPerLine:
       cpu.step(snes.bus)
       if cpu.stopped:
@@ -1025,8 +1031,6 @@ proc stepOneFrame*(snes: SnesBus, cpu: var Cpu, image: Image) =
     if l >= 262:
       snes.initHdma()
       break
-  ppu.renderSprites(snes, image)
-  ppu.overlayForegroundBg(snes, image)
 
 proc runPolicyFrame*(L: lua53.PState, ctx: PolicyContext): string =
   ## Execute one tick of the policy: reset joy1, invoke global update() under
