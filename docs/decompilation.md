@@ -242,6 +242,10 @@ of SRAM. Round-trip DoD: decode a table → re-encode → byte-exact.
   stat-gain fields) via `$C08FF7`, then `LDA $D59589,X`. The exact per-field /
   per-char byte layout (mixed u16/u8 within the record) is the last detail to nail.
 
+Player-facing narratives built on these offsets (how stats/leveling behave,
+the 255 rollover, known glitches) live in `docs/gameplay/` — this doc stays
+the *where-the-bytes-are* ledger.
+
 ## Relationship to the numbered goals
 
 - **Goal 1 / 1.5** (`docs/goal-1.md`, `goal-1.5.md`) = the **code** side: byte-
