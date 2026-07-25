@@ -555,7 +555,11 @@ void main() {
 
   while not window.closeRequested:
     let iterStart = getMonoTime()
+    # Phase timers for HITCH diagnosis (Bug A): plain floats, no seqs.
+    var phaseEmuMs, phaseQueueMs, phaseSwapMs, phasePollMs, phaseTextMs = 0.0
+    let pollStart = getMonoTime()
     pollEvents()
+    phasePollMs += (getMonoTime() - pollStart).inMicroseconds.float / 1000.0
     ss.pump()  # reclaim finished buffers every iteration (paused or not)
 
     # Track window.mousePos frame-to-frame for auto-hide: hide after
@@ -602,6 +606,7 @@ void main() {
     # and reads on a just-vanished pad can throw too — either must only DROP that
     # frame's pad input, never crash the game. (A C-level segfault in paddy's
     # evdev layer is uncatchable here and would need an upstream paddy fix.)
+    let padStart = getMonoTime()
     try:
       pads = pollGamepads()
       for gp in pads:
@@ -635,6 +640,7 @@ void main() {
         if ly < -AxisThreshold: padJoy = padJoy or BtnUp
     except CatchableError, Defect:
       pads = @[]
+    phasePollMs += (getMonoTime() - padStart).inMicroseconds.float / 1000.0
     let joy1 = kbdJoy or padJoy
     # No input latch: faithful d-pad, no held-frame band-aid. A good controller
     # handles its own diagonals; we don't hack around bad hardware.
@@ -807,6 +813,7 @@ void main() {
             inc n
           n
       for t in 0 ..< ticks:
+        let emuStart = getMonoTime()
         # Instructions per scanline = the CPU's per-frame budget (× 262 lines). The
         # SNES gives the CPU a fixed CYCLE budget/frame; we approximate with an
         # instruction count (goal.md: no cycle accuracy). This budget must cover the
@@ -965,7 +972,10 @@ void main() {
             writeLog("wrote scanline_trace.txt")
         frameCount += 1
         # Live MCP snapshot: lock hold = struct copy only; handlers read this.
-        publishLiveParty(snes, frameCount)
+        # Every 30 frames (~0.5s): co-pilot tools tolerate staleness; publishing
+        # every emulated frame allocated inventory+names on the hot path (Bug A).
+        if frameCount mod 30 == 0:
+          publishLiveParty(snes, frameCount)
         # Automated anomaly capture: when HDMA turns on (0 -> non-zero) a screen
         # split just began (battle swirl/bands, scene iris) — auto-arm a full
         # bundle so the human never has to catch the exact frame. Once per edge.
@@ -977,8 +987,11 @@ void main() {
           echo &"auto-capture: HDMA split started (HDMAEN={snes.hdmaen:02X}) — grabbing a bundle"
           writeLog(&"auto-capture: HDMA split started (HDMAEN={snes.hdmaen:02X})")
         prevHdmaen = snes.hdmaen
+        phaseEmuMs += (getMonoTime() - emuStart).inMicroseconds.float / 1000.0
         if genAudio:
+          let queueStart = getMonoTime()
           ss.queueData(pcm)
+          phaseQueueMs += (getMonoTime() - queueStart).inMicroseconds.float / 1000.0
 
         if frameAdvance:
           frameAdvance = false
@@ -1022,22 +1035,15 @@ void main() {
     glBindVertexArray(vao)
     glDrawArrays(GL_TRIANGLES, 0, 6)
 
+    let swapStart = getMonoTime()
     window.swapBuffers()
+    phaseSwapMs = (getMonoTime() - swapStart).inMicroseconds.float / 1000.0
 
-    # Perf/GC: full-iteration wall time + heap. Slow frame -> HITCH line (with the
-    # replay seg anchor so you can seek back to it); mem heartbeat every ~2s.
-    let iterMs = (getMonoTime() - iterStart).inMicroseconds.float / 1000.0
+    # Perf/GC: heap snapshot here; HITCH line is emitted after the text phase so
+    # the phase breakdown includes dialogue-echo. Slow outer iter -> HITCH.
     let occ = getOccupiedMem()
     let memDeltaKb = (occ - prevOccupiedMem) div 1024
     prevOccupiedMem = occ
-    if iterMs > HitchThresholdMs and not paused:
-      let segTag =
-        if recording: &" seg={replayLogPath.extractFilename} segframe={recordFrame}"
-        else: ""
-      let hitch = &"HITCH frame={frameCount} {iterMs:.1f}ms heap={occ div 1024}KB " &
-        &"dMem={memDeltaKb:+}KB total={getTotalMem() div 1024}KB{segTag}"
-      echo hitch
-      writeLog(hitch)
     if (getMonoTime() - lastMemLogTime).inMilliseconds >= 2000:
       lastMemLogTime = getMonoTime()
       writeLog(&"mem frame={frameCount} heap={occ div 1024}KB total={getTotalMem() div 1024}KB fps={fpsShown:.0f}")
@@ -1059,6 +1065,7 @@ void main() {
     # script stream (cursor $96C5 + dictionary tokens), NOT the old VRAM tile
     # scan (unsound for EB's variable-width font). Prints clean copy-pasteable
     # text once per change; empty when no message window is open.
+    let textStart = getMonoTime()
     if frameCount mod 20 == 0:
       let txt = getDialogueText(snes)
       if txt.len > 0:
@@ -1069,6 +1076,20 @@ void main() {
           lastScreenText = txt
       elif lastScreenText.len > 0:
         lastScreenText = ""
+    phaseTextMs = (getMonoTime() - textStart).inMicroseconds.float / 1000.0
+
+    # Full-iteration wall time + phase breakdown (Bug A: pin ~1s blocks).
+    let iterMs = (getMonoTime() - iterStart).inMicroseconds.float / 1000.0
+    if iterMs > HitchThresholdMs and not paused:
+      let segTag =
+        if recording: &" seg={replayLogPath.extractFilename} segframe={recordFrame}"
+        else: ""
+      let hitch = &"HITCH frame={frameCount} {iterMs:.1f}ms heap={occ div 1024}KB " &
+        &"dMem={memDeltaKb:+}KB total={getTotalMem() div 1024}KB{segTag}" &
+        &" phases: emu={phaseEmuMs:.1f} queue={phaseQueueMs:.1f} swap={phaseSwapMs:.1f} " &
+        &"poll={phasePollMs:.1f} text={phaseTextMs:.1f}"
+      echo hitch
+      writeLog(hitch)
 
     # Auto-capture: every ~5s dump the frame + a PPU-register line to the
     # gitignored bin/autoshots/ so scenes can be reviewed/diagnosed later.

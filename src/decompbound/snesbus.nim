@@ -7,6 +7,7 @@
 ## just enough for the game's sound driver upload to proceed.
 
 import
+  std/strformat,
   ./[cpu, memmap, apu]
 
 type
@@ -34,6 +35,14 @@ type
                           ## polls (bounded by ApuPortCatchupMax; reset each
                           ## frame in initHdma). Fixes the sound-upload handshake
                           ## derail without distorting steady-state tempo.
+    ## Hang detector (instrumentation only): consecutive frames where the CPU
+    ## polls $214x, catch-up hits the cap, and portsOut is frozen. Logs once
+    ## after ~5s, re-arms when the condition clears. Does not change catch-up.
+    apuHangFramePolled: bool
+    apuHangLastPort: int
+    apuHangPrevPortsOut: array[4, uint8]
+    apuHangStuckFrames: int
+    apuHangLogged: bool
     apuPort0: uint8   ## Last value the CPU wrote to $2140.
     apuPort1: uint8
     apuReadStreak: int  ## Consecutive $2140 reads with no write: the
@@ -110,6 +119,9 @@ const
     ## burst services in well under this; the cap keeps a pathological poll
     ## loop from running the SPC unboundedly (and bounds worst-case tempo
     ## deviation on a transition frame). Reset each frame in initHdma.
+  ApuHangStuckFramesThreshold = 300
+    ## ~5s at 60fps of cap-glued $214x polls with frozen portsOut before one
+    ## APU-HANG? diagnostic line.
 
 proc tickApu*(snes: SnesBus): tuple[left, right: int16]
   ## Forward decl: mmioRead does APU catch-up on $214x polls (defined below).
@@ -142,6 +154,8 @@ proc mmioRead(snes: SnesBus, offset: uint32): uint8 =
       # sample per poll gives it time exactly when the CPU is spin-waiting; it
       # is SELF-LIMITING (no polls during steady music, so no tempo drift there)
       # and bounded per frame. See docs/play-regressions.md.
+      snes.apuHangFramePolled = true
+      snes.apuHangLastPort = (offset - 0x2140).int
       inc snes.apuPortCatchup
       if snes.apuPortCatchup <= ApuPortCatchupMax:
         discard snes.tickApu()
@@ -391,6 +405,36 @@ proc initHdma*(snes: SnesBus) =
   ## Initialize HDMA channels at the start of a frame for currently enabled ones.
   ## Resets per-channel done flags so active channels can run until their terminator.
   ## Also the per-frame boundary: reset the APU port-catchup budget here.
+  # Hang detector: evaluate the just-finished frame before clearing catch-up.
+  # Instrumentation only — does not change catch-up caps or timing.
+  if snes.apu != nil:
+    var portsSame = true
+    for i in 0..3:
+      if snes.apu.portsOut[i] != snes.apuHangPrevPortsOut[i]:
+        portsSame = false
+        break
+    let stuck =
+      snes.apuHangFramePolled and
+      snes.apuPortCatchup >= ApuPortCatchupMax and
+      portsSame
+    if stuck:
+      inc snes.apuHangStuckFrames
+      if snes.apuHangStuckFrames >= ApuHangStuckFramesThreshold and
+         not snes.apuHangLogged:
+        let t0 = snes.apu.timer0Enabled()
+        echo &"APU-HANG? port={snes.apuHangLastPort} " &
+          &"portsIn={snes.apu.portsIn[0]:02X},{snes.apu.portsIn[1]:02X}," &
+          &"{snes.apu.portsIn[2]:02X},{snes.apu.portsIn[3]:02X} " &
+          &"portsOut={snes.apu.portsOut[0]:02X},{snes.apu.portsOut[1]:02X}," &
+          &"{snes.apu.portsOut[2]:02X},{snes.apu.portsOut[3]:02X} " &
+          &"stopped={snes.apu.spc.stopped} pc={snes.apu.spc.pc:04X} t0={t0}"
+        snes.apuHangLogged = true
+    else:
+      snes.apuHangStuckFrames = 0
+      snes.apuHangLogged = false
+    for i in 0..3:
+      snes.apuHangPrevPortsOut[i] = snes.apu.portsOut[i]
+    snes.apuHangFramePolled = false
   snes.apuPortCatchup = 0
   let en = snes.hdmaen
   for ch in 0..7:
