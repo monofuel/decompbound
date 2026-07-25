@@ -1,9 +1,9 @@
-## HDMA channel helpers — enable shadow + WH0-targeted channel setup
-## (file 0x00AE34 / SNES $C0AE34 and $C0B0B8).
+## HDMA channel helpers — enable shadow, WH0 setup, BG-scroll setup
+## (file 0x00AE34 / SNES $C0AE34, $C0B0B8, and $C0ADB2).
 ##
 ## Small JSL-callable writers that clear one bit of the HDMA-enable WRAM
-## shadow, or program a DMA channel to feed WH0 (`$2126`) via HDMA and set
-## that channel's enable bit. ADOPTED into the region registry (adopted.nim);
+## shadow, or program a DMA channel for WH0 / BG scroll HDMA and set that
+## channel's enable bit. ADOPTED into the region registry (adopted.nim);
 ## gold-gated by tests/test_regions.nim.
 
 import
@@ -14,6 +14,8 @@ const
   ClearHdmaEnableBitSnes* = 0xC0AE34'u32
   SetupHdmaChannelWh0Offset* = 0x00B0B8
   SetupHdmaChannelWh0Snes* = 0xC0B0B8'u32
+  SetupHdmaChannelBgScrollOffset* = 0x00ADB2
+  SetupHdmaChannelBgScrollSnes* = 0xC0ADB2'u32
   ## WRAM shadow of HDMAEN (`$420C`). NMI flushes `$001F` → `$420C` when
   ## brightness is not forced-blank (see `$C08346` `LDX $1F / STX $420C`).
   HdmaEnableShadow* = 0x001F'u32
@@ -22,6 +24,16 @@ const
   HdmaClearMaskTable* = 0xC0AE44'u32
   ## ROM table of per-channel set bits: `$01,$02,...,$80` at `$C0AE16`.
   HdmaSetBitTable* = 0xC0AE16'u32
+  ## ROM BBAD table for BG scroll HDMA: `$0D,$0F,$11,$13,$0E,$10,$12,$14`
+  ## → BGnHOFS / BGnVOFS (`$210D`..`$2114`). Indexed by entry X.
+  BgScrollBbadTable* = 0xC0AE1D'u32
+  ## ROM HDMA table templates copied into WRAM `$3C32` / `$3C3C` (8 bytes each).
+  ## Data, not adopted — only referenced by address.
+  BgScrollHdmaTemplate0* = 0xC0AE26'u32
+  BgScrollHdmaTemplate1* = 0xC0AE2D'u32
+  ## WRAM destinations for the two template copies (A1T points here after load).
+  BgScrollHdmaWram0* = 0x3C32'u32
+  BgScrollHdmaWram1* = 0x3C3C'u32
   ## DMA channel base: `$4300 + channel*16`. Index = A<<4 on entry.
   DmaPBase* = 0x004300'u32
   ## Offsets within a channel block.
@@ -33,6 +45,13 @@ const
   ## BBAD value `$26` → PPU WH0 (`$2126`), window 1 left edge (HDMA can
   ## also cover WH1 at `$2127` depending on DMAP).
   Wh0Bbad* = 0x26'u32
+  ## DMAP `$42`: bit6=indirect HDMA, mode 2 = two registers write-once
+  ## (correct for write-twice scroll regs fed as a word pair).
+  BgScrollDmap* = 0x42'u32
+  ## A1B/DASB bank for BG-scroll tables living in WRAM.
+  WramBank* = 0x7E'u32
+  ## Word count for the 8-byte template copy loop (`LDX #$0006` then DEX×2).
+  HdmaTemplateCopyX* = 0x0006'u32
   ## Direct-page: HDMA table bank byte reused for A1B/DASB.
   HdmaTableBankDp* = 0x10'u32
   ## Direct-page: long pointer to the caller's HDMA table (byte 0 = DMAP).
@@ -100,6 +119,83 @@ proc setupHdmaChannelWh0*(): seq[uint8] =
     rep StatusM
     lda dp HdmaTablePtrDp
     inc a
+    sta longx DmaPA1t
+    sep StatusM
+    tyx
+    lda abs HdmaEnableShadow
+    ora longx HdmaSetBitTable
+    sta abs HdmaEnableShadow
+    rep StatusM
+    rtl
+
+proc setupHdmaChannelBgScroll*(): seq[uint8] =
+  ## Program one HDMA channel to feed a BG scroll register from WRAM.
+  ##
+  ## Entry (JSL): 16-bit A = DMA channel index (0..7); X = index into the BBAD
+  ## table at `$C0AE1D` (which BGnHOFS/VOFS to target); Y selects the WRAM
+  ## template (`Y==0` → copy `$C0AE26` → `$3C32`, else `$C0AE2D` → `$3C3C`)
+  ## and becomes the branch flag after the stack dance below.
+  ##
+  ## Sequence:
+  ## 1. Save BBAD from `BgScrollBbadTable,X`; `channel<<4` → X (DMA stride).
+  ## 2. A1B/DASB ← `$7E`, BBAD ← table byte, DMAP ← `$42` (indirect mode 2).
+  ## 3. Copy 8 template bytes into the chosen WRAM slot; A1T ← that address.
+  ## 4. `$001F |= $C0AE16[channel]` (HDMAEN shadow bit).
+  ##
+  ## Evidence (registers / tables):
+  ## - long `$4304,X` / `$4307,X` — A1B / DASB = `$7E` (WRAM).
+  ## - long `$4301,X` — BBAD from `$0D/$0F/$11/$13/$0E/$10/$12/$14`
+  ##   (BG1-4 HOFS/VOFS).
+  ## - long `$4300,X` — DMAP `$42`.
+  ## - long `$4302,X` — A1T = `$3C32` or `$3C3C`.
+  ## - abs `$001F` — HDMAEN shadow (NMI → `$420C`).
+  ##
+  ## Callers: JSL `$C0ADB2` from `$C2CF15` / `$C2CF25`. Sibling of
+  ## `setupHdmaChannelWh0` (same enable-bit tail, different BBAD/DMAP/bank).
+  snesAsm(SetupHdmaChannelBgScrollSnes, NativeFlags16):
+    phy
+    tay
+    lda longx BgScrollBbadTable
+    pha
+    tya
+    asl a
+    asl a
+    asl a
+    asl a
+    tax
+    sep StatusM
+    lda WramBank
+    sta longx DmaPA1b
+    sta longx DmaPDasb
+    pla
+    sta longx DmaPBbad
+    pla
+    lda BgScrollDmap
+    sta longx DmaPDmap
+    rep StatusM
+    pla
+    phx
+    bne "template1"
+    ldx HdmaTemplateCopyX
+    label "copy0"
+    lda longx BgScrollHdmaTemplate0
+    sta absx BgScrollHdmaWram0
+    dex
+    dex
+    bpl "copy0"
+    lda BgScrollHdmaWram0
+    bra "haveA1t"
+    label "template1"
+    ldx HdmaTemplateCopyX
+    label "copy1"
+    lda longx BgScrollHdmaTemplate1
+    sta absx BgScrollHdmaWram1
+    dex
+    dex
+    bpl "copy1"
+    lda BgScrollHdmaWram1
+    label "haveA1t"
+    plx
     sta longx DmaPA1t
     sep StatusM
     tyx

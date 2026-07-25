@@ -10,7 +10,7 @@ import
   ./snes_src/[sram_piracy, rng, apu_upload, cgram_dma_request, apu_port_io,
               song_loader, queue_apu_cmd, wait_apu_idle, bg_layer_setup,
               obj_base, bg4_bases, clear_wram_block, ppu_color_math, ppu_windows,
-              ppu_scroll, mode7_mul, hdma_channel, hw_multiply,
+              ppu_scroll, mode7_mul, hdma_channel, hw_multiply, joypad,
               action_script_tables, action_script_fetch]
 
 proc allAdoptedRegions*(): seq[tuple[name: string, offset: int, data: seq[uint8]]] =
@@ -99,6 +99,15 @@ proc allAdoptedRegions*(): seq[tuple[name: string, offset: int, data: seq[uint8]
   result.add (name: "hardwareMultiply",
               offset: HardwareMultiplyOffset,
               data: hardwareMultiply())
+  result.add (name: "hardwareMultiply16",
+              offset: HardwareMultiply16Offset,
+              data: hardwareMultiply16())
+  result.add (name: "setupHdmaChannelBgScroll",
+              offset: SetupHdmaChannelBgScrollOffset,
+              data: setupHdmaChannelBgScroll())
+  result.add (name: "pollJoypads",
+              offset: PollJoypadsOffset,
+              data: pollJoypads())
   result.add (name: "actionScriptFetch",
               offset: ActionScriptFetchOffset,
               data: actionScriptFetch())
