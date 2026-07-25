@@ -75236,6 +75236,40 @@ const
   # residual free claims TOTAL: 211 B in 59 spans (cfObj12Mid 210/58; zero 1/1)
   # DROPPED 14 ffRec absorb (44 B): free-alone mid-record holes fail liveFfShortRecordStreams
   # (table_ffRec_* name requires complete FF pack; merge forbidden; free-only cannot pack)
+  # --- Class B bank $D8 reclass (code|code sandwich free + false-code carve) ---
+  # Loader: $C00D48 / $C00DCA LDA #$00D8; STA bank; LDA [$0A]/LDA [$06],Y plane unpack
+  # (file 0x000D48). Inventory carves these out of GeneratedCodeSpans (wave106b style).
+  BaseromExtractSpan(
+    name: "table_d8Sparse_0x184819",
+    offset: 0x184819,
+    length: 99,
+    kind: ekTable,
+    note: "D8 sparse alph{00,08,0C,80}; free@18486B mid-stream; plane-loader $C00D48; carve"),
+  BaseromExtractSpan(
+    name: "table_d8Sparse_0x185BF9",
+    offset: 0x185BF9,
+    length: 30,
+    kind: ekTable,
+    note: "D8 stride4 00-80-80-10 family; free@185BFD mid-rec; loader $C00D48; carve"),
+  BaseromExtractSpan(
+    name: "table_d8Sparse_0x186641",
+    offset: 0x186641,
+    length: 81,
+    kind: ekTable,
+    note: "D8 closed alph{00,03,80} run blocks; free@18667F; loader $C00Dxx bank D8; carve"),
+  BaseromExtractSpan(
+    name: "table_d8Sparse_0x187563",
+    offset: 0x187563,
+    length: 53,
+    kind: ekTable,
+    note: "D8 alph{00,01,80,10} bitFlag/plane; free@18758B; loader $C00Dxx; carve"),
+  BaseromExtractSpan(
+    name: "table_d8U8pair_0x189893",
+    offset: 0x189893,
+    length: 80,
+    kind: ekTable,
+    note: "D8 u8pair LE words Δ=+0x10 to 1898E3; free@1898A9 mid-stream; bank D8; carve"),
+  # D8 Class B TOTAL: 343 B in 5 spans (free residual 35 B + false-code reclass 308 B)
   ]
 
 proc resolveGoldBaseromPath*(): string =
