@@ -13,7 +13,9 @@
 
 import
   std/[json, options, os, strformat, strutils],
+  jsony,
   mcport,
+  mummy,
   ../decompbound/[item_table, party_sram]
 
 const
@@ -22,6 +24,7 @@ const
   DefaultHost = "localhost"
   DefaultPort = 4343
   EnvSrm = "DECOMPBOUND_SRM"
+  McpWorkerThreads = 2
 
 proc resolveSrmPath(arguments: JsonNode): string =
   ## Optional tool arg srm_path, else DECOMPBOUND_SRM, else default battery path.
@@ -192,7 +195,39 @@ when isMainModule:
   if useStdio:
     runStdioServer(mcp)
   else:
-    let httpServer = newHttpMcpServer(mcp, logEnabled = false)
+    proc handleMcpHttp(request: Request) {.gcsafe.} =
+      ## Minimal POST /mcp JSON-RPC (no /server-info, auth, or logging).
+      try:
+        if request.uri != "/mcp":
+          request.respond(404, body = "Not found")
+          return
+        if request.httpMethod != "POST":
+          request.respond(405, body = "Method not allowed - use POST for JSON-RPC requests")
+          return
+        let ct = request.headers["Content-Type"].toLowerAscii().strip()
+        if ct.len == 0 or not ct.startsWith("application/json"):
+          request.respond(400, body = "Content-Type must start with application/json")
+          return
+        {.cast(gcsafe).}:
+          let parsedBody = request.body.parseJson()
+          let isNotification = not parsedBody.hasKey("id")
+          let mcpResult = mcp.handleRequest(request.body)
+          if isNotification:
+            request.respond(204)
+          elif mcpResult.isError:
+            var headers: HttpHeaders
+            headers["content-type"] = "application/json"
+            request.respond(200, headers, mcpResult.error.toJson())
+          else:
+            var headers: HttpHeaders
+            headers["content-type"] = "application/json"
+            request.respond(200, headers, mcpResult.response.toJson())
+      except CatchableError:
+        request.respond(500)
+
+    # workerThreads=2: mummy defaults to cores*10=320 threads which caused
+    # ORC/scheduler stalls (~1s HITCHes); 2 is plenty for one co-pilot client.
+    let httpServer = newServer(handleMcpHttp, workerThreads = McpWorkerThreads)
     echo &"decompbound MCP on http://{host}:{port}/mcp  (Goal 5 co-pilot)"
     echo &"  tool: get_party_vitals  srm default: {DefaultSrmPath}"
-    httpServer.serve(port, host)
+    httpServer.serve(Port(port), host)

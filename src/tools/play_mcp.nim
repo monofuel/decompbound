@@ -5,7 +5,8 @@
 ## lock). No disk, no separate process. Defaults: localhost:4343, every frame.
 
 import
-  std/[json, locks, net, options, strformat],
+  std/[json, locks, net, options, strformat, strutils],
+  jsony,
   mcport,
   mummy,
   ../decompbound/[party_sram, party_wram, snesbus]
@@ -16,6 +17,7 @@ const
   DefaultHost* = "localhost"
   DefaultPort* = 4343
   McpUrl* = "http://localhost:4343/mcp"
+  McpWorkerThreads = 2
 
 type
   LivePartySnap* = object
@@ -27,7 +29,8 @@ type
 var
   gSnapLock: Lock
   gSnap: LivePartySnap
-  gHttp: HttpMcpServer
+  gMcp: McpServer
+  gHttp: Server
   gServeThread: Thread[int]
   gServing: bool
   gLockInited: bool
@@ -206,13 +209,43 @@ proc portFree(host: string, port: int): bool =
   except CatchableError:
     result = false
 
+proc handleLiveMcpHttp(request: Request) {.gcsafe.} =
+  ## Minimal POST /mcp JSON-RPC for the live co-pilot (no /server-info, auth, or logging).
+  try:
+    if request.uri != "/mcp":
+      request.respond(404, body = "Not found")
+      return
+    if request.httpMethod != "POST":
+      request.respond(405, body = "Method not allowed - use POST for JSON-RPC requests")
+      return
+    let ct = request.headers["Content-Type"].toLowerAscii().strip()
+    if ct.len == 0 or not ct.startsWith("application/json"):
+      request.respond(400, body = "Content-Type must start with application/json")
+      return
+    {.cast(gcsafe).}:
+      let parsedBody = request.body.parseJson()
+      let isNotification = not parsedBody.hasKey("id")
+      let mcpResult = gMcp.handleRequest(request.body)
+      if isNotification:
+        request.respond(204)
+      elif mcpResult.isError:
+        var headers: HttpHeaders
+        headers["content-type"] = "application/json"
+        request.respond(200, headers, mcpResult.error.toJson())
+      else:
+        var headers: HttpHeaders
+        headers["content-type"] = "application/json"
+        request.respond(200, headers, mcpResult.response.toJson())
+  except CatchableError:
+    request.respond(500)
+
 proc serveThreadProc(unused: int) {.thread.} =
   ## Block on Mummy serve until process exit or close.
   discard unused
   {.cast(gcsafe).}:
     try:
       if gHttp != nil:
-        gHttp.serve(DefaultPort, DefaultHost)
+        gHttp.serve(Port(DefaultPort), DefaultHost)
     except CatchableError as e:
       echo &"decompbound MCP serve ended: {e.msg}"
 
@@ -225,8 +258,11 @@ proc tryStartLiveMcp*(): bool =
   if not portFree(DefaultHost, DefaultPort):
     echo &"warning: MCP port {DefaultPort} in use — continuing without co-pilot MCP"
     return false
-  let mcp = createLiveMcpServer()
-  gHttp = newHttpMcpServer(mcp, logEnabled = false)
+  gMcp = createLiveMcpServer()
+  # workerThreads=2: mummy defaults to cores*10=320 threads which caused
+  # ORC/scheduler stalls (~1s HITCHes) starving the frame loop = audio skips;
+  # 2 is plenty for one co-pilot client.
+  gHttp = newServer(handleLiveMcpHttp, workerThreads = McpWorkerThreads)
   createThread(gServeThread, serveThreadProc, 0)
   gServing = true
   echo &"decompbound MCP on {McpUrl}  (live WRAM, in-process)"
