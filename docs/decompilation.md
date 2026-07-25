@@ -202,10 +202,18 @@ of SRAM. Round-trip DoD: decode a table → re-encode → byte-exact.
   (Cracked bat 4, Gutsy 100, Casey 125, Gaia Beam 125…), **`+0x21`** guts u8
   (Gutsy 127, Magic pan 100), **`+0x22`** miss-chance numerator /16 (Casey 12,
   Magic pan 4, normal bats 1, Jeff's guns 0 = never miss). `+0x1D` (`$EF`
-  everywhere sampled) and `+0x20` still soft. **Anomaly:** Sword of Kings
-  (id `0x23`) has `+0x1F`=10 but `+0x20`=30 where community says +30 offense —
-  either Poo-type equips read a different field or the community number is
-  folklore; needs a trace of the equip-stat routine for type-`08` items.
+  everywhere sampled) still soft. **`+0x20` = Poo-specific stat column,
+  signed u8** (resolved the Sword of Kings "anomaly", 2026-07-24): SoK
+  `+0x1F`=10 (dead data — Poo-only item) but `+0x20`=+30, the value Poo
+  actually gets. Yo-yo records prove the signed-column reading: `+0x20` is
+  the exact two's-complement negative of `+0x1F` offense (Yo-yo 6/−6, Trick
+  46/−46, Combat 54/−54) — the mechanism behind "non-SoK weapons lower Poo's
+  offense". Armbands: Platinum Band 40/−40, Bracer of Kings `+0x20`=+30.
+  **Live-verified on a real save:** Poo wearing only the Bracer shows
+  equipped−base defense exactly +30; Paula's defense delta decomposes as
+  Platinum 40 + Coin of Defense 40 + Great Charm 1 = 81 via `+0x1F`.
+  Remaining: trace the equip routine to confirm *when* the game selects
+  `+0x20` (char id vs a flag bit).
 - **PSI table** — located at file `0x158C50` (SNES `$D58C50`), ~15-byte records
   directly before the EXP table; verified byte-exact, with PSI Rockin α's PP=10
   (`0x0A`) present. Fields (per grok, tentative): name idx, greek tier, type,

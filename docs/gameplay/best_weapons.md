@@ -104,11 +104,14 @@ The Sword of Kings is the **"free space" on the bingo board** of any
 playthrough — the 1/128 pain you don't decide on, you just budget for. If
 you're doing a run, you're grinding Stonehenge. It's a tax.
 
-- ⚠️ **ROM oddity (open question):** our item record for the sword reads
-  offense **10** at `+$1F` (where every other weapon's community offense
-  matches exactly) with a **30** at `+$20`. Either the community +30 measures
-  a different field or Poo's weapon type indexes the record differently.
-  Needs a trace of the equip-stat routine for type-`08` items.
+- ✅ **ROM oddity — SOLVED (2026-07-24):** the item table has TWO stat
+  columns: `+$1F` for everyone else and **`+$20` for Poo specifically,
+  signed**. The sword's Poo column reads **+30** — community was right.
+  The yo-yos are the proof: their `+$20` bytes are exact two's-complement
+  negatives of their `+$1F` offense (−6/−46/−54), which is the ROM-level
+  mechanism behind "everything but the Sword of Kings lowers Poo's offense."
+  Live-verified: Bracer of Kings `+$20`=30 ↔ Poo's real equipped−base
+  defense = exactly +30. See `docs/decompilation.md`.
 
 ---
 
