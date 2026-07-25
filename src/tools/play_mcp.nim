@@ -162,6 +162,19 @@ proc liveTool(name, description: string): McpTool =
                   "iq": {"type": "integer"}
                 }
               },
+              "inventory": {
+                "type": "array",
+                "description": "Occupied inventory slots (of 14 per character); names decoded from the ROM item table",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "slot": {"type": "integer"},
+                    "id": {"type": "integer"},
+                    "name": {"type": "string"},
+                    "equipped": {"type": "boolean"}
+                  }
+                }
+              },
               "inParty": {"type": "boolean"}
             }
           }

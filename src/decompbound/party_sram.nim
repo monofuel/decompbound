@@ -3,7 +3,8 @@
 ## real saves. Used by the Goal 5 playthrough co-pilot MCP server.
 
 import
-  std/[json, os, strformat, times]
+  std/[json, os, strformat, times],
+  ./item_table
 
 const
   DefaultSrmPath* = "bin/Earthbound (U) [!].srm"
@@ -30,6 +31,10 @@ const
   CharPpMaxOff* = 0x0C
   CharStatsOff* = 0x15      # OFF/DEF/SPD/GUT/LUC/VIT/IQ ×u8, with equipment
   CharStatsBaseOff* = 0x1C  # same order, base (no equipment)
+  CharInventoryOff* = 0x23  # 14 ×u8 item IDs (0 = empty slot)
+  CharInventoryLen* = 14
+  CharEquipOff* = 0x31      # 4 ×u8: equipped 1-based inventory slot indices
+  CharEquipLen* = 4
   CharHpCurOff* = 0x47
   CharPpCurOff* = 0x4D
   CharNameMaxLen* = 5
@@ -46,6 +51,13 @@ type
     vitality*: int
     iq*: int
 
+  InventorySlot* = object
+    ## One of the 14 per-character inventory slots.
+    slot*: int      # 1-based, matching the in-game equip indices
+    id*: int        # item table ID (never 0 — empty slots are omitted)
+    name*: string   # decoded from the ROM item table; "" if no ROM available
+    equipped*: bool
+
   PartyMemberVitals* = object
     ## One playable character's vitals from a battery-save slot or live WRAM.
     role*: string
@@ -58,6 +70,7 @@ type
     ppMax*: int
     stats*: CharStats      # with equipment (what the status screen shows)
     statsBase*: CharStats  # without equipment
+    inventory*: seq[InventorySlot]
     inParty*: bool
 
   PartyVitalsReport* = object
@@ -121,6 +134,9 @@ proc statsToJson*(s: CharStats): JsonNode =
 
 proc memberToJson*(m: PartyMemberVitals): JsonNode =
   ## JSON shape for one party member (shared by both MCP servers).
+  var inv = newJArray()
+  for s in m.inventory:
+    inv.add %*{"slot": s.slot, "id": s.id, "name": s.name, "equipped": s.equipped}
   %*{
     "role": m.role,
     "name": m.name,
@@ -132,8 +148,28 @@ proc memberToJson*(m: PartyMemberVitals): JsonNode =
     "ppMax": m.ppMax,
     "stats": statsToJson(m.stats),
     "statsBase": statsToJson(m.statsBase),
+    "inventory": inv,
     "inParty": m.inParty
   }
+
+proc buildInventory*(itemIds: openArray[int], equipSlots: openArray[int],
+                     rom: openArray[uint8]): seq[InventorySlot] =
+  ## Assemble inventory slots from raw per-char bytes: 14 item IDs (0 = empty,
+  ## omitted) + 4 equipped 1-based slot indices. Names decode from the ROM
+  ## item table (empty string when no ROM is loaded).
+  var equipped: set[0..255]
+  for e in equipSlots:
+    if e >= 1 and e <= itemIds.len:
+      equipped.incl(e)
+  for i, id in itemIds:
+    if id == 0:
+      continue
+    result.add InventorySlot(
+      slot: i + 1,
+      id: id,
+      name: itemName(rom, id),
+      equipped: (i + 1) in equipped
+    )
 
 proc slotHasHeader(data: string, base: int): bool =
   ## True if `base` starts with the HAL Laboratory signature.
@@ -164,8 +200,10 @@ proc detectActiveBase*(data: string): int =
         bestStamp = stamp
   return best
 
-proc readPartyVitalsFromBytes*(data: string, srmPath = ""): PartyVitalsReport =
-  ## Parse party vitals from raw 8KB SRAM bytes.
+proc readPartyVitalsFromBytes*(data: string, srmPath = "",
+                               rom: openArray[uint8] = []): PartyVitalsReport =
+  ## Parse party vitals from raw 8KB SRAM bytes. Pass ROM bytes to decode
+  ## inventory item names (else names come back "").
   result.srmPath = srmPath
   result.source = "battery_sram"
   result.members = @[]
@@ -199,6 +237,12 @@ proc readPartyVitalsFromBytes*(data: string, srmPath = ""): PartyVitalsReport =
     let present = charIdx in inParty or level > 0 or name != "(empty)"
     if not present:
       continue
+    var itemIds: array[CharInventoryLen, int]
+    for i in 0 ..< CharInventoryLen:
+      itemIds[i] = readU8(data, eb + CharInventoryOff + i).int
+    var equipSlots: array[CharEquipLen, int]
+    for i in 0 ..< CharEquipLen:
+      equipSlots[i] = readU8(data, eb + CharEquipOff + i).int
     result.members.add PartyMemberVitals(
       role: role,
       name: name,
@@ -210,6 +254,7 @@ proc readPartyVitalsFromBytes*(data: string, srmPath = ""): PartyVitalsReport =
       ppMax: ppMax,
       stats: readCharStats(data, eb + CharStatsOff),
       statsBase: readCharStats(data, eb + CharStatsBaseOff),
+      inventory: buildInventory(itemIds, equipSlots, rom),
       inParty: charIdx in inParty
     )
 
@@ -220,8 +265,10 @@ proc readPartyVitalsFromBytes*(data: string, srmPath = ""): PartyVitalsReport =
     result.empty = false
     result.note = "Battery save only — not live WRAM mid-battle. Save the game for freshest HP/PP."
 
-proc readPartyVitals*(srmPath: string = DefaultSrmPath): PartyVitalsReport =
+proc readPartyVitals*(srmPath: string = DefaultSrmPath,
+                      rom: openArray[uint8] = []): PartyVitalsReport =
   ## Load `srmPath` and return party vitals from the active save slot.
+  ## Pass ROM bytes to decode inventory item names.
   if not fileExists(srmPath):
     result.srmPath = srmPath
     result.source = "battery_sram"
@@ -229,7 +276,7 @@ proc readPartyVitals*(srmPath: string = DefaultSrmPath): PartyVitalsReport =
     result.note = &"SRAM file not found: {srmPath}"
     return result
   let data = readFile(srmPath)
-  result = readPartyVitalsFromBytes(data, srmPath)
+  result = readPartyVitalsFromBytes(data, srmPath, rom)
   try:
     result.modifiedAt = $getLastModificationTime(srmPath).utc
   except:

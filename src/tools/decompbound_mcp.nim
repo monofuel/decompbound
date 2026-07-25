@@ -14,7 +14,7 @@
 import
   std/[json, options, os, strformat, strutils],
   mcport,
-  ../decompbound/party_sram
+  ../decompbound/[item_table, party_sram]
 
 const
   ServerName = "decompbound"
@@ -49,11 +49,13 @@ proc partyVitalsToJson(report: PartyVitalsReport): JsonNode =
     "members": members
   }
 
+var gRomBytes: seq[uint8]  # loaded once at startup for item-name decode
+
 proc getPartyVitalsHandler(arguments: JsonNode): ToolResult {.gcsafe.} =
   ## Handler for get_party_vitals: HP/PP from the battery save.
   {.cast(gcsafe).}:
     let path = resolveSrmPath(arguments)
-    let report = readPartyVitals(path)
+    let report = readPartyVitals(path, gRomBytes)
     let payload = partyVitalsToJson(report)
     return ToolResult(
       content: @[textContent($payload)],
@@ -124,6 +126,19 @@ proc simpleTool(name, description: string): McpTool =
                   "iq": {"type": "integer"}
                 }
               },
+              "inventory": {
+                "type": "array",
+                "description": "Occupied inventory slots (of 14 per character); names decoded from the ROM item table",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "slot": {"type": "integer"},
+                    "id": {"type": "integer"},
+                    "name": {"type": "string"},
+                    "equipped": {"type": "boolean"}
+                  }
+                }
+              },
               "inParty": {"type": "boolean"}
             }
           }
@@ -172,6 +187,7 @@ when isMainModule:
       discard
     inc i
 
+  gRomBytes = loadRomBytes()
   let mcp = createServer()
   if useStdio:
     runStdioServer(mcp)

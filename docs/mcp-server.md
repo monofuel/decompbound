@@ -59,7 +59,10 @@ fresh before asking about HP/PP.
 
 | Tool | What |
 |------|------|
-| `get_party_vitals` | Names, levels, EXP, current/max HP and PP, full stat blocks (offense/defense/speed/guts/luck/vitality/IQ — `stats` with equipment, `statsBase` without) |
+| `get_party_vitals` | Names, levels, EXP, current/max HP and PP, full stat blocks (offense/defense/speed/guts/luck/vitality/IQ — `stats` with equipment, `statsBase` without), and per-character `inventory` (14 slots; occupied slots with item id + ROM-decoded name + equipped flag) |
+
+Item names decode at runtime from the ROM item table (`$D55000`, `0x27`-byte
+records — `src/decompbound/item_table.nim`); no copyrighted strings in source.
 
 **Live path:** overworld WRAM character table at `$99CE` (stride `$5F`, same
 layout as the battery char table). See `src/decompbound/party_wram.nim` and
@@ -84,7 +87,7 @@ path — replays stay deterministic.
 ## Roadmap (same product)
 
 - In-battle HP/PP via `$4DC8` battler structs
-- Inventory, status ailments, money/ATM
+- Status ailments, money/ATM, Escargo Express storage
 - ROM-derived item/PSI lookup tables for grounded advice
   (“what heals sunstroke”, “where rock candy can come from *given this bag*”)
 

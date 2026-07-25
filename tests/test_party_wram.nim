@@ -53,6 +53,10 @@ proc main() =
     putU8(srm, ness + CharStatsOff + i, v)
   for i, v in [20'u8, 10, 7, 9, 4, 6, 8]:
     putU8(srm, ness + CharStatsBaseOff + i, v)
+  # Inventory: item 0x11 in slot 1 (equipped as weapon), 0x54 in slot 3.
+  putU8(srm, ness + CharInventoryOff + 0, 0x11)
+  putU8(srm, ness + CharInventoryOff + 2, 0x54)
+  putU8(srm, ness + CharEquipOff + 0, 1)
 
   let report = readPartyVitalsFromBytes(srm, "unit.srm")
   doAssert not report.empty
@@ -67,6 +71,12 @@ proc main() =
   doAssert report.members[0].statsBase.offense == 20
   doAssert report.members[0].statsBase.defense == 10
   doAssert report.members[0].inParty
+  # Inventory: empty slots omitted, equip index maps to slot, no ROM → name "".
+  let inv = report.members[0].inventory
+  doAssert inv.len == 2
+  doAssert inv[0].slot == 1 and inv[0].id == 0x11 and inv[0].equipped
+  doAssert inv[1].slot == 3 and inv[1].id == 0x54 and not inv[1].equipped
+  doAssert inv[0].name == ""
 
   # Mapping arithmetic used by party_wram (document for RE handoff).
   const

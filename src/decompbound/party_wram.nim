@@ -90,6 +90,12 @@ proc readPartyVitalsFromWram*(snes: SnesBus, frameCount = 0): PartyVitalsReport 
     let present = charIdx in inParty or level > 0 or name != "(empty)"
     if not present:
       continue
+    var itemIds: array[CharInventoryLen, int]
+    for i in 0 ..< CharInventoryLen:
+      itemIds[i] = wramByte(snes, eb + CharInventoryOff + i).int
+    var equipSlots: array[CharEquipLen, int]
+    for i in 0 ..< CharEquipLen:
+      equipSlots[i] = wramByte(snes, eb + CharEquipOff + i).int
     result.members.add PartyMemberVitals(
       role: role,
       name: name,
@@ -101,6 +107,7 @@ proc readPartyVitalsFromWram*(snes: SnesBus, frameCount = 0): PartyVitalsReport 
       ppMax: ppMax,
       stats: wramStats(snes, eb + CharStatsOff),
       statsBase: wramStats(snes, eb + CharStatsBaseOff),
+      inventory: buildInventory(itemIds, equipSlots, snes.rom),
       inParty: charIdx in inParty
     )
 

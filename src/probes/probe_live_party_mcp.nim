@@ -47,6 +47,7 @@ proc membersMatch(a, b: seq[PartyMemberVitals]): bool =
     if a[i].pp != b[i].pp or a[i].ppMax != b[i].ppMax: return false
     if a[i].exp != b[i].exp: return false
     if a[i].stats != b[i].stats or a[i].statsBase != b[i].statsBase: return false
+    if a[i].inventory != b[i].inventory: return false
     if a[i].inParty != b[i].inParty: return false
   true
 
@@ -99,9 +100,19 @@ proc main() =
     assertSaneMember(m, m.role)
   echo &"OK wram: {wramRep.members.len} member(s)  Ness HP={wramRep.members[0].hp}/{wramRep.members[0].hpMax} lv={wramRep.members[0].level}"
 
+  # Live inventory should decode item names from the ROM (Onett start: Ness
+  # carries at least the Cracked bat or similar — assert *some* named item).
+  var namedItems = 0
+  for m in wramRep.members:
+    for s in m.inventory:
+      doAssert s.id > 0 and s.slot >= 1 and s.slot <= 14
+      if s.name.len > 0: inc namedItems
+  doAssert namedItems > 0, "expected at least one ROM-decoded item name"
+  echo &"OK inventory: {namedItems} named item(s), e.g. {wramRep.members[0].inventory}"
+
   # Freshly-saved SRAM image = persist block copy (what phone-save writes).
   let synthSrm = persistBlockToSramBytes(snes)
-  let sramRep = readPartyVitalsFromBytes(synthSrm, "synthetic_from_wram.srm")
+  let sramRep = readPartyVitalsFromBytes(synthSrm, "synthetic_from_wram.srm", snes.rom)
   doAssert not sramRep.empty, sramRep.note
   doAssert membersMatch(wramRep.members, sramRep.members),
     &"wram vs sram mismatch\n  wram={wramRep.members}\n  sram={sramRep.members}"
