@@ -3,66 +3,86 @@
 ## real saves. Used by the Goal 5 playthrough co-pilot MCP server.
 
 import
-  std/[os, strformat, times]
+  std/[json, os, strformat, times]
 
 const
   DefaultSrmPath* = "bin/Earthbound (U) [!].srm"
   Header = "HAL Laboratory, inc."
   SramSize = 0x2000
   SaveSlotSize = 0x500
-  DataOffset = 0x20
+  DataOffset* = 0x20
   StampOff = 0x1C
   SlotPairBases = [0x0000, 0x0A00, 0x1400]
   MirrorDelta = 0x500
   # TODO: magic offsets — confirmed via sram_info --find on real saves +
   # community cross-ref (datacrystal character table). See docs/sram-format.md.
-  PartyRosterOff = 0xB6
-  PartyRosterLen = 7
-  CharTableBase = 0x1F9
-  CharStride = 0x5F
-  PlayableCharCount = 4
-  CharNameOff = 0x00
-  CharLevelOff = 0x05
-  CharHpMaxOff = 0x0A
-  CharPpMaxOff = 0x0C
-  CharHpCurOff = 0x47
-  CharPpCurOff = 0x4D
+  # Layout is shared with live WRAM (party_wram.nim): slot+off maps to
+  # PersistBlockWram + (off - DataOffset). See docs/memory-map.md / party_wram.
+  PartyRosterOff* = 0xB6
+  PartyRosterLen* = 7
+  CharTableBase* = 0x1F9
+  CharStride* = 0x5F
+  PlayableCharCount* = 4
+  CharNameOff* = 0x00
+  CharLevelOff* = 0x05
+  CharExpOff* = 0x06
+  CharHpMaxOff* = 0x0A
+  CharPpMaxOff* = 0x0C
+  CharStatsOff* = 0x15      # OFF/DEF/SPD/GUT/LUC/VIT/IQ ×u8, with equipment
+  CharStatsBaseOff* = 0x1C  # same order, base (no equipment)
+  CharHpCurOff* = 0x47
+  CharPpCurOff* = 0x4D
+  CharNameMaxLen* = 5
   CharRoleNames* = ["Ness", "Paula", "Jeff", "Poo"]
 
 type
+  CharStats* = object
+    ## Seven u8 stats, byte order OFF/DEF/SPD/GUT/LUC/VIT/IQ.
+    offense*: int
+    defense*: int
+    speed*: int
+    guts*: int
+    luck*: int
+    vitality*: int
+    iq*: int
+
   PartyMemberVitals* = object
-    ## One playable character's vitals from a battery-save slot.
+    ## One playable character's vitals from a battery-save slot or live WRAM.
     role*: string
     name*: string
     level*: int
+    exp*: int
     hp*: int
     hpMax*: int
     pp*: int
     ppMax*: int
+    stats*: CharStats      # with equipment (what the status screen shows)
+    statsBase*: CharStats  # without equipment
     inParty*: bool
 
   PartyVitalsReport* = object
-    ## Snapshot of party HP/PP from a .srm file.
+    ## Snapshot of party HP/PP from a .srm file or live WRAM.
     srmPath*: string
     source*: string
     slotBase*: int
     modifiedAt*: string
+    frameCount*: int
     members*: seq[PartyMemberVitals]
     empty*: bool
     note*: string
 
-proc readLE(data: string, offset, size: int): uint32 =
+proc readLE*(data: string, offset, size: int): uint32 =
   ## Little-endian unsigned read of `size` bytes at `offset`.
   for i in 0 ..< size:
     if offset + i < data.len:
       result = result or (data[offset + i].uint32 shl (8 * i))
 
-proc readU8(data: string, offset: int): uint8 =
+proc readU8*(data: string, offset: int): uint8 =
   ## Read one byte at `offset`, or 0 if out of range.
   if offset >= 0 and offset < data.len:
     result = data[offset].uint8
 
-proc decodeSaveName(data: string, off: int, maxLen = 5): string =
+proc decodeEbName*(data: string, off: int, maxLen = CharNameMaxLen): string =
   ## Decode a null-terminated EB-encoded name at `off` (byte = ASCII + 0x30).
   var s = ""
   for i in 0 ..< maxLen:
@@ -76,6 +96,44 @@ proc decodeSaveName(data: string, off: int, maxLen = 5): string =
       s.add &"[{b:02X}]"
   if s.len == 0: s = "(empty)"
   return s
+
+proc readCharStats*(data: string, off: int): CharStats =
+  ## Read a 7×u8 stat block (OFF/DEF/SPD/GUT/LUC/VIT/IQ) at `off`.
+  result.offense = readU8(data, off + 0).int
+  result.defense = readU8(data, off + 1).int
+  result.speed = readU8(data, off + 2).int
+  result.guts = readU8(data, off + 3).int
+  result.luck = readU8(data, off + 4).int
+  result.vitality = readU8(data, off + 5).int
+  result.iq = readU8(data, off + 6).int
+
+proc statsToJson*(s: CharStats): JsonNode =
+  ## JSON shape for a stat block.
+  %*{
+    "offense": s.offense,
+    "defense": s.defense,
+    "speed": s.speed,
+    "guts": s.guts,
+    "luck": s.luck,
+    "vitality": s.vitality,
+    "iq": s.iq
+  }
+
+proc memberToJson*(m: PartyMemberVitals): JsonNode =
+  ## JSON shape for one party member (shared by both MCP servers).
+  %*{
+    "role": m.role,
+    "name": m.name,
+    "level": m.level,
+    "exp": m.exp,
+    "hp": m.hp,
+    "hpMax": m.hpMax,
+    "pp": m.pp,
+    "ppMax": m.ppMax,
+    "stats": statsToJson(m.stats),
+    "statsBase": statsToJson(m.statsBase),
+    "inParty": m.inParty
+  }
 
 proc slotHasHeader(data: string, base: int): bool =
   ## True if `base` starts with the HAL Laboratory signature.
@@ -131,7 +189,7 @@ proc readPartyVitalsFromBytes*(data: string, srmPath = ""): PartyVitalsReport =
 
   for charIdx in 0 ..< PlayableCharCount:
     let eb = slotBase + CharTableBase + charIdx * CharStride
-    let name = decodeSaveName(data, eb + CharNameOff)
+    let name = decodeEbName(data, eb + CharNameOff)
     let level = readU8(data, eb + CharLevelOff).int
     let hpMax = readLE(data, eb + CharHpMaxOff, 2).int
     let ppMax = readLE(data, eb + CharPpMaxOff, 2).int
@@ -145,10 +203,13 @@ proc readPartyVitalsFromBytes*(data: string, srmPath = ""): PartyVitalsReport =
       role: role,
       name: name,
       level: level,
+      exp: readLE(data, eb + CharExpOff, 4).int,
       hp: hpCur,
       hpMax: hpMax,
       pp: ppCur,
       ppMax: ppMax,
+      stats: readCharStats(data, eb + CharStatsOff),
+      statsBase: readCharStats(data, eb + CharStatsBaseOff),
       inParty: charIdx in inParty
     )
 

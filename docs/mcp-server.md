@@ -1,14 +1,44 @@
 # decompbound MCP server (Goal 5)
 
 Playthrough **co-pilot**: an LLM in chat can ask about *your* current EarthBound
-save. This is **not** Goal 4 (LLM *plays* the game via Lua).
+run. This is **not** Goal 4 (LLM *plays* the game via Lua).
 
 Built on [MCPort](https://github.com/monofuel/MCPort) (same stack as the FFXIV
 MCP tool). Strictly **read-only** — no joypad control, no WRAM writes.
 
-## Run
+## Two modes
 
-From the repo root:
+| Mode | When | Source | How |
+|------|------|--------|-----|
+| **In-process (live)** | `make play` is running | Live WRAM party stats | HTTP MCP starts *inside* the player on `localhost:4343` |
+| **Standalone (offline)** | Game closed | Last battery save (`.srm`) | `make mcp` / `src/tools/decompbound_mcp.nim` |
+
+Same tool name (`get_party_vitals`), same port default (**4343** — avoids FFXIV
+MCP on 4242). Clients register one HTTP MCP URL; while you play, answers are
+live; when the game is closed, start the standalone server to query the last
+phone/save-file battery image.
+
+### In-process (live) — preferred while playing
+
+`play.nim` starts the MCP HTTP server at launch (Mummy on its own threads).
+Once per emulated frame the main loop copies a small party-vitals snapshot into
+a lock-guarded in-memory struct; MCP handlers read **only** that snapshot
+(never raw emulator arrays off-thread). No disk handoff, no separate process.
+
+```bash
+make play
+# startup line:
+#   decompbound MCP on http://localhost:4343/mcp  (live WRAM, in-process)
+```
+
+If port 4343 is already taken, play logs one warning and continues **without**
+MCP (the game never crashes over the co-pilot).
+
+`get_party_vitals` returns `source: "live-wram"` plus `frameCount`.
+
+### Standalone (offline fallback)
+
+When the game is not running:
 
 ```bash
 make mcp
@@ -16,28 +46,44 @@ make mcp
 # stdio transport: nim r src/tools/decompbound_mcp.nim --stdio
 ```
 
-HTTP endpoint: `http://localhost:4343/mcp` (port **4343** so it does not clash
-with FFXIV MCP on 4242).
+HTTP endpoint: `http://localhost:4343/mcp`.
 
 Default battery path: `bin/Earthbound (U) [!].srm`. Override with env
 `DECOMPBOUND_SRM` or the tool argument `srm_path`.
 
-Register in a client as an HTTP MCP server pointing at that URL (or launch the
-stdio binary). Save in-game so the `.srm` is fresh before asking about HP/PP.
+`get_party_vitals` returns `source: "battery_sram"` — last in-game save only
+(SRAM updates on phone save, not mid-fight). Save in-game so the `.srm` is
+fresh before asking about HP/PP.
 
 ## Tools (MVP)
 
 | Tool | What |
 |------|------|
-| `get_party_vitals` | Names, levels, current/max HP and PP from the active battery-save slot |
+| `get_party_vitals` | Names, levels, EXP, current/max HP and PP, full stat blocks (offense/defense/speed/guts/luck/vitality/IQ — `stats` with equipment, `statsBase` without) |
 
-Source: offsets in `docs/sram-format.md` / `src/decompbound/party_sram.nim`.
-This is **battery SRAM**, not live mid-battle WRAM — save the game for
-up-to-date numbers.
+**Live path:** overworld WRAM character table at `$99CE` (stride `$5F`, same
+layout as the battery char table). See `src/decompbound/party_wram.nim` and
+`docs/sram-format.md`. Persist-block base `$97F5` maps slot data (`+$20`) so
+roster `$988B` / money `$9831` / char0 `$99CE` line up with the `.srm` slot.
+
+**Standalone path:** active battery slot via `src/decompbound/party_sram.nim`.
+
+**In-battle live HP** via battler ptr table `$4DC8` is a follow-up (overworld
+live stats are what ship today).
+
+## Threading (live mode)
+
+| Thread | Role |
+|--------|------|
+| Main (play frame loop) | Emulation; `publishLiveParty` → lock, copy report, unlock |
+| Mummy worker(s) | HTTP + tool handlers; `copyLiveParty` only |
+
+Lock hold time is a small struct/seq copy. No input/RNG consumption on the MCP
+path — replays stay deterministic.
 
 ## Roadmap (same product)
 
-- Live snapshot while `make play` is running (or last F12 / slot state)
+- In-battle HP/PP via `$4DC8` battler structs
 - Inventory, status ailments, money/ATM
 - ROM-derived item/PSI lookup tables for grounded advice
   (“what heals sunstroke”, “where rock candy can come from *given this bag*”)
@@ -45,4 +91,4 @@ up-to-date numbers.
 ## Copyright
 
 Do not commit `.srm`, save-states, or F12 PNGs. The MCP process reads them
-locally only.
+locally only (standalone); live mode never writes party data to disk.

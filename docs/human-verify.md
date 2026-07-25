@@ -64,6 +64,12 @@ Copy this template when adding a row (agents: always use it):
 
 ### Overworld / menus
 
+- [ ] **Live MCP co-pilot in `make play`** · 2026-07-24 · Goal 5 fold-in
+  - **Run:** `make play` → confirm startup line `decompbound MCP on http://localhost:4343/mcp`; window + sound OK; in another terminal `curl -s -X POST http://localhost:4343/mcp -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"hv","version":"0"}}}'` then tools/call `get_party_vitals` (or use an MCP client)
+  - **Pass if:** response has `source":"live-wram"`, sane HP for Ness matching the on-screen party; game audio/window unaffected
+  - **Fail if:** crash/hang on launch, no MCP line, wrong HP vs game, or audio/window broken
+  - **Notes:**
+
 - [ ] **Sprite behind object: clean occlusion + swirl tint** · 2026-07-19 · `ppu overlayForegroundBg preSpriteComposite`
   - **Run:** `make play` → walk Ness **behind** a building / store counter; then start a battle and watch the **swirl** with a character partly behind an object
   - **Pass if:** the object covers the sprite with **no color/brightness seam**; during the swirl the part of the object over the sprite **fades/tints the same** as the rest of that object

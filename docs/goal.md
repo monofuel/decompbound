@@ -172,10 +172,11 @@ be started until Goals 1 and 2 provide the harness that makes it checkable.
 **You** play EarthBound; an LLM in chat helps with *this* save (HP, later
 inventory/ailments/lookups) — not Goal 4’s “LLM is the player.”
 
-- Transport: [MCPort](https://github.com/monofuel/MCPort) HTTP/stdio server
-  (`src/tools/decompbound_mcp.nim`, `make mcp`, port 4343).
-- Read-only: battery `.srm` today (`src/decompbound/party_sram.nim`); live WRAM
-  / item+PSI tables later.
+- Transport: [MCPort](https://github.com/monofuel/MCPort) HTTP server on port 4343.
+- **Live:** `make play` embeds the MCP server in-process; `get_party_vitals`
+  reads lock-guarded WRAM snapshots (`party_wram.nim`, source `live-wram`).
+- **Offline fallback:** `make mcp` / `src/tools/decompbound_mcp.nim` serves the
+  battery `.srm` (`party_sram.nim`) when the game is closed.
 - Product notes: `docs/mcp-server.md`.
 
 Does not block Goals 1–3.

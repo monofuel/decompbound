@@ -38,16 +38,7 @@ proc partyVitalsToJson(report: PartyVitalsReport): JsonNode =
   ## Structured payload for get_party_vitals.
   var members = newJArray()
   for m in report.members:
-    members.add %*{
-      "role": m.role,
-      "name": m.name,
-      "level": m.level,
-      "hp": m.hp,
-      "hpMax": m.hpMax,
-      "pp": m.pp,
-      "ppMax": m.ppMax,
-      "inParty": m.inParty
-    }
+    members.add memberToJson(m)
   result = %*{
     "srmPath": report.srmPath,
     "source": report.source,
@@ -102,10 +93,37 @@ proc simpleTool(name, description: string): McpTool =
               "role": {"type": "string"},
               "name": {"type": "string"},
               "level": {"type": "integer"},
+              "exp": {"type": "integer"},
               "hp": {"type": "integer"},
               "hpMax": {"type": "integer"},
               "pp": {"type": "integer"},
               "ppMax": {"type": "integer"},
+              "stats": {
+                "type": "object",
+                "description": "With equipment (status-screen numbers)",
+                "properties": {
+                  "offense": {"type": "integer"},
+                  "defense": {"type": "integer"},
+                  "speed": {"type": "integer"},
+                  "guts": {"type": "integer"},
+                  "luck": {"type": "integer"},
+                  "vitality": {"type": "integer"},
+                  "iq": {"type": "integer"}
+                }
+              },
+              "statsBase": {
+                "type": "object",
+                "description": "Base stats without equipment",
+                "properties": {
+                  "offense": {"type": "integer"},
+                  "defense": {"type": "integer"},
+                  "speed": {"type": "integer"},
+                  "guts": {"type": "integer"},
+                  "luck": {"type": "integer"},
+                  "vitality": {"type": "integer"},
+                  "iq": {"type": "integer"}
+                }
+              },
               "inParty": {"type": "boolean"}
             }
           }

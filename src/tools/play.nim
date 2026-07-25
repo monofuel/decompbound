@@ -11,7 +11,8 @@ import
   windy,
   paddy,
   slappy,
-  ../decompbound/[apu, build_info, cpu, ppu, policy, replay, save_state, snesbus, png_state]
+  ../decompbound/[apu, build_info, cpu, ppu, policy, replay, save_state, snesbus, png_state],
+  ./play_mcp
 
 proc readRomFile(filepath: string): seq[uint8] =
   ## Read ROM file and return bytes, stripping a 512-byte copier header.
@@ -282,6 +283,11 @@ Controls:
       "session_start " & now().format("yyyy-MM-dd'T'HH:mm:ss") & "\n"
     writeFile(sessionDir / "session.txt", manifest)
   echo "BUILD: ", buildLabel(), " (", BuildDate, ")  session=", sessionDir
+
+  # Goal 5 co-pilot MCP (in-process, live WRAM). Starts before the window /
+  # audio path so a bind failure never touches render. Port busy → one warning,
+  # game continues. Server dies with the process.
+  discard tryStartLiveMcp()
 
   var logOpened = false
   var logFile: File
@@ -953,6 +959,8 @@ void main() {
             echo "wrote bin/autoshots/scanline_trace.txt"
             writeLog("wrote scanline_trace.txt")
         frameCount += 1
+        # Live MCP snapshot: lock hold = struct copy only; handlers read this.
+        publishLiveParty(snes, frameCount)
         # Automated anomaly capture: when HDMA turns on (0 -> non-zero) a screen
         # split just began (battle swirl/bands, scene iris) — auto-arm a full
         # bundle so the human never has to catch the exact frame. Once per edge.
@@ -1087,6 +1095,7 @@ void main() {
   # Flush any pending battery save, then shut audio down cleanly, on exit.
   if snes.sramDirty:
     snes.saveSram(sramPath)
+  stopLiveMcp()
   if recording and replayLogOpen:
     replayLog.close()
     replayLogOpen = false
