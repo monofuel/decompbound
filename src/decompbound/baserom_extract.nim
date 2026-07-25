@@ -74923,10 +74923,15 @@ proc extractGoldSlice*(offset, length: int, path: string = ""): seq[uint8] =
   doAssert length > 0
   doAssert offset + length <= EarthboundRomSize,
     &"extract span 0x{offset:06X}+{length} exceeds ROM"
-  let gold = readGoldBaseromBytes(path)
-  result = newSeq[uint8](length)
-  for i in 0..<length:
-    result[i] = gold[offset + i]
+  if path.len == 0:
+    # Slice straight from the module cache; a per-span readGoldBaseromBytes
+    # call copies the whole 3 MiB image and melts multi-span builds.
+    if goldBaseromCache.len != EarthboundRomSize:
+      discard readGoldBaseromBytes()
+    result = goldBaseromCache[offset ..< offset + length]
+  else:
+    let gold = readGoldBaseromBytes(path)
+    result = gold[offset ..< offset + length]
 
 proc extractGoldSliceOrZeros*(offset, length: int): seq[uint8] =
   ## Like extractGoldSlice, but returns zero-fill when gold is absent.
