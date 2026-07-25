@@ -1393,3 +1393,30 @@ nim r src/compare.nim
 
 All green this wave. No commit (per brief). No `residualFree_*`.
 
+
+## Residual endgame status — 2026-07-24 (Fable conductor session)
+
+Three analyst sweeps over the full residual (~11 KB, reports in
+`../decomp_residual_reports/`) established:
+
+- **Extract fishing is drained.** $D0–$D7 yielded 1 B; $D8–$FF only
+  mid-record absorb candidates (rejected: free holes fail the pack gate as
+  standalone spans); $C0–$CF gave the last 210 B (cfObj12 mid-records,
+  claimed as `table_cfObj12Mid_*` — the parent `table_cfObj12_` prefix
+  asserts full 12 B records, so mids need their own prefix).
+- **Code|code sandwich free (~4.6 KB) is a false-code problem, not a
+  seed-list problem.** `probe_sandwich_wide` = 0 new seeds; the
+  `probe_code_seed_residual` "high-confidence" list (64 runs / 205 B) is
+  mostly bitplane/pair-stream data whose heads coincide with RTS/RTL bytes
+  — do not bulk-apply it. Class split (strict gates): ~50 B honest seed
+  stubs, ~1.0 KB data-in-false-code (retract + re-extract), ~3.5 KB
+  unknowable without emulator PC proof.
+- **Bank $D8 is the top reclass target**: 939 B free (682 B sandwich),
+  residual vocabulary 32.7% `$80` — sparse `$80`-default tables under
+  false code. Also: tilemap/mask bands $D0–$D4 (the 43 KB span at
+  `0x1015D8` deserves scrutiny) and the documented `$CE62EE` 550 B table.
+
+Levers that remain honest: (1) structure-gated reclass of false code via
+carve-style extract claims, (2) fresh `probe_pc_coverage` sessions (with
+per-seed M/X width) for the unknowable class, (3) Goal 1.5 adoption for
+"Understood" %.
