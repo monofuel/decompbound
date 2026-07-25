@@ -1,6 +1,6 @@
 ## RE top residual islands: opcode histograms, stride, nearby loaders.
 import
-  std/[algorithm, strformat, strutils, tables, os],
+  std/[algorithm, sets, strformat, strutils, tables, os],
   ../decompbound/[rom_chunks, baserom_extract, memmap, common]
 
 proc mark(c: var seq[bool]; o, n: int) =
