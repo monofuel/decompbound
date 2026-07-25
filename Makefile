@@ -282,22 +282,19 @@ audio-diff: nim.cfg
 	nim r src/tools/audio_diff.nim $(ARGS)
 
 
+# Cap parallel test compiles: bank-importing tests peak ~30 GiB each in nim,
+# so unbounded fan-out (100+ tests) can exhaust even a 128 GiB box. Output is
+# captured per test so a nim failure is not masked by the sed prefix pipe.
+NIM_TEST_JOBS ?= 4
 test: nim.cfg $(LUA_LIB)
 	@files=$$(ls tests/test_*.nim 2>/dev/null); \
 	if [ -z "$$files" ]; then \
 		echo "No unit tests found in tests/test_*.nim"; \
 		exit 0; \
 	fi; \
-	fail=0; \
-	pids=""; \
-	for f in $$files; do \
-		( nim r $(NIM_TEST_FLAGS) "$$f" 2>&1 | sed "s|^|[$$f] |" ) & \
-		pids="$$pids $$!"; \
-	done; \
-	for pid in $$pids; do \
-		wait $$pid || fail=1; \
-	done; \
-	exit $$fail
+	echo "$$files" | xargs -P $(NIM_TEST_JOBS) -I{} sh -c \
+		'out=$$(nim r $(NIM_TEST_FLAGS) "{}" 2>&1); rc=$$?; \
+		 printf "%s\n" "$$out" | sed "s|^|[{}] |"; exit $$rc' || exit 1
 
 # Fast compile-only gate (same idea as racha/satisfactory_tools/coworld):
 # `nim check` entrypoints + unit tests without executing them.
