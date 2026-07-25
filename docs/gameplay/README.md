@@ -22,6 +22,7 @@ so nothing here should be sourced from a model's memory.
 |-----|------|
 | [stats.md](stats.md) | The seven stats, storage width, the 255 rollover, equipment offsets |
 | [leveling.md](leveling.md) | EXP tables, level cap, the level-up routine, stat growth |
+| [inventory.md](inventory.md) | 14 slots per character, equipment-as-slot-index, Escargo Express, the ROM item table |
 | [known-bugs.md](known-bugs.md) | Glitches & exploits: condiment/rock-candy, stairs, check-area, … |
 
 ## Why this folder exists

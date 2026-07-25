@@ -34,6 +34,12 @@ Consequences:
 - Equipment adds into the same u8: base 202 + a +54 weapon wraps the
   *equipped* value even though base looks safe. Watch the **equipped** number.
 
+✅ **live-observed (2026-07-24):** in-battle stat-boost items write to the
+**equipped** block (`+$15`) — during a live rock-candy session the equipped
+stats rose while the base block (`+$1C`) stayed untouched (watched via the
+MCP live-WRAM feed between fights). So the rollover budget for boosting is
+`255 − equipped`, and future equipment *changes* shift the danger line.
+
 🟡 **community (not yet traced by us):** whether the *item/condiment boost*
 routine lacks a clamp (`CMP`/`BCS` guard) before adding. Community consensus
 (WikiBound, SDA) is there is no clamp on the SNES original — that's what makes
