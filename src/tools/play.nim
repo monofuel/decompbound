@@ -229,15 +229,21 @@ Controls:
   var frameAdvance = false
   var framesPerTick = 1
   # Derail detectors (instrumentation only): BRK-sink at 00:5FFF, NMI left
-  # masked outside uploadApuPackages, MDMA death-spiral, WRAM word-fill, and
-  # NMI CHR-DMA queue stuck. Re-arm when the condition clears (DMA-STORM re-arms
-  # after 300 quiet frames).
+  # masked outside uploadApuPackages, MDMA death-spiral, WRAM word-fill,
+  # NMI CHR-DMA queue stuck, $0020 NMI-vector wipe, and blocked B→A WRAM MDMA.
+  # Re-arm when the condition clears (DMA-STORM / DMA-WRAM-TOA re-arm after
+  # 300 quiet frames; NMI-VEC-WIPE re-arms when $0020 returns to ROM-class).
   var brkSinkFrames = 0
   var brkSinkLogged = false
   var nmiMaskStuckFrames = 0
   var nmiMaskStuckLogged = false
   var dmaStormLogged = false
   var dmaStormQuietFrames = 0
+  var dmaWramToALogged = false
+  var dmaWramToAQuietFrames = 0
+  var nmiVecWipeLogged = false
+  var prevNmiVec =
+    snes.bus.mem[0x7E0020].uint16 or (snes.bus.mem[0x7E0021].uint16 shl 8)
   var wramSprayLogged = false
   var nmiQueueStuckFrames = 0
   var nmiQueueStuckLogged = false
@@ -1020,6 +1026,41 @@ void main() {
           inc dmaStormQuietFrames
           if dmaStormQuietFrames >= 300:
             dmaStormLogged = false
+        # DMA-WRAM-TOA?: B→A MDMA into a WRAM mirror was blocked (crash3 rail).
+        # Clear sticky after log; re-log allowed after 300 quiet frames.
+        if snes.dmaWramToA:
+          if not dmaWramToALogged:
+            let toaMsg =
+              &"DMA-WRAM-TOA? blocked B->A into WRAM " &
+              &"DMAP={snes.dmaWramToADmap:02X} " &
+              &"A={snes.dmaWramToABank:02X}:{snes.dmaWramToAAddr:04X} " &
+              &"size={snes.dmaWramToASize:04X} " &
+              &"PC={cpu.pbr:02X}:{cpu.pc:04X}"
+            echo toaMsg
+            writeLog(toaMsg)
+            dmaWramToALogged = true
+          snes.dmaWramToA = false
+          dmaWramToAQuietFrames = 0
+        else:
+          inc dmaWramToAQuietFrames
+          if dmaWramToAQuietFrames >= 300:
+            dmaWramToALogged = false
+        # NMI-VEC-WIPE?: $7E:0020 was a ROM-code pointer (>=$8000) and dropped
+        # into low WRAM (<$2000) — reverse-MDMA wipe of the NMI callback.
+        # Re-arm when it returns to ROM-code class.
+        let nmiVec =
+          snes.bus.mem[0x7E0020].uint16 or (snes.bus.mem[0x7E0021].uint16 shl 8)
+        if prevNmiVec >= 0x8000'u16 and nmiVec < 0x2000'u16:
+          if not nmiVecWipeLogged:
+            let wipeMsg =
+              &"NMI-VEC-WIPE? $0020={nmiVec:04X} (was {prevNmiVec:04X}) " &
+              &"PC={cpu.pbr:02X}:{cpu.pc:04X}"
+            echo wipeMsg
+            writeLog(wipeMsg)
+            nmiVecWipeLogged = true
+        if nmiVec >= 0x8000'u16:
+          nmiVecWipeLogged = false
+        prevNmiVec = nmiVec
         # WRAM-SPRAY?: low-8KB filled with one repeating nonzero word (derail
         # writer tripwire). Cheap sample every 60 frames; re-arm when clears.
         if frameCount mod 60 == 0:

@@ -92,6 +92,15 @@ type
     ## play loop logs and clears it (not cleared here).
     dmaBytesThisFrame*: int
     dmaStorm*: bool
+    ## Sticky: B→A MDMA targeted a WRAM mirror and was blocked (crash3 rail).
+    ## Play loop logs once and clears; info fields hold the last blocked xfer.
+    ## Orthogonal to dmaStorm. -d:dmaWramToAAllow disables the block for
+    ## failure-mode repro of tests/test_crash3_repro.nim.
+    dmaWramToA*: bool
+    dmaWramToADmap*: uint8
+    dmaWramToABank*: uint8
+    dmaWramToAAddr*: uint16
+    dmaWramToASize*: int
     hdmaen*: uint8  ## $420C HDMA enable.
     hdmaTableAddr*: array[8, uint32]
     hdmaLineCounter*: array[8, uint8]
@@ -127,13 +136,14 @@ const
     ## loop from running the SPC unboundedly (and bounds worst-case tempo
     ## deviation on a transition frame). Reset each frame in initHdma.
   ApuUploadCatchupMax = 16384
-    ## Raised per-frame cap while CPU is in uploadApuPackages ($C0AB06-$C0ABBC).
-    ## Upload blocks are KBs of byte-echo polls; ApuPortCatchupMax=512 starves
-    ## the SPC mid-transfer → stale echo → $00:5FFF BRK-sink derail (Tenda
-    ## hang). Bound still exists so a runaway loop cannot spin the SPC
-    ## unboundedly. Steady-music tempo is unaffected: steady music does not
-    ## poll $214x (docs/half-speed-music.md). Outside the upload range the
-    ## 512 cap is unchanged.
+    ## Raised per-frame cap while CPU is in APU handshake helpers (see
+    ## bus.cpuInApuHandshake): uploadApuPackages, waitApuIdleClearSong, and
+    ## readApuPort0. Upload/wait blocks are heavy $214x polls; the 512 cap
+    ## starves the SPC mid-transfer → stale echo → $00:5FFF BRK-sink derail.
+    ## Bound still exists so a runaway loop cannot spin the SPC unboundedly.
+    ## Steady-music tempo is unaffected: steady music does not poll $214x
+    ## (docs/half-speed-music.md). Outside those PC ranges the 512 cap is
+    ## unchanged.
   ApuHangStuckFramesThreshold = 300
     ## ~5s at 60fps of cap-glued $214x polls with frozen portsOut before one
     ## APU-HANG? diagnostic line.
@@ -179,14 +189,14 @@ proc mmioRead(snes: SnesBus, offset: uint32): uint8 =
       snes.apuHangFramePolled = true
       snes.apuHangLastPort = (offset - 0x2140).int
       inc snes.apuPortCatchup
-      # -d:apuUploadStarve forces the small cap even in uploadApuPackages
+      # -d:apuUploadStarve forces the small cap even in handshake ranges
       # (failure-mode repro for tests; default build always allows the raise).
       when defined(apuUploadStarve):
         if snes.apuPortCatchup <= ApuPortCatchupMax:
           discard snes.tickApu()
       else:
         let catchupMax =
-          if snes.bus.cpuInApuUpload: ApuUploadCatchupMax
+          if snes.bus.cpuInApuHandshake: ApuUploadCatchupMax
           else: ApuPortCatchupMax
         if snes.apuPortCatchup <= catchupMax:
           discard snes.tickApu()
@@ -383,11 +393,21 @@ proc writeBbus(snes: SnesBus, offset: uint32, value: uint8) =
     snes.ppuRegs[(offset - 0x2100).int] = value
     discard snes.ppuPortWrite(offset, value)
 
+proc isWramMirrorABus(aBank: uint32, aOff: uint32): bool =
+  ## True when A-bus (bank:offset) is a WRAM mirror (banks $7E/$7F full, or
+  ## system banks $00-$3F/$80-$BF low $0000-$1FFF).
+  aBank == 0x7E or aBank == 0x7F or
+    (((aBank <= 0x3F) or (aBank >= 0x80 and aBank <= 0xBF)) and aOff < 0x2000)
+
 proc runDma(snes: SnesBus, channels: uint8) =
   ## Execute enabled general-purpose DMA channels instantly.
   ## When the per-frame byte budget is exhausted, remaining channel work is
   ## skipped (dmaStorm set) but size regs are still zeroed and A-addr advanced
   ## as if the transfer completed so game-visible DMA state stays coherent.
+  ## Reverse MDMA (B→A) into WRAM mirrors is blocked per-byte: EB's legitimate
+  ## CHR queue is A→B only; reverse into low WRAM is how a corrupt $0400 job
+  ## wipes the $0020 NMI vector (crash3). A-addr/pattern still advance and
+  ## size regs finalize as hardware would. Orthogonal to the dmaStorm budget.
   for ch in 0..7:
     if (channels and (1'u8 shl ch)) == 0:
       continue
@@ -400,6 +420,7 @@ proc runDma(snes: SnesBus, channels: uint8) =
     var size = snes.dmaRegs[base + 5].int or (snes.dmaRegs[base + 6].int shl 8)
     if size == 0:
       size = 0x10000
+    let transferSize = size
     let fixed = (dmap and 0x08) != 0
     let decrement = (dmap and 0x10) != 0
     let toA = (dmap and 0x80) != 0
@@ -417,14 +438,36 @@ proc runDma(snes: SnesBus, channels: uint8) =
         of 4: @[0'u8, 1, 2, 3]
         else: @[0'u8, 1, 0, 1]
       var patternIndex = 0
+      # Once B→A touches a WRAM mirror, skip the rest of this channel's writes.
+      # Poison jobs (crash3) use large DAS from $0E:0000; after $1FFF the A-bus
+      # walks into MMIO ($2100 INIDISP, $4200 NMITIMEN, …) and zeros them even
+      # if low-WRAM bytes alone were skipped. Still advance A-addr/pattern and
+      # finalize size regs as hardware would. Orthogonal to dmaStorm.
+      var blockToARest = false
       for i in 0..<size:
         let bReg = 0x2100'u32 + bbad.uint32 + pattern[patternIndex].uint32
-        let aFull = (aBank shl 16) or (aAddr and 0xFFFF)
+        let aOff = aAddr and 0xFFFF
+        let aFull = (aBank shl 16) or aOff
         if toA:
-          # B to A: rare in boot paths; read the shadow.
-          let v = snes.ppuRegs[(bReg - 0x2100).int]
-          if not snes.bus.writeHook(aFull, v):
-            snes.bus.mem[aFull.int] = v
+          # B to A. Per-byte WRAM-mirror check: a transfer can start outside
+          # the mirror and walk in, so the start address alone is not enough.
+          when not defined(dmaWramToAAllow):
+            if isWramMirrorABus(aBank, aOff):
+              blockToARest = true
+              if not snes.dmaWramToA:
+                snes.dmaWramToA = true
+                snes.dmaWramToADmap = dmap
+                snes.dmaWramToABank = aBank.uint8
+                snes.dmaWramToAAddr = aOff.uint16
+                snes.dmaWramToASize = transferSize
+            if not blockToARest:
+              let v = snes.ppuRegs[(bReg - 0x2100).int]
+              if not snes.bus.writeHook(aFull, v):
+                snes.bus.mem[aFull.int] = v
+          else:
+            let v = snes.ppuRegs[(bReg - 0x2100).int]
+            if not snes.bus.writeHook(aFull, v):
+              snes.bus.mem[aFull.int] = v
         else:
           var v: uint8
           let hooked = snes.bus.readHook(aFull)

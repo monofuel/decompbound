@@ -33,10 +33,11 @@ type
                         ## and the source of the rare realloc-copy frame stutter.
     readHook*: proc(address: uint32): int
     writeHook*: proc(address: uint32, value: uint8): bool
-    cpuInApuUpload*: bool
-      ## Set each instruction from CPU PBR:PC when inside uploadApuPackages
-      ## ($C0AB06-$C0ABBC). snesbus.mmioRead raises the $214x catch-up cap
-      ## while true so full package uploads do not starve the SPC.
+    cpuInApuHandshake*: bool
+      ## Set each instruction from CPU PBR:PC when inside APU handshake
+      ## helpers (uploadApuPackages, waitApuIdleClearSong, readApuPort0).
+      ## snesbus.mmioRead raises the $214x catch-up cap while true so
+      ## package upload / wait-idle polls do not starve the SPC.
 
   Cpu* = object
     a*: uint16
@@ -452,10 +453,17 @@ proc step*(cpu: var Cpu, bus: Bus) =
   # Emulation-mode hardware invariants hold continuously, not just at mode
   # transitions: S is pinned to page 1, M/X read as set, X/Y high clear.
   cpu.forceWidthInvariants()
-  # Upload-range flag for APU port catch-up (two compares + store per instr).
+  # APU handshake flag for raised $214x catch-up (cheap PBR+PC ranges).
   # PC is pre-fetch so multi-byte ops still count as inside the routine.
-  bus.cpuInApuUpload =
-    cpu.pbr == 0xC0'u8 and cpu.pc >= 0xAB06'u16 and cpu.pc <= 0xABBC'u16
+  # Ranges (bank $C0 only):
+  #   $AB06..$ABBC  uploadApuPackages — byte-echo package transfer polls
+  #   $ABC6..$ABDF  waitApuIdleClearSong — spins via readApuPort0
+  #   $AC20..$AC2F  readApuPort0 — port0 poll helper used by wait-idle
+  bus.cpuInApuHandshake =
+    cpu.pbr == 0xC0'u8 and (
+      (cpu.pc >= 0xAB06'u16 and cpu.pc <= 0xABBC'u16) or
+      (cpu.pc >= 0xABC6'u16 and cpu.pc <= 0xABDF'u16) or
+      (cpu.pc >= 0xAC20'u16 and cpu.pc <= 0xAC2F'u16))
   let opcode = cpu.fetch8(bus)
   let info = OpcodeTable[opcode]
   let mode = info.mode
