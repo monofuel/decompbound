@@ -299,6 +299,15 @@ proc readState(s: Stream, snes: SnesBus, cpu: var Cpu) =
   if cpu.pbr == 0xC0'u8 and cpu.pc >= 0xAB80'u16 and cpu.pc <= 0xAB95'u16:
     snes.apu.resyncPortEchoAfterLoad((cpu.a and 0xFF).uint8)
 
+  # Load guard: NMI masked outside uploadApuPackages looks mid-derail (BRK
+  # sink / abandoned transfer). Do not mutate state — fail loud only.
+  let inApuUpload =
+    cpu.pbr == 0xC0'u8 and cpu.pc >= 0xAB06'u16 and cpu.pc <= 0xABBC'u16
+  if (snes.nmitimen and 0x80) == 0 and not inApuUpload:
+    echo &"WARNING: snapshot looks mid-derail " &
+      &"(NMI masked nmitimen={snes.nmitimen:02X} " &
+      &"PC={cpu.pbr:02X}:{cpu.pc:04X} — not in $C0AB06-$C0ABBC)"
+
 proc saveState*(snes: SnesBus, cpu: Cpu, slot: int) =
   ## Snapshot current SnesBus public state + Cpu + live APU to the slot file.
   ## Delegates to the single serialize path via writeState.

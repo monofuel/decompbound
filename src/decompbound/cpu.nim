@@ -33,6 +33,10 @@ type
                         ## and the source of the rare realloc-copy frame stutter.
     readHook*: proc(address: uint32): int
     writeHook*: proc(address: uint32, value: uint8): bool
+    cpuInApuUpload*: bool
+      ## Set each instruction from CPU PBR:PC when inside uploadApuPackages
+      ## ($C0AB06-$C0ABBC). snesbus.mmioRead raises the $214x catch-up cap
+      ## while true so full package uploads do not starve the SPC.
 
   Cpu* = object
     a*: uint16
@@ -448,6 +452,10 @@ proc step*(cpu: var Cpu, bus: Bus) =
   # Emulation-mode hardware invariants hold continuously, not just at mode
   # transitions: S is pinned to page 1, M/X read as set, X/Y high clear.
   cpu.forceWidthInvariants()
+  # Upload-range flag for APU port catch-up (two compares + store per instr).
+  # PC is pre-fetch so multi-byte ops still count as inside the routine.
+  bus.cpuInApuUpload =
+    cpu.pbr == 0xC0'u8 and cpu.pc >= 0xAB06'u16 and cpu.pc <= 0xABBC'u16
   let opcode = cpu.fetch8(bus)
   let info = OpcodeTable[opcode]
   let mode = info.mode

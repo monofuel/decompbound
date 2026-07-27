@@ -228,6 +228,12 @@ Controls:
   var paused = false
   var frameAdvance = false
   var framesPerTick = 1
+  # Derail detectors (instrumentation only): BRK-sink at 00:5FFF and NMI left
+  # masked outside uploadApuPackages. Re-arm when the condition clears.
+  var brkSinkFrames = 0
+  var brkSinkLogged = false
+  var nmiMaskStuckFrames = 0
+  var nmiMaskStuckLogged = false
   # In-game text -> console for easy copy-paste: while a text/menu window is
   # open (slot headers $8650/$8654 != 0xFF), decode the on-screen text from
   # VRAM (policy.getScreenText — same decoder the LLM reads) and echo it when
@@ -971,6 +977,38 @@ void main() {
             echo "wrote bin/autoshots/scanline_trace.txt"
             writeLog("wrote scanline_trace.txt")
         frameCount += 1
+        # CPU-DERAIL?: stuck at EB unused-vector BRK sink with NMI often off.
+        if cpu.pbr == 0x00'u8 and cpu.pc == 0x5FFF'u16:
+          inc brkSinkFrames
+          if brkSinkFrames >= 60 and not brkSinkLogged:
+            let derailMsg =
+              &"CPU-DERAIL? BRK-sink 00:5FFF S={cpu.s:04X} " &
+              &"nmitimen={snes.nmitimen:02X} " &
+              &"portsIn={snes.apu.portsIn[0]:02X},{snes.apu.portsIn[1]:02X}," &
+              &"{snes.apu.portsIn[2]:02X},{snes.apu.portsIn[3]:02X} " &
+              &"portsOut={snes.apu.portsOut[0]:02X},{snes.apu.portsOut[1]:02X}," &
+              &"{snes.apu.portsOut[2]:02X},{snes.apu.portsOut[3]:02X}"
+            echo derailMsg
+            writeLog(derailMsg)
+            brkSinkLogged = true
+        else:
+          brkSinkFrames = 0
+          brkSinkLogged = false
+        # NMI-MASK-STUCK?: NMITIMEN.bit7 clear for ~5s outside known upload range.
+        let inApuUpload =
+          cpu.pbr == 0xC0'u8 and cpu.pc >= 0xAB06'u16 and cpu.pc <= 0xABBC'u16
+        if (snes.nmitimen and 0x80) == 0 and not inApuUpload:
+          inc nmiMaskStuckFrames
+          if nmiMaskStuckFrames >= 300 and not nmiMaskStuckLogged:
+            let maskMsg =
+              &"NMI-MASK-STUCK? nmitimen={snes.nmitimen:02X} " &
+              &"PC={cpu.pbr:02X}:{cpu.pc:04X} S={cpu.s:04X}"
+            echo maskMsg
+            writeLog(maskMsg)
+            nmiMaskStuckLogged = true
+        else:
+          nmiMaskStuckFrames = 0
+          nmiMaskStuckLogged = false
         # Live MCP snapshot: lock hold = struct copy only; handlers read this.
         # Every 30 frames (~0.5s): co-pilot tools tolerate staleness; publishing
         # every emulated frame allocated inventory+names on the hot path (Bug A).

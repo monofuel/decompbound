@@ -119,6 +119,14 @@ const
     ## burst services in well under this; the cap keeps a pathological poll
     ## loop from running the SPC unboundedly (and bounds worst-case tempo
     ## deviation on a transition frame). Reset each frame in initHdma.
+  ApuUploadCatchupMax = 16384
+    ## Raised per-frame cap while CPU is in uploadApuPackages ($C0AB06-$C0ABBC).
+    ## Upload blocks are KBs of byte-echo polls; ApuPortCatchupMax=512 starves
+    ## the SPC mid-transfer → stale echo → $00:5FFF BRK-sink derail (Tenda
+    ## hang). Bound still exists so a runaway loop cannot spin the SPC
+    ## unboundedly. Steady-music tempo is unaffected: steady music does not
+    ## poll $214x (docs/half-speed-music.md). Outside the upload range the
+    ## 512 cap is unchanged.
   ApuHangStuckFramesThreshold = 300
     ## ~5s at 60fps of cap-glued $214x polls with frozen portsOut before one
     ## APU-HANG? diagnostic line.
@@ -157,8 +165,17 @@ proc mmioRead(snes: SnesBus, offset: uint32): uint8 =
       snes.apuHangFramePolled = true
       snes.apuHangLastPort = (offset - 0x2140).int
       inc snes.apuPortCatchup
-      if snes.apuPortCatchup <= ApuPortCatchupMax:
-        discard snes.tickApu()
+      # -d:apuUploadStarve forces the small cap even in uploadApuPackages
+      # (failure-mode repro for tests; default build always allows the raise).
+      when defined(apuUploadStarve):
+        if snes.apuPortCatchup <= ApuPortCatchupMax:
+          discard snes.tickApu()
+      else:
+        let catchupMax =
+          if snes.bus.cpuInApuUpload: ApuUploadCatchupMax
+          else: ApuPortCatchupMax
+        if snes.apuPortCatchup <= catchupMax:
+          discard snes.tickApu()
       return snes.apu.portsOut[(offset - 0x2140).int]
     case snes.apuState:
     of ahsIdle:
