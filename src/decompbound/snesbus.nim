@@ -85,6 +85,13 @@ type
     ## DMA channel registers, 8 channels x $43x0-$43x7.
     dmaRegs*: array[0x80, uint8]
     dmaTransfers*: int  ## Count of completed DMA transfers (debug aid).
+    ## Per-frame MDMA byte budget (anti-death-spiral). Accumulates channel
+    ## sizes in runDma; reset in initHdma. When the budget trips, remaining
+    ## bytes/channels skip the host transfer loop but still finalize regs so
+    ## game-visible DMA state stays consistent. dmaStorm is sticky until the
+    ## play loop logs and clears it (not cleared here).
+    dmaBytesThisFrame*: int
+    dmaStorm*: bool
     hdmaen*: uint8  ## $420C HDMA enable.
     hdmaTableAddr*: array[8, uint32]
     hdmaLineCounter*: array[8, uint8]
@@ -130,6 +137,13 @@ const
   ApuHangStuckFramesThreshold = 300
     ## ~5s at 60fps of cap-glued $214x polls with frozen portsOut before one
     ## APU-HANG? diagnostic line.
+  MaxDmaBytesPerFrame* = 1_048_576
+    ## 1 MiB per-frame MDMA ceiling. Normal heavy frames move well under
+    ## 256 KB. Hardware peak is ~10 KB/scanline so even a full-frame DMA is
+    ## ~2.5 MB/s of bus traffic, not per-frame host work — a derailed NMI
+    ## CHR-DMA queue can fire ~1900 MDMAs of ~32 KB each (~60 MB of B-bus
+    ## writes) and burn hundreds of ms on the host. Cap turns that into a
+    ## fast softlock + dmaStorm flag for detectors.
 
 proc tickApu*(snes: SnesBus): tuple[left, right: int16]
   ## Forward decl: mmioRead does APU catch-up on $214x polls (defined below).
@@ -371,6 +385,9 @@ proc writeBbus(snes: SnesBus, offset: uint32, value: uint8) =
 
 proc runDma(snes: SnesBus, channels: uint8) =
   ## Execute enabled general-purpose DMA channels instantly.
+  ## When the per-frame byte budget is exhausted, remaining channel work is
+  ## skipped (dmaStorm set) but size regs are still zeroed and A-addr advanced
+  ## as if the transfer completed so game-visible DMA state stays coherent.
   for ch in 0..7:
     if (channels and (1'u8 shl ch)) == 0:
       continue
@@ -386,32 +403,44 @@ proc runDma(snes: SnesBus, channels: uint8) =
     let fixed = (dmap and 0x08) != 0
     let decrement = (dmap and 0x10) != 0
     let toA = (dmap and 0x80) != 0
-    # B-bus register sequence per transfer pattern.
-    let pattern: seq[uint8] = case dmap and 0x07:
-      of 0: @[0'u8]
-      of 1: @[0'u8, 1]
-      of 2, 6: @[0'u8, 0]
-      of 3, 7: @[0'u8, 0, 1, 1]
-      of 4: @[0'u8, 1, 2, 3]
-      else: @[0'u8, 1, 0, 1]
-    var patternIndex = 0
-    for i in 0..<size:
-      let bReg = 0x2100'u32 + bbad.uint32 + pattern[patternIndex].uint32
-      let aFull = (aBank shl 16) or (aAddr and 0xFFFF)
-      if toA:
-        # B to A: rare in boot paths; read the shadow.
-        let v = snes.ppuRegs[(bReg - 0x2100).int]
-        if not snes.bus.writeHook(aFull, v):
-          snes.bus.mem[aFull.int] = v
-      else:
-        var v: uint8
-        let hooked = snes.bus.readHook(aFull)
-        v = if hooked >= 0: hooked.uint8 else: snes.bus.mem[aFull.int]
-        snes.writeBbus(bReg, v)
+    snes.dmaBytesThisFrame += size
+    let storm = snes.dmaBytesThisFrame > MaxDmaBytesPerFrame
+    if storm:
+      snes.dmaStorm = true
+    if not storm:
+      # B-bus register sequence per transfer pattern.
+      let pattern: seq[uint8] = case dmap and 0x07:
+        of 0: @[0'u8]
+        of 1: @[0'u8, 1]
+        of 2, 6: @[0'u8, 0]
+        of 3, 7: @[0'u8, 0, 1, 1]
+        of 4: @[0'u8, 1, 2, 3]
+        else: @[0'u8, 1, 0, 1]
+      var patternIndex = 0
+      for i in 0..<size:
+        let bReg = 0x2100'u32 + bbad.uint32 + pattern[patternIndex].uint32
+        let aFull = (aBank shl 16) or (aAddr and 0xFFFF)
+        if toA:
+          # B to A: rare in boot paths; read the shadow.
+          let v = snes.ppuRegs[(bReg - 0x2100).int]
+          if not snes.bus.writeHook(aFull, v):
+            snes.bus.mem[aFull.int] = v
+        else:
+          var v: uint8
+          let hooked = snes.bus.readHook(aFull)
+          v = if hooked >= 0: hooked.uint8 else: snes.bus.mem[aFull.int]
+          snes.writeBbus(bReg, v)
+        if not fixed:
+          if decrement: aAddr = (aAddr - 1) and 0xFFFF
+          else: aAddr = (aAddr + 1) and 0xFFFF
+        patternIndex = (patternIndex + 1) mod pattern.len
+    else:
+      # Storm skip: advance A-addr as if the full transfer ran.
       if not fixed:
-        if decrement: aAddr = (aAddr - 1) and 0xFFFF
-        else: aAddr = (aAddr + 1) and 0xFFFF
-      patternIndex = (patternIndex + 1) mod pattern.len
+        if decrement:
+          aAddr = (aAddr - size.uint32) and 0xFFFF
+        else:
+          aAddr = (aAddr + size.uint32) and 0xFFFF
     snes.dmaRegs[base + 2] = (aAddr and 0xFF).uint8
     snes.dmaRegs[base + 3] = ((aAddr shr 8) and 0xFF).uint8
     snes.dmaRegs[base + 5] = 0
@@ -421,9 +450,11 @@ proc runDma(snes: SnesBus, channels: uint8) =
 proc initHdma*(snes: SnesBus) =
   ## Initialize HDMA channels at the start of a frame for currently enabled ones.
   ## Resets per-channel done flags so active channels can run until their terminator.
-  ## Also the per-frame boundary: reset the APU port-catchup budget here.
+  ## Also the per-frame boundary: reset the APU port-catchup budget and the MDMA
+  ## byte budget here (dmaStorm is left for the play loop to clear after logging).
   # Hang detector: evaluate the just-finished frame before clearing catch-up.
   # Instrumentation only — does not change catch-up caps or timing.
+  snes.dmaBytesThisFrame = 0
   if snes.apu != nil:
     var portsSame = true
     for i in 0..3:

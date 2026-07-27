@@ -1,20 +1,24 @@
 ## Referee locks for the Tenda Village softlock class (2026-07-26).
 ## (1) Hang F12 signature: BRK sink at 00:5FFF with NMI masked.
 ## (2) Drop PNG health: 600 idle frames stay live with NMI on and APU samples.
-## Paths are hardcoded under the user Pictures dir; PNGs are never committed.
+## (3) $7C WRAM-spray hang F12: MDMA budget caps the death spiral (<200ms/frame,
+##     dmaStorm true). Paths under Pictures; PNGs are never committed.
 ## SKIP cleanly (exit 0) when a fixture is absent.
 
 import
-  std/[os, options, strformat],
+  std/[monotimes, os, options, strformat, times],
   decompbound/[cpu, png_state, save_state, snesbus]
 
 const
   RomPath = "bin/Earthbound (U) [!].smc"
   HangPng = "/home/monofuel/Pictures/Screenshots/earthbound_20260726-202823.png"
   DropPng = "/home/monofuel/Pictures/Screenshots/earthbound_20260725-190533.png"
+  SprayHangPng = "/home/monofuel/Pictures/Screenshots/earthbound_20260726-210013.png"
   InstrPerLine = 150
   SamplesPerFrame = 32000 div 60
   DropFrames = 600
+  SprayFrames = 3
+  SprayWallMs = 200
 
 proc readRom(p: string): seq[uint8] =
   ## ROM bytes minus optional copier header.
@@ -110,6 +114,27 @@ proc main() =
     echo &"[test_tenda_brk_sink_signature] drop ok: " &
       &"PC={cpu.pbr:02X}:{cpu.pc:04X} nmitimen={snes.nmitimen:02X} " &
       &"peakAbs={peakAll} nonzeroSamples={nonzeroAll}"
+
+  # --- (e) $7C spray hang: DMA budget caps the 515ms death spiral ---
+  if not fileExists(SprayHangPng):
+    echo "[test_tenda_brk_sink_signature] SKIP spray hang (PNG absent)"
+  else:
+    let loaded = loadPng(SprayHangPng)
+    let snes = loaded.snes
+    var cpu = loaded.cpu
+    for f in 0 ..< SprayFrames:
+      let t0 = getMonoTime()
+      discard runPlayFrame(snes, cpu)
+      let ms = (getMonoTime() - t0).inMilliseconds
+      doAssert ms < SprayWallMs,
+        &"spray hang frame {f}: {ms}ms >= {SprayWallMs}ms (death spiral uncapped)"
+      doAssert snes.dmaStorm,
+        &"spray hang frame {f}: dmaStorm not set (budget never tripped)"
+      # Play loop clears the flag after logging; re-arm for the next frame.
+      snes.dmaStorm = false
+    echo &"[test_tenda_brk_sink_signature] spray hang ok: " &
+      &"{SprayFrames} frames <{SprayWallMs}ms with dmaStorm " &
+      &"PC={cpu.pbr:02X}:{cpu.pc:04X}"
 
 when isMainModule:
   main()

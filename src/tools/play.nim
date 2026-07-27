@@ -228,12 +228,20 @@ Controls:
   var paused = false
   var frameAdvance = false
   var framesPerTick = 1
-  # Derail detectors (instrumentation only): BRK-sink at 00:5FFF and NMI left
-  # masked outside uploadApuPackages. Re-arm when the condition clears.
+  # Derail detectors (instrumentation only): BRK-sink at 00:5FFF, NMI left
+  # masked outside uploadApuPackages, MDMA death-spiral, WRAM word-fill, and
+  # NMI CHR-DMA queue stuck. Re-arm when the condition clears (DMA-STORM re-arms
+  # after 300 quiet frames).
   var brkSinkFrames = 0
   var brkSinkLogged = false
   var nmiMaskStuckFrames = 0
   var nmiMaskStuckLogged = false
+  var dmaStormLogged = false
+  var dmaStormQuietFrames = 0
+  var wramSprayLogged = false
+  var nmiQueueStuckFrames = 0
+  var nmiQueueStuckLogged = false
+  var prevDmaTransfers = 0
   # In-game text -> console for easy copy-paste: while a text/menu window is
   # open (slot headers $8650/$8654 != 0xFF), decode the on-screen text from
   # VRAM (policy.getScreenText — same decoder the LLM reads) and echo it when
@@ -994,12 +1002,55 @@ void main() {
         else:
           brkSinkFrames = 0
           brkSinkLogged = false
-        # NMI-MASK-STUCK?: NMITIMEN.bit7 clear for ~5s outside known upload range.
+        # DMA-STORM?: per-frame MDMA byte budget tripped (anti-death-spiral).
+        # Clear the flag after logging; re-log allowed after 300 quiet frames.
+        if snes.dmaStorm:
+          if not dmaStormLogged:
+            let q0 = snes.bus.mem[0x7E0000]
+            let q1 = snes.bus.mem[0x7E0001]
+            let stormMsg =
+              &"DMA-STORM? >1MiB MDMA in one frame " &
+              &"PC={cpu.pbr:02X}:{cpu.pc:04X} queue $00={q0:02X} $01={q1:02X}"
+            echo stormMsg
+            writeLog(stormMsg)
+            dmaStormLogged = true
+          snes.dmaStorm = false
+          dmaStormQuietFrames = 0
+        else:
+          inc dmaStormQuietFrames
+          if dmaStormQuietFrames >= 300:
+            dmaStormLogged = false
+        # WRAM-SPRAY?: low-8KB filled with one repeating nonzero word (derail
+        # writer tripwire). Cheap sample every 60 frames; re-arm when clears.
+        if frameCount mod 60 == 0:
+          let w0 = snes.bus.mem[0x7E0000].uint16 or
+            (snes.bus.mem[0x7E0001].uint16 shl 8)
+          let w1 = snes.bus.mem[0x7E0400].uint16 or
+            (snes.bus.mem[0x7E0401].uint16 shl 8)
+          let w2 = snes.bus.mem[0x7E0800].uint16 or
+            (snes.bus.mem[0x7E0801].uint16 shl 8)
+          let w3 = snes.bus.mem[0x7E1000].uint16 or
+            (snes.bus.mem[0x7E1001].uint16 shl 8)
+          let w4 = snes.bus.mem[0x7E1FFE].uint16 or
+            (snes.bus.mem[0x7E1FFF].uint16 shl 8)
+          if w0 != 0 and w0 == w1 and w0 == w2 and w0 == w3 and w0 == w4:
+            if not wramSprayLogged:
+              let sprayMsg =
+                &"WRAM-SPRAY? low-8KB filled with {w0:04X} " &
+                &"PC={cpu.pbr:02X}:{cpu.pc:04X}"
+              echo sprayMsg
+              writeLog(sprayMsg)
+              wramSprayLogged = true
+          else:
+            wramSprayLogged = false
+        # NMI-MASK-STUCK?: NMITIMEN.bit7 clear for ~1.5s outside known upload
+        # range. User quits before 5s; 1.5s outside the upload range is already
+        # pathological (was 300 frames / ~5s).
         let inApuUpload =
           cpu.pbr == 0xC0'u8 and cpu.pc >= 0xAB06'u16 and cpu.pc <= 0xABBC'u16
         if (snes.nmitimen and 0x80) == 0 and not inApuUpload:
           inc nmiMaskStuckFrames
-          if nmiMaskStuckFrames >= 300 and not nmiMaskStuckLogged:
+          if nmiMaskStuckFrames >= 90 and not nmiMaskStuckLogged:
             let maskMsg =
               &"NMI-MASK-STUCK? nmitimen={snes.nmitimen:02X} " &
               &"PC={cpu.pbr:02X}:{cpu.pc:04X} S={cpu.s:04X}"
@@ -1009,6 +1060,24 @@ void main() {
         else:
           nmiMaskStuckFrames = 0
           nmiMaskStuckLogged = false
+        # NMI-QUEUE-STUCK?: CHR-DMA queue drain at $C08240–$C08274 for 60
+        # consecutive frame boundaries (stop index not multiple of 8 → infinite).
+        let dmaDelta = snes.dmaTransfers - prevDmaTransfers
+        prevDmaTransfers = snes.dmaTransfers
+        if cpu.pbr == 0xC0'u8 and cpu.pc >= 0x8240'u16 and cpu.pc <= 0x8274'u16:
+          inc nmiQueueStuckFrames
+          if nmiQueueStuckFrames >= 60 and not nmiQueueStuckLogged:
+            let q0 = snes.bus.mem[0x7E0000]
+            let q1 = snes.bus.mem[0x7E0001]
+            let queueMsg =
+              &"NMI-QUEUE-STUCK? CHR-DMA queue $00={q0:02X} $01={q1:02X} " &
+              &"dmaTransfers/frame={dmaDelta}"
+            echo queueMsg
+            writeLog(queueMsg)
+            nmiQueueStuckLogged = true
+        else:
+          nmiQueueStuckFrames = 0
+          nmiQueueStuckLogged = false
         # Live MCP snapshot: lock hold = struct copy only; handlers read this.
         # Every 30 frames (~0.5s): co-pilot tools tolerate staleness; publishing
         # every emulated frame allocated inventory+names on the hot path (Bug A).
