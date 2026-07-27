@@ -59,10 +59,13 @@ fresh before asking about HP/PP.
 
 | Tool | What |
 |------|------|
-| `get_party_vitals` | Names, levels, EXP, current/max HP and PP, full stat blocks (offense/defense/speed/guts/luck/vitality/IQ — `stats` with equipment, `statsBase` without), and per-character `inventory` (14 slots; occupied slots with item id + ROM-decoded name + equipped flag) |
+| `get_party_vitals` | Names, levels, EXP, current/max HP and PP, full stat blocks (offense/defense/speed/guts/luck/vitality/IQ — `stats` with equipment, `statsBase` without), and per-character `inventory` (14 slots; occupied slots with item id + ROM-decoded name + equipped + **price / sellPrice / sellable**) |
 
-Item names decode at runtime from the ROM item table (`$D55000`, `0x27`-byte
-records — `src/decompbound/item_table.nim`); no copyrighted strings in source.
+Item names and prices decode at runtime from the ROM item table (`$D55000`,
+`0x27`-byte records — `src/decompbound/item_table.nim`); no copyrighted
+strings in source. Inventory sell fields: `sellPrice = floor(price/2)`
+(shop sell `LSR` at `$C14F5A`), `sellable = price > 0` (key/story items are
+price 0 — co-pilot can answer "safe to sell?").
 
 **Live path:** overworld WRAM character table at `$99CE` (stride `$5F`, same
 layout as the battery char table). See `src/decompbound/party_wram.nim` and

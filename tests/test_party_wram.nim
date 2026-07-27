@@ -1,8 +1,9 @@
 ## Unit test: live WRAM party layout math + synthetic persist-block round trip.
-## No ROM / no window — pure buffer logic + optional state load if present.
+## No real ROM / no window — pure buffer logic + synthetic item-table bytes.
 
 import
-  ../src/decompbound/[party_sram, party_wram]
+  std/json,
+  ../src/decompbound/[item_table, party_sram, party_wram]
 
 proc putU8(data: var string, off: int, v: uint8) =
   ## Write one byte.
@@ -25,6 +26,20 @@ proc putName(data: var string, off: int, name: string) =
     putU8(data, off + i, (c.ord + 0x30).uint8)
   if name.len < CharNameMaxLen:
     putU8(data, off + name.len, 0)
+
+proc putRomItem(rom: var seq[uint8], id: int, name: string, flags: uint8,
+                price: uint16) =
+  ## Write one synthetic item-table record at the standard base/stride.
+  let base = ItemTableBase + id * ItemRecordSize
+  let need = base + ItemRecordSize
+  if rom.len < need:
+    rom.setLen(need)
+  for i, c in name:
+    if i >= ItemNameMaxLen: break
+    rom[base + i] = (c.ord + 0x30).uint8
+  rom[base + ItemTypeOff] = flags
+  rom[base + ItemPriceOff] = (price and 0xFF).uint8
+  rom[base + ItemPriceOff + 1] = ((price shr 8) and 0xFF).uint8
 
 proc main() =
   ## Assert slot↔WRAM base mapping and shared layout constants.
@@ -77,6 +92,30 @@ proc main() =
   doAssert inv[0].slot == 1 and inv[0].id == 0x11 and inv[0].equipped
   doAssert inv[1].slot == 3 and inv[1].id == 0x54 and not inv[1].equipped
   doAssert inv[0].name == ""
+  doAssert inv[0].price == 0 and inv[0].sellPrice == 0 and not inv[0].sellable
+
+  # Synthetic ROM: priced weapon id 0x11 ($14) and zero-price key id 0x54.
+  var synthRom: seq[uint8]
+  putRomItem(synthRom, 0x11, "Test bat", 0x10, 14)
+  putRomItem(synthRom, 0x54, "Key item", 0x3B, 0)
+  doAssert itemPrice(synthRom, 0x11) == 14
+  doAssert itemSellPrice(synthRom, 0x11) == 7
+  doAssert itemSellable(synthRom, 0x11)
+  doAssert itemFlags(synthRom, 0x11) == 0x10
+  doAssert itemPrice(synthRom, 0x54) == 0
+  doAssert not itemSellable(synthRom, 0x54)
+  doAssert itemSellPrice(synthRom, 0x54) == 0
+
+  let priced = readPartyVitalsFromBytes(srm, "unit.srm", synthRom)
+  let pInv = priced.members[0].inventory
+  doAssert pInv[0].name == "Test bat"
+  doAssert pInv[0].price == 14 and pInv[0].sellPrice == 7 and pInv[0].sellable
+  doAssert pInv[1].name == "Key item"
+  doAssert pInv[1].price == 0 and pInv[1].sellPrice == 0 and not pInv[1].sellable
+  let invJson = memberToJson(priced.members[0])["inventory"]
+  doAssert invJson[0]["sellPrice"].getInt() == 7
+  doAssert invJson[0]["sellable"].getBool() == true
+  doAssert invJson[1]["sellable"].getBool() == false
 
   # Mapping arithmetic used by party_wram (document for RE handoff).
   const

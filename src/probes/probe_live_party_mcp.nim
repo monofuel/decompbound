@@ -8,7 +8,8 @@
 import
   std/[httpclient, json, os, strformat, strutils],
   pixie,
-  ../decompbound/[cpu, party_sram, party_wram, policy, ppu, save_state, snesbus],
+  ../decompbound/[cpu, item_table, party_sram, party_wram, policy, ppu,
+                  save_state, snesbus],
   ../tools/play_mcp
 
 const
@@ -105,12 +106,41 @@ proc main() =
   # Live inventory should decode item names from the ROM (Onett start: Ness
   # carries at least the Cracked bat or similar — assert *some* named item).
   var namedItems = 0
+  var sawSellable = false
+  var sawUnsellableKey = false
   for m in wramRep.members:
     for s in m.inventory:
       doAssert s.id > 0 and s.slot >= 1 and s.slot <= 14
       if s.name.len > 0: inc namedItems
+      # Sell fields always present; sellPrice must match floor(price/2).
+      doAssert s.sellPrice == s.price div 2,
+        &"sellPrice mismatch id={s.id} price={s.price} sell={s.sellPrice}"
+      doAssert s.sellable == (s.price > 0),
+        &"sellable mismatch id={s.id} price={s.price} sellable={s.sellable}"
+      if s.sellable and s.price > 0:
+        sawSellable = true
+        doAssert s.sellPrice == s.price div 2
+      # ATM card id177: key item, price 0 → not sellable (ROM evidence).
+      if s.id == 177:
+        doAssert s.price == 0 and not s.sellable and s.sellPrice == 0,
+          &"ATM card should be unsellable: {s}"
+        sawUnsellableKey = true
   doAssert namedItems > 0, "expected at least one ROM-decoded item name"
-  echo &"OK inventory: {namedItems} named item(s), e.g. {wramRep.members[0].inventory}"
+  # Direct ROM checks (state may not carry ATM card / a priced junk item).
+  const AtmCardId = 177
+  doAssert itemPrice(snes.rom, AtmCardId) == 0
+  doAssert not itemSellable(snes.rom, AtmCardId)
+  doAssert itemSellPrice(snes.rom, AtmCardId) == 0
+  # Cookie id88 price $7 → sell $3 (floor half).
+  const CookieId = 88
+  doAssert itemPrice(snes.rom, CookieId) == 7
+  doAssert itemSellable(snes.rom, CookieId)
+  doAssert itemSellPrice(snes.rom, CookieId) == 3
+  if sawSellable:
+    echo "OK inventory sell fields: saw priced sellable item in party bag"
+  if sawUnsellableKey:
+    echo "OK inventory: ATM card present and sellable=false"
+  echo &"OK inventory: {namedItems} named item(s); ATM/Cookie sell rules via ROM"
 
   # Freshly-saved SRAM image = persist block copy (what phone-save writes).
   let synthSrm = persistBlockToSramBytes(snes)

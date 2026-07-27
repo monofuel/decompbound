@@ -57,6 +57,9 @@ type
     id*: int        # item table ID (never 0 — empty slots are omitted)
     name*: string   # decoded from the ROM item table; "" if no ROM available
     equipped*: bool
+    price*: int     # buy price u16 at item table +0x1A (0 if no ROM)
+    sellPrice*: int # floor(price/2); shop sell offer ($C14F5A LSR)
+    sellable*: bool # price > 0 (key/story items are 0 in our ROM)
 
   PartyMemberVitals* = object
     ## One playable character's vitals from a battery-save slot or live WRAM.
@@ -136,7 +139,15 @@ proc memberToJson*(m: PartyMemberVitals): JsonNode =
   ## JSON shape for one party member (shared by both MCP servers).
   var inv = newJArray()
   for s in m.inventory:
-    inv.add %*{"slot": s.slot, "id": s.id, "name": s.name, "equipped": s.equipped}
+    inv.add %*{
+      "slot": s.slot,
+      "id": s.id,
+      "name": s.name,
+      "equipped": s.equipped,
+      "price": s.price,
+      "sellPrice": s.sellPrice,
+      "sellable": s.sellable
+    }
   %*{
     "role": m.role,
     "name": m.name,
@@ -155,8 +166,8 @@ proc memberToJson*(m: PartyMemberVitals): JsonNode =
 proc buildInventory*(itemIds: openArray[int], equipSlots: openArray[int],
                      rom: openArray[uint8]): seq[InventorySlot] =
   ## Assemble inventory slots from raw per-char bytes: 14 item IDs (0 = empty,
-  ## omitted) + 4 equipped 1-based slot indices. Names decode from the ROM
-  ## item table (empty string when no ROM is loaded).
+  ## omitted) + 4 equipped 1-based slot indices. Name/price/sell fields decode
+  ## from the ROM item table (zeros / empty string when no ROM is loaded).
   var equipped: set[0..255]
   for e in equipSlots:
     if e >= 1 and e <= itemIds.len:
@@ -164,11 +175,16 @@ proc buildInventory*(itemIds: openArray[int], equipSlots: openArray[int],
   for i, id in itemIds:
     if id == 0:
       continue
+    let rec = itemRecord(rom, id)
+    let buy = rec.price
     result.add InventorySlot(
       slot: i + 1,
       id: id,
-      name: itemName(rom, id),
-      equipped: (i + 1) in equipped
+      name: rec.name,
+      equipped: (i + 1) in equipped,
+      price: buy,
+      sellPrice: buy shr 1,
+      sellable: buy > 0
     )
 
 proc slotHasHeader(data: string, base: int): bool =

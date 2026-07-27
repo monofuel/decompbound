@@ -131,14 +131,26 @@ proc simpleTool(name, description: string): McpTool =
               },
               "inventory": {
                 "type": "array",
-                "description": "Occupied inventory slots (of 14 per character); names decoded from the ROM item table",
+                "description": "Occupied inventory slots (of 14 per character); names/prices from the ROM item table. sellPrice = floor(price/2); sellable=false for key/story items (price 0)",
                 "items": {
                   "type": "object",
                   "properties": {
                     "slot": {"type": "integer"},
                     "id": {"type": "integer"},
                     "name": {"type": "string"},
-                    "equipped": {"type": "boolean"}
+                    "equipped": {"type": "boolean"},
+                    "price": {
+                      "type": "integer",
+                      "description": "Shop buy price (item table +0x1A u16 LE)"
+                    },
+                    "sellPrice": {
+                      "type": "integer",
+                      "description": "Shop sell offer: floor(price/2) via $C14F5A LSR"
+                    },
+                    "sellable": {
+                      "type": "boolean",
+                      "description": "false for key/story items (buy price 0 in ROM); true when price > 0"
+                    }
                   }
                 }
               },

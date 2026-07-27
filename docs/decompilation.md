@@ -214,6 +214,21 @@ of SRAM. Round-trip DoD: decode a table → re-encode → byte-exact.
   Platinum 40 + Coin of Defense 40 + Great Charm 1 = 81 via `+0x1F`.
   Remaining: trace the equip routine to confirm *when* the game selects
   `+0x20` (char id vs a flag bit).
+  **Sell price / sellability (pinned 2026-07-27):** twin shop helpers load
+  price via `id×$27 + $1A` then `LDA $D55000,X`:
+  - **Buy** `$C14EF8` … `$C14F1B` — raw u16 price (no shift).
+  - **Sell** `$C14F33` … `$C14F5A` — same load then **`LSR A`** →
+    `sellPrice = price >> 1` (floor half; price 0 or 1 → offer 0). Our ROM
+    has **no** items with buy price 1.
+  Key/story items sampled all have **price 0** (ATM card id177, Receiver
+  phone 181, Hieroglyph copy 185, Key to the tower 192, Sound Stone 196,
+  Town map 202). **Franklin badge** (id1) is a special case: story item
+  with price 0 and type byte `$00` (not the `$38`/`$3B` cluster of other
+  key items). Type byte `+0x19` is **not** a clean sellability mask —
+  e.g. Show ticket (`$3B`, price 12) and Meteotite (`$38`, price 4000)
+  are priced. Co-pilot rule used in MCP inventory: **`sellable = price > 0`**
+  (equiv. non-zero sell offer). A separate sell-menu flag filter (if any)
+  is still TODO.
 - **PSI table** — located at file `0x158C50` (SNES `$D58C50`), ~15-byte records
   directly before the EXP table; verified byte-exact, with PSI Rockin α's PP=10
   (`0x0A`) present. Fields (per grok, tentative): name idx, greek tier, type,
