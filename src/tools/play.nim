@@ -13,7 +13,7 @@ import
   slappy,
   ../decompbound/[
     apu, battle_formation, build_info, cpu, party_sram, party_wram, ppu,
-    policy, replay, rng_oracle, save_state, snesbus, png_state
+    policy, replay, rng_oracle, save_state, snesbus, png_state, sword_dial
   ],
   ./[play_mcp, hud_font]
 
@@ -374,6 +374,9 @@ Controls:
               bundle whenever an HDMA screen-split starts (a battle/iris) — no keypress needed.
   F10         Dump per-scanline TM/TS band profile only (autoshots/scanline_trace.txt)
   F11         Toggle auto-screenshots (autoshots/ every 5s; ON by default — press to turn OFF if the ~5s stutter bugs you)
+  F6          Execute the current sword recipe (the EMULATOR does the frame-
+              precise dial — restore the recipe's capture first, press F6,
+              hands off ~2s, then fight normally). F6 again cancels mid-dial.
   F12 / F5    SCREENSTATE (screenshot + embedded save-state, drag-drop restorable)
               F5 is the fallback — Steam can re-grab F12 mid-session (overlay),
               which looks like F12 "just stops working". Same capture either way.
@@ -543,6 +546,12 @@ Controls:
   var debugHudHadEnemies = false
   var debugHudFormLatch: FormationLatch
   var debugHudFormLine = ""
+  # Dial (F6): machine-executed recipe input queue — the emulator performs
+  # the frame-precise dwell a human can't. Loaded from recipe_current.txt.
+  var dialQueue: seq[uint16] = @[]
+  var dialQueueIdx = 0
+  var dialCloseAt = 0
+  var dialSeedTarget = 0'u32
 
   # F10: one-shot per-scanline TM/TS profile -> autoshots/scanline_trace.txt,
   # for diagnosing HDMA screen-splits (e.g. the battle's bottom status band).
@@ -879,7 +888,26 @@ void main() {
     except CatchableError, Defect:
       pads = @[]
     phasePollMs += (getMonoTime() - padStart).inMicroseconds.float / 1000.0
-    let joy1 = kbdJoy or padJoy
+    var joy1 = kbdJoy or padJoy
+    # Dial injection (F6 recipe execution): while the queue is non-empty the
+    # EMULATOR performs the recipe's exact per-frame inputs — user/pad input
+    # is REPLACED, not OR'd, so the machine-precise sequence can't be
+    # polluted by a stray press. The human's only job was restoring the
+    # capture and pressing F6.
+    if dialQueue.len > 0 and not paused:
+      joy1 = dialQueue[dialQueueIdx]
+      inc dialQueueIdx
+      if dialQueueIdx == dialCloseAt:
+        let live = readRngSeed(snes)
+        let ok = live == dialSeedTarget
+        let verdict = if ok: "MATCH" else: "MISMATCH — restore + F6 again"
+        echo &"DIAL close: seed={live:08X} target={dialSeedTarget:08X} {verdict}"
+        writeLog(&"DIAL close: seed={live:08X} target={dialSeedTarget:08X} {verdict}")
+      if dialQueueIdx >= dialQueue.len:
+        dialQueue = @[]
+        dialQueueIdx = 0
+        echo "DIAL: sequence complete — hands back to you"
+        writeLog("DIAL: sequence complete")
     # No input latch: faithful d-pad, no held-frame band-aid. A good controller
     # handles its own diagonals; we don't hack around bad hardware.
     snes.joy1 = joy1
@@ -1011,6 +1039,37 @@ void main() {
       echo &"  windows: W12SEL={snes.ppuRegs[0x23]:02X} W34SEL={snes.ppuRegs[0x24]:02X} " &
         &"WOBJSEL={snes.ppuRegs[0x25]:02X} WH0-3={snes.ppuRegs[0x26]:02X}/{snes.ppuRegs[0x27]:02X}/" &
         &"{snes.ppuRegs[0x28]:02X}/{snes.ppuRegs[0x29]:02X} TMW={snes.ppuRegs[0x2E]:02X} TSW={snes.ppuRegs[0x2F]:02X}"
+    if window.buttonPressed[KeyF6]:
+      # F6 = execute the current sword recipe (recipe_current.txt in the
+      # secret repo, written by sword_recipe on a validated hit): the
+      # EMULATOR performs the frame-precise dial itself — B-open, exact
+      # dwell, B-close, walk — because humans can't frame-count and this
+      # machine can. Restore the recipe's capture FIRST, then press F6.
+      # Pressing F6 mid-dial cancels.
+      if dialQueue.len > 0:
+        dialQueue = @[]
+        dialQueueIdx = 0
+        echo "DIAL: cancelled"
+        writeLog("DIAL: cancelled")
+      else:
+        try:
+          let r = parseRecipeFile()
+          let btn = dirToBtn(r.dir)
+          if r.dwell < 0 or btn == 0:
+            echo "DIAL: recipe invalid (dwell/dir) — regenerate with sword_recipe"
+            writeLog("DIAL: invalid recipe")
+          else:
+            dialQueue = buildDialQueue(r.dwell, btn)
+            dialQueueIdx = 0
+            dialCloseAt = dialCloseIndex(r.dwell)
+            dialSeedTarget = r.seedAtClose
+            echo &"DIAL: executing recipe from {r.capture}"
+            echo &"  dwell {r.dwell}f, walk {r.dir}, expect {r.item} — hands off ~{dialQueue.len div 60}s"
+            echo &"  (recipe only works from that restored capture)"
+            writeLog(&"DIAL: start capture={r.capture} dwell={r.dwell} dir={r.dir}")
+        except CatchableError as e:
+          echo "DIAL: no usable recipe — run sword_recipe on an F12 first (", e.msg, ")"
+          writeLog("DIAL: recipe load failed: " & e.msg)
     if window.buttonPressed[KeyF7]:
       if not recording:
         startRecording("F7")

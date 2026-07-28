@@ -18,6 +18,11 @@ import
   std/[os, options, strformat, strutils],
   ../decompbound/[cpu, snesbus, save_state, policy, png_state,
     battle_formation, item_table]
+import ../decompbound/sword_dial as dial
+
+# The dial module is the single source of truth for the injected input
+# shape; a drift between sim and live execution would invalidate recipes.
+static: doAssert dial.BPressFrames == 2
 
 const
   DefaultRom = "bin/Earthbound (U) [!].smc"
@@ -644,6 +649,22 @@ proc main() =
     echo ""
     echo &"NOTE: rolled item id ${aa10:02X} is not Sword of kings ($23)."
     echo "Still a drop hit; recipe is valid for this item."
+
+  # Hand-off for the in-emulator dial (F6 in play): the same input sequence
+  # the sim just validated, executed frame-perfectly by the machine — the
+  # only sanctioned way to run a recipe live (humans can't frame-count).
+  try:
+    dial.writeRecipeFile(dial.RecipeCurrentPath, dial.DialRecipe(
+      capture: inputPath.extractFilename,
+      dwell: winnerN,
+      dir: approach.name,
+      seedAtClose: seedClose,
+      item: itemLabel))
+    echo ""
+    echo "dial hand-off written: ", dial.RecipeCurrentPath
+    echo &"  → in play: restore {inputPath.extractFilename}, press F6, hands off."
+  except CatchableError as e:
+    echo "WARNING: could not write dial hand-off: ", e.msg
 
   printFrameAdvanceScript(winner, approach.name, approachHorizon)
   printFreehandTargets(hits, maxN)
