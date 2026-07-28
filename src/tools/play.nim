@@ -11,8 +11,11 @@ import
   windy,
   paddy,
   slappy,
-  ../decompbound/[apu, build_info, cpu, ppu, policy, replay, save_state, snesbus, png_state],
-  ./play_mcp
+  ../decompbound/[
+    apu, battle_formation, build_info, cpu, party_sram, party_wram, ppu,
+    policy, replay, rng_oracle, save_state, snesbus, png_state
+  ],
+  ./[play_mcp, hud_font]
 
 proc readRomFile(filepath: string): seq[uint8] =
   ## Read ROM file and return bytes, stripping a 512-byte copier header.
@@ -75,6 +78,142 @@ proc saveSram(snes: SnesBus, path: string) =
     files.sort()
     for i in 0 ..< max(0, files.len - MaxBackups):
       removeFile(files[i])
+
+const
+  ## EXP-per-level table file base (docs/decompilation.md; leveling.md).
+  ExpTableFileBase = 0x158F51
+  ## Per-character table stride (Ness/Paula/Jeff/Poo).
+  ExpTableCharStride = 0x190
+  ## u32 entries per character (levels 0..99 pad; usable through 99).
+  ExpTableEntries = 100
+  ## WRAM RNG seed low word ($0024); high at +2 ($0026).
+  RngSeedWram = 0x0024
+  ## Cap when reconstructing advance count from seed0→seed1 via advanceSeed.
+  MaxAdvancesPerFrame = 512
+  ## Overlay box origin (top-left corner of the 256×224 frame).
+  HudOriginX = 2
+  HudOriginY = 2
+  HudLineH = HudFontH + 1
+  HudPadX = 2
+  HudPadY = 2
+  HudFg = rgbx(255, 255, 200, 255)
+  HudBg = rgbx(0, 0, 0, 180)
+  HudBorder = rgbx(80, 80, 100, 220)
+
+proc readRngSeed(snes: SnesBus): uint32 =
+  ## 32-bit LE seed from WRAM $0024/$0026.
+  let
+    b0 = snes.bus.mem[0x7E0000 + RngSeedWram].uint32
+    b1 = snes.bus.mem[0x7E0000 + RngSeedWram + 1].uint32
+    b2 = snes.bus.mem[0x7E0000 + RngSeedWram + 2].uint32
+    b3 = snes.bus.mem[0x7E0000 + RngSeedWram + 3].uint32
+  b0 or (b1 shl 8) or (b2 shl 16) or (b3 shl 24)
+
+proc countSeedAdvances(seedBefore, seedAfter: uint32): int =
+  ## Count PRNG steps from `seedBefore` to `seedAfter` via pure advanceSeed.
+  ##
+  ## Tradeoff vs watching `$C08E9A` every cpu.step: PC compare in the innermost
+  ## loop is too hot for play. Seed before/after per frame is free; walking
+  ## advanceSeed reconstructs the step count (handles multi-call frames like
+  ## menu-close ≈64). Undercounts only if the seed collides back to an earlier
+  ## intermediate within MaxAdvancesPerFrame — acceptable for a debug HUD.
+  if seedBefore == seedAfter:
+    return 0
+  var s = seedBefore
+  for n in 1 .. MaxAdvancesPerFrame:
+    s = advanceSeed(s).seed
+    if s == seedAfter:
+      return n
+  # Could not reconcile (huge burst or collision) — report "at least 1".
+  1
+
+proc expThreshold(rom: openArray[uint8]; charIdx, level: int): int =
+  ## Total EXP required to reach level `level+1` (table[level-1] for current L).
+  ##
+  ## Table entry i is EXP to reach level i+2 (entry 0 = L2 = 4 for Ness). So for
+  ## current level L, next threshold is table[L-1]. Returns -1 if out of range.
+  if charIdx < 0 or charIdx >= PlayableCharCount:
+    return -1
+  if level < 1 or level >= ExpTableEntries:
+    return -1
+  let off = ExpTableFileBase + charIdx * ExpTableCharStride + (level - 1) * 4
+  if off + 4 > rom.len:
+    return -1
+  rom[off].int or (rom[off + 1].int shl 8) or
+    (rom[off + 2].int shl 16) or (rom[off + 3].int shl 24)
+
+proc expToNextLines(snes: SnesBus): seq[string] =
+  ## One HUD line per present party member: `ROLE LvN +XXXX` (EXP to next).
+  result = @[]
+  let report = readPartyVitalsFromWram(snes)
+  for i, m in report.members:
+    if not m.inParty:
+      continue
+    # Role index: Ness=0..Poo=3 from CharRoleNames.
+    var charIdx = -1
+    for j, role in CharRoleNames:
+      if role == m.role:
+        charIdx = j
+        break
+    if charIdx < 0:
+      continue
+    let thr = expThreshold(snes.rom, charIdx, m.level)
+    let toNext =
+      if thr < 0: -1
+      else: max(0, thr - m.exp)
+    let role3 = if m.role.len >= 3: m.role[0..2] else: m.role
+    if toNext < 0:
+      result.add &"{role3} L{m.level} ?"
+    else:
+      result.add &"{role3} L{m.level} +{toNext}"
+
+proc fillRect(image: Image; x, y, w, h: int; color: ColorRGBX) =
+  ## Axis-aligned fill clipped to the image bounds.
+  for py in y ..< y + h:
+    if py < 0 or py >= image.height: continue
+    for px in x ..< x + w:
+      if px < 0 or px >= image.width: continue
+      image[px, py] = color
+
+proc composeDebugHud(
+    image: Image; snes: SnesBus;
+    seed: uint32; advFrame, advTotal: int; formLine: string
+) =
+  ## Composite the F8 overlay into `image` (pre-GL upload). Read-only peeks.
+  var lines: seq[string]
+  lines.add &"RNG {seed:08X}"
+  lines.add &"ADV +{advFrame} T{advTotal}"
+  for el in expToNextLines(snes):
+    lines.add el
+  if formLine.len > 0:
+    lines.add "FOE " & formLine
+  else:
+    lines.add "FOE -"
+  var maxW = 0
+  for line in lines:
+    maxW = max(maxW, hudTextWidth(line))
+  let boxW = maxW + HudPadX * 2
+  let boxH = lines.len * HudLineH + HudPadY * 2
+  fillRect(image, HudOriginX, HudOriginY, boxW, boxH, HudBg)
+  # 1px border.
+  for px in HudOriginX ..< HudOriginX + boxW:
+    if px >= 0 and px < image.width:
+      if HudOriginY >= 0 and HudOriginY < image.height:
+        image[px, HudOriginY] = HudBorder
+      let by = HudOriginY + boxH - 1
+      if by >= 0 and by < image.height:
+        image[px, by] = HudBorder
+  for py in HudOriginY ..< HudOriginY + boxH:
+    if py >= 0 and py < image.height:
+      if HudOriginX >= 0 and HudOriginX < image.width:
+        image[HudOriginX, py] = HudBorder
+      let bx = HudOriginX + boxW - 1
+      if bx >= 0 and bx < image.width:
+        image[bx, py] = HudBorder
+  var ty = HudOriginY + HudPadY
+  for line in lines:
+    drawHudText(image, HudOriginX + HudPadX, ty, line, HudFg)
+    ty += HudLineH
 
 proc compileShader(kind: GLenum, source: string): GLuint =
   ## Compile one shader and return its id, or quit on error.
@@ -204,6 +343,10 @@ Controls:
               bin/sessions/<session>/ (sparse joy1 deltas — replayable + great bug
               reports). F7 turns it off/on. On clean exit the session's replay pairs
               + F12s auto-archive to ../decompbound_secret/sessions/ (if present).
+  F8          Toggle RNG/EXP/formation debug HUD (OFF by default; zero cost when off).
+              Corner box: seed, advances this frame + total since on, EXP-to-next,
+              battle formation when enemies are loaded. Also logs formation on
+              battle entry to bin/play_log.txt while ON.
   Ctrl+R      Hardware RESET (console /RES): keeps WRAM/VRAM/OAM/CGRAM/SRAM, reboots
               CPU + MMIO + APU from power-on defaults. Mid-game reset loses unsaved
               progress just like real hardware — Ctrl required so bare R is not a
@@ -329,6 +472,14 @@ Controls:
       let ts = now().format("yyyy-MM-dd HH:mm:ss")
       logFile.writeLine(&"{ts}  {msg}")
       logFile.flushFile()
+
+  # F8 debug overlay (Sword of Kings Phase A): seed / advances / EXP / formation.
+  # OFF by default — zero cost when off (no peeks, no compose).
+  var debugHudOn = false
+  var debugHudAdvTotal = 0
+  var debugHudAdvFrame = 0
+  var debugHudLastSeed = 0'u32
+  var debugHudHadEnemies = false
 
   # F10: one-shot per-scanline TM/TS profile -> bin/autoshots/scanline_trace.txt,
   # for diagnosing HDMA screen-splits (e.g. the battle's bottom status band).
@@ -784,6 +935,18 @@ void main() {
         stopRecording()
         echo "RECORDING OFF"
         writeLog("RECORD OFF")
+    if window.buttonPressed[KeyF8]:
+      debugHudOn = not debugHudOn
+      if debugHudOn:
+        debugHudAdvTotal = 0
+        debugHudAdvFrame = 0
+        debugHudLastSeed = readRngSeed(snes)
+        debugHudHadEnemies = not readBattleFormation(snes).empty
+        echo "F8: debug HUD ON"
+        writeLog("F8: debug HUD ON")
+      else:
+        echo "F8: debug HUD OFF"
+        writeLog("F8: debug HUD OFF")
     # State save/load (Ctrl+1..4 = save slot N, 1..4 = load slot N; documented in
     # Controls above). Uses public fields only.
     for slot in 1..4:
@@ -863,6 +1026,12 @@ void main() {
           n
       for t in 0 ..< ticks:
         let emuStart = getMonoTime()
+        # F8 overlay: seed snapshot only when on (zero cost when off). Reconstruct
+        # advance count from before/after via advanceSeed — not a PC watch on
+        # $C08E9A (too hot in the innermost cpu.step loop). See countSeedAdvances.
+        let seedBefore =
+          if debugHudOn: readRngSeed(snes)
+          else: 0'u32
         # Instructions per scanline = the CPU's per-frame budget (× 262 lines). The
         # SNES gives the CPU a fixed CYCLE budget/frame; we approximate with an
         # instruction count (goal.md: no cycle accuracy). This budget must cover the
@@ -1164,6 +1333,20 @@ void main() {
           echo &"auto-capture: HDMA split started (HDMAEN={snes.hdmaen:02X}) — grabbing a bundle"
           writeLog(&"auto-capture: HDMA split started (HDMAEN={snes.hdmaen:02X})")
         prevHdmaen = snes.hdmaen
+        if debugHudOn:
+          let seedAfter = readRngSeed(snes)
+          debugHudAdvFrame = countSeedAdvances(seedBefore, seedAfter)
+          debugHudAdvTotal += debugHudAdvFrame
+          debugHudLastSeed = seedAfter
+          # Formation announce on enemy-table rising edge (battle entry).
+          let form = readBattleFormation(snes)
+          let hasEnemies = not form.empty
+          if hasEnemies and not debugHudHadEnemies:
+            let line = formationLine(form)
+            let msg = "BATTLE FORMATION: " & line
+            echo msg
+            writeLog(msg)
+          debugHudHadEnemies = hasEnemies
         phaseEmuMs += (getMonoTime() - emuStart).inMicroseconds.float / 1000.0
         if genAudio:
           let queueStart = getMonoTime()
@@ -1177,6 +1360,14 @@ void main() {
       # Paused: keep the pacing clock current so unpausing doesn't burst-catch-up.
       lastFrameTime = getMonoTime()
       frameAcc = 0
+
+    # F8 HUD: composite into frameImage right before GL upload (zero cost when off).
+    if debugHudOn:
+      let formLine = formationLine(readBattleFormation(snes))
+      composeDebugHud(
+        frameImage, snes, debugHudLastSeed,
+        debugHudAdvFrame, debugHudAdvTotal, formLine
+      )
 
     # Display the frame built during emulation.
     let image = frameImage
