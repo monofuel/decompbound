@@ -176,6 +176,20 @@ where it matters, but treat as operational truth for play):
   multi-bottle rockets. The goal is hitting the story beat properly, not
   rescuing the run. (Matches the item-table RE: Poo equip quirks already
   documented in docs/decompilation.md.)
+- **Jeff's Spy can steal the Sword mid-battle.** Spying a Starman Super
+  grabs the Sword of Kings immediately "**if they have it**" — no need to
+  win the fight. The hard part remains making the 1/128 happen. This
+  phrasing strongly supports the carry-flag model: the 1/128 roll runs at
+  battle init and marks the enemy as *carrying* the item; Spy reads/steals
+  that state, and a normal win presumably awards the same flag. Testable
+  RE target for Layer 0b: find where the rolled "has item" state lives in
+  battle WRAM after init.
+  - **Tooling jackpot if confirmed:** the overlay/MCP can announce
+    "CARRYING SWORD OF KINGS" the instant a battle starts. The grind loop
+    then needs no full fights at all: engage → overlay verdict → if not
+    carrying, flee, re-toggle, re-engage → if carrying, Jeff Spies it and
+    you're done. Combined with the arithmetic recipe (compute toggles so
+    the init roll passes), it's potentially a one-battle grind.
 - **You can't tell Starman from Starman Super on the map.** The area
   spawns both, and the overworld sprites don't distinguish them — you
   only learn which you engaged after the battle starts. Tooling answer:
