@@ -291,13 +291,25 @@ Full evidence: /tmp/rng_layer0b_summary.md (session artifact).
   so 1/128 … 1/2), **freq ≥7 = always drop** (no RNG). The 1/128 draw is
   `JSL $C08E9A` + `AND #$7F` at **`$C24DDC`** (duplicate clone at
   `$C264B1`). Item granted later from `$AA10` (`$C25FFC` → `JSL $C1DD7C`).
-- **Timing: the roll runs on the battle VICTORY/reward path, NOT at
-  battle init** (caller chain: state loop `$C24B5C` → `$006D` bit `$1000`
-  → `$C24CD5` rewards → roll; init copy `$C2B6FA` has no drop roll).
-  Player-memory "decided before battle" is refuted as literal timing —
-  but pre-battle manipulation still works because the outcome is a pure
-  function of the pre-battle seed whenever the fight script consumes a
-  deterministic advance count.
+- **Timing: 🟡 UNSETTLED — static analysis says victory path, but this
+  is NOT dynamically verified.** Grok's caller-chain walk places the roll
+  in the reward flow (state loop `$C24B5C` → `$006D` bit `$1000` →
+  `$C24CD5` → roll) and found no roll in the init copy `$C2B6FA`. BUT:
+  (a) that walk is static only; (b) init copies record bytes `+0x54..`
+  into battler RAM — a range that INCLUDES the drop fields; (c) monofuel's
+  memory AND multiple community sources say the roll fires at battle
+  START with one shared result for Spy and the win-drop. Three hints vs
+  one unverified walk. Peek check: `$7E:AA10` = 0 in the live mid-battle
+  slot200 state — consistent with victory-roll but does not refute
+  start-roll (a 127/128 miss or a different storage site both also give
+  0). **Decisive experiment (headless-feasible, battle EXECUTION works
+  from mid-battle states):** drive slot200 to a win watching `$C08E9A`
+  calls, both roll sites (`$C24DDC`, `$C264B1`), and `$AA10`/battler-RAM
+  writes. Behavioral referee for shared-vs-independent: Spy-fail then
+  win the same battle — shared roll ⇒ guaranteed no drop; independent ⇒
+  drop still possible. Either timing answer keeps pre-battle
+  manipulation valid (pure function of pre-battle seed given a fixed
+  script).
 - **⚠ Open discriminator — Jeff's Spy.** With a victory-time roll, the
   remembered "Spy steals it if they have it" cannot read a not-yet-rolled
   flag. Next RE target: does Spy run its OWN roll against `+0x57/+0x58`
