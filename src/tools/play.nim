@@ -204,6 +204,10 @@ Controls:
               bin/sessions/<session>/ (sparse joy1 deltas — replayable + great bug
               reports). F7 turns it off/on. On clean exit the session's replay pairs
               + F12s auto-archive to ../decompbound_secret/sessions/ (if present).
+  Ctrl+R      Hardware RESET (console /RES): keeps WRAM/VRAM/OAM/CGRAM/SRAM, reboots
+              CPU + MMIO + APU from power-on defaults. Mid-game reset loses unsaved
+              progress just like real hardware — Ctrl required so bare R is not a
+              fat-finger. Fresh .tas segment after reset (same as a state load).
   1-4         Load state from slot 1-4 (bin/states/slotN.state)
   Ctrl+1-4    Save state to slot 1-4
   (close the window or Ctrl+C to quit — no Esc-to-quit, too easy to fat-finger)
@@ -805,6 +809,31 @@ void main() {
           else:
             echo &"no state for slot {slot}"
             writeLog(&"load failed for slot {slot} (no file)")
+    # Hardware RESET (Ctrl+R only — bare R is too easy to fat-finger mid-game,
+    # same reasoning as no Esc-to-quit). Preserves WRAM/VRAM/OAM/CGRAM/SRAM;
+    # reboots CPU + MMIO + APU. Window/audio/MCP stay up.
+    if window.buttonPressed[KeyR] and
+       (window.buttonDown[KeyLeftControl] or window.buttonDown[KeyRightControl]):
+      cpu = snes.softReset()
+      brkSinkFrames = 0
+      brkSinkLogged = false
+      nmiMaskStuckFrames = 0
+      nmiMaskStuckLogged = false
+      dmaStormLogged = false
+      dmaStormQuietFrames = 0
+      dmaWramToALogged = false
+      dmaWramToAQuietFrames = 0
+      nmiVecWipeLogged = false
+      prevNmiVec =
+        snes.bus.mem[0x7E0020].uint16 or (snes.bus.mem[0x7E0021].uint16 shl 8)
+      wramSprayLogged = false
+      nmiQueueStuckFrames = 0
+      nmiQueueStuckLogged = false
+      prevDmaTransfers = snes.dmaTransfers
+      lastScreenText = ""
+      echo &"RESET (Ctrl+R) PC={cpu.pbr:02X}:{cpu.pc:04X} nmitimen={snes.nmitimen:02X}"
+      writeLog(&"RESET (Ctrl+R) PC={cpu.pbr:02X}:{cpu.pc:04X} nmitimen={snes.nmitimen:02X}")
+      startRecording("reset")
     # (No Esc-to-quit: it was too easy to hit mid-game and lose your run. Close
     # the window or Ctrl+C the terminal to exit.)
 

@@ -158,6 +158,9 @@ const
 proc tickApu*(snes: SnesBus): tuple[left, right: int16]
   ## Forward decl: mmioRead does APU catch-up on $214x polls (defined below).
 
+proc resetChipState(snes: SnesBus)
+  ## Forward decl: shared MMIO/APU power-on defaults for newSnesBus + softReset.
+
 proc isMmio(offset: uint32): bool =
   ## System-area registers: $2100-$21FF (PPU/APU), $4000-$44FF (CPU/DMA).
   (offset >= 0x2100 and offset <= 0x21FF) or
@@ -894,6 +897,50 @@ proc newSnesBus*(rom: seq[uint8]): SnesBus =
     # Banks 40-7D and C0-FF above the system area are ROM: ignore writes.
     result = true
 
+  snes.resetChipState()
+  result = snes
+
+proc resetChipState(snes: SnesBus) =
+  ## Power-on defaults for MMIO, PPU port latches, DMA/HDMA, and the APU.
+  ## Does not touch WRAM, VRAM, OAM, CGRAM, SRAM, or ROM — those are memory
+  ## that the console /RES line leaves alone (soft reset), or that a fresh
+  ## bus already has zeroed (cold newSnesBus). Shared by newSnesBus and softReset.
+  snes.bus.cpuInApuHandshake = false
+  snes.nmitimen = 0
+  snes.mulOperandA = 0
+  snes.divDividend = 0
+  snes.rddiv = 0
+  snes.rdmpy = 0
+  snes.vblankToggle = false
+  snes.joy1 = 0
+
+  snes.ppuRegs = default(array[0x100, uint8])
+  snes.bgScroll = default(array[8, uint16])
+  snes.bgScrollLatch = 0
+  snes.bgHofsLatch = 0
+  snes.vmain = 0
+  snes.vmadd = 0
+  snes.cgadd = 0
+  snes.cgLatch = -1
+  snes.oamAddr = 0
+  snes.fixedColorR = 0
+  snes.fixedColorG = 0
+  snes.fixedColorB = 0
+  snes.m7a = 0
+  snes.m7b = 0
+  snes.m7MulLatch = 0
+  snes.mpy = 0
+
+  snes.dmaRegs = default(array[0x80, uint8])
+  snes.dmaTransfers = 0
+  snes.dmaBytesThisFrame = 0
+  snes.dmaStorm = false
+  snes.dmaWramToA = false
+  snes.dmaWramToADmap = 0
+  snes.dmaWramToABank = 0
+  snes.dmaWramToAAddr = 0
+  snes.dmaWramToASize = 0
+
   snes.hdmaen = 0
   for i in 0..<8:
     snes.hdmaDoTransfer[i] = false
@@ -901,15 +948,16 @@ proc newSnesBus*(rom: seq[uint8]): SnesBus =
     snes.hdmaLineCounter[i] = 0
     snes.hdmaIndirectAddr[i] = 0
     snes.hdmaDone[i] = false
-  snes.fixedColorR = 0
-  snes.fixedColorG = 0
-  snes.fixedColorB = 0
-  snes.bgScrollLatch = 0
-  snes.bgHofsLatch = 0
   snes.hdmaWrites = @[]
 
-  # APU HLE state (clean for each fresh bus / boot capture).
+  # APU HLE capture state (legacy path when live APU is absent).
   snes.apuState = ahsIdle
+  snes.apuPortCatchup = 0
+  snes.apuHangFramePolled = false
+  snes.apuHangLastPort = 0
+  snes.apuHangPrevPortsOut = default(array[4, uint8])
+  snes.apuHangStuckFrames = 0
+  snes.apuHangLogged = false
   snes.apuPort0 = 0
   snes.apuPort1 = 0
   snes.apuPort2 = 0
@@ -924,14 +972,14 @@ proc newSnesBus*(rom: seq[uint8]): SnesBus =
   snes.apuUploadBytes = 0
   snes.apuPostBoot = @[]
   snes.apuJumps = @[]
-  # apuImage zeros by default.
+  snes.apuImage = default(array[0x10000, uint8])
 
-  # Live two-way APU: real SPC700 + DSP, cold-booted through the IPL ROM. From
-  # here the main CPU speaks the real upload protocol over $2140-$2143.
+  # Live APU: cold-rebuild + IPL boot at $FFC0. Console /RES may leave ARAM
+  # contents intact, but EarthBound always re-uploads the sound driver after
+  # reset, so zeroing ARAM via newApu is the cleanest path for our Apu type
+  # (reuses the same init as newSnesBus; avoids partial private-timer surgery).
   snes.apu = newApu()
   snes.apu.bootWithIpl()
-
-  result = snes
 
 proc resetCpu*(snes: SnesBus): Cpu =
   ## CPU state at power-on: emulation mode, reset vector from $00:FFFC. Read
@@ -943,6 +991,23 @@ proc resetCpu*(snes: SnesBus): Cpu =
   result.pc = snes.bus.mem[0xFFFC].uint16 or (snes.bus.mem[0xFFFD].uint16 shl 8)
   result.pbr = 0
   result.dbr = 0
+  result.a = 0
+  result.x = 0
+  result.y = 0
+  result.d = 0
+  result.waiting = false
+  result.stopped = false
+  result.nmiPending = false
+  result.mvnBudget = 0
+
+proc softReset*(snes: SnesBus): Cpu =
+  ## Hardware-faithful console RESET (/RES): preserve WRAM, VRAM, OAM, CGRAM,
+  ## and battery SRAM; re-initialize MMIO/PPU latches, DMA/HDMA budgets, and the
+  ## APU (SPC700 restarts at IPL $FFC0); return a fresh CPU from the reset
+  ## vector at $00:FFFC in emulation mode. Power-cycle is relaunching the app
+  ## (newSnesBus), not this path.
+  snes.resetChipState()
+  result = snes.resetCpu()
 
 proc tickApu*(snes: SnesBus): tuple[left, right: int16] =
   ## Advance the live APU by one 32kHz sample (SPC700 + timers + DSP) and return

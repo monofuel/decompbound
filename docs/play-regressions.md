@@ -168,3 +168,36 @@ skips without ROM/repro). Repro archived at
 
 **Verify (human).** `make play` → sleep at an inn; battle-start; check tempo of
 steady music is unchanged and the transition SFX are correct.
+
+---
+
+## E — Console RESET (Ctrl+R) vs power-cycle
+
+**Power-cycle** = quit and relaunch `play` (or any tool that calls
+`newSnesBus`). Full cold start: WRAM/VRAM/OAM/CGRAM zeroed, battery SRAM
+reloaded from `.srm` if present, APU ARAM empty, CPU from `$00:FFFC`.
+
+**Soft reset** = in-session **Ctrl+R** → `softReset` in `snesbus.nim`. Matches
+the physical SNES RESET button (`/RES`):
+
+| Kept | Re-initialized |
+|------|----------------|
+| WRAM, VRAM, OAM, CGRAM | CPU (`resetCpu`: emulation mode, vector `$00:FFFC`) |
+| Battery SRAM | PPU/MMIO registers + port latches (power-on defaults) |
+| ROM mapping | DMA/HDMA regs, latches, `dmaBytesThisFrame` / `dmaStorm` / WRAM-to-A flags |
+| | `NMITIMEN` off |
+| | APU: SPC700 restarts at IPL `$FFC0` via `newApu` + `bootWithIpl` (ARAM zeroed; EB re-uploads the driver anyway) |
+
+Play-loop side effects on Ctrl+R: derail detector counters re-arm, a fresh
+`.tas` segment starts (same as a state load), log line
+`RESET (Ctrl+R) ...`. Window, audio device, and MCP stay up.
+
+**Why it exists.** Recovery from the softlock / derail family (CPU-DERAIL,
+NMI-MASK-STUCK, DMA-STORM, WRAM-SPRAY, etc. — already fixed at the source, see
+lockup notes and detectors above) without killing the session. Mid-game reset
+drops unsaved progress like real hardware; **Ctrl is required** so bare `R` is
+not a fat-finger (same policy as no Esc-to-quit).
+
+**Referee.** `tests/test_soft_reset.nim` (headless): boot ~120f, plant WRAM
+canary, `softReset`, assert canary + cleared MMIO immediately, then run until
+NMI re-enables and PC is not the BRK-sink `$00:5FFF`.
