@@ -54,16 +54,26 @@ Starman Super battle states.
 | Menu navigation | **+1 per input** | differs from probe's cursor=0 (different menu/context) |
 | Any menu open | **≥1 per second** | suspected `>` cursor blink animation |
 
-### Reconciliation status (🟡 open)
+### Reconciliation — RESOLVED with caller PCs (probe_rng_reconcile, ✅)
 
-The probe's command-menu states showed dwell=0 over 120f; live play shows
-≥1/s with a menu open and per-frame churn in the B-stat menu. Both are
-real measurements — different menus and contexts consume differently
-(probable factors: which window is open, text/cursor animation state,
-party size). TODO: headless re-measure using tonight's Stonehenge F12s,
-per menu type: caller PCs for (a) the stat-menu per-frame source, (b) the
-1/s blink source, (c) per-navigation +1 — then split this table by menu
-type with caller evidence.
+Both measurement sets were right; menu type + window focus decide the
+cost. Every menu-context advance goes through wrapper `$C12DD5` (one
+draw per call); the L1 stack parent identifies the true consumer:
+
+| Menu context | Action | Advances | L1 parent | Period |
+|---|---|---:|---|---|
+| Free overworld | idle | 0 | — | — |
+| **B-status window (type 0x0A)** | dwell | **1/frame** | `$C13CB4` input-wait loop | 1f — THE spinner |
+| Pure command menu (`$8654=FF`) | dwell / cursor | 0 / 0 | — | dwell-safe |
+| A-cmd menu + side window (`$8654=00`) | open | 2 | `$C11B29` | — |
+| A-cmd + side window | dwell | 1 per **62f** | `$C11B29` blink/redraw | the "≥1/s" tick |
+| A-cmd + side window | cursor nav | +1/input | `$C11B29` | — |
+| Status screen once focused | dwell | 0 | — | dwell-safe |
+
+The B-window "spinner" is the `$C13CB1` wait loop calling the RNG
+unconditionally every iteration while it polls for a face button — not
+an HP-meter or animation consumer. The old "close B = 64" was this same
+free-run measured for 64 frames of window-wait, not a distinct cost.
 
 ## The manipulation interface (the big one)
 
@@ -93,16 +103,23 @@ with a menu open.
 - Enemy table `$D59589`, stride `0x5E`; drop freq enum `+0x57` (0=1/128,
   1..6 = 1/64..1/2 via masks `$7F..$01`, ≥7 = always), drop item `+0x58`.
 - Roll = `JSL $C08E9A` + `AND #mask`, success only on 0. Sites `$C24DDC`
-  and `$C264B1` sit on victory-flow code (static). **Roll TIMING is
-  RE-OPENED (2026-07-27 late):** monofuel field-confirms Jeff's Spy DOES
-  steal carried drop items (incl. the Sword) mid-battle, and community
-  knowledge says the roll is decided at battle start. The static
-  "victory-only" case rested on a literal `STA $AA10` scan that is blind
-  to indirect/indexed writes. Dynamic write-hook referee in flight —
-  see sword-of-kings.md for the full evidence state.
-- Battle command menu is dwell-safe (0 advances) — the recipe anchor is
-  the final command menu before the killing blow (victory-roll model) or
-  the pre-battle overworld (start-roll model); referee decides.
+  and `$C264B1`.
+- **TIMING SETTLED — the roll fires at BATTLE START (✅ dynamic,
+  2026-07-27):** from monofuel's overworld capture next to a Starman
+  (slot230), walking into the enemy executed battle-init `$C2B6FA` at
+  frame 190 and **`$C24DDC` two frames later** — no victory, no fight.
+  Result stored in `$AA10` at init (0 = the 127/128 miss). Community
+  knowledge + monofuel's memory were RIGHT; the static caller-chain read
+  ("victory path") was wrong — dynamic PC-watch beats static walks in
+  this fragmented bank. Jeff's Spy mid-battle steal now fully coheres:
+  it grants `$AA10` when the init roll succeeded ("if they have it").
+- **Headless battle entry WORKS via overworld bump** (this path does not
+  hit the phase-3 abort that blocks other entry attempts) — full
+  engage→roll pipelines are now automatable from overworld F12s.
+- Recipe anchor: the PRE-BATTLE overworld seed. Manipulation console
+  (spinner + fine-step above) dials the seed; the bump triggers the
+  roll ~2 frames into init. Engage-check-flee loop viable: read `$AA10`
+  (or overlay announce) after the swirl; 0 → flee and re-dial.
 
 ## Tooling index
 

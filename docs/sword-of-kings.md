@@ -176,37 +176,32 @@ where it matters, but treat as operational truth for play):
   multi-bottle rockets. The goal is hitting the story beat properly, not
   rescuing the run. (Matches the item-table RE: Poo equip quirks already
   documented in docs/decompilation.md.)
-- **Jeff's Spy — RE-OPENED (2026-07-27, late).** monofuel DIRECTLY
-  CONFIRMS from multiple completed grinds: **Spy does steal items,
-  including the Sword of Kings, when the enemy has one** — and community
-  knowledge holds the dice roll is decided at battle START. This is field
-  data from someone who has done it; it outranks the static analysis
-  below. The earlier "refuted" verdict (probe_spy_roll) rested on a
-  ROM-wide enumeration of `$AA10` writers that scanned for the LITERAL
-  `STA $AA10` — an **indirect or indexed store (pointer walks, table
-  fills at battle init) is invisible to that scan**. Classic static-RE
-  trap (see player-is-slot-24 lesson: trace writers dynamically). What
-  static DID establish and stands: Spy's handler tail grants-and-clears
-  `$AA10` when non-zero — i.e. the code path for "steal it if they have
-  it" **exists and matches monofuel's account exactly** if something
-  fills `$AA10` at battle start via a write the scan missed. Note the
-  earlier mid-battle peek (`$AA10`=0 in slot200) is CONSISTENT with a
-  start-roll that simply missed (127/128 case). **Decisive referee
-  (mandatory, running):** dynamic write-hook on `$7E:AA10` (catches ALL
-  addressing modes) from battle start context + drive slot200 to
-  victory + script a live Spy — see who writes, when, and what Spy does.
-  If start-roll confirms, the engage-check-flee loop is BACK ON.
-  - **H3 (monofuel):** the "battle RNG" may be SNAPSHOTTED to a variable
-    at battle start — the victory-path roll instruction then consumes the
-    saved state, so the outcome is decided at init *in effect* while the
-    roll still executes at victory. Reconciles the static disasm with the
-    community model. Detectable: write-hook `$0024-$0027` during battle
-    (a snapshot restore = non-`$C08E9A` writer), readHook at init, and
-    the behavioral discriminator below.
-  - **Behavioral discriminator (no disasm trust needed):** replay slot200
-    to victory with 0..N extra cursor-advances injected pre-final-blow.
-    Outcome varies with N ⇒ live-seed victory roll. Outcome invariant ⇒
-    start-determined (H1 or H3). Doubles as the K-advance measurement.
+- **Jeff's Spy + roll timing — RESOLVED (2026-07-27, dynamic, ✅).**
+  monofuel's field account and community knowledge were RIGHT; the
+  static "victory-only" analysis was wrong (its `$AA10` writer scan only
+  caught the literal `STA $AA10` opcode — blind to the indexed/indirect
+  init-path store; classic player-is-slot-24 trap). Dynamic proof chain,
+  all from monofuel's real captures:
+  1. **Bump-entry works headless** (slot230, fleeing capture): walking
+     into the overworld Starman runs battle-init `$C2B6FA` at f190 and
+     the `$C24DDC` drop roll at **f192 — two frames into init**, no
+     fight, no victory. The roll is decided at BATTLE START.
+  2. **`$AA10` is the carry slot**, filled (or zeroed on miss) at init.
+     Spy's grant-tail reads it mid-battle — "steals it if they have it,"
+     exactly as monofuel described.
+  3. **End-to-end manipulation PROVEN** (drop_scan, 128-way): from the
+     same capture, injecting **N=32** advances (32 frames dwelling in
+     the B-status window) before the bump → `AA10=0x0023` = **Sword of
+     kings rolled**. N=31/33 miss — single-advance precision. Formation
+     confirmed `68:Starman Super + 2:Dept. Store Spook`. Exactly one hit
+     in 0..127, matching 1/128.
+  4. Corroboration (probe_drop_referee on slot200): driving that battle
+     to both-enemies-dead + 400f never executed either roll site —
+     consistent with the roll having fired at that battle's init before
+     the F12 was taken.
+  **Engage-check-flee loop is ON:** after the swirl, `$AA10` ≠ 0 means
+  this enemy is carrying its drop (Spy it or win); 0 means flee and
+  re-dial the seed.
 - **Surprise-attack instant wins — the ideal recipe vehicle.** Starmen
   teleport around the base; bumping one right after it teleports gives a
   surprise attack (green swirl), and on a solo Starman Super that easily
