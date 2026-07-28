@@ -54,6 +54,45 @@ proc sramValid(snes: SnesBus): bool =
     if snes.sram[i].char != Sig[i]: return false
   true
 
+const SecretArchiveRoot = "../decompbound_secret"
+
+proc sweepSecretArchive(sessionsRoot = "bin/sessions") =
+  ## Copy every session's durable captures into the private secret repo:
+  ## replay pairs (.tas/.state) -> sessions/<stamp>/, F12 screenstate PNGs ->
+  ## the flat screenstates/ collection. Idempotent (skip same-size existing),
+  ## best-effort, and covers sessions that died WITHOUT a clean exit —
+  ## archiving used to run only at the tail of a clean exit, so Ctrl+C, a
+  ## kill, or a crash silently stranded captures in bin/sessions forever.
+  if not dirExists(SecretArchiveRoot) or not dirExists(sessionsRoot):
+    return
+  var archived = 0
+  try:
+    for kind, sdir in walkDir(sessionsRoot):
+      if kind != pcDir:
+        continue
+      let stamp = sdir.extractFilename
+      for kind2, path in walkDir(sdir):
+        if kind2 == pcFile and (path.endsWith(".tas") or path.endsWith(".state")):
+          let dest = SecretArchiveRoot / "sessions" / stamp / path.extractFilename
+          # Size compare, not just existence: a live session's .tas grows, so
+          # a later sweep must refresh the copy taken mid-recording.
+          if not fileExists(dest) or getFileSize(dest) != getFileSize(path):
+            createDir(SecretArchiveRoot / "sessions" / stamp)
+            copyFile(path, dest)
+            inc archived
+      if dirExists(sdir / "f12"):
+        for kind2, path in walkDir(sdir / "f12"):
+          if kind2 == pcFile and path.endsWith(".png"):
+            let dest = SecretArchiveRoot / "screenstates" / path.extractFilename
+            if not fileExists(dest):
+              createDir(SecretArchiveRoot / "screenstates")
+              copyFile(path, dest)
+              inc archived
+  except CatchableError:
+    discard  # Archiving must never interfere with play.
+  if archived > 0:
+    echo &"secret archive: swept {archived} file(s) -> {SecretArchiveRoot}"
+
 proc saveSram(snes: SnesBus, path: string) =
   ## Write the 8KB battery SRAM to the .srm, plus a rotating, timestamped backup
   ## (of valid saves only) in bin/sram_backups/, keeping the newest 40 — so a
@@ -337,12 +376,13 @@ Controls:
   F11         Toggle auto-screenshots (bin/autoshots/ every 5s; ON by default — press to turn OFF if the ~5s stutter bugs you)
   F12         SCREENSTATE (screenshot + embedded save-state, drag-drop restorable)
               -> bin/sessions/<session>/f12/ (canonical) + ~/Pictures/Screenshots
-              mirror; archived flat into ../decompbound_secret/screenstates/ on exit
+              mirror; copied into ../decompbound_secret/screenstates/ at capture time
   F7          Toggle INPUT RECORDING (TAS). ALWAYS ON by default: every boot and
               every state load starts a fresh <ts>.tas + <ts>_start.state segment in
               bin/sessions/<session>/ (sparse joy1 deltas — replayable + great bug
               reports). F7 turns it off/on. On clean exit the session's replay pairs
-              + F12s auto-archive to ../decompbound_secret/sessions/ (if present).
+              + F12s sweep to ../decompbound_secret/ at boot AND exit (if present)
+              — idempotent, so sessions ended by Ctrl+C/crash archive next boot.
   F8          Toggle RNG/EXP/formation debug HUD (OFF by default; zero cost when off).
               Corner box: seed, advances this frame + total since on, EXP-to-next,
               battle formation when enemies are loaded. Also logs formation on
@@ -450,6 +490,10 @@ Controls:
       "session_start " & now().format("yyyy-MM-dd'T'HH:mm:ss") & "\n"
     writeFile(sessionDir / "session.txt", manifest)
   echo "BUILD: ", buildLabel(), " (", BuildDate, ")  session=", sessionDir
+  # Catch-up sweep: archive any PRIOR session's captures that never made it to
+  # the secret repo (session ended via Ctrl+C/kill/crash before the exit-time
+  # archive could run). Idempotent; runs before the window opens.
+  sweepSecretArchive()
 
   # Goal 5 co-pilot MCP (in-process, live WRAM). Starts before the window /
   # audio path so a bind failure never touches render. Port busy → one warning,
@@ -920,6 +964,15 @@ void main() {
         copyFile(shotPath, screenshotsDir / shotPath.extractFilename)
       except CatchableError:
         discard  # Pictures mirror is best-effort; the session copy is canonical.
+      # Capture-time secret-repo copy: the startup/exit sweeps also cover this,
+      # but copying NOW means even a hard crash can't strand this F12.
+      try:
+        if dirExists(SecretArchiveRoot):
+          createDir(SecretArchiveRoot / "screenstates")
+          copyFile(shotPath,
+                   SecretArchiveRoot / "screenstates" / shotPath.extractFilename)
+      except CatchableError:
+        discard
       echo "  build=", buildLabel(), " (session.txt in ", sessionDir, ")"
       writeLog("screenshot (F12) build=" & buildLabel())
       echo &"  BGMODE={snes.ppuRegs[0x05] and 7} bg3prio={(snes.ppuRegs[0x05] and 8) != 0} " &
@@ -1493,33 +1546,11 @@ void main() {
   if recording and replayLogOpen:
     replayLog.close()
     replayLogOpen = false
-  # Auto-archive this session's durable captures to the private secret repo,
-  # if present. Replay pairs -> sessions/<ts>/ (session context); screenstates
-  # (F12 screenshot+savestate PNGs) -> the FLAT screenstates/ collection so
-  # they browse in one place across all sessions (successor of states/).
-  # Best-effort: never block or fail the exit path. Autoshots are deliberately
-  # NOT archived (regenerable via replay_seek).
-  try:
-    const SecretRoot = "../decompbound_secret"
-    if dirExists(SecretRoot) and dirExists(sessionDir):
-      var archived = 0
-      let dest = SecretRoot / "sessions" / sessionStamp
-      for kind, path in walkDir(sessionDir):
-        if kind == pcFile and (path.endsWith(".tas") or path.endsWith(".state")):
-          createDir(dest)
-          copyFile(path, dest / path.extractFilename)
-          inc archived
-      if dirExists(sessionDir / "f12"):
-        for kind, path in walkDir(sessionDir / "f12"):
-          if kind == pcFile and path.endsWith(".png"):
-            createDir(SecretRoot / "screenstates")
-            copyFile(path, SecretRoot / "screenstates" / path.extractFilename)
-            inc archived
-      if archived > 0:
-        echo &"session archived: {archived} file(s) -> {dest} (+ screenstates/)"
-        writeLog(&"session archived: {archived} file(s) -> {dest}")
-  except CatchableError as e:
-    echo "session archive skipped: ", e.msg
+  # Final archive: the same idempotent sweep as startup — picks up this
+  # session's replay pairs and any stragglers. F12s were already copied at
+  # capture time; a non-clean exit is now covered by the NEXT boot's sweep.
+  # Autoshots are deliberately not archived (regenerable via replay_seek).
+  sweepSecretArchive()
   ss.close()
   slappyClose()
   if logOpened:
