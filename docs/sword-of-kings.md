@@ -196,6 +196,17 @@ where it matters, but treat as operational truth for play):
   addressing modes) from battle start context + drive slot200 to
   victory + script a live Spy — see who writes, when, and what Spy does.
   If start-roll confirms, the engage-check-flee loop is BACK ON.
+  - **H3 (monofuel):** the "battle RNG" may be SNAPSHOTTED to a variable
+    at battle start — the victory-path roll instruction then consumes the
+    saved state, so the outcome is decided at init *in effect* while the
+    roll still executes at victory. Reconciles the static disasm with the
+    community model. Detectable: write-hook `$0024-$0027` during battle
+    (a snapshot restore = non-`$C08E9A` writer), readHook at init, and
+    the behavioral discriminator below.
+  - **Behavioral discriminator (no disasm trust needed):** replay slot200
+    to victory with 0..N extra cursor-advances injected pre-final-blow.
+    Outcome varies with N ⇒ live-seed victory roll. Outcome invariant ⇒
+    start-determined (H1 or H3). Doubles as the K-advance measurement.
 - **You can't tell Starman from Starman Super on the map.** The area
   spawns both, and the overworld sprites don't distinguish them — you
   only learn which you engaged after the battle starts. Tooling answer:
