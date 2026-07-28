@@ -932,13 +932,21 @@ void main() {
           writeLog(&"DIAL close: seed={liveSeed:08X} target={dialSeedTarget:08X} {verdict}")
           dialPhase = 3
           dialPhaseFrames = 0
-      else:  # walk into the enemy until the battle takes over
+      else:  # walk into the enemy — STOP the instant the battle starts
         joy1 = dialWalkBtn
         inc dialPhaseFrames
-        if dialPhaseFrames > DialWalkFramesMax:
+        # The swirl/battle is the hand-off point: injecting further input
+        # would mash the battle UI (monofuel saw exactly that). $A970 going
+        # non-empty is the battle-init signal the FOE overlay already uses.
+        if not readBattleFormation(snes).empty:
           dialActive = false
-          echo "DIAL: walk finished — hands back to you"
-          writeLog("DIAL: complete")
+          joy1 = 0
+          echo "DIAL: battle started — hands back to you (Jeff -> Spy)"
+          writeLog("DIAL: battle started, released")
+        elif dialPhaseFrames > DialWalkFramesMax:
+          dialActive = false
+          echo "DIAL: walked out without a battle — enemy moved; re-capture"
+          writeLog("DIAL: walk timeout, no battle")
     # No input latch: faithful d-pad, no held-frame band-aid. A good controller
     # handles its own diagonals; we don't hack around bad hardware.
     snes.joy1 = joy1
