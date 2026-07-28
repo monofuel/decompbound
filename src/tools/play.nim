@@ -374,7 +374,9 @@ Controls:
               bundle whenever an HDMA screen-split starts (a battle/iris) — no keypress needed.
   F10         Dump per-scanline TM/TS band profile only (autoshots/scanline_trace.txt)
   F11         Toggle auto-screenshots (autoshots/ every 5s; ON by default — press to turn OFF if the ~5s stutter bugs you)
-  F12         SCREENSTATE (screenshot + embedded save-state, drag-drop restorable)
+  F12 / F5    SCREENSTATE (screenshot + embedded save-state, drag-drop restorable)
+              F5 is the fallback — Steam can re-grab F12 mid-session (overlay),
+              which looks like F12 "just stops working". Same capture either way.
               -> <captures>/sessions/<session>/f12/ (canonical) + ~/Pictures/Screenshots
               mirror; copied into ../decompbound_secret/screenstates/ at capture time
   F7          Toggle INPUT RECORDING (TAS). ALWAYS ON by default: every boot and
@@ -968,30 +970,41 @@ void main() {
       autoShot = not autoShot
       echo "auto-screenshots: ", (if autoShot: &"ON ({autoshotsDir}/ every 5s)" else: "OFF")
       writeLog(&"F11: auto-screenshots {(if autoShot: \"ON\" else: \"OFF\")}")
-    if window.buttonPressed[KeyF12]:
-      # F12 = screenshot, matching Steam's screenshot-key convention (Steam
-      # intercepts F12, so aligning ours avoids the surprise). Primary copy
-      # lives in the session dir (archived with the replays); a mirror goes
-      # to ~/Pictures/Screenshots for desktop browsing muscle memory.
-      let stateBytes = serializeState(snes, cpu)
-      let rhash = romHashOf(rom)
-      createDir(sessionDir / "f12")
-      let shotPath = saveScreenshot(frameImage, sessionDir / "f12", stateBytes, rhash)
+    if window.buttonPressed[KeyF12] or window.buttonPressed[KeyF5]:
+      # F12 = screenshot, matching Steam's screenshot-key convention. Steam
+      # intercepts F12 and can RE-GRAB it mid-session (overlay activation) —
+      # monofuel has seen F12 "just stop working" live — so F5 is a fallback
+      # bound to the identical capture. Entry is logged BEFORE any work so a
+      # dead keypress (never reaches us) is distinguishable from a failing
+      # handler in bin/play_log.txt. Primary copy lives in the session dir; a
+      # mirror goes to ~/Pictures/Screenshots for desktop browsing.
+      let viaKey = if window.buttonPressed[KeyF12]: "F12" else: "F5"
+      writeLog("screenstate key pressed (" & viaKey & ")")
       try:
-        copyFile(shotPath, screenshotsDir / shotPath.extractFilename)
-      except CatchableError:
-        discard  # Pictures mirror is best-effort; the session copy is canonical.
-      # Capture-time secret-repo copy: the startup/exit sweeps also cover this,
-      # but copying NOW means even a hard crash can't strand this F12.
-      try:
-        if dirExists(SecretArchiveRoot):
-          createDir(SecretArchiveRoot / "screenstates")
-          copyFile(shotPath,
-                   SecretArchiveRoot / "screenstates" / shotPath.extractFilename)
-      except CatchableError:
-        discard
-      echo "  build=", buildLabel(), " (session.txt in ", sessionDir, ")"
-      writeLog("screenshot (F12) build=" & buildLabel())
+        let stateBytes = serializeState(snes, cpu)
+        let rhash = romHashOf(rom)
+        createDir(sessionDir / "f12")
+        let shotPath = saveScreenshot(frameImage, sessionDir / "f12", stateBytes, rhash)
+        try:
+          copyFile(shotPath, screenshotsDir / shotPath.extractFilename)
+        except CatchableError:
+          discard  # Pictures mirror is best-effort; the session copy is canonical.
+        # Capture-time secret-repo copy: the startup/exit sweeps also cover
+        # this, but copying NOW means even a hard crash can't strand this F12.
+        try:
+          if dirExists(SecretArchiveRoot):
+            createDir(SecretArchiveRoot / "screenstates")
+            copyFile(shotPath,
+                     SecretArchiveRoot / "screenstates" / shotPath.extractFilename)
+        except CatchableError:
+          discard
+        echo "  build=", buildLabel(), " (session.txt in ", sessionDir, ")"
+        writeLog("screenshot (" & viaKey & ") build=" & buildLabel())
+      except CatchableError as e:
+        # A capture failure must never kill the game — and must never be
+        # silent again (the "F12 stopped working" mystery).
+        echo "SCREENSTATE FAILED: ", e.msg
+        writeLog("SCREENSTATE FAILED (" & viaKey & "): " & e.msg)
       echo &"  BGMODE={snes.ppuRegs[0x05] and 7} bg3prio={(snes.ppuRegs[0x05] and 8) != 0} " &
         &"TM(main)={snes.ppuRegs[0x2C]:02X} TS(sub)={snes.ppuRegs[0x2D]:02X} INIDISP={snes.ppuRegs[0x00]:02X}"
       echo &"  CGADSUB={snes.ppuRegs[0x31]:02X} CGWSEL={snes.ppuRegs[0x30]:02X} HDMAEN={snes.hdmaen:02X}"
