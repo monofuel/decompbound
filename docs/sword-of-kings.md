@@ -1,23 +1,45 @@
 # Sword of Kings — RNG-manipulation tooling plan
 
-Status: PLAN v2 (no code yet). 2026-07-27. Reviewed by grok
-(SOUND-WITH-FIXES, /tmp/sword_plan_review.md); v2 folds in all fixes —
-biggest one: v1 wrongly claimed the PRNG was un-RE'd. It has been adopted
-and gold-gated since 2026-07-21.
+Status: **DROP SECURED (2026-07-28)** — tooling remains a research /
+automation track; the live playthrough got the sword without it. Plan
+history below is still useful RE evidence. PLAN v2 reviewed by grok
+2026-07-27 (SOUND-WITH-FIXES, /tmp/sword_plan_review.md); PRNG was already
+adopted and gold-gated since 2026-07-21.
+
+## Outcome — how the sword actually dropped (2026-07-28)
+
+**Brute force won.** After ~4 hours in Stonehenge Base, monofuel got the
+Sword of Kings by playing normally and defeating as many Starman Supers as
+possible until the 1/128 landed. Capture: `earthbound_20260728-014452.png`
+(local only — `~/Pictures/Screenshots/` / secret `screenstates/`), a
+**random surprise-attack** instant win that granted the sword.
+
+**None of the support tools helped on the live run.** F8 seed HUD,
+`sword_recipe`, F6 dial, closed-loop seed matching, capture registry,
+engage-check-flee advice — all real and RE-validated in headless sims, but
+in the actual grind session they did not shorten the path. The working
+method was the oldest one: stay in the spawn area, fight (or surprise)
+Starman Supers, and keep rolling until the drop.
+
+Tooling is still valuable as a decomp/RE product (drop table, start-roll
+timing, oracle, dial mechanics are proven). Treat "sword in 1–3 recipe
+battles" as an unproven live UX goal, not a completed player pipeline.
+Capture/recipe registry (local, never in git):
+`../decompbound_secret/sword_recipes.md`.
 
 ## Goal
 
-The Sword of Kings drops (community lore says 1/128 — treat as hypothesis
-until the ROM says so) from Starman Super in Stonehenge Base — the worst
-grind in the game. monofuel has done this grind by hand several times:
-savestate before a battle, fight it, vary the number of menu inputs to
-nudge the PRNG until the drop lands. Works, but eats ~2 hours and risks
-over-leveling.
+The Sword of Kings drops (1/128 — **ROM-confirmed**, enemy id 68) from
+Starman Super in Stonehenge Base — the worst grind in the game. monofuel
+has done this grind by hand several times: savestate before a battle,
+fight it, vary the number of menu inputs to nudge the PRNG until the drop
+lands. Works, but eats hours and risks over-leveling.
 
-We want tooling that turns the grind into a short, deterministic,
+We wanted tooling that turns the grind into a short, deterministic,
 **legitimately executed** manipulation: read RAM, predict, advise — never
 write game state, never force the drop. The player performs the inputs on
-the real game.
+the real game. **Live result (2026-07-28):** that pipeline did not land
+the sword; brute-force play did (see Outcome above).
 
 ## Ground rules
 
@@ -220,10 +242,11 @@ where it matters, but treat as operational truth for play):
     path, with `$C24DDC` the normal-victory path — would explain why two
     identical rolls exist. Verify: which site fires on an instant win vs
     a fought win.
-  - Wanted capture: **F12 on the Stonehenge overworld just before
-    bumping a freshly-teleported Starman** — gives the harness a
-    pre-instant-win state (and battle ENTRY through the swirl may even
-    work headless where normal entry aborts — worth testing).
+  - ✅ **Instant-win drop confirmed live (2026-07-28):** random surprise
+    attack on a Starman Super dropped the Sword of Kings
+    (`earthbound_20260728-014452.png`, local only). Wanted pre-bump F12
+    captures still useful for harness work; the player path that worked
+    was not a dialed recipe — just grinding supers until the 1/128 hit.
   - Instant wins still award full EXP (30,145) — overleveling accrues
     regardless; manipulation is still what caps the kill count.
 - **You can't tell Starman from Starman Super on the map.** The area
@@ -261,14 +284,22 @@ where it matters, but treat as operational truth for play):
   seed at command menu `8B00EDC6`; state behaves identically to fixtures
   (battle-menu idle = 0 advances).
 
-## Intended play session
+## Intended play session (tooling goal — not what landed the sword)
 
-1. Reach Starman Super territory; engage a battle; F12 at the command
-   menu (per the start-state contract).
-2. Finish that fight normally — the session .tas already recorded it.
-3. Run the harness → recipe.
-4. Execute the recipe live, legitimately.
-5. Sword in 1-3 battles; party barely levels.
+**What actually worked (2026-07-28):** sit in Starman Super territory and
+defeat as many of them as possible (surprise attacks fine) until the
+drop. ~4 hours. No recipe/F6/F8 path contributed.
+
+**What the tooling still aims for:**
+
+1. Reach Starman Super territory; F12 near a chase-active spawn (or at
+   the command menu for mid-battle work).
+2. Run `sword_recipe` → recipe / F6 dial.
+3. Execute the recipe live, legitimately.
+4. Sword in 1-3 battles; party barely levels.
+
+Until that loop is proven end-to-end in a live session, prefer brute force
+over trusting the dial.
 
 ## Order of work
 
