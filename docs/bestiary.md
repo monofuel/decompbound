@@ -58,10 +58,16 @@ on the sprite-decode track. Presentation only; reads the same backbone model.
 ## RE state (what the backbone stands on)
 
 From [`docs/decompilation.md`](decompilation.md) §"Game data":
-- ✅ **Enemy-stat table** — `0x30`-byte records, verified vs Pogo Punk (`0x15C6DE`):
-  HP u16 `+0x00`, PP `+0x02`, EXP `+0x04`, money `+0x08`, two 3-byte gfx ptrs,
-  Off/Def/Spd u16 at `+0x17/+0x19/+0x1B`. **Gap:** canonical table **base + count +
-  id-indexing** not pinned; the **name** field/pointer not located.
+- ✅ **Enemy configuration table** — CORRECTED 2026-07-27 (sword-of-kings RE):
+  base `$D59589` / file `0x159589`, **`0x5E`-byte records**, indexed id×`$5E`
+  (`LDY #$005E` + `JSL $C08FF7` at `$C24D88`; init copy `$C2B6FA`). Name
+  EB-text at `+0x01`, HP u16 `+0x21`, PP `+0x23`, EXP u32 `+0x25`, money
+  `+0x29`, **drop freq enum `+0x57`, drop item id `+0x58`**. The old
+  "`0x30`-byte records, Pogo Punk `0x15C6DE`" claim was a misaligned slice —
+  `0x15C6DE` is Pogo Punk (id 134) record + `0x21`, i.e. the HP field, so the
+  offsets above (`HP +0x00` etc.) were relative to mid-record. Base + count +
+  indexing + name are now pinned; see `docs/sword-of-kings.md` +
+  `probe_drop_table.nim`.
 - ✅ **PSI table** — `0x158C50`, ~15-byte records (holds *PSI Shield* as an ability).
 - ✅ **Formations** — `0x10D74C` (which enemies appear in which fight).
 - ✅ **Text decode** — `text_decode.nim` (enemy names).

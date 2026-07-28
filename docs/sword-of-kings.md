@@ -256,6 +256,45 @@ and menu close) may vary with party size/map/context — re-measure on a
 Stonehenge-local state before trusting a recipe, and note the menu-close 64
 came from one state's window config.
 
+## Layer 0b findings — drop table + drop roll (2026-07-27, verified)
+
+Source: `src/probes/probe_drop_table.nim` (runtime ROM decode, exit 0,
+6-enemy cross-check) + hand-decoded ROM bytes (generated bank02 is
+fragmented by M-flag misreads around this region — trust the probe).
+Full evidence: /tmp/rng_layer0b_summary.md (session artifact).
+
+- **Enemy configuration table:** `$D59589`, `0x5E`-byte records, id-indexed.
+  Name `+0x01` (EB text), HP `+0x21`, PP `+0x23`, EXP `+0x25`, money
+  `+0x29`, **drop freq `+0x57`, drop item `+0x58`**.
+- **Starman Super = enemy id 68** (alt row 185, same stats): HP 568,
+  PP 310, EXP 30145, $735, drop item `0x23` → "Sword of kings",
+  **freq 0 → 1/128 CONFIRMED** from the ROM.
+- **Drop roll:** victory-flow routine indexes the table (`$C24D7C..`),
+  stores candidate item to `$AA10`, then switches on freq:
+  enum 0..6 → mask `$7F,$3F,$1F,$0F,$07,$03,$01` (success = draw&mask==0,
+  so 1/128 … 1/2), **freq ≥7 = always drop** (no RNG). The 1/128 draw is
+  `JSL $C08E9A` + `AND #$7F` at **`$C24DDC`** (duplicate clone at
+  `$C264B1`). Item granted later from `$AA10` (`$C25FFC` → `JSL $C1DD7C`).
+- **Timing: the roll runs on the battle VICTORY/reward path, NOT at
+  battle init** (caller chain: state loop `$C24B5C` → `$006D` bit `$1000`
+  → `$C24CD5` rewards → roll; init copy `$C2B6FA` has no drop roll).
+  Player-memory "decided before battle" is refuted as literal timing —
+  but pre-battle manipulation still works because the outcome is a pure
+  function of the pre-battle seed whenever the fight script consumes a
+  deterministic advance count.
+- **⚠ Open discriminator — Jeff's Spy.** With a victory-time roll, the
+  remembered "Spy steals it if they have it" cannot read a not-yet-rolled
+  flag. Next RE target: does Spy run its OWN roll against `+0x57/+0x58`
+  (each Spy = independent 1/128 on demand — would reshape the grind loop),
+  or is the memory conflating something else? Until answered, the
+  carry-flag model above stays 🟡 speculation.
+
+Recipe design consequence: with battle-menu idle = 0 advances, the
+strongest anchor is the LAST command menu before the killing blow —
+compute the advances K from "confirm attack" to the `$C24DDC` draw for a
+fixed script, then tune the seed with zero-pressure pre-battle toggles
+(and possibly in-battle cursor moves) so draw`&$7F` == 0.
+
 ## Open questions (answered during Layer 0, not guessed)
 
 - Real denominator + whether Starman Super's drop slot is 100%-Sword or
