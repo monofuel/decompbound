@@ -201,3 +201,30 @@ not a fat-finger (same policy as no Esc-to-quit).
 **Referee.** `tests/test_soft_reset.nim` (headless): boot ~120f, plant WRAM
 canary, `softReset`, assert canary + cleared MMIO immediately, then run until
 NMI re-enables and PC is not the BRK-sink `$00:5FFF`.
+
+---
+
+## F — F12 screenstate capture intermittently stops working
+
+**Symptom (monofuel, 2026-07-27, live):** F12 captures fine for a while,
+then "just breaks and stops working" mid-session — no new PNG in
+Pictures, the secret repo, or the session dir. Feels totally broken;
+resumes later or after a restart.
+
+**Prime suspect: Steam re-grabbing F12.** Steam's overlay claims F12 for
+its own screenshots; if the overlay activates (or a game/app takes focus
+priority) our window can stop receiving the key entirely — the handler
+never runs, so nothing is written and nothing is logged.
+
+**Mitigations shipped (313ef14):**
+
+| Change | Why |
+|--------|-----|
+| **F5 = identical screenstate capture** | A second binding Steam does not claim — press F5 when F12 goes quiet |
+| Log line at handler ENTRY (`screenstate key pressed (F12\|F5)`) | Distinguishes "key never arrived" (nothing logged → external grab) from "handler failed" (logged, then error) |
+| Capture body wrapped; failures log `SCREENSTATE FAILED: <msg>` loudly | A capture error can no longer be silent or kill the loop |
+
+**Next time it happens:** press F5. Then check `bin/play_log.txt` — no
+`screenstate key pressed` line means the keypress never reached us
+(external grab, not our bug); a line followed by `SCREENSTATE FAILED`
+means our capture path broke and the message says how.
