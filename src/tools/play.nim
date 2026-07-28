@@ -532,11 +532,15 @@ Controls:
 
   # F8 debug overlay (Sword of Kings Phase A): seed / advances / EXP / formation.
   # OFF by default — zero cost when off (no peeks, no compose).
+  # Formation latch: mid-battle `$A970` is engine scratch; ids/addrs stick once
+  # table-consistent, then only HP is refreshed (see battle_formation.nim).
   var debugHudOn = false
   var debugHudAdvTotal = 0
   var debugHudAdvFrame = 0
   var debugHudLastSeed = 0'u32
   var debugHudHadEnemies = false
+  var debugHudFormLatch: FormationLatch
+  var debugHudFormLine = ""
 
   # F10: one-shot per-scanline TM/TS profile -> autoshots/scanline_trace.txt,
   # for diagnosing HDMA screen-splits (e.g. the battle's bottom status band).
@@ -1007,10 +1011,14 @@ void main() {
         debugHudAdvTotal = 0
         debugHudAdvFrame = 0
         debugHudLastSeed = readRngSeed(snes)
-        debugHudHadEnemies = not readBattleFormation(snes).empty
+        clearFormationLatch(debugHudFormLatch)
+        debugHudFormLine = ""
+        debugHudHadEnemies = false
         echo "F8: debug HUD ON"
         writeLog("F8: debug HUD ON")
       else:
+        clearFormationLatch(debugHudFormLatch)
+        debugHudFormLine = ""
         echo "F8: debug HUD OFF"
         writeLog("F8: debug HUD OFF")
     # State save/load (Ctrl+1..4 = save slot N, 1..4 = load slot N; documented in
@@ -1404,8 +1412,10 @@ void main() {
           debugHudAdvFrame = countSeedAdvances(seedBefore, seedAfter)
           debugHudAdvTotal += debugHudAdvFrame
           debugHudLastSeed = seedAfter
-          # Formation announce on enemy-table rising edge (battle entry).
-          let form = readBattleFormation(snes)
+          # Latched formation: capture once post-init, then HP-only updates.
+          # Single tick per emulated frame (compose path reuses debugHudFormLine).
+          let form = updateFormationLatch(snes, debugHudFormLatch)
+          debugHudFormLine = formationLineHp(form)
           let hasEnemies = not form.empty
           if hasEnemies and not debugHudHadEnemies:
             let line = formationLine(form)
@@ -1429,10 +1439,12 @@ void main() {
 
     # F8 HUD: composite into frameImage right before GL upload (zero cost when off).
     if debugHudOn:
-      let formLine = formationLine(readBattleFormation(snes))
+      # While paused the emu path does not tick — refresh HP-only latch once here.
+      if paused:
+        debugHudFormLine = formationLineHp(updateFormationLatch(snes, debugHudFormLatch))
       composeDebugHud(
         frameImage, snes, debugHudLastSeed,
-        debugHudAdvFrame, debugHudAdvTotal, formLine
+        debugHudAdvFrame, debugHudAdvTotal, debugHudFormLine
       )
 
     # Display the frame built during emulation.
