@@ -356,6 +356,14 @@ fixed script, then tune the seed with zero-pressure pre-battle toggles
 
 ## Open questions (answered during Layer 0, not guessed)
 
+- **Which roll site fires per entry type?** Live observation (225905
+  capture, sword_recipe): at some dwell offsets a battle INITS but
+  `$C24DDC` never runs — likely those entries route through the
+  `$C264B1` clone instead (normal vs surprise/swirl entry paths would
+  explain the duplicate sites). Tool must watch BOTH sites and report
+  which fired; recipes must count the right draw for the entry type
+  they produce.
+
 - Real denominator + whether Starman Super's drop slot is 100%-Sword or
   itself rolled; enemy-table drop field location.
 - Event vs frame advancement; menu-open dwell behavior.
