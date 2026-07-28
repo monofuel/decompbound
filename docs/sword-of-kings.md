@@ -192,9 +192,11 @@ where it matters, but treat as operational truth for play):
   3. **End-to-end manipulation PROVEN** (drop_scan, 128-way): from the
      same capture, injecting **N=32** advances (32 frames dwelling in
      the B-status window) before the bump → `AA10=0x0023` = **Sword of
-     kings rolled**. N=31/33 miss — single-advance precision. Formation
-     confirmed `68:Starman Super + 2:Dept. Store Spook`. Exactly one hit
-     in 0..127, matching 1/128.
+     kings rolled**. N=31/33 miss — single-advance precision. Formation:
+     **solo Starman Super** (an early scan read "+Dept. Store Spook" —
+     a mid-init ghost from a stale `$A970` slot; monofuel caught it,
+     walker now dedups + probe re-verified 300f post-init). Exactly one
+     hit in 0..127, matching 1/128.
   4. Corroboration (probe_drop_referee on slot200): driving that battle
      to both-enemies-dead + 400f never executed either roll site —
      consistent with the roll having fired at that battle's init before

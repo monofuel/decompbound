@@ -72,8 +72,13 @@ proc decodeEnemyName*(rom: openArray[uint8], id: int): string =
 
 proc readBattleFormation*(snes: SnesBus): BattleFormation =
   ## Walk `$A970` and collect live enemy ids + decoded names + HP.
+  ## Hardened 2026-07-27: during battle-init the tail of the list can
+  ## briefly hold stale/duplicate pointers from the previous fight (seen
+  ## live: a mid-init read decoded a ghost second enemy). Dedup by battler
+  ## address and stop at the first repeat — the real list never aliases.
   result.enemies = @[]
   let rom = snes.rom
+  var seen: seq[int] = @[]
   for i in 0 ..< EnemyBattlerPtrMax:
     let p = wramU16(snes, EnemyBattlerPtrTable + i * 2)
     if p == 0 or p == 0xFFFF:
@@ -81,6 +86,9 @@ proc readBattleFormation*(snes: SnesBus): BattleFormation =
     # Reject non-WRAM-ish pointers (noise past the terminator).
     if p < 0x2000 or p > 0x1F000:
       break
+    if p in seen:
+      break
+    seen.add p
     let id = wramU16(snes, p + EnemyBattlerIdOff)
     if id <= 0 or id > EnemyIdMax:
       break
