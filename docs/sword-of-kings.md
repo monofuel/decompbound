@@ -169,6 +169,13 @@ where it matters, but treat as operational truth for play):
   carries the Sword of Kings (1/128). Clear the base without the drop and
   the sword is gone for that playthrough. All tooling urgency flows from
   this: get the sword BEFORE finishing the base.
+- **Why it matters (and why it's not a crisis).** The Sword of Kings is
+  the ONLY weapon Poo can equip — the one critical, permanently-missable
+  weapon in the game. That said, missing it is survivable: the party can
+  be over-leveled and the final Giygas fight cheeses easily with
+  multi-bottle rockets. The goal is hitting the story beat properly, not
+  rescuing the run. (Matches the item-table RE: Poo equip quirks already
+  documented in docs/decompilation.md.)
 - **You can't tell Starman from Starman Super on the map.** The area
   spawns both, and the overworld sprites don't distinguish them — you
   only learn which you engaged after the battle starts. Tooling answer:
