@@ -53,9 +53,12 @@ into a stronger guarantee:
 Constraints (on us, not the game): policies must be deterministic (no wall-clock,
 no real randomness in the Lua); the emulator must not read uninitialized state.
 
-- **TODO (verify, don't assume):** RE the exact RNG seed address + advance routine
-  (per-call only, or also per-frame idle?) and document it in `memory-map.md`, so
-  tests can log/seed it and RNG behavior is known cold.
+- **RESOLVED (2026-07-21/27):** RNG fully RE'd — routine `$C08E9A`, seed
+  `$0024`/`$0026`, documented in `memory-map.md` and adopted in
+  `snes_src/rng.nim`. Per-call only, no per-frame idle advancement (measured:
+  `probe_rng_advances.nim`; pure mirror `rng_oracle.nim` gold-gated by
+  `tests/test_rng_oracle.nim`). Advancement schedule per action:
+  `docs/sword-of-kings.md` Layer 0 findings.
 
 ## Dual-layer assertions
 

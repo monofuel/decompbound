@@ -161,6 +161,35 @@ lock or extend the snapshot cadence deliberately.
 3. **Layer 2** — harness behind its three gates.
 4. **Layer 1 Phase B + Layer 3** — forecast + MCP polish.
 
+## Layer 0 findings — advancement schedule (2026-07-27, measured)
+
+Source: `src/probes/probe_rng_advances.nim` (headless, counts `$C08E9A`
+entries + caller return addresses over scripted inputs on local states).
+Pure mirror `src/decompbound/rng_oracle.nim` (`advanceSeed`) verified
+against every live RNG call over hundreds of frames —
+`tests/test_rng_oracle.nim`, zero mismatches.
+
+| Action | Advances | Dominant caller | Note |
+|--------|----------|-----------------|------|
+| Overworld idle 60f / 180f | **0** | — | **No per-frame tick. Event-driven confirmed.** |
+| Walk (60f, direction-dep) | 0-1 | `$C02823` | Likely step/encounter check; map-context dependent |
+| Menu open (A) | 2 | `$C12DDB` | |
+| **Open-menu dwell 120f** | **0** | — | **Dwell-safe: human timing cannot drift the count** |
+| Menu cursor move | 0 | — | Free |
+| Menu close (B) | 64 | `$C12DDB` | The big lever: one toggle ≈ 66 advances |
+| Dialogue idle 60f | ~50 | `$C12DDB` | Text engine consumes constantly — avoid dialogue mid-recipe |
+| **Battle command menu idle** | **0** (60f+120f) | — | **Dwell-safe at the decision point** |
+| Battle cursor 60f | 5 | `$C12DDB` | |
+| Attack + resolution (180f) | 131 | `$C12DDB`, `$C2460D`, `$C269F5`, `$C23F78`, `$C2537B` | Battle actions consume heavily — anchors prediction at the roll, not battle start |
+
+Implications for the recipe method: monofuel's menu-input manipulation is
+vindicated and quantified — advances only happen on discrete events, idle
+is free everywhere that matters, and a menu open+close moves the seed a
+large fixed step. Caveats: measured on specific states; counts (esp. walk
+and menu close) may vary with party size/map/context — re-measure on a
+Stonehenge-local state before trusting a recipe, and note the menu-close 64
+came from one state's window config.
+
 ## Open questions (answered during Layer 0, not guessed)
 
 - Real denominator + whether Starman Super's drop slot is 100%-Sword or
