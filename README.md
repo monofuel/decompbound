@@ -7,6 +7,9 @@ byte-for-byte — and, along the way, a real SNES emulator plus tools that make
 the reverse-engineering honest and fun. Progress is one verified region at a
 time; the gold ROM is always the referee.
 
+**Goal 2 is done:** the Nim SNES emulator runs EarthBound end-to-end. monofuel
+finished the entire game on it — intro through Giygas. It works.
+
 See **`docs/goal.md`** for the full scope, ordering, and verification rules.
 
 ## Goals
@@ -15,7 +18,7 @@ See **`docs/goal.md`** for the full scope, ordering, and verification rules.
 |---|------|--------|
 | **1** | 65816 assembler + disassembler + byte-exact code regions (round-trip vs gold) | **In progress** — tooling works; coverage and adoption still growing |
 | **1.5** | Adoption: replace generated scaffolding with named, documented routines | **In progress** — see `docs/goal-1.5.md` |
-| **2** | EarthBound-focused SNES emulator in Nim (CPU, PPU, APU, play harness) | **Mostly done** — feature-complete for practical play; more testing still welcome |
+| **2** | EarthBound-focused SNES emulator in Nim (CPU, PPU, APU, play harness) | **Done** — full game cleared on `make play` (2026-07) |
 | **3** | Verified native Nim reimplementation (subsystem by subsystem under the emu) | Someday |
 | **4** | LLM plays EarthBound (Lua policy harness + story milestones) | **WIP** — see `docs/llm-plays.md` / `docs/llm-sequence.md` |
 | **5** | MCP playthrough co-pilot (help *your* save — not the agent player) | **MVP** — `make mcp`, `docs/mcp-server.md` |
@@ -26,10 +29,9 @@ count.
 
 **Goal 2** is the playable Nim SNES emulator (pixie video, slappy audio, save
 states, `make play`). It is **built for EarthBound only** — not a general SNES
-compatibility layer; other games are out of scope. It has been exercised through
-**more than half the game** and is effectively **feature-complete** for that
-work — remaining issues are mostly minor fidelity bugs and broader playtesting,
-not missing subsystems.
+compatibility layer; other games are out of scope. **Verified by a full human
+playthrough:** the entire commercial game, start to credits, on this emulator.
+Minor fidelity bugs may still exist; the subsystem bar is cleared.
 
 **Goal 4** is the experimental agent track: an LLM authors Lua that drives the
 emulator (landmarks, routes, battles, knock arc, etc.). Fun and useful for RE
@@ -42,19 +44,20 @@ sunstroke on *this* party.” See `docs/mcp-server.md`.
 
 ## Current state (2026-07)
 
+- **Emulator (Goal 2):** **works.** Full EarthBound playthrough completed on the
+  Nim SNES core — 65816, PPU (Mode 7 / HDMA / color math paths EB uses), APU/SPC,
+  joypad, save-states / F12 state-screenshots, windowed player (`make play`).
+  Stonehenge, Magicant, Cave of the Past, Giygas — all on this stack.
 - **Decomp coverage:** ~**5.70%** of the ROM is byte-exact decompiled code
   (`make compare` → `report.md`). Implemented regions are 100% exact within
   themselves; coincidental zero-fill is tracked separately and is **not**
-  progress.
+  progress. Goal 1 remains the long decomp grind.
 - Code regions ship as bank modules under `src/decompbound/generated/`
   (assembler DSL from the gold ROM via `convert_all` / tracing). Goal 1.5
   peels understood routines into named `snesAsm` modules under
   `src/decompbound/snes_src/` (registered via `adopted.nim`).
 - Shared **opcode table** (`opcodes.nim`); **assembler** + **disassembler**
   derive from it; round-trip and unit tests in `tests/`.
-- **Emulator:** 65816, PPU (incl. Mode 7 / HDMA color math paths used by EB),
-  APU/SPC path, joypad, save-states / F12 state-screenshots, windowed player.
-  Human play past mid-game is the live proof.
 - **LLM-play:** two-clock harness (`make llm-ai`), Lua skills, story percents
   (touch grass → Pokey → knock → …). Still WIP; docs under `docs/llm-*.md`.
 - **MCP co-pilot (Goal 5):** `make mcp` → HTTP MCP on `:4343`, tool
