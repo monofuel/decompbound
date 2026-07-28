@@ -207,6 +207,28 @@ where it matters, but treat as operational truth for play):
     to victory with 0..N extra cursor-advances injected pre-final-blow.
     Outcome varies with N ⇒ live-seed victory roll. Outcome invariant ⇒
     start-determined (H1 or H3). Doubles as the K-advance measurement.
+- **Surprise-attack instant wins — the ideal recipe vehicle.** Starmen
+  teleport around the base; bumping one right after it teleports gives a
+  surprise attack (green swirl), and on a solo Starman Super that easily
+  becomes an instant "YOU WIN" with no battle at all. Per monofuel, the
+  Sword CAN drop from an instant win. Consequences:
+  - The instant-win path has the SHORTEST, most deterministic
+    overworld-seed → drop-roll distance (no turns, no damage rolls, no
+    AI). Under the victory-roll model it is the perfect recipe vehicle:
+    dial the seed (spinner + fine-step, see prng.md), bump the
+    teleporter, done. Under start-roll models it's equally fine — fewer
+    consumers, same manipulation.
+  - 🟡 RE hypothesis: the duplicate roll site (`$C26451` inside
+    `$C261BD`, sole caller `$C0B758`) may be the INSTANT-WIN reward
+    path, with `$C24DDC` the normal-victory path — would explain why two
+    identical rolls exist. Verify: which site fires on an instant win vs
+    a fought win.
+  - Wanted capture: **F12 on the Stonehenge overworld just before
+    bumping a freshly-teleported Starman** — gives the harness a
+    pre-instant-win state (and battle ENTRY through the swirl may even
+    work headless where normal entry aborts — worth testing).
+  - Instant wins still award full EXP (30,145) — overleveling accrues
+    regardless; manipulation is still what caps the kill count.
 - **You can't tell Starman from Starman Super on the map.** The area
   spawns both, and the overworld sprites don't distinguish them — you
   only learn which you engaged after the battle starts. Tooling answer:
