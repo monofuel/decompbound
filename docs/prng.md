@@ -93,11 +93,16 @@ with a menu open.
 - Enemy table `$D59589`, stride `0x5E`; drop freq enum `+0x57` (0=1/128,
   1..6 = 1/64..1/2 via masks `$7F..$01`, ≥7 = always), drop item `+0x58`.
 - Roll = `JSL $C08E9A` + `AND #mask`, success only on 0. Sites `$C24DDC`
-  and `$C264B1`, both on the battle VICTORY/reward path (strongly
-  supported; complete `STA $AA10` enumeration). No battle-init roll; no
-  carry flag; Jeff's Spy is intel-only (no roll, no drop-field read).
+  and `$C264B1` sit on victory-flow code (static). **Roll TIMING is
+  RE-OPENED (2026-07-27 late):** monofuel field-confirms Jeff's Spy DOES
+  steal carried drop items (incl. the Sword) mid-battle, and community
+  knowledge says the roll is decided at battle start. The static
+  "victory-only" case rested on a literal `STA $AA10` scan that is blind
+  to indirect/indexed writes. Dynamic write-hook referee in flight —
+  see sword-of-kings.md for the full evidence state.
 - Battle command menu is dwell-safe (0 advances) — the recipe anchor is
-  the final command menu before the killing blow.
+  the final command menu before the killing blow (victory-roll model) or
+  the pre-battle overworld (start-roll model); referee decides.
 
 ## Tooling index
 

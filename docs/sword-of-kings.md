@@ -176,18 +176,26 @@ where it matters, but treat as operational truth for play):
   multi-bottle rockets. The goal is hitting the story beat properly, not
   rescuing the run. (Matches the item-table RE: Poo equip quirks already
   documented in docs/decompilation.md.)
-- **Jeff's Spy — player memory REFUTED by ROM RE (2026-07-27,
-  probe_spy_roll):** the remembered "Spy steals the Sword if they have
-  it" does not match the code. Spy (action id 6, handler `$C28770`) is
-  pure intel — stats + weakness messages — with **no RNG draw and no
-  enemy-table drop-field read**. It has a tail that would grant-and-clear
-  `$AA10` (the drop slot) if non-zero, but a ROM-wide enumeration shows
-  `$AA10` is only ever written on the victory paths — so mid-battle the
-  tail is dead code under normal flow (likely the seed of the folklore).
-  The carry-flag model is dead: battle init copies weaknesses
-  (`~+0x52..0x55`) but NOT `+0x57/+0x58`, and there is no init roll.
-  Consequence: **no engage-check-flee loop is possible** — nothing about
-  the drop exists until the victory roll fires.
+- **Jeff's Spy — RE-OPENED (2026-07-27, late).** monofuel DIRECTLY
+  CONFIRMS from multiple completed grinds: **Spy does steal items,
+  including the Sword of Kings, when the enemy has one** — and community
+  knowledge holds the dice roll is decided at battle START. This is field
+  data from someone who has done it; it outranks the static analysis
+  below. The earlier "refuted" verdict (probe_spy_roll) rested on a
+  ROM-wide enumeration of `$AA10` writers that scanned for the LITERAL
+  `STA $AA10` — an **indirect or indexed store (pointer walks, table
+  fills at battle init) is invisible to that scan**. Classic static-RE
+  trap (see player-is-slot-24 lesson: trace writers dynamically). What
+  static DID establish and stands: Spy's handler tail grants-and-clears
+  `$AA10` when non-zero — i.e. the code path for "steal it if they have
+  it" **exists and matches monofuel's account exactly** if something
+  fills `$AA10` at battle start via a write the scan missed. Note the
+  earlier mid-battle peek (`$AA10`=0 in slot200) is CONSISTENT with a
+  start-roll that simply missed (127/128 case). **Decisive referee
+  (mandatory, running):** dynamic write-hook on `$7E:AA10` (catches ALL
+  addressing modes) from battle start context + drive slot200 to
+  victory + script a live Spy — see who writes, when, and what Spy does.
+  If start-roll confirms, the engage-check-flee loop is BACK ON.
 - **You can't tell Starman from Starman Super on the map.** The area
   spawns both, and the overworld sprites don't distinguish them — you
   only learn which you engaged after the battle starts. Tooling answer:
