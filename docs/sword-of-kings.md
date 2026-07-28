@@ -176,20 +176,18 @@ where it matters, but treat as operational truth for play):
   multi-bottle rockets. The goal is hitting the story beat properly, not
   rescuing the run. (Matches the item-table RE: Poo equip quirks already
   documented in docs/decompilation.md.)
-- **Jeff's Spy can steal the Sword mid-battle.** Spying a Starman Super
-  grabs the Sword of Kings immediately "**if they have it**" — no need to
-  win the fight. The hard part remains making the 1/128 happen. This
-  phrasing strongly supports the carry-flag model: the 1/128 roll runs at
-  battle init and marks the enemy as *carrying* the item; Spy reads/steals
-  that state, and a normal win presumably awards the same flag. Testable
-  RE target for Layer 0b: find where the rolled "has item" state lives in
-  battle WRAM after init.
-  - **Tooling jackpot if confirmed:** the overlay/MCP can announce
-    "CARRYING SWORD OF KINGS" the instant a battle starts. The grind loop
-    then needs no full fights at all: engage → overlay verdict → if not
-    carrying, flee, re-toggle, re-engage → if carrying, Jeff Spies it and
-    you're done. Combined with the arithmetic recipe (compute toggles so
-    the init roll passes), it's potentially a one-battle grind.
+- **Jeff's Spy — player memory REFUTED by ROM RE (2026-07-27,
+  probe_spy_roll):** the remembered "Spy steals the Sword if they have
+  it" does not match the code. Spy (action id 6, handler `$C28770`) is
+  pure intel — stats + weakness messages — with **no RNG draw and no
+  enemy-table drop-field read**. It has a tail that would grant-and-clear
+  `$AA10` (the drop slot) if non-zero, but a ROM-wide enumeration shows
+  `$AA10` is only ever written on the victory paths — so mid-battle the
+  tail is dead code under normal flow (likely the seed of the folklore).
+  The carry-flag model is dead: battle init copies weaknesses
+  (`~+0x52..0x55`) but NOT `+0x57/+0x58`, and there is no init roll.
+  Consequence: **no engage-check-flee loop is possible** — nothing about
+  the drop exists until the victory roll fires.
 - **You can't tell Starman from Starman Super on the map.** The area
   spawns both, and the overworld sprites don't distinguish them — you
   only learn which you engaged after the battle starts. Tooling answer:
@@ -291,25 +289,20 @@ Full evidence: /tmp/rng_layer0b_summary.md (session artifact).
   so 1/128 … 1/2), **freq ≥7 = always drop** (no RNG). The 1/128 draw is
   `JSL $C08E9A` + `AND #$7F` at **`$C24DDC`** (duplicate clone at
   `$C264B1`). Item granted later from `$AA10` (`$C25FFC` → `JSL $C1DD7C`).
-- **Timing: 🟡 UNSETTLED — static analysis says victory path, but this
-  is NOT dynamically verified.** Grok's caller-chain walk places the roll
-  in the reward flow (state loop `$C24B5C` → `$006D` bit `$1000` →
-  `$C24CD5` → roll) and found no roll in the init copy `$C2B6FA`. BUT:
-  (a) that walk is static only; (b) init copies record bytes `+0x54..`
-  into battler RAM — a range that INCLUDES the drop fields; (c) monofuel's
-  memory AND multiple community sources say the roll fires at battle
-  START with one shared result for Spy and the win-drop. Three hints vs
-  one unverified walk. Peek check: `$7E:AA10` = 0 in the live mid-battle
-  slot200 state — consistent with victory-roll but does not refute
-  start-roll (a 127/128 miss or a different storage site both also give
-  0). **Decisive experiment (headless-feasible, battle EXECUTION works
-  from mid-battle states):** drive slot200 to a win watching `$C08E9A`
-  calls, both roll sites (`$C24DDC`, `$C264B1`), and `$AA10`/battler-RAM
-  writes. Behavioral referee for shared-vs-independent: Spy-fail then
-  win the same battle — shared roll ⇒ guaranteed no drop; independent ⇒
-  drop still possible. Either timing answer keeps pre-battle
-  manipulation valid (pure function of pre-battle seed given a fixed
-  script).
+- **Timing: victory path — now STRONGLY supported (upgraded from
+  unsettled, 2026-07-27 probe_spy_roll).** The earlier community/player
+  "rolled at battle start, shared with Spy" model is refuted by three
+  complete enumerations: (1) ALL `STA $AA10` sites ROM-wide are on
+  victory/reward paths (`$C24DA7`, `$C24EB1`, `$C2647C`); (2) the second
+  roll site `$C26451` is fall-through inside victory rewards `$C261BD`
+  (sole caller `$C0B758`), not a battle action; (3) battle init copies
+  weakness fields but NOT `+0x57/+0x58`, and holds no roll. Dynamic
+  spot-checks agree (`$AA10`=0 mid-battle; idle + A-mash hit neither roll
+  site). Last-mile referee (also needed for recipes anyway): drive
+  slot200 to an actual win and watch `$C24DDC`/`$C264B1` fire + count K
+  advances from final command menu to the draw. Pre-battle manipulation
+  stays valid regardless: fixed script ⇒ outcome is a pure function of
+  the pre-battle seed.
 - **⚠ Open discriminator — Jeff's Spy.** With a victory-time roll, the
   remembered "Spy steals it if they have it" cannot read a not-yet-rolled
   flag. Next RE target: does Spy run its OWN roll against `+0x57/+0x58`
