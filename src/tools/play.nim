@@ -548,10 +548,12 @@ Controls:
   var debugHudFormLine = ""
   # Dial (F6): machine-executed recipe input queue — the emulator performs
   # the frame-precise dwell a human can't. Loaded from recipe_current.txt.
-  var dialQueue: seq[uint16] = @[]
-  var dialQueueIdx = 0
-  var dialCloseAt = 0
+  var dialActive = false
+  var dialPhase = 0
+  var dialPhaseFrames = 0
+  var dialWalkBtn = 0'u16
   var dialSeedTarget = 0'u32
+  const DialDwellGiveUp = 600
 
   # F10: one-shot per-scanline TM/TS profile -> autoshots/scanline_trace.txt,
   # for diagnosing HDMA screen-splits (e.g. the battle's bottom status band).
@@ -894,20 +896,49 @@ void main() {
     # is REPLACED, not OR'd, so the machine-precise sequence can't be
     # polluted by a stray press. The human's only job was restoring the
     # capture and pressing F6.
-    if dialQueue.len > 0 and not paused:
-      joy1 = dialQueue[dialQueueIdx]
-      inc dialQueueIdx
-      if dialQueueIdx == dialCloseAt:
-        let live = readRngSeed(snes)
-        let ok = live == dialSeedTarget
-        let verdict = if ok: "MATCH" else: "MISMATCH — restore + F6 again"
-        echo &"DIAL close: seed={live:08X} target={dialSeedTarget:08X} {verdict}"
-        writeLog(&"DIAL close: seed={live:08X} target={dialSeedTarget:08X} {verdict}")
-      if dialQueueIdx >= dialQueue.len:
-        dialQueue = @[]
-        dialQueueIdx = 0
-        echo "DIAL: sequence complete — hands back to you"
-        writeLog("DIAL: sequence complete")
+    if dialActive and not paused:
+      # CLOSED-LOOP dial. A fixed dwell only works from the exact captured
+      # seed; live the seed drifts before the key is pressed (walking, enemy
+      # AI), which is why a fixed-count dial missed every time. So: open the
+      # spinner, watch the live seed each frame, and begin the close the
+      # instant the oracle says it will land on the recipe's target. Drift
+      # becomes irrelevant — only the seed at close matters to the roll.
+      let liveSeed = readRngSeed(snes)
+      case dialPhase
+      of 0:  # open the status spinner
+        joy1 = sword_dial.BtnB
+        inc dialPhaseFrames
+        if dialPhaseFrames > BPressFrames:
+          dialPhase = 1
+          dialPhaseFrames = 0
+      of 1:  # dwell: wait for the seed to line up
+        joy1 = 0
+        inc dialPhaseFrames
+        if seedWillMatch(liveSeed, dialSeedTarget):
+          dialPhase = 2
+          dialPhaseFrames = 0
+          echo &"DIAL: seed lined up after {dialPhaseFrames} dwell frames — closing"
+        elif dialPhaseFrames > DialDwellGiveUp:
+          dialActive = false
+          echo "DIAL: target seed never came up (spinner not advancing?) — aborted"
+          writeLog("DIAL: dwell timeout, aborted")
+      of 2:  # close the spinner
+        joy1 = sword_dial.BtnB
+        inc dialPhaseFrames
+        if dialPhaseFrames > BPressFrames:
+          let ok = liveSeed == dialSeedTarget
+          let verdict = if ok: "MATCH — walking in" else: "MISMATCH (report this)"
+          echo &"DIAL close: seed={liveSeed:08X} target={dialSeedTarget:08X} {verdict}"
+          writeLog(&"DIAL close: seed={liveSeed:08X} target={dialSeedTarget:08X} {verdict}")
+          dialPhase = 3
+          dialPhaseFrames = 0
+      else:  # walk into the enemy until the battle takes over
+        joy1 = dialWalkBtn
+        inc dialPhaseFrames
+        if dialPhaseFrames > DialWalkFramesMax:
+          dialActive = false
+          echo "DIAL: walk finished — hands back to you"
+          writeLog("DIAL: complete")
     # No input latch: faithful d-pad, no held-frame band-aid. A good controller
     # handles its own diagonals; we don't hack around bad hardware.
     snes.joy1 = joy1
@@ -1046,9 +1077,8 @@ void main() {
       # dwell, B-close, walk — because humans can't frame-count and this
       # machine can. Restore the recipe's capture FIRST, then press F6.
       # Pressing F6 mid-dial cancels.
-      if dialQueue.len > 0:
-        dialQueue = @[]
-        dialQueueIdx = 0
+      if dialActive:
+        dialActive = false
         echo "DIAL: cancelled"
         writeLog("DIAL: cancelled")
       else:
@@ -1059,13 +1089,14 @@ void main() {
             echo "DIAL: recipe invalid (dwell/dir) — regenerate with sword_recipe"
             writeLog("DIAL: invalid recipe")
           else:
-            dialQueue = buildDialQueue(r.dwell, btn)
-            dialQueueIdx = 0
-            dialCloseAt = dialCloseIndex(r.dwell)
+            dialActive = true
+            dialPhase = 0
+            dialPhaseFrames = 0
+            dialWalkBtn = btn
             dialSeedTarget = r.seedAtClose
             echo &"DIAL: executing recipe from {r.capture}"
-            echo &"  dwell {r.dwell}f, walk {r.dir}, expect {r.item} — hands off ~{dialQueue.len div 60}s"
-            echo &"  (recipe only works from that restored capture)"
+            echo &"  closed-loop: spinning to seed {r.seedAtClose:08X}, then walk {r.dir}"
+            echo &"  expect {r.item}. Hands off until it says MATCH."
             writeLog(&"DIAL: start capture={r.capture} dwell={r.dwell} dir={r.dir}")
         except CatchableError as e:
           echo "DIAL: no usable recipe — run sword_recipe on an F12 first (", e.msg, ")"

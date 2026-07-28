@@ -12,7 +12,8 @@
 ## off for a couple of seconds, then play the battle normally.
 
 import
-  std/[os, strutils]
+  std/[strutils],
+  ./rng_oracle
 
 const
   ## Frames the B button is held for the open/close presses (must match the
@@ -65,6 +66,24 @@ proc buildDialQueue*(dwell: int, walkBtn: uint16,
   for _ in 0 .. dwell: result.add 0'u16            # dwell
   for _ in 0 .. BPressFrames: result.add BtnB      # close
   for _ in 0 ..< walkFrames: result.add walkBtn
+
+proc closeAdvanceLead*(): int =
+  ## Advances consumed between "begin the closing B press" and the frame the
+  ## seed is sampled on (the spinner keeps ticking through the press).
+  ## Derived from the queue shape: the close press spans BPressFrames + 1
+  ## frames (the phase machine's transition frame still emits B), and the
+  ## seed is sampled on the last of them.
+  BPressFrames + 1
+
+proc seedWillMatch*(live, target: uint32): bool =
+  ## True when starting the close NOW lands the seed on `target` at the
+  ## sample frame. Closed-loop replacement for a fixed dwell count: the dial
+  ## no longer depends on starting from the captured seed, so player drift
+  ## between restoring and pressing the key can't invalidate a recipe.
+  var s = live
+  for _ in 0 ..< closeAdvanceLead():
+    s = advanceSeed(s).seed
+  s == target
 
 proc dialCloseIndex*(dwell: int): int =
   ## Queue index of the frame on which the simulation samples the
