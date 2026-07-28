@@ -469,13 +469,16 @@ Controls:
   var autoShot = true
   var lastShotTime = getMonoTime()
   var shotCount = 0
-  # Capture home: all human-browsable artifacts (session replays, F12
-  # screenstates, autoshots) live in the private secret repo when it is
-  # checked out next to us; bin/ is only the fallback for machines without
-  # it. Machine/working files (ROM, play_log, sram backups, save slots)
-  # always stay in bin/.
-  let captureRoot =
-    if dirExists(SecretArchiveRoot): SecretArchiveRoot else: "bin"
+  # Capture home: ALL human-browsable artifacts (session replays, F12
+  # screenstates, autoshots) live in the private secret repo, period — no
+  # bin fallback (monofuel 2026-07-27: bin is not browsed; captures there
+  # rot invisibly). Machine/working files (ROM, play_log, sram backups,
+  # save slots) stay in bin/.
+  if not dirExists(SecretArchiveRoot):
+    echo "ERROR: ", SecretArchiveRoot, " not found — captures live there."
+    echo "Clone/create the secret repo next to this checkout, then re-run."
+    quit(1)
+  let captureRoot = SecretArchiveRoot
   let autoshotsDir = captureRoot / "autoshots"
   createDir(autoshotsDir)
   createDir("bin/states")
