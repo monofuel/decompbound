@@ -163,6 +163,19 @@ lock or extend the snapshot cadence deliberately.
 🟡 From several completed Sword grinds on real hardware (verify in ROM
 where it matters, but treat as operational truth for play):
 
+- **One-and-done, permanently missable.** Once Stonehenge Base is
+  finished, the monsters inside NEVER spawn again. Starman Super exists
+  in exactly ONE area of the base and is the ONLY enemy in the game that
+  carries the Sword of Kings (1/128). Clear the base without the drop and
+  the sword is gone for that playthrough. All tooling urgency flows from
+  this: get the sword BEFORE finishing the base.
+- **You can't tell Starman from Starman Super on the map.** The area
+  spawns both, and the overworld sprites don't distinguish them — you
+  only learn which you engaged after the battle starts. Tooling answer:
+  the enemy formation (ids) is in WRAM at battle init, so the F8 overlay
+  and/or MCP should announce "Starman Super present" the moment a fight
+  begins — no wasted full fights against plain Starmen, less stray EXP.
+
 - **Atomic Power Robots must be destroyed LAST.** They explode on death
   with massive damage, and with the rolling HP meter that explosion can
   land critical damage while earlier hits are still draining. Kill order
@@ -228,4 +241,8 @@ came from one state's window config.
   itself rolled; enemy-table drop field location.
 - Event vs frame advancement; menu-open dwell behavior.
 - Roll timing relative to the final blow / fanfare / loot text.
-- Missable-after-base-clear: confirm from the Player's Guide.
+- ~~Missable-after-base-clear~~ **confirmed by player memory**: base
+  completion permanently despawns its monsters; Starman Super is the sole
+  Sword source, in one area only. (Guide cross-check now optional.)
+- Layer 0b must find WHERE the enemy formation ids live in WRAM at battle
+  init — feeds the "Starman Super present?" announcement (see tactics).
