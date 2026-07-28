@@ -370,16 +370,16 @@ Controls:
   -           Decrease speed
   =           Increase speed
   F9          Capture a FULL diagnostic bundle: frame + PPU regs + scanline trace + CGRAM
-              (bin/autoshots/, preserved as f9_NNN_*). The emulator ALSO auto-captures a
+              (autoshots/, preserved as f9_NNN_*). The emulator ALSO auto-captures a
               bundle whenever an HDMA screen-split starts (a battle/iris) — no keypress needed.
-  F10         Dump per-scanline TM/TS band profile only (bin/autoshots/scanline_trace.txt)
-  F11         Toggle auto-screenshots (bin/autoshots/ every 5s; ON by default — press to turn OFF if the ~5s stutter bugs you)
+  F10         Dump per-scanline TM/TS band profile only (autoshots/scanline_trace.txt)
+  F11         Toggle auto-screenshots (autoshots/ every 5s; ON by default — press to turn OFF if the ~5s stutter bugs you)
   F12         SCREENSTATE (screenshot + embedded save-state, drag-drop restorable)
-              -> bin/sessions/<session>/f12/ (canonical) + ~/Pictures/Screenshots
+              -> <captures>/sessions/<session>/f12/ (canonical) + ~/Pictures/Screenshots
               mirror; copied into ../decompbound_secret/screenstates/ at capture time
   F7          Toggle INPUT RECORDING (TAS). ALWAYS ON by default: every boot and
               every state load starts a fresh <ts>.tas + <ts>_start.state segment in
-              bin/sessions/<session>/ (sparse joy1 deltas — replayable + great bug
+              <captures>/sessions/<session>/ (sparse joy1 deltas — replayable + great bug
               reports). F7 turns it off/on. On clean exit the session's replay pairs
               + F12s sweep to ../decompbound_secret/ at boot AND exit (if present)
               — idempotent, so sessions ended by Ctrl+C/crash archive next boot.
@@ -401,6 +401,8 @@ Controls:
 
   --verbose / -v   Print input changes (joy1 + only active gamepads) for debugging
   Mouse cursor hides after 3s (180 frames) idle; reappears on movement.
+  Captures (<captures> = ../decompbound_secret when present, else bin/): sessions,
+  autoshots, screenstates all live there; F12 also mirrors to ~/Pictures/Screenshots.
   Events (input changes, saves/loads, F9-F12, pause/speed) are logged to bin/play_log.txt
 """
   echo Controls
@@ -460,24 +462,32 @@ Controls:
   const HitchThresholdMs = 24.0  # ~1.5x the 16.6ms/60fps budget; under this = normal.
   var prevOccupiedMem = getOccupiedMem()
   var lastMemLogTime = getMonoTime()
-  # Auto-capture: every 5s dump the frame + PPU state to bin/autoshots/
+  # Auto-capture: every 5s dump the frame + PPU state to the autoshots dir
   # (gitignored) so scenes can be reviewed/diagnosed after the fact. ON by
   # default. Tradeoff: the synchronous per-5s PNG write blocks one frame = a
   # ~5s-periodic stutter. Press F11 to toggle it OFF for a stutter-free session.
   var autoShot = true
   var lastShotTime = getMonoTime()
   var shotCount = 0
-  createDir("bin/autoshots")
+  # Capture home: all human-browsable artifacts (session replays, F12
+  # screenstates, autoshots) live in the private secret repo when it is
+  # checked out next to us; bin/ is only the fallback for machines without
+  # it. Machine/working files (ROM, play_log, sram backups, save slots)
+  # always stay in bin/.
+  let captureRoot =
+    if dirExists(SecretArchiveRoot): SecretArchiveRoot else: "bin"
+  let autoshotsDir = captureRoot / "autoshots"
+  createDir(autoshotsDir)
   createDir("bin/states")
   let screenshotsDir = getHomeDir() / "Pictures" / "Screenshots"
   createDir(screenshotsDir)
   # Per-session capture home: the durable artifacts of ONE play session live
   # together — replay segments (.tas + _start.state) + F12 bookmarks (f12/).
-  # Autoshots stay in bin/autoshots (disposable diagnostics; replay_seek can
-  # regenerate any moment from the session's replays anyway). On clean exit
-  # the durable bits auto-archive to ../decompbound_secret/sessions/.
+  # Sessions write DIRECTLY into the capture root (secret repo when present)
+  # — no more copy-on-exit dance for new sessions; the sweep below only
+  # migrates legacy strays from bin/sessions.
   let sessionStamp = now().format("yyyyMMdd-HHmmss")
-  let sessionDir = "bin/sessions" / sessionStamp
+  let sessionDir = captureRoot / "sessions" / sessionStamp
   createDir(sessionDir / "f12")
   # Session provenance manifest: the build that produced everything in this
   # session dir (screenstates, replays). Answers "what version was this?".
@@ -525,7 +535,7 @@ Controls:
   var debugHudLastSeed = 0'u32
   var debugHudHadEnemies = false
 
-  # F10: one-shot per-scanline TM/TS profile -> bin/autoshots/scanline_trace.txt,
+  # F10: one-shot per-scanline TM/TS profile -> autoshots/scanline_trace.txt,
   # for diagnosing HDMA screen-splits (e.g. the battle's bottom status band).
   var traceScanlines = false
   var traceArmed = 0    # frames since F10 armed; wait for an HDMA-active frame.
@@ -940,7 +950,7 @@ void main() {
       captureManual = true
       traceScanlines = true
       traceArmed = 0
-      echo "F9: capturing diagnostic bundle -> bin/autoshots/ (frame + regs + scanline trace + CGRAM)"
+      echo "F9: capturing diagnostic bundle -> ", autoshotsDir, "/ (frame + regs + scanline trace + CGRAM)"
       writeLog("F9: diagnostic bundle capture armed")
     if window.buttonPressed[KeyF10]:
       traceScanlines = true
@@ -949,7 +959,7 @@ void main() {
       writeLog("F10: scanline trace armed")
     if window.buttonPressed[KeyF11]:
       autoShot = not autoShot
-      echo "auto-screenshots: ", (if autoShot: "ON (bin/autoshots/ every 5s)" else: "OFF")
+      echo "auto-screenshots: ", (if autoShot: &"ON ({autoshotsDir}/ every 5s)" else: "OFF")
       writeLog(&"F11: auto-screenshots {(if autoShot: \"ON\" else: \"OFF\")}")
     if window.buttonPressed[KeyF12]:
       # F12 = screenshot, matching Steam's screenshot-key convention (Steam
@@ -1171,7 +1181,7 @@ void main() {
         if traceScanlines:
           inc traceArmed
         if traceScanlines and (snes.hdmaen != 0 or traceArmed >= 180):
-          let tf = open("bin/autoshots/scanline_trace.txt", fmWrite)
+          let tf = open(autoshotsDir / "scanline_trace.txt", fmWrite)
           tf.writeLine(&"per-scanline profile (frame {frameCount}): " &
             &"BGMODE={snes.ppuRegs[0x05] and 7} bg3prio={(snes.ppuRegs[0x05] and 8) != 0} " &
             &"CGADSUB={snes.ppuRegs[0x31]:02X} CGWSEL={snes.ppuRegs[0x30]:02X} HDMAEN={snes.hdmaen:02X}")
@@ -1188,8 +1198,8 @@ void main() {
           # written alongside the trace, so one capture has everything a render
           # bug needs (e.g. the swirl's palette for the red-vs-green colour).
           if captureBundle:
-            frameImage.writeFile("bin/autoshots/bundle_frame.png")
-            let rf = open("bin/autoshots/bundle_regs.txt", fmWrite)
+            frameImage.writeFile(autoshotsDir / "bundle_frame.png")
+            let rf = open(autoshotsDir / "bundle_regs.txt", fmWrite)
             rf.writeLine(&"frame {frameCount}  BGMODE={snes.ppuRegs[0x05] and 7} " &
               &"bg3prio={(snes.ppuRegs[0x05] and 8) != 0} TM={snes.ppuRegs[0x2C]:02X} " &
               &"TS={snes.ppuRegs[0x2D]:02X} INIDISP={snes.ppuRegs[0x00]:02X} " &
@@ -1221,25 +1231,25 @@ void main() {
                   &"tile={snes.oam[s * 4 + 2]:02X} attr={snes.oam[s * 4 + 3]:02X}")
             rf.close()
             captureBundle = false
-            echo "wrote diagnostic bundle -> bin/autoshots/ " &
-              "(scanline_trace.txt + bundle_frame.png + bundle_regs.txt)"
+            echo "wrote diagnostic bundle -> ", autoshotsDir,
+              "/ (scanline_trace.txt + bundle_frame.png + bundle_regs.txt)"
             writeLog("F9/auto: wrote diagnostic bundle (scanline_trace + frame + regs)")
             if captureManual:
               # F9 (manual) captures get numbered copies the HDMA auto-capture
               # can't overwrite — so a deliberate F9 (e.g. on the battle HP/PP
               # menu) survives even if a later HDMA edge fires an auto-capture.
-              copyFile("bin/autoshots/bundle_frame.png",
-                &"bin/autoshots/f9_{f9Count:03}_frame.png")
-              copyFile("bin/autoshots/bundle_regs.txt",
-                &"bin/autoshots/f9_{f9Count:03}_regs.txt")
-              copyFile("bin/autoshots/scanline_trace.txt",
-                &"bin/autoshots/f9_{f9Count:03}_trace.txt")
-              echo &"  F9 bundle preserved -> bin/autoshots/f9_{f9Count:03}_*"
+              copyFile(autoshotsDir / "bundle_frame.png",
+                autoshotsDir / &"f9_{f9Count:03}_frame.png")
+              copyFile(autoshotsDir / "bundle_regs.txt",
+                autoshotsDir / &"f9_{f9Count:03}_regs.txt")
+              copyFile(autoshotsDir / "scanline_trace.txt",
+                autoshotsDir / &"f9_{f9Count:03}_trace.txt")
+              echo &"  F9 bundle preserved -> {autoshotsDir}/f9_{f9Count:03}_*"
               writeLog(&"F9: bundle preserved as f9_{f9Count:03}_*")
               inc f9Count
               captureManual = false
           else:
-            echo "wrote bin/autoshots/scanline_trace.txt"
+            echo "wrote ", autoshotsDir / "scanline_trace.txt"
             writeLog("wrote scanline_trace.txt")
         frameCount += 1
         # CPU-DERAIL?: stuck at EB unused-vector BRK sink with NMI often off.
@@ -1513,9 +1523,9 @@ void main() {
       writeLog(hitch)
 
     # Auto-capture: every ~5s dump the frame + a PPU-register line to the
-    # gitignored bin/autoshots/ so scenes can be reviewed/diagnosed later.
+    # the autoshots dir so scenes can be reviewed/diagnosed later.
     if autoShot and (getMonoTime() - lastShotTime).inSeconds >= 5:
-      frameImage.writeFile(&"bin/autoshots/shot_{shotCount:04}.png")
+      frameImage.writeFile(autoshotsDir / &"shot_{shotCount:04}.png")
       # Timeline pointer: with always-on recording every autoshot maps to an
       # exact replayable moment — reconstruct it via
       #   nim r src/tools/replay_seek.nim <seg>.tas --frame <segframe>
@@ -1527,10 +1537,10 @@ void main() {
         &"CGADSUB={snes.ppuRegs[0x31]:02X} CGWSEL={snes.ppuRegs[0x30]:02X} " &
         &"fixedRGB={snes.fixedColorR},{snes.fixedColorG},{snes.fixedColorB} HDMAEN={snes.hdmaen:02X} " &
         &"W12={snes.ppuRegs[0x23]:02X} TMW={snes.ppuRegs[0x2E]:02X} TSW={snes.ppuRegs[0x2F]:02X}"
-      let lf = open("bin/autoshots/registers.log", fmAppend)
+      let lf = open(autoshotsDir / "registers.log", fmAppend)
       lf.writeLine(regLine)
       lf.close()
-      echo &"autoshot → bin/autoshots/shot_{shotCount:04}.png @ frame {frameCount}{segTag}"
+      echo &"autoshot → {autoshotsDir}/shot_{shotCount:04}.png @ frame {frameCount}{segTag}"
       inc shotCount
       lastShotTime = getMonoTime()
 
