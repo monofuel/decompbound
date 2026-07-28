@@ -64,8 +64,14 @@ snes_src/rng.nim. Do not re-open.
    the comparison + real denominator, and **where the enemy table stores
    drop item + rate** (bestiary mapping has HP/PP/EXP/money but no drop
    fields pinned — docs/bestiary.md:61-64).
-3. **When the roll happens** — at the final blow, after fanfare, during
-   loot text? Gates the overlay forecast wording and the oracle anchor.
+3. **When the roll happens.** 🟡 **Player memory (monofuel, several past
+   grinds): drops are determined from RNG BEFORE the battle starts** — not
+   at the final blow. Consistent with his proven method (savestate before
+   the battle, vary menu-input count, then fight). If the RE confirms it,
+   the manipulation anchor moves to the pre-battle overworld (toggle
+   before engaging) and the fight itself doesn't matter to the roll.
+   Verify by pinning where `$C24Dxx` (drop path) is called from — battle
+   init vs victory flow — and/or a write-hook run on a live encounter.
 4. **A callable seed stepper.** `snes_src/rng.nim` is byte-exact snesAsm,
    not a pure `advanceSeed(seed) -> (byte, seed')` API. Small explicit
    deliverable (pure Nim from the documented algorithm, verified against
@@ -136,12 +142,38 @@ advances before the roll; inventory-full (goes to Escargo Express? item
 lost?); multi-enemy groups rolling per-enemy; recipes cached across level
 /equipment changes (mid-battle RNG use drifts — re-scan from fresh F12).
 
+**If pre-battle determination confirms** (player-memory hypothesis above):
+the harness scan simplifies enormously — no fight replay needed at all.
+Load pre-battle state → apply N toggle-advances arithmetically via
+`advanceSeed` → step the fixed battle-init draw sequence → read the drop
+verdict. The whole 0..127 scan becomes pure arithmetic. The costs move to:
+(a) RE'ing exactly how many draws battle-init consumes before the drop
+draw (must be constant per formation), and (b) headless battle ENTRY
+(task #19) being needed only for one-time verification runs, not the scan.
+
 ### Layer 3 — MCP tools
 
 `get_rng_state` (seed + advance counters) and `predict_drop` (recipe for
 nearest drop window). Snapshot model must handle staleness: party vitals
 publish every 30 frames; RNG tools either read fresh under the existing
 lock or extend the snapshot cadence deliberately.
+
+## Grind tactics — player field notes (monofuel)
+
+🟡 From several completed Sword grinds on real hardware (verify in ROM
+where it matters, but treat as operational truth for play):
+
+- **Atomic Power Robots must be destroyed LAST.** They explode on death
+  with massive damage, and with the rolling HP meter that explosion can
+  land critical damage while earlier hits are still draining. Kill order
+  in mixed Starman Super groups: everything else first, robots at the end
+  when the explosion can be absorbed/managed.
+- The rolling HP meter interaction is the general hazard: burst damage
+  stacked on an already-draining meter can take a character mortal before
+  healing gets a turn.
+- First live Starman Super capture: F12 2026-07-27 21:00 (local only),
+  seed at command menu `8B00EDC6`; state behaves identically to fixtures
+  (battle-menu idle = 0 advances).
 
 ## Intended play session
 
