@@ -205,6 +205,22 @@ where it matters, but treat as operational truth for play):
 - The rolling HP meter interaction is the general hazard: burst damage
   stacked on an already-draining meter can take a character mortal before
   healing gets a turn.
+- **Over-leveling is not just inefficiency — it has endgame edge cases.**
+  Each Starman Super kill is 30,145 EXP (table-verified), so a long grind
+  can approach the level-99 cap before the end of the game. Two risks,
+  tagged honestly:
+  - 🟡 **Folklore (monofuel not 100% sure):** Ness's special end-of-
+    Magicant level-up allegedly grants bonus stats; if he's already 99
+    when it fires, the bonuses are lost. Unverified mechanics — RE-able
+    from ROM later if we care (find the Magicant level-up routine and
+    whether it's a level grant or a direct stat grant). Counterpoint from
+    the same source: 99-at-Magicant means way overleveled anyway.
+  - ✅ **Real (player-confirmed):** the rock candy glitch can push stats
+    past 255, and u8 storage rolls them over to ~0. Overflow is real;
+    keep stats away from the 255 boundary if using that trick.
+  - Tooling tie-in: this is exactly why the overlay shows EXP-to-next and
+    why the ideal grind loop (flee non-carriers, Spy the carrier) awards
+    zero or one battle's EXP total.
 - First live Starman Super capture: F12 2026-07-27 21:00 (local only),
   seed at command menu `8B00EDC6`; state behaves identically to fixtures
   (battle-menu idle = 0 advances).
