@@ -189,6 +189,14 @@ var
     ## OBJ priority (0-3) of the sprite drawn at each pixel this frame, or -1 if
     ## none. Recorded by renderSprites; read by overlayForegroundBg to interleave
     ## high-priority BG tiles in front of the sprites they should cover.
+  objLayerOffLine: array[ScreenHeight, bool]
+    ## Per-scanline: the OBJ layer was enabled on NEITHER screen (TM $212C and
+    ## TS $212D both had bit 4 clear) when the line was composited. Hardware
+    ## shows no sprites there; without this gate, stale OAM entries render as a
+    ## garbage blob when a scene runs BG-only (the Giygas praying cutscene runs
+    ## TM=$04 with 8 sprites still parked mid-screen). Default false (= OBJ on)
+    ## so legacy callers that skip renderScanline keep their sprites. Recorded
+    ## per line because battle HDMA rewrites TM/TS mid-frame.
   anySpriteDrawn: bool
     ## True if renderSprites drew any pixel this frame (lets the foreground-BG
     ## overlay skip its passes entirely when nothing needs interleaving).
@@ -342,6 +350,7 @@ proc renderScanline*(snes: SnesBus, image: Image, py: int) =
   ## Giygas red static (BG1 main + BG2 static subscreen, added) appear.
   let backdrop = bgr555ToColor(snes.cgram[0])
   let mainMask = snes.ppuRegs[0x2C]
+  objLayerOffLine[py] = ((mainMask or snes.ppuRegs[0x2D]) and 0x10) == 0
   let cgadsub = snes.ppuRegs[0x31]
   let cgwsel = snes.ppuRegs[0x30]
   let mathLayers = cgadsub and 0x3F
@@ -559,6 +568,8 @@ proc renderSprites*(snes: SnesBus, image: Image) =
       let screenY = (y + py + 1) and 0xFF
       if screenY >= ScreenHeight:
         continue
+      if objLayerOffLine[screenY]:
+        continue   # OBJ layer disabled on both screens for this line (TM/TS).
       for px in 0..<size:
         let sx = if flipX: size - 1 - px else: px
         let screenX = x + px

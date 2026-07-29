@@ -101,6 +101,18 @@ type
     dmaWramToABank*: uint8
     dmaWramToAAddr*: uint16
     dmaWramToASize*: int
+    ## Sticky: a full 64KiB (DAS=0) A→B MDMA sourced from a WRAM mirror was
+    ## skipped. That shape only comes from a zeroed/torn CHR-queue job (the
+    ## queue-poison family, sibling of the crash3 B→A rail): the 2026-07-28
+    ## credits glitch was such a job spraying bank $00 across all of VRAM.
+    ## No legitimate EB transfer reads an entire 64KiB WRAM window into a
+    ## B-bus port. Play loop logs once and clears; fields hold the first
+    ## skipped job.
+    dma64kSpray*: bool
+    dma64kSprayDmap*: uint8
+    dma64kSprayBbad*: uint8
+    dma64kSprayBank*: uint8
+    dma64kSprayAddr*: uint16
     hdmaen*: uint8  ## $420C HDMA enable.
     hdmaTableAddr*: array[8, uint32]
     hdmaLineCounter*: array[8, uint8]
@@ -411,6 +423,9 @@ proc runDma(snes: SnesBus, channels: uint8) =
   ## CHR queue is A→B only; reverse into low WRAM is how a corrupt $0400 job
   ## wipes the $0020 NMI vector (crash3). A-addr/pattern still advance and
   ## size regs finalize as hardware would. Orthogonal to the dmaStorm budget.
+  ## A→B jobs with DAS=0 (64KiB) sourced from a WRAM mirror are skipped the
+  ## same way (dma64kSpray) — the other decode of a poisoned queue job, which
+  ## otherwise sprays bank $00 across all of VRAM (2026-07-28 credits glitch).
   for ch in 0..7:
     if (channels and (1'u8 shl ch)) == 0:
       continue
@@ -431,7 +446,21 @@ proc runDma(snes: SnesBus, channels: uint8) =
     let storm = snes.dmaBytesThisFrame > MaxDmaBytesPerFrame
     if storm:
       snes.dmaStorm = true
-    if not storm:
+    # Poisoned-job rail (queue-poison family): a DAS=0 (64KiB) A→B transfer
+    # whose source starts in a WRAM mirror is a zeroed/torn CHR-queue job, not
+    # a real upload — EB's biggest legit jobs are a few KiB. Executed, it
+    # sprays bank-$00 bytes across all of VRAM (the 2026-07-28 credits
+    # glitch: BG3 CHR tile 0 at word $6000 kept the junk). Skip the writes
+    # but finalize regs like the storm path so game state stays coherent.
+    let spray64k = not toA and transferSize == 0x10000 and
+      isWramMirrorABus(aBank, aAddr)
+    if spray64k and not snes.dma64kSpray:
+      snes.dma64kSpray = true
+      snes.dma64kSprayDmap = dmap
+      snes.dma64kSprayBbad = bbad
+      snes.dma64kSprayBank = aBank.uint8
+      snes.dma64kSprayAddr = aAddr.uint16
+    if not storm and not spray64k:
       # B-bus register sequence per transfer pattern.
       let pattern: seq[uint8] = case dmap and 0x07:
         of 0: @[0'u8]
@@ -481,7 +510,7 @@ proc runDma(snes: SnesBus, channels: uint8) =
           else: aAddr = (aAddr + 1) and 0xFFFF
         patternIndex = (patternIndex + 1) mod pattern.len
     else:
-      # Storm skip: advance A-addr as if the full transfer ran.
+      # Storm/spray skip: advance A-addr as if the full transfer ran.
       if not fixed:
         if decrement:
           aAddr = (aAddr - size.uint32) and 0xFFFF

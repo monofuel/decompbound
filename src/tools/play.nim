@@ -424,7 +424,8 @@ Controls:
   var framesPerTick = 1
   # Derail detectors (instrumentation only): BRK-sink at 00:5FFF, NMI left
   # masked outside uploadApuPackages, MDMA death-spiral, WRAM word-fill,
-  # NMI CHR-DMA queue stuck, $0020 NMI-vector wipe, and blocked B→A WRAM MDMA.
+  # NMI CHR-DMA queue stuck, $0020 NMI-vector wipe, blocked B→A WRAM MDMA,
+  # and skipped 64KiB A→B WRAM-sourced MDMA (poisoned-job VRAM spray).
   # Re-arm when the condition clears (DMA-STORM / DMA-WRAM-TOA re-arm after
   # 300 quiet frames; NMI-VEC-WIPE re-arms when $0020 returns to ROM-class).
   var brkSinkFrames = 0
@@ -435,6 +436,8 @@ Controls:
   var dmaStormQuietFrames = 0
   var dmaWramToALogged = false
   var dmaWramToAQuietFrames = 0
+  var dma64kSprayLogged = false
+  var dma64kSprayQuietFrames = 0
   var nmiVecWipeLogged = false
   var prevNmiVec =
     snes.bus.mem[0x7E0020].uint16 or (snes.bus.mem[0x7E0021].uint16 shl 8)
@@ -1428,6 +1431,26 @@ void main() {
           inc dmaWramToAQuietFrames
           if dmaWramToAQuietFrames >= 300:
             dmaWramToALogged = false
+        # DMA-64K-SPRAY?: a DAS=0 (64KiB) A→B MDMA from a WRAM mirror was
+        # skipped (poisoned CHR-queue job — the credits VRAM spray). Same
+        # log-once + 300-quiet-frame re-arm as the other DMA rails.
+        if snes.dma64kSpray:
+          if not dma64kSprayLogged:
+            let sprayMsg =
+              &"DMA-64K-SPRAY? skipped 64KiB A->B from WRAM " &
+              &"DMAP={snes.dma64kSprayDmap:02X} " &
+              &"BBAD=21{snes.dma64kSprayBbad:02X} " &
+              &"A={snes.dma64kSprayBank:02X}:{snes.dma64kSprayAddr:04X} " &
+              &"PC={cpu.pbr:02X}:{cpu.pc:04X}"
+            echo sprayMsg
+            writeLog(sprayMsg)
+            dma64kSprayLogged = true
+          snes.dma64kSpray = false
+          dma64kSprayQuietFrames = 0
+        else:
+          inc dma64kSprayQuietFrames
+          if dma64kSprayQuietFrames >= 300:
+            dma64kSprayLogged = false
         # NMI-VEC-WIPE?: $7E:0020 was a ROM-code pointer (>=$8000) and dropped
         # into low WRAM (<$2000) — reverse-MDMA wipe of the NMI callback.
         # Re-arm when it returns to ROM-code class.
