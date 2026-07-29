@@ -29,7 +29,9 @@ import
 
 # windy/glblit only needed for the windowed main loop. Library importers
 # (probe_memory_router etc.) skip them so they do not require libGL at load.
-when isMainModule:
+# -d:noWindow drops them entirely so turbo/eval builds run without X11
+# (windy dlopens libX11 at init even when --headless never opens a window).
+when isMainModule and not defined(noWindow):
   import
     windy,
     ./glblit
@@ -886,6 +888,9 @@ when isMainModule:
     var loadStateSlot = -1
     var loadStatePath = ""
     var policyFile = ""
+    var resultJsonPath = ""
+      ## --result-json PATH: write a machine-readable end-of-run payload
+      ## (latched story percents, frames) for the eval runner (docs/EVAL.md).
     var scenarioName = ""
       ## Named seed scenario (--scenario nav|battle|explore|pokey); overrides slot mapping.
     var saveStateSlot = -1
@@ -981,6 +986,11 @@ when isMainModule:
         policyFile = paramStr(i)
       elif a.startsWith("--policy-file="):
         policyFile = a[14..^1]
+      elif a == "--result-json" and i < paramCount():
+        inc i
+        resultJsonPath = paramStr(i)
+      elif a.startsWith("--result-json="):
+        resultJsonPath = a[14..^1]
       elif a == "--scenario" and i < paramCount():
         inc i
         scenarioName = paramStr(i)
@@ -1001,6 +1011,7 @@ when isMainModule:
         echo "  windowed by default (opens GL window titled 'EarthBound - LLM (qwen)' for watching)"
         echo "  --vision: attach rendered frame PNG to each LLM request (qwen multimodal; slow — sparse use)"
         echo "  --headless: no window (for CI / batch); --png-every only dumps when flag is passed"
+        echo "  --result-json PATH: write end-of-run latched percents + frames as JSON (eval runner, docs/EVAL.md)"
         echo "  --speed N: pace emulated frames to N fps (0=unlimited/as-fast, 60=realtime)"
         echo "  --watch-async: keep stepping frames while LLM is in-flight (current policy at --speed);"
         echo "                 poll + hot-swap when result lands. DEFAULT for windowed/watch mode."
@@ -1262,9 +1273,13 @@ when isMainModule:
       f.close()
       echo msg
 
-    var blit: GlBlit
-    if not useHeadless:
-      blit = initGlBlit("EarthBound - LLM (qwen)", ppu.ScreenWidth, ppu.ScreenHeight, 3)
+    when defined(noWindow):
+      # No window deps linked at all; every windowed path below is compiled out.
+      useHeadless = true
+    else:
+      var blit: GlBlit
+      if not useHeadless:
+        blit = initGlBlit("EarthBound - LLM (qwen)", ppu.ScreenWidth, ppu.ScreenHeight, 3)
 
     var status = "running"
 
@@ -1278,10 +1293,11 @@ when isMainModule:
     # --watch-async: keep stepping with current policy while LLM in-flight; poll+hot-swap each frame.
     # --sync-llm: pause frame advance until policy applies (apply-at-snapshot).
     while ctx.frameCount < maxFrames:
-      if (not useHeadless) and blit.window.closeRequested:
-        break
-      if not useHeadless:
-        pollEvents()
+      when not defined(noWindow):
+        if (not useHeadless) and blit.window.closeRequested:
+          break
+        if not useHeadless:
+          pollEvents()
 
       let wasPending = pendingLlm
 
@@ -1321,11 +1337,12 @@ when isMainModule:
           if behind > frameNs * MaxPacingBacklogFrames:
             nextDeadline = now
 
-      if not useHeadless:
-        blit.blit(frameImage)
-        let t = fmt"EarthBound - LLM (qwen) - frame {ctx.frameCount} [{status}]"
-        if blit.window.title != t:
-          blit.window.title = t
+      when not defined(noWindow):
+        if not useHeadless:
+          blit.blit(frameImage)
+          let t = fmt"EarthBound - LLM (qwen) - frame {ctx.frameCount} [{status}]"
+          if blit.window.title != t:
+            blit.window.title = t
 
       # Periodic SRAM flush for isolated save (throttled like play.nim to coalesce writes).
       if saveSramEnabled and snes.sramDirty and (ctx.frameCount mod 60 == 0):
@@ -2024,10 +2041,11 @@ when isMainModule:
         if doLlmCall:
           if not pendingLlm:
             status = if watchAsync: "thinking-async" else: "thinking"
-            if not useHeadless:
-              # Keep last frame visible while we queue the (occasional) LLM call.
-              blit.blit(frameImage)
-              blit.window.title = fmt"EarthBound - LLM (qwen) - frame {ctx.frameCount} [thinking...]"
+            when not defined(noWindow):
+              if not useHeadless:
+                # Keep last frame visible while we queue the (occasional) LLM call.
+                blit.blit(frameImage)
+                blit.window.title = fmt"EarthBound - LLM (qwen) - frame {ctx.frameCount} [thinking...]"
             let baseSummary = buildStateSummary(ctx)
             let screenTxt = policy.getScreenText(ctx.snes)
             let histBlock = if recentHistory.len > 0:
@@ -2046,10 +2064,11 @@ when isMainModule:
             pendingLlm = true
             let modeLabel = if watchAsync: "async" else: "sync"
             echo fmt"LLM_QUEUED: frame={ctx.frameCount} mode={modeLabel} vision={gVision and imageB64.len > 0}"
-            if not useHeadless:
-              blit.blit(frameImage)
-              let thinkLabel = if watchAsync: "thinking (async)" else: "waiting policy..."
-              blit.window.title = fmt"EarthBound - LLM (qwen) - frame {ctx.frameCount} [{thinkLabel}]"
+            when not defined(noWindow):
+              if not useHeadless:
+                blit.blit(frameImage)
+                let thinkLabel = if watchAsync: "thinking (async)" else: "waiting policy..."
+                blit.window.title = fmt"EarthBound - LLM (qwen) - frame {ctx.frameCount} [{thinkLabel}]"
             if not watchAsync:
               # --sync-llm / --pause-llm: freeze frames until policy applies (apply-at-snapshot).
               # The returned policy matches the summary state at send time — good for milestone CI.
@@ -2058,12 +2077,13 @@ when isMainModule:
                 if not pendingLlm:
                   break
                 sleep(5)
-                if not useHeadless:
-                  pollEvents()
-                  if blit.window.closeRequested:
-                    break
-                  blit.blit(frameImage)
-                  blit.window.title = fmt"EarthBound - LLM (qwen) - frame {ctx.frameCount} [waiting policy...]"
+                when not defined(noWindow):
+                  if not useHeadless:
+                    pollEvents()
+                    if blit.window.closeRequested:
+                      break
+                    blit.blit(frameImage)
+                    blit.window.title = fmt"EarthBound - LLM (qwen) - frame {ctx.frameCount} [waiting policy...]"
             # else --watch-async: do nothing special; main loop keeps stepping current policy
             # and pollAndApplyResult hot-swaps when the worker result lands.
           # else: already pending (async path may still hit next llmInterval while in-flight — skip)
@@ -2101,6 +2121,35 @@ when isMainModule:
       fmt" sunrise_pct={finalSunrise} max_frank={maxFrank} max_giant={maxGiant} max_captain={maxCaptain}" &
       fmt" max_fourside={maxFourside} max_magicant={maxMagicant} max_giygas={maxGiygas} stuck_recoveries={stuckRecoveryCount}"
     echo fmt"frames_during_pending={framesDuringPending} (frames advanced while LLM request in-flight; async proof when >0)"
+    if resultJsonPath.len > 0:
+      # Machine-readable end-of-run payload for the eval runner (docs/EVAL.md).
+      # Latched maxima where they exist; finals for gates not latched yet.
+      let payload = %*{
+        "frames": ctx.frameCount,
+        "cpu_stopped": cpu.stopped,
+        "stuck_recoveries": stuckRecoveryCount,
+        "pokey_achieved_frame": pokeyAchievedFrame,
+        "max": {
+          "tg": maxTouchGrass,
+          "pokey": maxPokey,
+          "knock": maxKnock,
+          "frank": maxFrank,
+          "giant": maxGiant,
+          "captain": maxCaptain,
+          "fourside": maxFourside,
+          "magicant": maxMagicant,
+          "giygas": maxGiygas,
+        },
+        "final": {
+          "tg": finalTg,
+          "pokey": finalPokey,
+          "knock": finalPokeyKnock,
+          "buzzbuzz": finalBuzz,
+          "sunrise": finalSunrise,
+        },
+      }
+      writeFile(resultJsonPath, pretty(payload) & "\n")
+      echo fmt"result json written to {resultJsonPath}"
     if saveStateSlot >= 0:
       let outPath = llmSlotPath(saveStateSlot)
       writeStateFile(outPath, snes, cpu)

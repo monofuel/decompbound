@@ -1,0 +1,22 @@
+{
+  "pinned_commit": "cdcda3f",
+  "fixture_gates": {
+    "tg": 25,
+    "pokey": 100,
+    "knock": 80
+  },
+  "walk": {
+    "frames_budget": 200000,
+    "max": {
+      "tg": 100,
+      "pokey": 100,
+      "knock": 80,
+      "frank": 0,
+      "giant": 0,
+      "captain": 0,
+      "fourside": 0,
+      "magicant": 0,
+      "giygas": 0
+    }
+  }
+}

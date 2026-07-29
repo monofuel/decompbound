@@ -1,6 +1,8 @@
 # Bringing llm-play up to autoresearch status
 
-**Status:** plan (2026-07-28). Nothing below is implemented yet.
+**Status:** Phase 1 implemented (2026-07-28) — `make eval`, scorecard
+writer, `baseline.ref`, `runs/`, `docs/EVAL.md`, `-d:noWindow` headless
+gate. Phases 2–4 remain plan.
 Cross-checked against code by a grok 4.5 review (2026-07-28,
 `../decompbound_reports/autoresearch-llm-play-review.md`); factual
 corrections folded in.
@@ -211,41 +213,42 @@ autoresearch; llm-play stays the reference instance.
 
 Ordered: the X11 gate sits **before** the full turbo canary, not beside it.
 
-- [ ] Write `docs/EVAL.md` (domain program): hero metric definition (Phase-1
+- [x] Write `docs/EVAL.md` (domain program): hero metric definition (Phase-1
       primary = `max_knock`), the two floors + the named referee-test
       subset, scaffold tiers, budgets, promote rule, fixture deps (ROM +
       gitignored states + how to regenerate) — one screen, agents read it
       first.
-- [ ] `src/tools/eval_scorecard.nim`: types + writer for schema-v0
+- [x] `src/tools/eval_scorecard.nim`: types + writer for schema-v0
       `scorecard.json` (top-level `tier: screen|confirm`;
       `domain_extra.scaffold_tier` for T0–T4; **key allowlist enforced in
       the writer** — reject free-form strings that could carry dialogue).
-      Unit test with synthetic data (no ROM needed).
-- [ ] Structured run output from `llm_ai`: a JSON exit payload (or
-      `--result-json PATH`) with the latched percents + frame count —
-      replaces scraping `max_pokey=…` echo lines.
-- [ ] Fixture presence check in the runner: missing ROM/fixtures → non-zero
-      exit with a distinct "missing asset" message (≠ "harness broken").
-- [ ] Measure the scripted seed's actual latched percents per gate (one run,
+      Unit test with synthetic data (no ROM needed)
+      (`tests/test_eval_scorecard.nim`).
+- [x] Structured run output from `llm_ai`: `--result-json PATH` writes
+      latched percents + frames at run end — replaces scraping
+      `max_pokey=…` echo lines.
+- [x] Fixture presence check in the runner: missing ROM/fixtures → exit 2
+      with a distinct "missing asset" message (≠ exit 1 "harness broken").
+- [x] Measure the scripted seed's actual latched percents per gate (one run,
       explicit `--mock --tempo turbo`, **no `--campaign-fixtures`**) and pin
-      them in `baseline.ref` — do not copy numbers from docs, which drift.
-- [ ] `src/tools/run_eval.nim`: screen tier — **segmented canary** (score
-      known fixtures directly + one short scripted walk from `pokey_done`),
-      invoking `llm_ai` with explicit flags (never shelling
-      `make llm-ai-scripted`, which is Theater/20k); assert `baseline.ref`;
-      run the candidate; emit scorecard; print
+      them in `baseline.ref` (`make eval-pin-baseline`).
+- [x] `src/tools/run_eval.nim`: screen tier — **segmented canary** (score
+      known fixtures directly + one scripted turbo walk), invoking `llm_ai`
+      with explicit flags (never shelling `make llm-ai-scripted`, which is
+      Theater/20k); assert `baseline.ref`; emit scorecard; print
       `primary=<v> floors=pass|fail decision=keep|discard|inconclusive`;
-      non-zero exit on broken harness or incomplete scorecard.
-- [ ] `Makefile`: `make eval` (screen) and `make eval CONFIRM=1` targets.
-- [ ] `baseline.ref` at repo root: git sha + canary expected percents; eval
+      exit 1 on broken harness or incomplete scorecard.
+- [x] `Makefile`: `make eval IDEA=<x>` (screen) and `make eval CONFIRM=1`
+      targets (+ `make eval-pin-baseline`).
+- [x] `baseline.ref` at repo root: git sha + canary expected percents; eval
       reads it, promote updates it deliberately.
-- [ ] Add `runs/` to the repo: scorecards committed, `runs/**/logs/`
+- [x] Add `runs/` to the repo: scorecards committed, `runs/*/logs/`
       gitignored; README stub stating the asset-free rule.
-- [ ] Compile-time gate the windy/X11 deps in `llm_ai` (`when isMainModule`
-      pulls windy/glblit today) so turbo links headless — **prerequisite for
-      the skeptic/CI claim**; until it lands, eval is honest only where
-      DISPLAY exists. ⚠️ window/audio edits are headless-untestable; add the
-      live `make play` smoke-test row to human-verify.md.
+- [x] Compile-time gate the windy/X11 deps in `llm_ai`: `-d:noWindow` drops
+      windy/glblit entirely (forces headless); `run_eval` builds the walk
+      with it — turbo now runs without libX11. Default build unchanged
+      (windowed `make llm-ai` untouched). ⚠️ human-verify row added for the
+      windowed smoke test (llm_ai window paths were touched).
 
 ### Phase 2 — history + hero graph
 

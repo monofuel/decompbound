@@ -1,0 +1,49 @@
+{
+  "schema_version": 0,
+  "idea_id": "phase1-bootstrap",
+  "candidate_id": "cdcda3f",
+  "baseline_id": "cdcda3f",
+  "utc": "20260729T023754Z",
+  "tier": "screen",
+  "primary_for_ranking": {
+    "name": "max_knock",
+    "value": 80.0,
+    "higher_is_better": true
+  },
+  "hard_constraints": [
+    {
+      "name": "harness_canary",
+      "pass": true
+    },
+    {
+      "name": "referee_green",
+      "pass": true
+    }
+  ],
+  "n": 1,
+  "seeds_or_slate": "scripted-deterministic",
+  "decision": "keep",
+  "reason_codes": [
+    "keep"
+  ],
+  "links": {},
+  "domain_extra": {
+    "scaffold_tier": "T4",
+    "pilot": "scripted",
+    "tempo": "turbo",
+    "gates": {
+      "tg": 25,
+      "pokey": 100,
+      "knock": 80,
+      "walk_tg": 100,
+      "walk_pokey": 100,
+      "walk_knock": 80,
+      "walk_frank": 0,
+      "walk_giant": 0,
+      "walk_captain": 0,
+      "walk_fourside": 0,
+      "walk_magicant": 0,
+      "walk_giygas": 0
+    }
+  }
+}

@@ -37,3 +37,8 @@ extracted/
 # Auto-capture screenshots (play.nim F11) — contain game graphics.
 bin/autoshots/
 bin/sram_backups/
+
+# Eval run logs may contain agent transcripts with on-screen dialogue
+# (script content — banned). Scorecards themselves are committed; see
+# runs/README.md and docs/EVAL.md.
+runs/*/logs/

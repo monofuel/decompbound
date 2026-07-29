@@ -47,6 +47,15 @@ Copy this template when adding a row (agents: always use it):
   - **Notes:** (human fills)
 ```
 
+### Harness / eval
+
+- [ ] **llm-ai window still opens after -d:noWindow gating** · 2026-07-28 · eval loop Phase 1
+  - **Run:** `make llm-ai-scripted` → let it run ~30 seconds
+  - **Pass if:** the GL window opens, title updates with frame count, game
+    visibly plays (the noWindow compile gate must not affect default builds)
+  - **Fail if:** no window, black window, or a crash at startup
+  - **Notes:**
+
 ### Intro / title
 
 - [ ] **Giygas red snow (intro static)** · 2026-07-08 · `d37e4bc` / `aa425e6`
