@@ -1,4 +1,4 @@
-.PHONY: help build compare test check clean regions boot screenshot intro title song vectors spc-vectors disasm play play-pokey archive archive-replays play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai llm-ai-scripted llm-ai-scripted-campaign llm-ai-display llm-ai-display-loop mcp testrom script-dump gfx-roundtrip battle-bg trace inspect audio-check audio-diff jukebox-app chunk-summary chunk-check chunk-check-all
+.PHONY: help build compare test test-banks check clean regions boot screenshot intro title song vectors spc-vectors disasm play play-pokey archive archive-replays play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai llm-ai-scripted llm-ai-scripted-campaign llm-ai-display llm-ai-display-loop mcp testrom script-dump gfx-roundtrip battle-bg trace inspect audio-check audio-diff jukebox-app chunk-summary chunk-check chunk-check-all eval eval-pin-baseline
 
 # bash + pipefail: the test loop pipes nim through sed, and without
 # pipefail the pipeline's exit status is sed's (always 0), which turns
@@ -9,14 +9,19 @@ SHELL := bash
 ROM ?= bin/Earthbound (U) [!].smc
 BG ?= 0
 FRAMES ?= 60
-NIM_TEST_FLAGS ?= --hints:off --warnings:off
+# parallelBuild: without it each nim invocation fans out gcc to ALL cores, so
+# NIM_TEST_JOBS x nproc cc1 processes (4 x 32 = 128) swamp the box — the job
+# cap only bounds the nim drivers, not the C backend.
+NIM_TEST_FLAGS ?= --hints:off --warnings:off --parallelBuild:4
 LUA_LIB := vendor/lua/liblua.a
 
 help:
 	@echo "decompbound targets:"
 	@echo "  make compare      - build the decomp ROM and compare against gold"
 	@echo "  make check        - nim check main entrypoints + tests (no run)"
-	@echo "  make test         - run the full test suite"
+	@echo "  make test         - run the test suite (bank monsters excluded)"
+	@echo "  make test-banks   - run the 4 bank-importing monster tests (30GiB+ nim peaks, sequential)"
+	@echo "  make eval         - llm-play autoresearch gate: canary + scorecard (IDEA=name CONFIRM=1; docs/EVAL.md)"
 	@echo "  make chunk-summary - full-ROM typed chunk inventory (see docs/rom-chunks.md)"
 	@echo "  make chunk-check CHUNK=id - gold-check one chunk (sub-agent gate)"
 	@echo "  make chunk-check-all - gold-check every implemented chunk"
@@ -286,15 +291,42 @@ audio-diff: nim.cfg
 # so unbounded fan-out (100+ tests) can exhaust even a 128 GiB box. Output is
 # captured per test so a nim failure is not masked by the sed prefix pipe.
 NIM_TEST_JOBS ?= 4
+# Monster tests: these transitively import generated/ (84 MB of bank modules,
+# ~30 GiB nim sem-pass peak EACH, minutes of compile). Excluded from the
+# default suite per monofuel (2026-07-28); run them with `make test-banks`.
+BANK_TESTS := tests/test_regions.nim tests/test_rng.nim \
+	tests/test_baserom_extract.nim tests/test_rom_chunks.nim
 test: nim.cfg $(LUA_LIB)
-	@files=$$(ls tests/test_*.nim 2>/dev/null); \
+	@files=$$(ls tests/test_*.nim 2>/dev/null | grep -vxF "$$(printf '%s\n' $(BANK_TESTS))"); \
 	if [ -z "$$files" ]; then \
 		echo "No unit tests found in tests/test_*.nim"; \
 		exit 0; \
 	fi; \
+	echo "skipping bank monsters (make test-banks): $(BANK_TESTS)"; \
 	echo "$$files" | xargs -P $(NIM_TEST_JOBS) -I{} sh -c \
 		'out=$$(nim r $(NIM_TEST_FLAGS) "{}" 2>&1); rc=$$?; \
 		 printf "%s\n" "$$out" | sed "s|^|[{}] |"; exit $$rc' || exit 1
+
+# The four bank-importing monster tests, sequential (they do not fit in RAM
+# side by side). Run before touching regions/, generated/, or the extractors.
+test-banks: nim.cfg $(LUA_LIB)
+	@for f in $(BANK_TESTS); do \
+		echo "== $$f"; \
+		nim r $(NIM_TEST_FLAGS) "$$f" || exit 1; \
+	done
+
+# Autoresearch eval gate (docs/EVAL.md, docs/autoresearch-llm-play.md):
+# segmented canary (fixtures + referee tests + scripted turbo walk) vs
+# baseline.ref -> runs/<utc>-<idea>/scorecard.json. CONFIRM=1 = 5x walk
+# budget, confirm-tier card (required before promote). IDEA names the run.
+IDEA ?= candidate
+eval: nim.cfg $(LUA_LIB)
+	nim r $(NIM_TEST_FLAGS) src/tools/run_eval.nim --idea $(IDEA) $(if $(filter 1,$(CONFIRM)),--confirm,) "$(ROM)"
+
+# Deliberate promote-time action: measure the scripted seed's actual canary
+# numbers and pin them into baseline.ref. Never run inside a candidate eval.
+eval-pin-baseline: nim.cfg $(LUA_LIB)
+	nim r $(NIM_TEST_FLAGS) src/tools/run_eval.nim --pin-baseline "$(ROM)"
 
 # Fast compile-only gate (same idea as racha/satisfactory_tools/coworld):
 # `nim check` entrypoints + unit tests without executing them.
