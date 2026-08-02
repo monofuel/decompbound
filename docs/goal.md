@@ -1,5 +1,17 @@
 # Project Goals
 
+> **⚠ Partially superseded (2026-08-02).** The *goal* — fully understand the
+> ROM — is unchanged. The **means** changed: decompilation now targets a real
+> SNES assembler and `.asm` source, not Nim.
+> See [`decompilation-phase2.md`](decompilation-phase2.md) for current
+> direction, and [`terms.md`](terms.md) for how progress is classified.
+>
+> - **Goal 3 (native reimplementation in Nim) is closed** — the game was never
+>   C or Nim, so that layer was a translation of a translation.
+> - **Goals 1 / 1.5** are historical; `generated/*.nim` is deleted at M2.5.
+> - **Unaffected:** the emulator, the tooling, and all data RE.
+> - **Do not run `make compare`** — 36.5 GB peak, see `AGENTS.md`.
+
 "Reverse engineer Earthbound in Nim" is too vague to act on. This doc defines
 what we are actually building, in order, and how each step is verified.
 

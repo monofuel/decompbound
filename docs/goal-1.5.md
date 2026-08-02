@@ -1,5 +1,23 @@
 # Goal 1.5: The Adoption Campaign
 
+> ## ⚠ SUPERSEDED — historical record, do not implement
+>
+> **The adoption campaign described below is retired.** Phase 2
+> ([`decompilation-phase2.md`](decompilation-phase2.md)) replaces the Nim
+> representation with a real SNES assembler and `.asm` source.
+>
+> Why: adopting a region into `snesAsm` lowers to the *same* Nim statement shape
+> as `generated/`, so adoption inherited the build cost instead of fixing it —
+> measured at ~25 KB of compiler memory per line, i.e. ~25 GB at full adoption.
+> `generated/*.nim` is deleted at the M2.5 checkpoint.
+>
+> **Do not run `make compare`** (36.5 GB peak — see `AGENTS.md`).
+>
+> **What survives:** the evidence rules. Names must be evidence-earned, claims
+> verified at named offsets, everything gold-gated. Those carry into phase 2
+> unchanged. The 21 adopted `snes_src` modules get *ported*, not discarded —
+> they hold the only `explained` content in the project.
+
 Goal 1 answered "can we produce byte-matching output from source?" — yes,
 via `src/decompbound/generated/`: 266 machine-generated regions, verified
 against gold. But generated code is a *transcription*, not understanding:
