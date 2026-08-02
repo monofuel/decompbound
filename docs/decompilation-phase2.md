@@ -141,6 +141,48 @@ parts we still don't understand.
 This generalizes `compare.nim` from a code metric to a whole-ROM one, and it
 subsumes the current gold gate rather than replacing it.
 
+## Scope: v1 is "reproduce the gold master"
+
+**v1 ships when `build()` reproduces the gold ROM byte-for-byte. Nothing more.**
+Editability, relocation, and hacking are incremental work on top of a working
+round-trip — not prerequisites for it.
+
+This collapses most of the hard parts:
+
+- **No linker, no freespace allocation, no relocation.** Pointers keep their
+  original values. We are rebuilding a fixed layout, not laying one out.
+- **No bit-identical re-encoder needed for every codec.** Anything we can't
+  re-encode exactly rebuilds from its **original bytes**.
+
+### Build path vs view path
+
+The key move that makes this work: separate the two directions.
+
+| | Build path | View path |
+|---|---|---|
+| Purpose | reproduce gold, byte-exact | let humans see/hear/read it |
+| Source | whatever reproduces the bytes (original blob, or a proven codec) | modern lossless files — PNG, WAV, text, JSON |
+| Constraint | **must** round-trip | may be lossy or one-way |
+
+Extraction to modern formats is for *understanding*. It does not have to feed
+the build. That means we can export BRR samples to WAV to listen to them
+without WAV ever being on the rebuild path.
+
+As each codec is proven bit-identical, its class graduates from view-only to
+editable and the two paths converge. `gfx_lz` is already proven; the rest are
+future work, unlocked one at a time.
+
+### Audio is one-way for now — accepted
+
+EarthBound's audio is generated programmatically: BRR samples plus sequence
+data driving the SPC700, not files in any modern sense. BRR is lossy 4-bit
+ADPCM, so decode-to-WAV then re-encode cannot reproduce the original bytes.
+
+**Decision: audio is view-only in v1.** Rebuild uses the original BRR and
+sequence bytes; WAV export exists purely for listening. Editing music is
+deferred, and when it lands it is a romhack-only path the gold gate can't
+cover.
+
 ## Blobs are allowed, and tracked
 
 Anything not yet understood stays an opaque `.bin` extracted verbatim. The ROM
@@ -154,7 +196,7 @@ means the round-trip works from day one instead of after everything is RE'd.
 Lossless and editable in ordinary tools is the goal; byte-exact round-trip is
 the constraint.
 
-| Class | Modern format | Round-trip |
+| Class | View-path format | On the build path? |
 |---|---|---|
 | Tiles / sprites | indexed PNG (indices *are* the pixel values) + palette | exact |
 | Compressed graphics | PNG + re-compress via `gfx_lz` | exact **only if our compressor is bit-identical** — already proven for `gfx_lz` |
@@ -164,33 +206,34 @@ the constraint.
 | Data tables (enemy/item/PSI) | CSV/JSON | exact |
 | Script / dialogue | UTF-8 text with explicit control codes | exact — needs a bit-identical encoder |
 | Music sequences | text (MML-like) | exact once we write the encoder |
-| **BRR samples** | WAV **for listening only**; BRR stays the source of truth | **view-only — see below** |
+| **BRR samples + sequences** | WAV / text, for listening only | **no — original bytes rebuild** |
 | Code | `.asm` | exact |
 | Not yet understood | `.bin` | exact by construction |
 
-## The two genuinely hard parts
+## Pointers — deferred, but don't paint over them
 
-**1. Pointers.** The moment an edited asset changes size, every pointer to it —
-and every pointer table, and every bank layout assumption — must change.
-Hardcoded offsets make the ROM rebuildable but not *editable*.
+In v1 pointers keep their original values, so there is nothing to solve: a
+fixed layout reproduces a fixed layout.
 
-So the build must **compute pointers from symbols, for data as well as code**.
-That means the thing we're building is not just an assembler: it's a whole-ROM
-**linker** with a symbol table spanning code and data, plus freespace/bank
-allocation.
+The problem arrives the moment an asset changes size — every pointer to it,
+every pointer table, and every bank-layout assumption moves with it. Solving
+that means computing pointers **from symbols, for data as well as code**, which
+turns the assembler into a whole-ROM **linker** with freespace allocation. That
+is the single biggest piece of post-v1 work, and it is what unlocks real
+romhacking.
 
-The upside is a very strong correctness check: in a vanilla build, every
-computed pointer must come out equal to the original. If our understanding of
-a table's shape is wrong, the ROM won't match. Byte-exactness proves the
-pointer model, not just the bytes.
+Two things to get right in v1 so that future work isn't blocked:
 
-**2. Lossy formats can't round-trip by nature.** BRR is 4-bit ADPCM — decoding
-to WAV and re-encoding will not reproduce the original bytes. So audio is
-asymmetric: *listening* is easy and free, *editing* forfeits byte-exactness the
-moment a sample is re-encoded. Vanilla builds must use the original BRR;
-edited audio is a romhack-only path that the gold gate cannot cover. Any
-compressed format we can't reproduce bit-identically has the same asymmetry —
-which is why proving each codec's re-encode is a prerequisite, not a detail.
+- **Where we understand a pointer table, describe it as a table** (base, stride,
+  count, target) even though v1 emits the original bytes. The description is the
+  seed of the symbol model; discovering it later from a wall of literals is far
+  harder.
+- **Keep the layout description declarative** rather than baking offsets into
+  procedural code, so a future linker can consume the same manifest.
+
+The eventual payoff is a strong check: once pointers are computed, a vanilla
+build's computed values must equal the originals — so byte-exactness would
+prove the pointer *model*, not just the bytes.
 
 ## Copyright shapes distribution
 
@@ -226,10 +269,10 @@ and "make a better version" never fight.
 8. **Where the format descriptions live** — the declarative "this region is a
    4bpp tileset of N tiles at offset X" manifest is what drives both extract
    and build. It is the real source of truth and needs its own design.
-9. **How far the linker goes** — full freespace allocation and relocation, or
-   fixed-layout only (edits must fit in place) as a first milestone?
-10. **Which codecs must be proven bit-identical**, and in what order — each one
-    gates editability for its asset class.
+9. *(settled: v1 is fixed-layout, original pointer values. Linker deferred.)*
+10. **Which codecs to prove bit-identical, and in what order** — post-v1, each
+    one graduates its asset class from view-only to editable. `gfx_lz` is
+    already proven; graphics is therefore the natural first class to unlock.
 
 ## Open decisions (nothing is settled)
 
