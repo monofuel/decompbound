@@ -17,10 +17,10 @@ LUA_LIB := vendor/lua/liblua.a
 
 help:
 	@echo "decompbound targets:"
-	@echo "  make compare      - build the decomp ROM and compare against gold"
+	@echo "  make compare      - phase-2 extract/rebuild vs gold (BYTE-IDENTICAL gate)"
 	@echo "  make check        - nim check main entrypoints + tests (no run)"
-	@echo "  make test         - run the test suite (bank monsters excluded)"
-	@echo "  make test-banks   - run the 4 bank-importing monster tests (30GiB+ nim peaks, sequential)"
+	@echo "  make test         - run the test suite"
+	@echo "  make test-banks   - retired (generated banks deleted at M2.5)"
 	@echo "  make eval         - llm-play autoresearch gate: canary + scorecard (IDEA=name CONFIRM=1; docs/EVAL.md)"
 	@echo "  make chunk-summary - full-ROM typed chunk inventory (see docs/rom-chunks.md)"
 	@echo "  make chunk-check CHUNK=id - gold-check one chunk (sub-agent gate)"
@@ -55,10 +55,13 @@ $(LUA_LIB):
 	$(MAKE) -C vendor/lua a
 
 build: nim.cfg
+	nim r src/tools/rom_extract.nim
+	nim r src/tools/rom_rebuild.nim --out bin/Decompbound.smc --no-compare
 	nim r src/decompbound.nim
 
 compare: nim.cfg
-	nim r src/decompbound.nim --compare
+	nim r src/tools/rom_extract.nim
+	nim r src/tools/rom_rebuild.nim
 
 # --- Emulator ---------------------------------------------------------
 
@@ -279,34 +282,23 @@ audio-check: nim.cfg
 	nim r src/tools/audio_check.nim --frames 1400 "$(ROM)"
 
 
-# Cap parallel test compiles: bank-importing tests peak ~30 GiB each in nim,
-# so unbounded fan-out (100+ tests) can exhaust even a 128 GiB box. Output is
-# captured per test so a nim failure is not masked by the sed prefix pipe.
+# Cap parallel test compiles so unbounded fan-out does not swamp the box.
+# Output is captured per test so a nim failure is not masked by the sed pipe.
 NIM_TEST_JOBS ?= 4
-# Monster tests: these transitively import generated/ (84 MB of bank modules,
-# ~30 GiB nim sem-pass peak EACH, minutes of compile). Excluded from the
-# default suite per monofuel (2026-07-28); run them with `make test-banks`.
-BANK_TESTS := tests/test_regions.nim tests/test_rng.nim \
-	tests/test_baserom_extract.nim tests/test_rom_chunks.nim
 test: nim.cfg $(LUA_LIB)
-	@files=$$(ls tests/test_*.nim 2>/dev/null | grep -vxF "$$(printf '%s\n' $(BANK_TESTS))"); \
+	@files=$$(ls tests/test_*.nim 2>/dev/null); \
 	if [ -z "$$files" ]; then \
 		echo "No unit tests found in tests/test_*.nim"; \
 		exit 0; \
 	fi; \
-	echo "skipping bank monsters (make test-banks): $(BANK_TESTS)"; \
 	echo "$$files" | xargs -P $(NIM_TEST_JOBS) -I{} sh -c \
 		'out=$$(nim r $(NIM_TEST_FLAGS) "{}" 2>&1); rc=$$?; \
 		 printf "%s\n" "$$out" | sed "s|^|[{}] |"; exit $$rc' || exit 1
 
-# The four bank-importing monster tests, sequential (they do not fit in RAM
-# side by side). Run before touching regions/, generated/, or the extractors.
-test-banks: nim.cfg $(LUA_LIB)
-	@for f in $(BANK_TESTS); do \
-		echo "== $$f"; \
-		nim r $(NIM_TEST_FLAGS) "$$f" || exit 1; \
-	done
-
+# Retired: generated/* bank modules deleted at M2.5.
+test-banks: nim.cfg
+	@echo "test-banks retired (no generated/* banks). Use: make test"
+	@exit 0
 # Autoresearch eval gate (docs/EVAL.md, docs/autoresearch-llm-play.md):
 # segmented canary (fixtures + referee tests + scripted turbo walk) vs
 # baseline.ref -> runs/<utc>-<idea>/scorecard.json. CONFIRM=1 = 5x walk

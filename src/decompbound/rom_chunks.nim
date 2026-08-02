@@ -1,7 +1,7 @@
 ## Full-ROM partition into typed chunks for per-chunk gold checks.
 ##
 ## Inventory metadata (list/summary) is built from lightweight spans:
-## `generated/code_spans.nim` + adopted sizes + header/vectors. That path must
+## `code_spans.nim` + adopted sizes + header/vectors. That path must
 ## never import bank modules or assemble millions of instructions.
 ##
 ## Per-chunk gold checks fill `built` from the project decomp ROM
@@ -15,7 +15,7 @@
 import
   std/[algorithm, os, strformat, strutils],
   ./[common, adopted, baserom_extract],
-  ./generated/code_spans
+  ./code_spans
 
 type
   ChunkKind* = enum

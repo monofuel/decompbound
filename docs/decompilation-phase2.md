@@ -1,27 +1,12 @@
 # Decompilation, phase 2 — the assembler pivot
 
-**Status:** M2 blob round-trip green; M3 assembler text front end in place.
+**Status:** M2.5 complete (`generated/*` banks deleted); blob gate is referee.
 Branch `snes-assembler`. **Started:** 2026-08-02.
 
-> ## ⚠ Do not run the full Nim build
->
-> **Until the M2.5 checkpoint below, nobody — human or agent — runs
-> `make compare`, `make build`, `make test-banks`, or any `nim c` / `nim r` on
-> `src/decompbound.nim` or `src/decompbound/generated/*`.**
->
-> Measured: **36.5 GB peak, 194 s** for one cold build; the four bank-monster
-> tests peak ~30 GB *each*. Two of those concurrently will exhaust a 128 GB box
-> and can take the desktop down with it — this has happened.
->
-> - Use targeted tests instead: `nim r tests/test_<thing>.nim`.
-> - `make test` excludes the bank monsters; `make test-banks` is the dangerous one.
-> - If a full build is genuinely required, cap it so the kernel kills the build
->   and not the machine:
->   `systemd-run --user --scope -p MemoryMax=12G nim c ...`
-> - `--mm:refc` drops it to 25.4 GB / 128 s. Still not safe to run in parallel.
->
-> **This restriction lifts at M2.5**, when `generated/*.nim` is deleted — that
-> is the entire source of the blow-up.
+> **Historical:** Before M2.5, compiling `generated/*` bank modules peaked at
+> **~36.5 GB / 194 s**. Those modules are **gone**. Vanilla rebuild is
+> `rom_extract` + `rom_rebuild` (manifest + `extracted/`). Prefer targeted
+> `nim r tests/test_*.nim` still; `make test-banks` is a no-op retired target.
 
 ## Why there is a phase 2
 
@@ -497,14 +482,14 @@ The moment M2 is green, `generated/*.nim` is redundant: it is
 on demand, and **read by nobody**. The blobs make the same bytes. Deleting it
 loses no knowledge.
 
-- [ ] Delete `src/decompbound/generated/*.nim` (50 files, 1,335,789 lines).
-- [ ] Delete the phase-1 adoption tooling that only services it:
+- [x] Delete `src/decompbound/generated/*.nim` (bank modules + registry).
+- [x] Delete the phase-1 adoption tooling that only services it:
       `verify_seed_regions`, `verify_sandwich_seeds`, the `patch_*_seeds` tools,
       and the `probe_*` files that import banks.
-- [ ] Retire the four bank-monster tests and the old `make compare` path once
-      the blob gate is the referee.
-- [ ] **Keep**: `snes_src/` (compiles at ~90 MB, holds the understood content),
-      `assembler.nim`, `opcodes.nim`, `disasm.nim`.
+- [x] Retire bank-monster tests and point `make compare` / `make build` at the
+      blob extract→rebuild gate.
+- [x] **Keep**: `snes_src/` (until M5), `assembler.nim`, `opcodes.nim`,
+      `disasm.nim`, lightweight `code_spans.nim` (offsets only).
 
 *Gate: blob round-trip still byte-exact; a full build is now cheap; the ⚠
 warning at the top of this doc is removed.*
