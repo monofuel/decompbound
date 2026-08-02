@@ -183,6 +183,20 @@ sequence bytes; WAV export exists purely for listening. Editing music is
 deferred, and when it lands it is a romhack-only path the gold gate can't
 cover.
 
+## How we classify what's understood
+
+Every region carries a position on three independent axes — **Build**
+(`copy`/`reproduce`/`modify`), **Comprehension**
+(`unknown`/`identified`/`explained`), and **Rights** (`ours`/`theirs`).
+Definitions, the matrix, the counting rules, and the glossary live in
+**[`terms.md`](terms.md)** — that file is canonical; this one doesn't
+redefine them.
+
+The short version: v1 drives the ROM to the `reproduce` row, and the
+project's headline metric is the `explained` column. Keeping them separate is
+what makes "89.81% byte-exact" and "0.064% understood" both true statements
+about the same ROM instead of a contradiction.
+
 ## Blobs are allowed, and tracked
 
 Anything not yet understood stays an opaque `.bin` extracted verbatim. The ROM
