@@ -140,9 +140,11 @@ it back together byte-for-byte — with the option of putting it back together
 *differently*.
 
 ```
-gold.smc ──extract──▶  assets/   (PNG, WAV, text, JSON — gitignored, per-user)
-   │                   asm/      (committed: our own new expression)
-   │                   data/     (committed: formats, offsets, evidence)
+gold.smc ──extract──▶  extracted/   (gitignored, per-user: .bin blobs, view
+   │                                  exports, anything derived from the ROM)
+   │                   asm/         (committed: our own new expression)
+   │                   data/        (committed: formats, offsets, evidence)
+   │                   manifest.json  (committed: layout — drives extract + build)
    │                        │
    │                     build
    │                        ▼
@@ -150,6 +152,9 @@ gold.smc ──extract──▶  assets/   (PNG, WAV, text, JSON — gitignored,
                             │
                             └─ + opt-in changes ──▶ romhack build
 ```
+
+**Extract root is `extracted/`** (not `bin/` — that tree is already overloaded).
+The directory is git-ignored; only the user's own gold ROM populates it.
 
 ## The round-trip is the gate
 
@@ -312,6 +317,10 @@ external converters. Writing our own assembler means we don't have to.
 tells the extractor how to take it apart *and* tells the build where to put it
 back. Extraction and rebuild become inverse readings of the same file.
 
+**Format: JSON** (`manifest.json`, committed). Schema and granularity (which
+fields an entry carries, how fine the regions are) are still open; the
+serialization format is not.
+
 That gives us:
 
 - **A single source of truth** for layout — no drift between how we read the
@@ -323,7 +332,7 @@ That gives us:
   manifest.
 - **The future linker's input**, unchanged in form, when relocation lands.
 
-Its design — schema, granularity, how evidence is attached to an entry — is the
+Its schema — fields, granularity, how evidence is attached to an entry — is the
 next thing to work out.
 
 ## Pointers — deferred, but don't paint over them
@@ -353,8 +362,8 @@ prove the pointer *model*, not just the bytes.
 
 ## Copyright shapes distribution
 
-Extracted assets are **per-user and git-ignored** — they're the copyrighted
-work. Consequences:
+Extracted assets live under **`extracted/`**, are **per-user and git-ignored** —
+they're the copyrighted work. Consequences:
 
 - A romhack **cannot ship assets**. It ships as a **patch**: source diffs plus
   asset diffs (or a BPS against the built ROM) that the user applies to *their
@@ -377,51 +386,41 @@ Two build modes, one pipeline:
 Bug fixes are opt-in rather than default, so "reproduce the artifact exactly"
 and "make a better version" never fight.
 
-## Additional open decisions
+## Decided
 
-7. **Extraction granularity and naming.** Asset filenames must be stable across
-   re-extraction so edits survive, and named from evidence (same rule as code
-   adoption — a wrong name lies).
-8. *(settled in principle: **the manifest is the linker config** — one
-   declarative description drives extract and build. See that section. Its
-   schema and granularity are the open part.)*
-9. *(settled: v1 is fixed-layout, original pointer values. Linker deferred.)*
-10. **Which codecs to prove bit-identical, and in what order** — post-v1, each
-    one graduates its asset class from view-only to editable. `gfx_lz` is
-    already proven; graphics is therefore the natural first class to unlock.
-
-## Open decisions (nothing is settled)
-
-1. **Syntax — leaning ca65** (monofuel, 2026-08-02: prior experience with it).
-   We are writing our own assembler in Nim, so this is a choice of *conventions
-   to implement*, not a tool to depend on — and we are free to diverge where
-   ca65's shape doesn't fit.
-   - **For ca65:** `.a8`/`.a16`/`.i8`/`.i16` map almost one-to-one onto the
-     `FlagState`/`flagHint` model we already have working and gold-tested —
-     and immediate width is the thing we've already been burned by.
-     `.struct`/`.enum`/scopes/segments give real vocabulary for describing data
-     layouts, which is the majority of the ROM. The assemble-then-link-with-a-
-     memory-config model is the architecture the post-v1 linker needs, so v1
-     isn't thrown away to get there.
-   - **For asar:** it's what the romhacking scene actually uses, and its
-     patch-first model fits hack distribution. This outweighs the above only
-     if romhacks are a near-term goal rather than a later one.
-   - **Either way:** picking a format with a reference implementation buys a
-     **differential-testing oracle** — assemble the same source with the real
-     tool and diff bytes against ours. That's a mechanical referee for the
-     assembler itself, in the spirit of the rest of the project. A bespoke
-     syntax forfeits it.
+1. **Syntax: ca65 conventions** (monofuel, 2026-08-02). We write our own
+   assembler in Nim; this is a choice of *conventions to implement*, not a tool
+   to depend on — and we diverge where ca65's shape doesn't fit.
+   - `.a8`/`.a16`/`.i8`/`.i16` map almost one-to-one onto the
+     `FlagState`/`flagHint` model we already have working and gold-tested.
+     `.struct`/`.enum`/scopes/segments give real vocabulary for data layouts.
+     The assemble-then-link-with-a-memory-config model is the architecture the
+     post-v1 linker needs, so v1 isn't thrown away to get there.
+   - Real ca65 is the **differential-testing oracle** — same source, diff
+     bytes against ours.
+   - Asar remains interesting for patch-first hack distribution later; it is
+     not the v1 syntax.
    - *Not a factor:* an unlicensed ca65 EarthBound decomp exists on GitHub. We
      have not cloned or read it and will not. Syntax choice is unrelated to
-     that, and our existing evidence rules (names must be evidence-earned,
-     claims verified at named offsets, everything gold-gated) are the actual
-     derivation trail.
-2. **How M/X width is expressed** — explicit directives, inference from
+     that; evidence-earned names and the gold gate remain the derivation trail.
+2. **Manifest serialization: JSON** — committed as `manifest.json` (or a
+   small set of JSON files if we split later). Schema/fields still open.
+3. **Extract root: `extracted/`** — git-ignored, per-user, populated from the
+   gold ROM. Not under `bin/` (already overloaded).
+4. **The manifest is the linker config** — one declarative description drives
+   extract and build. Schema and granularity still open.
+5. **v1 is fixed-layout**, original pointer values. Linker deferred.
+
+## Open decisions
+
+1. **How M/X width is expressed** — explicit directives, inference from
    `REP`/`SEP` with asserts, or both. We have already been burned by misaligned
    widths inflating coverage; this needs to be hard to get wrong. (ca65 offers
    both: explicit `.a8`/`.i16` plus `.smart` tracking.)
-3. **Build model** — per-file objects plus a link step, or one fast pass over
+2. **Build model** — per-file objects plus a link step, or one fast pass over
    the tree. A 3 MB ROM is small; simplest thing that hits ~1 s may win.
+3. **Manifest schema v1** — fields, granularity, how evidence attaches. Format
+   is JSON; the shape of an entry is not frozen yet.
 4. **Data and documentation model** — typed tables, pointer tables, struct/record
    layouts, named constants carrying their evidence. *Most of the ROM is data*,
    so this is the largest share of the work and the part that most directly
@@ -431,6 +430,13 @@ and "make a better version" never fight.
    are different products.
 6. **Migration order** — the gold gate makes every step verifiable; decide
    whether generated regions or adopted modules move first.
+7. **Extraction granularity and naming.** Asset filenames must be stable across
+   re-extraction so edits survive, and named from evidence (same rule as code
+   adoption — a wrong name lies). Root dir is `extracted/`; path layout under
+   it is still open.
+8. **Which codecs to prove bit-identical, and in what order** — post-v1, each
+   one graduates its asset class from view-only to editable. `gfx_lz` is
+   already proven; graphics is therefore the natural first class to unlock.
 
 ## Implementation checklist
 
@@ -439,21 +445,24 @@ milestone ends in a gate that can be *run*, not asserted.
 
 ### M0 — Decide (no code)
 
-- [ ] **Syntax**: confirm ca65 conventions, and where we deliberately diverge.
+- [x] **Syntax**: ca65 conventions (diverge only where we must).
+- [x] **Manifest format**: JSON (`manifest.json`).
+- [x] **Extract root**: `extracted/` (git-ignored; not `bin/`).
 - [ ] **M/X width**: explicit directives, `REP`/`SEP` inference with asserts, or both.
 - [ ] **Manifest schema v1**: offset, length, kind, source, name, evidence, axis
-      levels. Load-bearing — everything downstream reads it.
+      levels. Load-bearing — everything downstream reads it. (JSON is decided;
+      field list is not.)
 - [ ] **Build model**: one pass over the tree vs per-file + link.
 
-*Gate: written into this doc as decided, not "leaning".*
+*Gate: remaining items written into this doc as decided, not "leaning".*
 
 ### M1 — Manifest + extractor
 
-- [ ] Manifest format implemented (parse + validate).
+- [ ] Manifest JSON parse + validate.
 - [ ] Seed from what exists: `regions.nim`, `baserom_extract.nim` claims, the 21
       `snes_src` routines, adopted tables.
-- [ ] Extractor: gold + manifest → per-region files; everything unclaimed falls
-      out as a `.bin` blob.
+- [ ] Extractor: gold + manifest → per-region files under `extracted/`;
+      everything unclaimed falls out as a `.bin` blob.
 - [ ] Coverage assertion: regions tile the ROM exactly — no gaps, no overlaps,
       total == 3,145,728.
 
@@ -463,7 +472,7 @@ milestone ends in a gate that can be *run*, not asserted.
 
 Rebuild the ROM from **blobs only** — no assembler yet.
 
-- [ ] Builder: manifest + extracted files → ROM image at fixed offsets.
+- [ ] Builder: manifest + files under `extracted/` → ROM image at fixed offsets.
 - [ ] Header + **computed** checksum (not the gold value copied).
 - [ ] Gate: **output is byte-identical to gold.**
 
