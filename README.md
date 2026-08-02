@@ -48,10 +48,11 @@ sunstroke on *this* party.” See `docs/mcp-server.md`.
   Nim SNES core — 65816, PPU (Mode 7 / HDMA / color math paths EB uses), APU/SPC,
   joypad, save-states / F12 state-screenshots, windowed player (`make play`).
   Stonehenge, Magicant, Cave of the Past, Giygas — all on this stack.
-- **Decomp coverage:** ~**5.70%** of the ROM is byte-exact decompiled code
-  (`make compare` → `report.md`). Implemented regions are 100% exact within
-  themselves; coincidental zero-fill is tracked separately and is **not**
-  progress. Goal 1 remains the long decomp grind.
+- **Decomp (honest tiers via `make compare`):** the **primary** needle is
+  Goal 1.5 **understood** bytes — named `snes_src` / adopted tables that still
+  match gold (a few KB, ≪1% of ROM). The implemented **map** can be ~99%
+  byte-exact (scaffold + baserom extracts + adopted) without being understood;
+  compare ranks those lower. See `report.md`.
 - Code regions ship as bank modules under `src/decompbound/generated/`
   (assembler DSL from the gold ROM via `convert_all` / tracing). Goal 1.5
   peels understood routines into named `snesAsm` modules under
