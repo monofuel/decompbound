@@ -210,6 +210,88 @@ the constraint.
 | Code | `.asm` | exact |
 | Not yet understood | `.bin` | exact by construction |
 
+## The build process
+
+### What ca65 would (and wouldn't) do for us
+
+For reference, since we're borrowing its conventions: `ca65` assembles `.s` →
+`.o`, `ld65` links per a config declaring memory areas and segments, and it can
+emit a raw binary — so it *does* produce the final ROM. But it only understands
+**bytes**. It has no notion of a sprite. Assets get in via `.incbin` of files
+already in the game's native format, so a real ca65 project needs converters
+before the assembler and a checksum fixup after the linker:
+
+```
+sprite.png ─[convert]→ sprite.4bpp ─.incbin→ ca65 → ld65 → rom ─[checksum]→ final
+```
+
+That's also how sm64 works: modern files in the repo, a build step converts
+them to console formats, then they're linked.
+
+### v1 needs none of that
+
+The build-path/view-path split removes the whole conversion stage from v1:
+
+```
+manifest ─┬─ code region     ──▶ assemble .asm
+          ├─ data region     ──▶ verbatim .bin (native format, extracted as-is)
+          └─ unclaimed       ──▶ .bin blob
+                     │
+              place at fixed offsets
+                     ▼
+              header + computed checksum
+                     ▼
+                  out.smc ──compare──▶ gold      byte-identical
+```
+
+**No converters on the build path.** PNG/WAV/text export is a separate viewer
+tool humans run; the rebuild never touches it. Bitmap→4bpp conversion is real
+work, but it is not v1 work — it is the **graduation mechanism**: when a
+converter is proven round-trip exact, that asset class moves from "incbin the
+original bytes" to "convert the source file," one class at a time, with the gold
+gate proving each move.
+
+Design note for when converters do arrive: keep a dumb `.incbin` path always
+available alongside any higher-level directive, so we can drop to raw bytes
+whenever a converter isn't trusted yet. The converters stay standalone Nim
+modules (`gfx_lz`, `text_decode`, the decoders already are), callable from
+either the build or a viewer.
+
+### The one unavoidable post-step
+
+The SNES internal header checksum is computed over the finished image, so it
+can't come from the assembler. We have `header.nim` already. **Compute it
+rather than emitting the gold value** — if we compute it and the ROM still
+matches, that's proof we understand the header rather than a hardcoded
+work-around.
+
+## The manifest is the linker config
+
+*(This answers open decision #8, and it is probably the load-bearing choice of
+phase 2 — more than the syntax.)*
+
+ca65 keeps three separate artifacts: the linker config, the source, and
+external converters. Writing our own assembler means we don't have to.
+
+**One declarative description drives both directions.** A manifest entry like
+"the region at `0x159589` is a table of 231 records, stride `0x5E`, fields …"
+tells the extractor how to take it apart *and* tells the build where to put it
+back. Extraction and rebuild become inverse readings of the same file.
+
+That gives us:
+
+- **A single source of truth** for layout — no drift between how we read the
+  ROM and how we write it.
+- **The place pointer-table descriptions live** (see below) even while v1 emits
+  original literal values.
+- **The progress ledger** — what's described versus what's still an opaque blob
+  is exactly the "how much do we understand" metric, readable straight off the
+  manifest.
+- **The future linker's input**, unchanged in form, when relocation lands.
+
+Its design — schema, granularity, how evidence is attached to an entry — is the
+next thing to work out.
+
 ## Pointers — deferred, but don't paint over them
 
 In v1 pointers keep their original values, so there is nothing to solve: a
@@ -266,9 +348,9 @@ and "make a better version" never fight.
 7. **Extraction granularity and naming.** Asset filenames must be stable across
    re-extraction so edits survive, and named from evidence (same rule as code
    adoption — a wrong name lies).
-8. **Where the format descriptions live** — the declarative "this region is a
-   4bpp tileset of N tiles at offset X" manifest is what drives both extract
-   and build. It is the real source of truth and needs its own design.
+8. *(settled in principle: **the manifest is the linker config** — one
+   declarative description drives extract and build. See that section. Its
+   schema and granularity are the open part.)*
 9. *(settled: v1 is fixed-layout, original pointer values. Linker deferred.)*
 10. **Which codecs to prove bit-identical, and in what order** — post-v1, each
     one graduates its asset class from view-only to editable. `gfx_lz` is
@@ -276,12 +358,34 @@ and "make a better version" never fight.
 
 ## Open decisions (nothing is settled)
 
-1. **Syntax** — adopt asar/ca65/wla-dx conventions, or fit our existing
-   `snes_asm` shape? Weigh: romhackers already read asar, and existing tools
-   consume it. Compatibility may matter more than elegance.
+1. **Syntax — leaning ca65** (monofuel, 2026-08-02: prior experience with it).
+   We are writing our own assembler in Nim, so this is a choice of *conventions
+   to implement*, not a tool to depend on — and we are free to diverge where
+   ca65's shape doesn't fit.
+   - **For ca65:** `.a8`/`.a16`/`.i8`/`.i16` map almost one-to-one onto the
+     `FlagState`/`flagHint` model we already have working and gold-tested —
+     and immediate width is the thing we've already been burned by.
+     `.struct`/`.enum`/scopes/segments give real vocabulary for describing data
+     layouts, which is the majority of the ROM. The assemble-then-link-with-a-
+     memory-config model is the architecture the post-v1 linker needs, so v1
+     isn't thrown away to get there.
+   - **For asar:** it's what the romhacking scene actually uses, and its
+     patch-first model fits hack distribution. This outweighs the above only
+     if romhacks are a near-term goal rather than a later one.
+   - **Either way:** picking a format with a reference implementation buys a
+     **differential-testing oracle** — assemble the same source with the real
+     tool and diff bytes against ours. That's a mechanical referee for the
+     assembler itself, in the spirit of the rest of the project. A bespoke
+     syntax forfeits it.
+   - *Not a factor:* an unlicensed ca65 EarthBound decomp exists on GitHub. We
+     have not cloned or read it and will not. Syntax choice is unrelated to
+     that, and our existing evidence rules (names must be evidence-earned,
+     claims verified at named offsets, everything gold-gated) are the actual
+     derivation trail.
 2. **How M/X width is expressed** — explicit directives, inference from
    `REP`/`SEP` with asserts, or both. We have already been burned by misaligned
-   widths inflating coverage; this needs to be hard to get wrong.
+   widths inflating coverage; this needs to be hard to get wrong. (ca65 offers
+   both: explicit `.a8`/`.i16` plus `.smart` tracking.)
 3. **Build model** — per-file objects plus a link step, or one fast pass over
    the tree. A 3 MB ROM is small; simplest thing that hits ~1 s may win.
 4. **Data and documentation model** — typed tables, pointer tables, struct/record
