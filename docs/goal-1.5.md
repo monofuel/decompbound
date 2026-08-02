@@ -1,168 +1,52 @@
-# Goal 1.5: The Adoption Campaign
+# Goal 1.5: The Adoption Campaign (historical)
 
-> ## ⚠ SUPERSEDED — historical record, do not implement
+> ## SUPERSEDED — historical record
 >
-> **The adoption campaign described below is retired.** Phase 2
-> ([`decompilation-phase2.md`](decompilation-phase2.md)) replaces the Nim
-> representation with a real SNES assembler and `.asm` source.
+> Phase 2 ([`decompilation-phase2.md`](decompilation-phase2.md)) replaced the
+> Nim `snesAsm` / `generated/*` representation with ca65-convention **`.asm`**
+> and a JSON **manifest**.
 >
-> Why: adopting a region into `snesAsm` lowers to the *same* Nim statement shape
-> as `generated/`, so adoption inherited the build cost instead of fixing it —
-> measured at ~25 KB of compiler memory per line, i.e. ~25 GB at full adoption.
-> `generated/*.nim` is deleted at the M2.5 checkpoint.
+> - `generated/*.nim` — **deleted** (M2.5).
+> - Adopted explained routines — **ported** to `asm/*.asm` (M5); assembled via
+>   `asm_parse.nim` → `assemble()`.
+> - Evidence rules **survive** (below).
 >
-> **Do not run `make compare`** (36.5 GB peak — see `AGENTS.md`).
->
-> **What survives:** the evidence rules. Names must be evidence-earned, claims
-> verified at named offsets, everything gold-gated. Those carry into phase 2
-> unchanged. The 21 adopted `snes_src` modules get *ported*, not discarded —
-> they hold the only `explained` content in the project.
+> Do not implement the Nim adoption campaign described in the body. Use phase 2
+> gates instead.
 
-Goal 1 answered "can we produce byte-matching output from source?" — yes,
-via `src/decompbound/generated/`: 266 machine-generated regions, verified
-against gold. But generated code is a *transcription*, not understanding:
-`generateCode00A11C` tells you nothing, and `LDA #$30 / STA $307FF0` reads
-as magic until someone decodes it.
+## Evidence rules (still in force)
 
-Goal 1.5 treats `generated/` as **scaffolding to be replaced**. Region by
-region, hand-curated modules with real names, documentation, and symbolic
-constants take over — while the byte-exactness invariant holds the whole
-time. The scaffold holds the building up until the real walls exist.
+These apply to every name and claim in the phase-2 flow:
 
-## The design lens: what would a romhacker want to read?
+1. **Evidence-earned names** — trace data, disassembly at a named file offset,
+   or a byte-level argument. A wrong name is a lie; it does not land.
+2. **Gold-gated** — every adopted / `reproduce` region must reassemble
+   byte-identical to gold at its fixed offset (`rom_rebuild` / targeted tests).
+3. **No copyrighted content in git** — only our expression (annotated asm,
+   format docs, tools, the manifest). Extracted bytes stay under `extracted/`.
 
-The end state is not "a copy of the ROM." It is **Earthbound as a
-buildable Nim project**: readable, documented source that assembles to the
-exact gold ROM by default — and where changing one instruction in an
-understood region produces a valid, buildable, modified Earthbound. Purity
-mode proves fidelity; hack mode is the payoff. (The README's original
-"compiler flags for bug fixes" idea lands here.)
+## What Goal 1.5 was
 
-What that reader needs:
+After Goal 1 proved `assemble(disassemble(bytes)) == bytes` for traced code,
+`generated/` held ~1.3M lines of machine Nim scaffold. Goal 1.5 replaced spans
+with hand-named `snes_src` modules using a `snesAsm` macro — still gold-gated,
+still honest progress on the **comprehension** axis.
 
-- **Real routine names**: `sramMirrorPiracyCheck`, not `generateCode00A11C`.
-- **Doc comments** stating what a routine does, its inputs/outputs
-  (registers), and what it clobbers.
-- **A named memory map**: WRAM variables (`vblankFlag = $002B`), MMIO
-  registers, SRAM layout — one shared module, no magic addresses.
-- **Symbolic constants** for flag masks and test patterns, with comments
-  where the value itself is the point.
+That improved readability but **not** compile cost: the macro lowered to the
+same statement shape as the scaffold (~25 KB compiler memory per line). Phase 2
+keeps the evidence and the names, drops the Nim statement stream.
 
-## What adopted code looks like
+## Migration status
 
-A curated module per routine/cluster, using a `snesAsm` macro (shady-style:
-Nim AST in, our existing `AsmNode` list out) so the source reads like
-labeled assembly:
+| Then | Now |
+|------|-----|
+| `snes_src/*.nim` + `snes_asm.nim` | `asm/*.asm` + `adopted.nim` loader |
+| `generated/code_bankXX.nim` | deleted; residual is `copy` blobs |
+| `make compare` via bank assemble | `rom_extract` + `rom_rebuild` |
+| Progress as map % | Build × Comprehension ([`terms.md`](terms.md)) |
 
-```nim
-proc sramMirrorPiracyCheck*(): seq[uint8] =
-  ## Copier detection: writes distinct bytes to two SRAM mirror
-  ## addresses. On a real 8KB cart they collide; oversized copier
-  ## SRAM keeps them separate and boots the crime-lecture screen.
-  snesAsm origin = SramCheckAddr:
-    sep M8
-    lda 0x30
-    sta long SramProbeA        # $30:7FF0
-    inc a
-    sta long SramProbeB        # $31:7FF0 - same physical byte on cart
-    cmp long SramProbeA
-    ...
-```
+## Related
 
-The macro is sugar only: it lowers to the same `AsmNode`/`assemble()`
-machinery Goal 1 verified. **Zero new verification surface.**
-
-## Migration mechanics (shipped)
-
-The pipeline is built and proven end-to-end:
-
-1. A curated module registers its region in `adopted.nim` →
-   `allAdoptedRegions()` as `(name, offset, data: yourProc())`.
-2. `tools/convert_all.nim` **carves that byte-range out** of the traced
-   code (`adoptedRanges()`), so a curated routine can sit **mid-region**,
-   not only on a traced-region boundary. The enclosing block simply splits
-   around the adopted span — no generated file to hand-delete.
-3. The per-region gold test (`tests/test_regions.nim`) is the adoption
-   gate: rename and document all you want — every region must still be
-   byte-exact against gold, and no two regions may overlap.
-
-Adoption is therefore un-fakeable. Each adoption is a small,
-self-contained, independently verifiable unit of work — ideal ticket shape
-for agent sessions.
-
-Mid-region carving was the missing piece: before it, only routines that
-happened to start on a boundary (`sramMirrorPiracyCheck` at `$C0A11C`)
-could adopt. The RNG advance (`$C08E9A`) is buried inside the 811-byte
-`$C08C6D` block; carving splits it 557 + [56 adopted] + 198.
-
-## The metric (live in `make compare`)
-
-**Adopted bytes vs. scaffold bytes** — the "% understood" number that fixes
-what the raw byte-match percentage could never express. It only moves
-through actual comprehension, because adopted output must still be
-byte-identical to gold. `make compare` now prints it:
-
-```
-Understood (Goal 1.5 adopted): 110 bytes = 0.06% of decompiled — readable, named, documented Nim
-```
-
-Baseline 110 bytes = `sramMirrorPiracyCheck` (54) + `earthboundRandom` (56).
-This is the number the Adoption Campaign drives up.
-
-## Where understanding comes from
-
-Adoption *spends* understanding; the other campaigns *mint* it:
-
-- The emulator's dynamic tracing shows what reads/writes an address
-  (that's how `$002B` became "the vblank flag").
-- The audio campaign named the APU upload routine ($AB06), the play-music
-  entry ($C0856B), and the driver's warm/cold boot check as byproducts.
-- The graphics campaign will name the decompressor; the scripting campaign
-  will name the text VM behind the `frontier.md` jump tables.
-
-So the recommended order stands: chase audio/graphics/scripting for joy
-and knowledge; adopt regions opportunistically as understanding falls out.
-
-**Adopted so far** — authoritative list is `adopted.nim` →
-`allAdoptedRegions()`; the running total is the `make compare` "Understood"
-line. As of the audio + PPU/boot campaigns: **23 routines, 1257 bytes**.
-
-- Boot / integrity: `sramMirrorPiracyCheck` (`$C0A11C`, copier-detection SRAM
-  mirror), `clearWramBlock280C` (`$C00000` — the very first bytes of $C0, a
-  WRAM zero-fill via the MVN seed-and-propagate idiom).
-- RNG: `earthboundRandom` (`$C08E9A`) — first **mid-region** adoption; it also
-  has a native Nim mirror (`rng.nim` matched the emulator 10/10) — the "dual
-  implementation" below, in embryo.
-- Audio playback spine (11 routines): `uploadApuPackages` (`$C0AB06`, SPC700
-  IPL upload), `loadSong` (`$C4FBBD`, ID → song/pack tables → upload),
-  `queueApuCommand` (ring buffer), `waitApuIdleClearSong`/`readApuPort0`
-  (stop-music handshake), the port pokes, and `requestCgramDma` (`$C0856B` —
-  the doc's old "play music" guess, **disproven**: `$0030` feeds a CGRAM DMA
-  table, so it is named for the proven consumer, not the myth).
-- PPU config (9 routines): `setBgMode` (BGMODE), `setObjBase` (OBSEL),
-  `setBg1..4Bases` (BGnSC + BGnNBA), `applyColorMathPreset`/`setFixedColorRgb`/
-  `writeColorMathRegs` (CGWSEL/CGADSUB/COLDATA), `configurePpuWindows`/
-  `resetWindowPositions` (window regs).
-
-The campaign method that works: point grok at a subsystem with minted
-understanding, let it RE + lift, then the conductor cross-checks every name
-against the hardware evidence and re-runs the gold gate on the **final**
-state before committing (an early transient can include a routine grok later
-drops — always re-gate what's actually on disk). Naming discipline has already
-**disproven** two wrong guesses (`$C0856B`≠play-music, `$C08D79`≠DMA).
-
-## Someday: dual implementations
-
-For key routines, a plain Nim mirror of the algorithm next to the asm —
-cross-verified by *executing both* (the CPU core runs the asm, native Nim
-runs the mirror, results compared). That is goal.md's verified-dual-
-implementation idea; the vector-proven `cpu.nim` makes it practical.
-
-## Non-goals
-
-- Decompiling to C or pretending hand-written asm has higher-level source.
-- Bulk-renaming without evidence. A name must be earned by trace data,
-  behavioral observation, or byte-level understanding — a wrong name is
-  worse than `generateCode00A11C`, because it lies.
-- Breaking byte-exactness. Hack mode is a deliberate build flavor, never
-  an accident; purity is the default and CI enforces it.
+- [`decompilation-phase2.md`](decompilation-phase2.md)
+- [`goal.md`](goal.md)
+- [`terms.md`](terms.md)

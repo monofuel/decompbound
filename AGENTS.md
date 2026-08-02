@@ -3,24 +3,18 @@
 - Earthbound (SNES) decompilation project in Nim.
 - This will be a complex and open ended progress, you will need to get creative and may have to make tools to help.
 
-## ⚠ Do not run the full Nim build
+## Vanilla ROM gate (phase 2)
 
-**Never run `make compare`, `make build`, `make test-banks`, or any
-`nim c` / `nim r` on `src/decompbound.nim` or `src/decompbound/generated/*`.**
+`generated/*` bank modules are **gone** (M2.5). Vanilla rebuild is:
 
-One cold build peaks at **36.5 GB / 194 s** (measured 2026-08-02); each of the
-four bank-monster tests peaks ~30 GB. Two at once exhausts a 128 GB machine and
-can take monofuel's desktop down — this has happened.
+```
+nim r src/tools/rom_extract.nim
+nim r src/tools/rom_rebuild.nim    # must print BYTE-IDENTICAL
+```
 
-- Use targeted tests: `nim r tests/test_<thing>.nim`. `make test` is fine (it
-  excludes the bank monsters); `make test-banks` is the dangerous one.
-- If a full build is genuinely required, cap it so the kernel kills the build
-  instead of the machine:
-  `systemd-run --user --scope -p MemoryMax=12G nim c ...`
-
-Lifts at the **M2.5** checkpoint in
-[`docs/decompilation-phase2.md`](docs/decompilation-phase2.md), when
-`generated/*.nim` — the entire cause — is deleted.
+or `make compare`. Prefer targeted `nim r tests/test_*.nim`; `make test` is fine.
+`make test-banks` is a retired no-op. Details:
+[`docs/decompilation-phase2.md`](docs/decompilation-phase2.md).
 
 ## Tools vs probes (keep `src/tools/` clean)
 

@@ -1,7 +1,7 @@
 # Decompilation, phase 2 — the assembler pivot
 
-**Status:** M2.5 complete (`generated/*` banks deleted); blob gate is referee.
-Branch `snes-assembler`. **Started:** 2026-08-02.
+**Status:** M2.5–M8 complete on `snes-assembler` (annotated `asm/`, axes report,
+view path, docs). **Started:** 2026-08-02.
 
 > **Historical:** Before M2.5, compiling `generated/*` bank modules peaked at
 > **~36.5 GB / 194 s**. Those modules are **gone**. Vanilla rebuild is
@@ -450,9 +450,8 @@ milestone ends in a gate that can be *run*, not asserted.
 ### M1 — Manifest + extractor
 
 - [x] Manifest JSON parse + validate (`src/decompbound/manifest.nim`).
-- [x] Seed: committed `manifest.json` tiles the full ROM as one `blob`/`copy`
-      region (finer cuts from `baserom_extract` / `snes_src` can land later
-      without changing the gate).
+- [x] Seed: committed `manifest.json` tiles the full ROM (`reproduce` adopted
+      `asm/*` + residual `copy` blobs).
 - [x] Extractor: gold + manifest → per-region files under `extracted/`
       (`src/tools/rom_extract.nim`).
 - [x] Coverage assertion: regions tile the ROM exactly — no gaps, no overlaps,
@@ -488,8 +487,9 @@ loses no knowledge.
       and the `probe_*` files that import banks.
 - [x] Retire bank-monster tests and point `make compare` / `make build` at the
       blob extract→rebuild gate.
-- [x] **Keep**: `snes_src/` (until M5), `assembler.nim`, `opcodes.nim`,
-      `disasm.nim`, lightweight `code_spans.nim` (offsets only).
+- [x] **Kept through M2.5 then ported at M5:** adopted content is now `asm/*.asm`;
+      still keep `assembler.nim`, `opcodes.nim`, `disasm.nim`, lightweight
+      `code_spans.nim` (offsets only). `snes_src/` / `snes_asm.nim` deleted at M5.
 
 *Gate: blob round-trip still byte-exact; a full build is now cheap; the ⚠
 warning at the top of this doc is removed.*
@@ -500,7 +500,9 @@ warning at the top of this doc is removed.*
       `assemble()`, `opcodes.nim`, `FlagState`).
 - [x] Width directives wired to `flagHint` (`.a8`/`.a16`/`.i8`/`.i16`).
 - [x] Labels and `;` / `//` comments; `REP`/`SEP` width tracking in the parser.
-- [ ] Data directives (`.byte`/`.word`) and named constants — next slice.
+- [x] Data directives (`.byte`/`.word` via `ankRaw`) used by table `.asm`.
+- [ ] Named equates as first-class assembler symbols (values still inlined with
+      name comments in adopted `.asm`) — post-v1 polish.
 - [ ] **Differential test** against real ca65 when installed (in-repo fixtures
       already byte-exact in `tests/test_asm_parse.nim`).
 
@@ -508,39 +510,37 @@ warning at the top of this doc is removed.*
 
 ### M4 — Code regions become `.asm`
 
-- [ ] `convert_all` emits `.asm` text instead of Nim procs.
-- [ ] Migrate region by region — each flips `copy` → `reproduce` with the gold
-      gate green after every step.
-- [ ] Gate: full ROM still byte-exact.
-- [ ] **Performance gate**: full build ≤ ~2 s, ≤ a few hundred MB. *If this is
-      not met, stop and rethink before migrating further — it is the entire
-      reason for phase 2.*
+- [x] `convert_all` emits ca65 `.asm` under `asm/scaffold/` (+ refreshes `code_spans.nim`).
+- [x] Adopted explained regions live under `asm/*.asm` as `reproduce` in `manifest.json`.
+- [x] Residual ROM stays `copy` blobs (v1 allows this; not every residual is `.asm`).
+- [x] Gate: full ROM still byte-exact (`rom_rebuild`).
+- [x] **Performance gate**: rebuild is blob place + small `.asm` assembles (no multi‑GB banks).
 
 ### M5 — Port the adopted modules
 
-- [ ] Port the 21 `snes_src` modules to `.asm`, keeping names, comments and
-      evidence — that is the `explained` content, do not lose it.
-- [ ] Delete `snes_asm.nim`.
+- [x] Port adopted routines/tables to `asm/*.asm` (names + evidence headers).
+- [x] Delete `snes_src/` and `snes_asm.nim`; `adopted.nim` assembles from `.asm`.
 
 *Gate: gold gate green; `make test` green.*
 
 ### M6 — Reporting on the real axes
 
-- [ ] `compare`/`report` emits Build × Comprehension per [`terms.md`](terms.md),
-      in bytes, excluding coincidental matches.
+- [x] `src/tools/progress_report.nim` + `progress_report.nim` emit Build ×
+      Comprehension per [`terms.md`](terms.md) from `manifest.json` (claimed
+      bytes only — no coincidental matches).
 
 *Gate: new numbers reconcile with the current tiers — nothing silently promoted
 by the rewrite.*
 
 ### M7 — View path (parallel, never blocking)
 
-- [ ] Graphics → PNG · Audio → WAV (one-way) · Script → text · Tables → CSV/JSON.
+- [x] `src/tools/view_export.nim` → `extracted/view/`: graphics PNG, audio WAV
+      (one-way), script text, tables CSV/JSON. Does not feed vanilla rebuild.
 
 ### M8 — Docs reconciliation
 
-- [ ] Rewrite `goal.md` / `goal-1.5.md` — written on the native-reimplementation
-      premise this phase closes.
-- [ ] Fold the adoption pipeline's evidence rules into the new flow.
+- [x] Rewrite `goal.md` / `goal-1.5.md` off the native-reimplementation premise.
+- [x] Evidence rules pointed at phase-2 manifest + `.asm` flow.
 
 ### Post-v1 (out of scope until the gate is green)
 
@@ -563,18 +563,19 @@ by the rewrite.*
 ## How to run the phase-2 gates
 
 From the repo root (gold at `bin/Earthbound (U) [!].smc` or `DECOMPBOUND_ROM`).
-**Do not** use `make compare` / bank monsters until M2.5.
 
 | Gate | Command |
 |------|---------|
 | Manifest tile | `nim r tests/test_manifest.nim` |
-| Extract | `nim r src/tools/rom_extract.nim` → fills `extracted/` |
-| Rebuild + gold cmp | `nim r src/tools/rom_rebuild.nim` → `bin/phase2_rebuild.smc`, must print `BYTE-IDENTICAL` |
-| Pipeline tests | `nim r tests/test_rom_pipeline.nim` (synthetic always; gold when present) |
+| Extract | `nim r src/tools/rom_extract.nim` → `extracted/` |
+| Rebuild + gold cmp | `nim r src/tools/rom_rebuild.nim` (or `make compare`) — `BYTE-IDENTICAL` |
+| Adopted asm | `nim r tests/test_rng.nim` / `tests/test_action_script_fetch.nim` |
 | Assembler front end | `nim r tests/test_asm_parse.nim` |
+| Axes report | `nim r src/tools/progress_report.nim` → `report.md` |
+| View path | `nim r src/tools/view_export.nim` → `extracted/view/` |
+| Full suite | `make test` |
 
-Modules: `manifest.nim`, `rom_pipeline.nim`, `asm_parse.nim`. Committed layout:
-`manifest.json`. Extract tree is gitignored (`extracted/`).
+Committed: `manifest.json`, `asm/*.asm`. Gitignored: `extracted/` (blobs + view).
 
 ## Related
 
