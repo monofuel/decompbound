@@ -15,42 +15,32 @@
 - When a dig graduates to product: move logic into `src/tools/` (or `src/decompbound/`), add a real test, delete or slim the probe.
 - Do **not** dump new probes next to `play.nim` / `llm_ai.nim`.
 
-## Delegate via Grok 4.5 sub-agents — and be proactive about it
+## Delegate — and be proactive about it
 
-Most substantive work should be **fanned out to Grok Build native sub-agents**
-(`spawn_subagent`). One Grok 4.5 top session is the conductor: it sets goals,
-verifies results, and re-drives incomplete children. Be *responsive*: when a
-bounded task lands (an RE dig, a new tool, a self-contained feature), spawn a
-child right away rather than doing it all inline or queuing it. Keep the
-pipeline full — when a wave lands, verify it and dispatch the next.
+Fan bounded work out to sub-agents rather than doing it all inline: when an RE
+dig, a new tool, or a self-contained feature lands, spawn a child right away
+and keep the pipeline full. The conductor sets goals, verifies, and re-drives
+children that stop at "lmk if you want me to continue."
 
-- **Workers do:** ROM/format reverse-engineering (report offsets + format —
-  *analysis only*, never commit assets / ROM / dumps) and bounded build tasks
-  (new tools, self-contained features, adoptions). Prefer `explore` for pure
-  RE; `general-purpose` for write work; **worktree isolation** when parallel
-  writers would collide (see `docs/delegation.md` → Worktrees).
-- **Conductor keeps:** final verify/merge calls, emulator-correctness +
-  risky/timing ownership, and **re-running every worker result against the gold
-  harness before trusting, committing, or pushing** — this has repeatedly
-  caught real bugs. Never merge on a worker's self-report. The referee
-  (`compare.nim`, `tests/`, opcode table) is sacred.
-- **How:** self-contained briefs (task + verification bar + handoff fields).
-  Children get no chat history. Parent re-drives ~70% bail-outs until green.
-- **Parallel-safety:** don't let concurrent children edit the same shared file
-  (e.g. the Makefile) — they clobber each other. Have them build/verify via
-  `nim r` / targeted tests directly; conductor adds shared make targets afterward.
-- **Commit / push:** conductor duty after gates are green and copyright hygiene
-  is clean. Workers do not push; they do not commit unless the brief says so.
-  Prefer focused commits; push when the user/session asks to ship. Details in
-  `docs/delegation.md` → Commit and push.
-- **Human verify:** monofuel plays and often skips chat "please test this."
-  Anything that needs human eyes goes in **`docs/human-verify.md`** as a short
-  checkbox (**Run** + **Pass if** only) — never chat-only. New bugs he finds
-  while playing land under **Found in play** there; promote durable ones to
-  `docs/issues.md`. See that file's "For agents" section.
-- **`agnt`:** optional dogfood / cross-harness only — not the default worker lane.
+**Read `docs/delegation.md` before dispatching** — it holds this repo's verify
+bars, contended files, task shapes, and the brief template, and links out to
+the org chart (who/which model) and the sub-agent mechanics (worktrees,
+parallel safety) in racha_notes.
 
-See `docs/delegation.md` for the fuller playbook.
+The four rules you must not get wrong, stated here so they survive a missing
+notes mount:
+
+- **Never merge, commit, or trust on a worker's self-report** — re-run the gate.
+- **The referee is sacred**: `compare.nim`, `tests/`, `opcodes.nim`.
+- **Workers do not push.** Shipping is a conductor duty after green gates.
+- **Copyright hygiene applies to every delegated diff** (see below) — agents
+  must refuse to commit ROM slices, save-states, SRAM, screenshots, or
+  extracted assets.
+
+Needs human eyes (play feel, visual, audio)? Add a row to
+**`docs/human-verify.md`** (**Run** + **Pass if**) — never chat-only; monofuel
+will have moved on. Bugs he finds in play land under **Found in play** there;
+promote durable ones to `docs/issues.md`.
 
 ## State-screenshots (F12) — default location
 
