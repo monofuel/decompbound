@@ -110,6 +110,127 @@ The emulator, all tooling, and **all data RE** — bestiary, extractors,
 generated layer; those tools read the user's ROM at runtime and are untouched
 by this change.
 
+---
+
+# The end-to-end flow
+
+The assembler is **one component**, not the project. The product is a
+round-trip: take the user's gold ROM apart into editable modern files, and put
+it back together byte-for-byte — with the option of putting it back together
+*differently*.
+
+```
+gold.smc ──extract──▶  assets/   (PNG, WAV, text, JSON — gitignored, per-user)
+   │                   asm/      (committed: our own new expression)
+   │                   data/     (committed: formats, offsets, evidence)
+   │                        │
+   │                     build
+   │                        ▼
+   └──────compare──────  out.smc        must be BYTE-IDENTICAL
+                            │
+                            └─ + opt-in changes ──▶ romhack build
+```
+
+## The round-trip is the gate
+
+`extract(gold)` then `build()` must reproduce `gold` **exactly**. That single
+invariant replaces "does our disassembly match" with "does our understanding of
+the entire ROM reproduce it" — code, graphics, audio, script, tables, and the
+parts we still don't understand.
+
+This generalizes `compare.nim` from a code metric to a whole-ROM one, and it
+subsumes the current gold gate rather than replacing it.
+
+## Blobs are allowed, and tracked
+
+Anything not yet understood stays an opaque `.bin` extracted verbatim. The ROM
+still rebuilds byte-exact — an unclaimed blob is *correct*, just not
+*explained*. Progress is the shrinking share of the ROM that is blob rather
+than meaningful source. This is exactly how sm64 and OoT progressed, and it
+means the round-trip works from day one instead of after everything is RE'd.
+
+## Format per asset class (proposed)
+
+Lossless and editable in ordinary tools is the goal; byte-exact round-trip is
+the constraint.
+
+| Class | Modern format | Round-trip |
+|---|---|---|
+| Tiles / sprites | indexed PNG (indices *are* the pixel values) + palette | exact |
+| Compressed graphics | PNG + re-compress via `gfx_lz` | exact **only if our compressor is bit-identical** — already proven for `gfx_lz` |
+| Tilemaps / arrangements | TSV or JSON (or Tiled) | exact |
+| Palettes | JSON/`.pal`, or carried in the PNG | exact |
+| Maps, doors, warps | JSON | exact |
+| Data tables (enemy/item/PSI) | CSV/JSON | exact |
+| Script / dialogue | UTF-8 text with explicit control codes | exact — needs a bit-identical encoder |
+| Music sequences | text (MML-like) | exact once we write the encoder |
+| **BRR samples** | WAV **for listening only**; BRR stays the source of truth | **view-only — see below** |
+| Code | `.asm` | exact |
+| Not yet understood | `.bin` | exact by construction |
+
+## The two genuinely hard parts
+
+**1. Pointers.** The moment an edited asset changes size, every pointer to it —
+and every pointer table, and every bank layout assumption — must change.
+Hardcoded offsets make the ROM rebuildable but not *editable*.
+
+So the build must **compute pointers from symbols, for data as well as code**.
+That means the thing we're building is not just an assembler: it's a whole-ROM
+**linker** with a symbol table spanning code and data, plus freespace/bank
+allocation.
+
+The upside is a very strong correctness check: in a vanilla build, every
+computed pointer must come out equal to the original. If our understanding of
+a table's shape is wrong, the ROM won't match. Byte-exactness proves the
+pointer model, not just the bytes.
+
+**2. Lossy formats can't round-trip by nature.** BRR is 4-bit ADPCM — decoding
+to WAV and re-encoding will not reproduce the original bytes. So audio is
+asymmetric: *listening* is easy and free, *editing* forfeits byte-exactness the
+moment a sample is re-encoded. Vanilla builds must use the original BRR;
+edited audio is a romhack-only path that the gold gate cannot cover. Any
+compressed format we can't reproduce bit-identically has the same asymmetry —
+which is why proving each codec's re-encode is a prerequisite, not a detail.
+
+## Copyright shapes distribution
+
+Extracted assets are **per-user and git-ignored** — they're the copyrighted
+work. Consequences:
+
+- A romhack **cannot ship assets**. It ships as a **patch**: source diffs plus
+  asset diffs (or a BPS against the built ROM) that the user applies to *their
+  own* extraction.
+- That makes **deterministic builds mandatory**. Same inputs must give the same
+  bytes on every machine, or patches don't apply.
+- The repo keeps only extractors, codecs, formats, evidence, and `.asm` — the
+  existing `AGENTS.md` rule, now load-bearing for the whole product.
+
+## Vanilla vs modified builds
+
+Two build modes, one pipeline:
+
+- **`vanilla`** — must be byte-identical to gold. The primary gate; CI-able for
+  anyone with their own ROM.
+- **`with changes`** — opt-in bug fixes or hacks, layered as explicit patches.
+  Byte-exactness no longer applies, so the referee becomes the **emulator**:
+  it boots, it plays, the tests pass, the scene corpus renders.
+
+Bug fixes are opt-in rather than default, so "reproduce the artifact exactly"
+and "make a better version" never fight.
+
+## Additional open decisions
+
+7. **Extraction granularity and naming.** Asset filenames must be stable across
+   re-extraction so edits survive, and named from evidence (same rule as code
+   adoption — a wrong name lies).
+8. **Where the format descriptions live** — the declarative "this region is a
+   4bpp tileset of N tiles at offset X" manifest is what drives both extract
+   and build. It is the real source of truth and needs its own design.
+9. **How far the linker goes** — full freespace allocation and relocation, or
+   fixed-layout only (edits must fit in place) as a first milestone?
+10. **Which codecs must be proven bit-identical**, and in what order — each one
+    gates editability for its asset class.
+
 ## Open decisions (nothing is settled)
 
 1. **Syntax** — adopt asar/ca65/wla-dx conventions, or fit our existing
