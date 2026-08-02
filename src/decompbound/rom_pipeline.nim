@@ -3,7 +3,7 @@
 
 import
   std/[os, strformat, strutils],
-  ./[common, manifest]
+  ./[asm_parse, common, manifest, opcodes]
 
 const
   GoldBaseromPath* = "bin/Earthbound (U) [!].smc"
@@ -112,15 +112,36 @@ proc rebuildRom*(
     raise newException(ValueError, cov.message)
   result = newSeq[uint8](m.romSize)
   for r in m.regions:
-    let path = extractRoot / r.source
-    if not fileExists(path):
-      raise newException(IOError, &"missing extract file: {path}")
-    let data = readFile(path)
-    if data.len != r.length:
-      raise newException(ValueError,
-        &"region {r.name}: file {path} length {data.len} != {r.length}")
+    var data: seq[uint8]
+    case r.build
+    of blCopy, blModify:
+      let path = extractRoot / r.source
+      if not fileExists(path):
+        raise newException(IOError, &"missing extract file: {path}")
+      let raw = readFile(path)
+      if raw.len != r.length:
+        raise newException(ValueError,
+          &"region {r.name}: file {path} length {raw.len} != {r.length}")
+      data = newSeq[uint8](raw.len)
+      for i, c in raw:
+        data[i] = c.uint8
+    of blReproduce:
+      # Committed source relative to repo root (e.g. asm/foo.asm).
+      let path = r.source
+      if not fileExists(path):
+        raise newException(IOError, &"missing reproduce source: {path}")
+      if path.endsWith(".asm"):
+        data = assembleAsm(readFile(path), r.offset.uint32, NativeFlags16)
+      else:
+        let raw = readFile(path)
+        data = newSeq[uint8](raw.len)
+        for i, c in raw:
+          data[i] = c.uint8
+      if data.len != r.length:
+        raise newException(ValueError,
+          &"region {r.name}: assembled/reproduced length {data.len} != {r.length}")
     for i in 0 ..< r.length:
-      result[r.offset + i] = data[i].uint8
+      result[r.offset + i] = data[i]
   if computeChecksum:
     writeSnesChecksum(result)
 

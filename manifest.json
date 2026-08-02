@@ -3,14 +3,544 @@
   "romSize": 3145728,
   "regions": [
     {
-      "name": "rom",
+      "name": "clearWramBlock280C",
       "offset": 0,
-      "length": 3145728,
+      "length": 19,
+      "kind": "code",
+      "source": "asm/clearWramBlock280C.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted clearWramBlock280C from asm/"
+    },
+    {
+      "name": "blob_000013",
+      "offset": 19,
+      "length": 33923,
       "kind": "blob",
-      "source": "blobs/rom.bin",
+      "source": "blobs/blob_000013.bin",
       "build": "copy",
       "comprehension": "unknown",
-      "evidence": "v1 full-ROM blob seed; finer regions graduate without breaking tile invariant"
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "pollJoypads",
+      "offset": 33942,
+      "length": 107,
+      "kind": "code",
+      "source": "asm/pollJoypads.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted pollJoypads from asm/"
+    },
+    {
+      "name": "blob_008501",
+      "offset": 34049,
+      "length": 106,
+      "kind": "blob",
+      "source": "blobs/blob_008501.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "requestCgramDma",
+      "offset": 34155,
+      "length": 8,
+      "kind": "code",
+      "source": "asm/requestCgramDma.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted requestCgramDma from asm/"
+    },
+    {
+      "name": "blob_008573",
+      "offset": 34163,
+      "length": 1778,
+      "kind": "blob",
+      "source": "blobs/blob_008573.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "jmpTable8C65",
+      "offset": 35941,
+      "length": 8,
+      "kind": "data",
+      "source": "asm/jmpTable8C65.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted jmpTable8C65 from asm/"
+    },
+    {
+      "name": "blob_008C6D",
+      "offset": 35949,
+      "length": 268,
+      "kind": "blob",
+      "source": "blobs/blob_008C6D.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "setBgMode",
+      "offset": 36217,
+      "length": 25,
+      "kind": "code",
+      "source": "asm/setBgMode.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted setBgMode from asm/"
+    },
+    {
+      "name": "setObjBase",
+      "offset": 36242,
+      "length": 12,
+      "kind": "code",
+      "source": "asm/setObjBase.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted setObjBase from asm/"
+    },
+    {
+      "name": "setBg1Bases",
+      "offset": 36254,
+      "length": 64,
+      "kind": "code",
+      "source": "asm/setBg1Bases.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted setBg1Bases from asm/"
+    },
+    {
+      "name": "setBg2Bases",
+      "offset": 36318,
+      "length": 62,
+      "kind": "code",
+      "source": "asm/setBg2Bases.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted setBg2Bases from asm/"
+    },
+    {
+      "name": "setBg3Bases",
+      "offset": 36380,
+      "length": 64,
+      "kind": "code",
+      "source": "asm/setBg3Bases.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted setBg3Bases from asm/"
+    },
+    {
+      "name": "setBg4Bases",
+      "offset": 36444,
+      "length": 62,
+      "kind": "code",
+      "source": "asm/setBg4Bases.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted setBg4Bases from asm/"
+    },
+    {
+      "name": "earthboundRandom",
+      "offset": 36506,
+      "length": 56,
+      "kind": "code",
+      "source": "asm/earthboundRandom.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted earthboundRandom from asm/"
+    },
+    {
+      "name": "blob_008ED2",
+      "offset": 36562,
+      "length": 293,
+      "kind": "blob",
+      "source": "blobs/blob_008ED2.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "hardwareMultiply",
+      "offset": 36855,
+      "length": 59,
+      "kind": "code",
+      "source": "asm/hardwareMultiply.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted hardwareMultiply from asm/"
+    },
+    {
+      "name": "hardwareMultiply16",
+      "offset": 36914,
+      "length": 84,
+      "kind": "code",
+      "source": "asm/hardwareMultiply16.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted hardwareMultiply16 from asm/"
+    },
+    {
+      "name": "blob_009086",
+      "offset": 36998,
+      "length": 1152,
+      "kind": "blob",
+      "source": "blobs/blob_009086.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "actionScriptFetch",
+      "offset": 38150,
+      "length": 82,
+      "kind": "code",
+      "source": "asm/actionScriptFetch.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted actionScriptFetch from asm/"
+    },
+    {
+      "name": "actionScriptDispatchTable",
+      "offset": 38232,
+      "length": 154,
+      "kind": "data",
+      "source": "asm/actionScriptDispatchTable.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted actionScriptDispatchTable from asm/"
+    },
+    {
+      "name": "blob_0095F2",
+      "offset": 38386,
+      "length": 2858,
+      "kind": "blob",
+      "source": "blobs/blob_0095F2.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "sramMirrorPiracyCheck",
+      "offset": 41244,
+      "length": 54,
+      "kind": "code",
+      "source": "asm/sramMirrorPiracyCheck.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted sramMirrorPiracyCheck from asm/"
+    },
+    {
+      "name": "blob_00A152",
+      "offset": 41298,
+      "length": 92,
+      "kind": "blob",
+      "source": "blobs/blob_00A152.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "jmpTableA1AE",
+      "offset": 41390,
+      "length": 32,
+      "kind": "data",
+      "source": "asm/jmpTableA1AE.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted jmpTableA1AE from asm/"
+    },
+    {
+      "name": "blob_00A1CE",
+      "offset": 41422,
+      "length": 386,
+      "kind": "blob",
+      "source": "blobs/blob_00A1CE.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "jmpTableA350",
+      "offset": 41808,
+      "length": 16,
+      "kind": "data",
+      "source": "asm/jmpTableA350.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted jmpTableA350 from asm/"
+    },
+    {
+      "name": "blob_00A360",
+      "offset": 41824,
+      "length": 1958,
+      "kind": "blob",
+      "source": "blobs/blob_00A360.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "uploadApuPackages",
+      "offset": 43782,
+      "length": 183,
+      "kind": "code",
+      "source": "asm/uploadApuPackages.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted uploadApuPackages from asm/"
+    },
+    {
+      "name": "writeApuPort0",
+      "offset": 43965,
+      "length": 9,
+      "kind": "code",
+      "source": "asm/writeApuPort0.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted writeApuPort0 from asm/"
+    },
+    {
+      "name": "waitApuIdleClearSong",
+      "offset": 43974,
+      "length": 26,
+      "kind": "code",
+      "source": "asm/waitApuIdleClearSong.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted waitApuIdleClearSong from asm/"
+    },
+    {
+      "name": "queueApuCommand",
+      "offset": 44000,
+      "length": 33,
+      "kind": "code",
+      "source": "asm/queueApuCommand.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted queueApuCommand from asm/"
+    },
+    {
+      "name": "writeApuPort3Cmd57",
+      "offset": 44033,
+      "length": 11,
+      "kind": "code",
+      "source": "asm/writeApuPort3Cmd57.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted writeApuPort3Cmd57 from asm/"
+    },
+    {
+      "name": "writeApuPort1Toggled",
+      "offset": 44044,
+      "length": 20,
+      "kind": "code",
+      "source": "asm/writeApuPort1Toggled.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted writeApuPort1Toggled from asm/"
+    },
+    {
+      "name": "readApuPort0",
+      "offset": 44064,
+      "length": 12,
+      "kind": "code",
+      "source": "asm/readApuPort0.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted readApuPort0 from asm/"
+    },
+    {
+      "name": "blob_00AC2C",
+      "offset": 44076,
+      "length": 371,
+      "kind": "blob",
+      "source": "blobs/blob_00AC2C.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "flushBg3Vofs",
+      "offset": 44447,
+      "length": 19,
+      "kind": "code",
+      "source": "asm/flushBg3Vofs.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted flushBg3Vofs from asm/"
+    },
+    {
+      "name": "setupHdmaChannelBgScroll",
+      "offset": 44466,
+      "length": 100,
+      "kind": "code",
+      "source": "asm/setupHdmaChannelBgScroll.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted setupHdmaChannelBgScroll from asm/"
+    },
+    {
+      "name": "blob_00AE16",
+      "offset": 44566,
+      "length": 30,
+      "kind": "blob",
+      "source": "blobs/blob_00AE16.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "clearHdmaEnableBit",
+      "offset": 44596,
+      "length": 16,
+      "kind": "code",
+      "source": "asm/clearHdmaEnableBit.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted clearHdmaEnableBit from asm/"
+    },
+    {
+      "name": "blob_00AE44",
+      "offset": 44612,
+      "length": 393,
+      "kind": "blob",
+      "source": "blobs/blob_00AE44.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "applyColorMathPreset",
+      "offset": 45005,
+      "length": 36,
+      "kind": "code",
+      "source": "asm/applyColorMathPreset.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted applyColorMathPreset from asm/"
+    },
+    {
+      "name": "blob_00AFF1",
+      "offset": 45041,
+      "length": 41,
+      "kind": "blob",
+      "source": "blobs/blob_00AFF1.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "setFixedColorRgb",
+      "offset": 45082,
+      "length": 31,
+      "kind": "code",
+      "source": "asm/setFixedColorRgb.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted setFixedColorRgb from asm/"
+    },
+    {
+      "name": "writeColorMathRegs",
+      "offset": 45113,
+      "length": 14,
+      "kind": "code",
+      "source": "asm/writeColorMathRegs.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted writeColorMathRegs from asm/"
+    },
+    {
+      "name": "configurePpuWindows",
+      "offset": 45127,
+      "length": 95,
+      "kind": "code",
+      "source": "asm/configurePpuWindows.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted configurePpuWindows from asm/"
+    },
+    {
+      "name": "blob_00B0A6",
+      "offset": 45222,
+      "length": 4,
+      "kind": "blob",
+      "source": "blobs/blob_00B0A6.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "resetWindowPositions",
+      "offset": 45226,
+      "length": 14,
+      "kind": "code",
+      "source": "asm/resetWindowPositions.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted resetWindowPositions from asm/"
+    },
+    {
+      "name": "setupHdmaChannelWh0",
+      "offset": 45240,
+      "length": 55,
+      "kind": "code",
+      "source": "asm/setupHdmaChannelWh0.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted setupHdmaChannelWh0 from asm/"
+    },
+    {
+      "name": "blob_00B0EF",
+      "offset": 45295,
+      "length": 785,
+      "kind": "blob",
+      "source": "blobs/blob_00B0EF.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "mode7MulBySine",
+      "offset": 46080,
+      "length": 37,
+      "kind": "code",
+      "source": "asm/mode7MulBySine.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted mode7MulBySine from asm/"
+    },
+    {
+      "name": "blob_00B425",
+      "offset": 46117,
+      "length": 280472,
+      "kind": "blob",
+      "source": "blobs/blob_00B425.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "loadSong",
+      "offset": 326589,
+      "length": 347,
+      "kind": "code",
+      "source": "asm/loadSong.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "adopted loadSong from asm/"
+    },
+    {
+      "name": "blob_04FD18",
+      "offset": 326936,
+      "length": 2818792,
+      "kind": "blob",
+      "source": "blobs/blob_04FD18.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
     }
   ]
 }

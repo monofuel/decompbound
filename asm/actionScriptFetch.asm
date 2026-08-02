@@ -1,0 +1,44 @@
+; Adopted region actionScriptFetch; ported from snes_src at M5. File offset 0x009506.
+; origin file/SNES context: $009506
+.a16
+.i16
+LDX $8A
+LDA $1372,X
+BNE +71
+LDY $13FE,X
+LDA $148A,X
+STA $82
+TXA
+ASL A
+ASL A
+ASL A
+ADC #$15A2
+STA $84
+LDA [$80],Y
+INY
+AND #$00FF
+CMP #$0070
+BCS +7
+ASL A
+TAX
+JSR ($9558,X)
+BRA +20
+STA $90
+AND #$000F
+STA $1372,X
+LDA $90
+AND #$0070
+LSR A
+LSR A
+LSR A
+TAX
+JSR ($95E2,X)
+LDX $8A
+LDA $1372,X
+BEQ -45
+TYA
+STA $13FE,X
+LDA $82
+STA $148A,X
+DEC $1372,X
+RTS

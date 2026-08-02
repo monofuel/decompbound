@@ -1,13 +1,12 @@
-## Gold-gate the documented RNG routine: earthboundRandom() must match gold.
+## Gold-gate the documented RNG routine assembled from asm/earthboundRandom.asm.
 
 import
   std/unittest,
-  decompbound/snes_src/rng,
-  decompbound/rom_pipeline
+  decompbound/[adopted, rom_pipeline]
 
 const
-  RngRoutineStart = 0x8E9A
-  RngRoutineLen = 0x8ED2 - 0x8E9A   # 56 bytes: PHP .. RTL
+  RngRoutineStart = RngAdvanceOffset
+  RngRoutineLen = 56
 
 suite "EarthBound RNG routine":
   test "earthboundRandom() matches the gold ROM bytes byte-for-byte":

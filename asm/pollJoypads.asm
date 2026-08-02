@@ -1,0 +1,58 @@
+; Adopted region pollJoypads; ported from snes_src at M5. File offset 0x008496.
+; origin file/SNES context: $008496
+.a16
+.i16
+SEP #$20
+.a8
+.i16
+LDA $4212
+LSR A
+BCS -6
+JSR $841B
+JSR $8456
+REP #$30
+.a16
+.i16
+LDX #$0002
+LDA $77,X
+AND #$FFF0
+STA $75
+LDA $65,X
+EOR #$FFFF
+AND $75
+STA $6D,X
+LDA $75
+CMP $65,X
+STA $65,X
+BEQ +11
+LDA $6D,X
+STA $69,X
+LDA #$0014
+STA $71,X
+BRA +17
+LDY $71,X
+BEQ +6
+DEC $71,X
+STZ $69,X
+BRA +7
+STA $69,X
+LDA #$0003
+STA $71,X
+DEX
+DEX
+BPL -56
+LDA $7E436C
+BNE +18
+LDA $67
+ORA $65
+STA $65
+LDA $6B
+ORA $69
+STA $69
+LDA $6F
+ORA $6D
+STA $6D
+LDA $6D
+BEQ +3
+INC $0A34
+RTS

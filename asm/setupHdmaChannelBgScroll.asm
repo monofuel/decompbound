@@ -1,0 +1,59 @@
+; Adopted region setupHdmaChannelBgScroll; ported from snes_src at M5. File offset 0x00ADB2.
+; origin file/SNES context: $00ADB2
+.a16
+.i16
+PHY
+TAY
+LDA $C0AE1D,X
+PHA
+TYA
+ASL A
+ASL A
+ASL A
+ASL A
+TAX
+SEP #$20
+.a8
+.i16
+LDA #$7E
+STA $004304,X
+STA $004307,X
+PLA
+STA $004301,X
+PLA
+LDA #$42
+STA $004300,X
+REP #$20
+.a16
+.i16
+PLA
+PHX
+BNE +19
+LDX #$0006
+LDA $C0AE26,X
+STA $3C32,X
+DEX
+DEX
+BPL -11
+LDA #$3C32
+BRA +17
+LDX #$0006
+LDA $C0AE2D,X
+STA $3C3C,X
+DEX
+DEX
+BPL -11
+LDA #$3C3C
+PLX
+STA $004302,X
+SEP #$20
+.a8
+.i16
+TYX
+LDA $001F
+ORA $C0AE16,X
+STA $001F
+REP #$20
+.a16
+.i16
+RTL

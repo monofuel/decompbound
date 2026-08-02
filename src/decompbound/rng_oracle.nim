@@ -1,6 +1,6 @@
 ## Pure-Nim arithmetic mirror of EarthBound's PRNG advance at $C08E9A.
 ##
-## `snes_src/rng.nim` is the adopted byte-exact snesAsm routine. This module
+## `asm/earthboundRandom.asm` is the adopted byte-exact snesAsm routine. This module
 ## exports the same step as a pure function over a 32-bit seed so Layer 2 can
 ## scan drop windows without spinning the emulator. Verified against live
 ## emulator calls in tests/test_rng_oracle.nim (50+ pre/post seed + return byte).

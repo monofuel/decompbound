@@ -194,8 +194,14 @@ proc classifyOperand(operand: string, m8, x8: bool): tuple[mode: AddressingMode,
       return (amDirectPageY, parseHexInt(num), "")
     return (amAbsoluteY, parseHexInt(num), "")
 
-  # bare number or label
-  if o.startsWith("$") or o[0].isDigit or (o[0] == '-' and o.len > 1 and o[1].isDigit):
+  # bare number (incl. signed branch offsets like +42 / -2) or label
+  if o.startsWith("$") or o[0].isDigit or (o[0] in {'+', '-'} and o.len > 1 and o[1].isDigit):
+    if o[0] in {'+', '-'} and not o.startsWith("$"):
+      var iv: int
+      if parseInt(o, iv) != o.len:
+        raise newException(ValueError, &"bad signed int: {o}")
+      # Relative operands are raw encoded offsets; callers set amRelative*.
+      return (amRelative8, cast[uint32](cast[uint8](iv.int8)), "")
     let digits = hexDigitWidth(o)
     let v = parseHexInt(o)
     if digits <= 2:
@@ -311,26 +317,23 @@ proc parseAsm*(source: string, entryFlags: FlagState = FlagState(m8: true, x8: t
         width.x8 = false
         widthDirty = true
       of ".byte", ".db":
-        # Emit as sequence of data via special: use DW as not available —
-        # encode each byte with a private approach: store as ankInstr BRK? No.
-        # Implement data by appending flag-free raw using instr with mode that
-        # we handle... Simplest path for fixture: reject and use only code in tests.
-        # For .byte support: expand into assemble-compatible raw using a new node kind
-        # would require assembler changes. Emit data by calling encode of dummy —
-        # Change: allow .byte by producing multiple 1-byte "data" through
-        # instr("NOP") wrong size.
-        #
-        # Assembler-only path: add bytes after assembling by not using .byte in
-        # the M3 fixture. Support .byte by generating nodes that the assembler
-        # doesn't understand — better extend assemble later.
-        #
-        # Practical: parse .byte into a chain of PEA is wrong.
-        # Use: for each byte, we add instr with mnemonic ".BYTE" — will fail.
-        #
-        # Extend assembler? Avoid for now — only code fixtures.
-        parseError(lineNo, ".byte/.db not in v1 front end; use code-only fixtures")
+        let rest = line[parts[0].len .. ^1].strip()
+        var raw: seq[uint8] = @[]
+        for tok in rest.split(','):
+          let tt = tok.strip()
+          if tt.len == 0: continue
+          raw.add uint8(parseHexInt(tt) and 0xFF)
+        nodes.add rawData(raw)
       of ".word", ".dw":
-        parseError(lineNo, ".word/.dw not in v1 front end; use code-only fixtures")
+        let rest = line[parts[0].len .. ^1].strip()
+        var raw: seq[uint8] = @[]
+        for tok in rest.split(','):
+          let tt = tok.strip()
+          if tt.len == 0: continue
+          let v = parseHexInt(tt)
+          raw.add uint8(v and 0xFF)
+          raw.add uint8((v shr 8) and 0xFF)
+        nodes.add rawData(raw)
       of ".smart":
         discard  # REP/SEP tracking is always on in assemble()
       else:

@@ -1,133 +1,83 @@
-## Hand-curated ROM regions that replace generated scaffolding.
-## Source lives under `snes_src/` (snesAsm modules; not named `asm/` — that's a
-## Nim keyword). convert_all.nim carves these byte-ranges OUT of the traced
-## code, so a curated module can sit MID-region (not only on a region boundary)
-## and re-generation can never clobber it. Generated scaffold and adopted source
-## therefore never overlap (tests/test_regions.nim enforces no-overlap +
-## byte-exactness). See docs/goal-1.5.md.
+## Hand-curated ROM regions assembled from committed ca65 `.asm` under `asm/`.
+## Phase-2 M5: evidence-bearing source is assembly text, not the Nim snesAsm DSL.
 
 import
-  ./snes_src/[sram_piracy, rng, apu_upload, cgram_dma_request, apu_port_io,
-              song_loader, queue_apu_cmd, wait_apu_idle, bg_layer_setup,
-              obj_base, bg4_bases, clear_wram_block, ppu_color_math, ppu_windows,
-              ppu_scroll, mode7_mul, hdma_channel, hw_multiply, joypad,
-              action_script_tables, action_script_fetch]
+  std/[os, strformat],
+  ./[asm_parse, assembler, common, opcodes]
+
+const
+  AsmRoot* = "asm"
+
+type
+  AdoptedSpec = object
+    name: string
+    offset: int
+    isData: bool
+
+const
+  AdoptedSpecs: seq[AdoptedSpec] = @[
+    AdoptedSpec(name: "sramMirrorPiracyCheck", offset: 0x00A11C),
+    AdoptedSpec(name: "earthboundRandom", offset: 0x008E9A),
+    AdoptedSpec(name: "uploadApuPackages", offset: 0x00AB06),
+    AdoptedSpec(name: "requestCgramDma", offset: 0x00856B),
+    AdoptedSpec(name: "writeApuPort0", offset: 0x00ABBD),
+    AdoptedSpec(name: "writeApuPort3Cmd57", offset: 0x00AC01),
+    AdoptedSpec(name: "writeApuPort1Toggled", offset: 0x00AC0C),
+    AdoptedSpec(name: "loadSong", offset: 0x04FBBD),
+    AdoptedSpec(name: "queueApuCommand", offset: 0x00ABE0),
+    AdoptedSpec(name: "waitApuIdleClearSong", offset: 0x00ABC6),
+    AdoptedSpec(name: "readApuPort0", offset: 0x00AC20),
+    AdoptedSpec(name: "setBgMode", offset: 0x008D79),
+    AdoptedSpec(name: "setObjBase", offset: 0x008D92),
+    AdoptedSpec(name: "setBg1Bases", offset: 0x008D9E),
+    AdoptedSpec(name: "setBg2Bases", offset: 0x008DDE),
+    AdoptedSpec(name: "setBg3Bases", offset: 0x008E1C),
+    AdoptedSpec(name: "setBg4Bases", offset: 0x008E5C),
+    AdoptedSpec(name: "clearWramBlock280C", offset: 0x000000),
+    AdoptedSpec(name: "applyColorMathPreset", offset: 0x00AFCD),
+    AdoptedSpec(name: "setFixedColorRgb", offset: 0x00B01A),
+    AdoptedSpec(name: "writeColorMathRegs", offset: 0x00B039),
+    AdoptedSpec(name: "configurePpuWindows", offset: 0x00B047),
+    AdoptedSpec(name: "resetWindowPositions", offset: 0x00B0AA),
+    AdoptedSpec(name: "flushBg3Vofs", offset: 0x00AD9F),
+    AdoptedSpec(name: "mode7MulBySine", offset: 0x00B400),
+    AdoptedSpec(name: "clearHdmaEnableBit", offset: 0x00AE34),
+    AdoptedSpec(name: "setupHdmaChannelWh0", offset: 0x00B0B8),
+    AdoptedSpec(name: "hardwareMultiply", offset: 0x008FF7),
+    AdoptedSpec(name: "hardwareMultiply16", offset: 0x009032),
+    AdoptedSpec(name: "setupHdmaChannelBgScroll", offset: 0x00ADB2),
+    AdoptedSpec(name: "pollJoypads", offset: 0x008496),
+    AdoptedSpec(name: "actionScriptFetch", offset: 0x009506),
+    AdoptedSpec(name: "actionScriptDispatchTable", offset: 0x009558, isData: true),
+    AdoptedSpec(name: "jmpTable8C65", offset: 0x008C65, isData: true),
+    AdoptedSpec(name: "jmpTableA1AE", offset: 0x00A1AE, isData: true),
+    AdoptedSpec(name: "jmpTableA350", offset: 0x00A350, isData: true),
+  ]
+
+  ## Public offsets retained for tests/tools (was snes_src consts).
+  RngAdvanceOffset* = 0x008E9A
+  ActionScriptFetchOffset* = 0x009506
+  SramPiracyCheckOffset* = 0x00A11C
+
+proc asmPath*(name: string): string =
+  ## Path to a committed adopted assembly file.
+  AsmRoot / (name & ".asm")
+
+proc assembleAdoptedFile*(name: string, offset: int): seq[uint8] =
+  ## Parse and assemble one adopted `.asm` at its ROM file origin.
+  let path = asmPath(name)
+  if not fileExists(path):
+    raise newException(IOError, &"missing adopted asm: {path}")
+  result = assembleAsm(readFile(path), offset.uint32, NativeFlags16)
 
 proc allAdoptedRegions*(): seq[tuple[name: string, offset: int, data: seq[uint8]]] =
-  ## Every hand-curated code region, assembled from named source.
-  result.add (name: "sramMirrorPiracyCheck",
-              offset: SramPiracyCheckOffset,
-              data: sramMirrorPiracyCheck())
-  result.add (name: "earthboundRandom",
-              offset: RngAdvanceOffset,
-              data: earthboundRandom())
-  result.add (name: "uploadApuPackages",
-              offset: ApuUploadOffset,
-              data: uploadApuPackages())
-  result.add (name: "requestCgramDma",
-              offset: CgramDmaRequestOffset,
-              data: requestCgramDma())
-  result.add (name: "writeApuPort0",
-              offset: WriteApuPort0Offset,
-              data: writeApuPort0())
-  result.add (name: "writeApuPort3Cmd57",
-              offset: WriteApuPort3Cmd57Offset,
-              data: writeApuPort3Cmd57())
-  result.add (name: "writeApuPort1Toggled",
-              offset: WriteApuPort1ToggleOffset,
-              data: writeApuPort1Toggled())
-  result.add (name: "loadSong",
-              offset: LoadSongOffset,
-              data: loadSong())
-  result.add (name: "queueApuCommand",
-              offset: QueueApuCmdOffset,
-              data: queueApuCommand())
-  result.add (name: "waitApuIdleClearSong",
-              offset: WaitApuIdleClearSongOffset,
-              data: waitApuIdleClearSong())
-  result.add (name: "readApuPort0",
-              offset: ReadApuPort0Offset,
-              data: readApuPort0())
-  result.add (name: "setBgMode",
-              offset: SetBgModeOffset,
-              data: setBgMode())
-  result.add (name: "setObjBase",
-              offset: SetObjBaseOffset,
-              data: setObjBase())
-  result.add (name: "setBg1Bases",
-              offset: SetBg1BasesOffset,
-              data: setBg1Bases())
-  result.add (name: "setBg2Bases",
-              offset: SetBg2BasesOffset,
-              data: setBg2Bases())
-  result.add (name: "setBg3Bases",
-              offset: SetBg3BasesOffset,
-              data: setBg3Bases())
-  result.add (name: "setBg4Bases",
-              offset: SetBg4BasesOffset,
-              data: setBg4Bases())
-  result.add (name: "clearWramBlock280C",
-              offset: ClearWramBlock280COffset,
-              data: clearWramBlock280C())
-  result.add (name: "applyColorMathPreset",
-              offset: ApplyColorMathPresetOffset,
-              data: applyColorMathPreset())
-  result.add (name: "setFixedColorRgb",
-              offset: SetFixedColorRgbOffset,
-              data: setFixedColorRgb())
-  result.add (name: "writeColorMathRegs",
-              offset: WriteColorMathRegsOffset,
-              data: writeColorMathRegs())
-  result.add (name: "configurePpuWindows",
-              offset: ConfigurePpuWindowsOffset,
-              data: configurePpuWindows())
-  result.add (name: "resetWindowPositions",
-              offset: ResetWindowPositionsOffset,
-              data: resetWindowPositions())
-  result.add (name: "flushBg3Vofs",
-              offset: FlushBg3VofsOffset,
-              data: flushBg3Vofs())
-  result.add (name: "mode7MulBySine",
-              offset: Mode7MulBySineOffset,
-              data: mode7MulBySine())
-  result.add (name: "clearHdmaEnableBit",
-              offset: ClearHdmaEnableBitOffset,
-              data: clearHdmaEnableBit())
-  result.add (name: "setupHdmaChannelWh0",
-              offset: SetupHdmaChannelWh0Offset,
-              data: setupHdmaChannelWh0())
-  result.add (name: "hardwareMultiply",
-              offset: HardwareMultiplyOffset,
-              data: hardwareMultiply())
-  result.add (name: "hardwareMultiply16",
-              offset: HardwareMultiply16Offset,
-              data: hardwareMultiply16())
-  result.add (name: "setupHdmaChannelBgScroll",
-              offset: SetupHdmaChannelBgScrollOffset,
-              data: setupHdmaChannelBgScroll())
-  result.add (name: "pollJoypads",
-              offset: PollJoypadsOffset,
-              data: pollJoypads())
-  result.add (name: "actionScriptFetch",
-              offset: ActionScriptFetchOffset,
-              data: actionScriptFetch())
-  # Script-engine dispatch tables (data, not snesAsm) — RE'd structure.
-  result.add (name: "actionScriptDispatchTable",
-              offset: ActionScriptDispatchOffset,
-              data: actionScriptDispatchTable())
-  result.add (name: "jmpTable8C65",
-              offset: JmpTable8C65Offset,
-              data: jmpTable8C65())
-  result.add (name: "jmpTableA1AE",
-              offset: JmpTableA1AEOffset,
-              data: jmpTableA1AE())
-  result.add (name: "jmpTableA350",
-              offset: JmpTableA350Offset,
-              data: jmpTableA350())
+  ## Every hand-curated region, assembled from `asm/*.asm`.
+  for s in AdoptedSpecs:
+    result.add (name: s.name, offset: s.offset,
+                data: assembleAdoptedFile(s.name, s.offset))
 
 proc adoptedRanges*(): seq[tuple[start: int, last: int]] =
-  ## Inclusive file-offset spans owned by curated modules, derived from the
-  ## assembled length of each. convert_all carves these out of the traced code.
+  ## Inclusive file-offset spans owned by curated modules.
   for r in allAdoptedRegions():
     result.add (start: r.offset, last: r.offset + r.data.len - 1)
 
@@ -137,3 +87,11 @@ proc isAdoptedOffset*(offset: int): bool =
     if offset >= r.start and offset <= r.last:
       return true
   result = false
+
+proc earthboundRandom*(): seq[uint8] =
+  ## Assembled RNG advance routine (compat for tests).
+  assembleAdoptedFile("earthboundRandom", RngAdvanceOffset)
+
+proc actionScriptFetch*(): seq[uint8] =
+  ## Assembled action-script fetch loop (compat for tests).
+  assembleAdoptedFile("actionScriptFetch", ActionScriptFetchOffset)

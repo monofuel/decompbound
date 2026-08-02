@@ -345,6 +345,10 @@ proc initFlagState*(): FlagState =
   ## Flag state at CPU reset: emulation mode, 8-bit everything.
   FlagState(m8: true, x8: true, emulation: true)
 
+const
+  NativeFlags16* = FlagState(m8: false, x8: false, emulation: false)
+    ## Native mode, 16-bit A/X/Y — common entry for adopted routines.
+
 proc applyInstruction*(flags: var FlagState, opcode: uint8, operand: uint32) =
   ## Track flag state changes from REP/SEP/XCE as code executes linearly.
   ## PLP and RTI can also change M/X but their effect is unknowable

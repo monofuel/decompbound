@@ -1,0 +1,47 @@
+; Adopted region hardwareMultiply16; ported from snes_src at M5. File offset 0x009032.
+; origin file/SNES context: $009032
+.a16
+.i16
+STY $00B4
+STA $00B6
+STZ $00B2
+INC $00C4
+LDA $00B5
+SEP #$20
+.a8
+.i16
+TYA
+REP #$20
+.a16
+.i16
+STA $004202
+LDY $00B5
+REP #$20
+.a16
+.i16
+LDA $004216
+STA $00B0
+TYA
+STA $004202
+LDA $00B6
+SEP #$20
+.a8
+.i16
+LDA $00B4
+REP #$20
+.a16
+.i16
+TAY
+LDA $004216
+CLC
+ADC $00B1
+STA $00B1
+TYA
+STA $004202
+NOP
+LDA $00B1
+CLC
+ADC $004216
+STA $00B1
+LDA $00B0
+RTL

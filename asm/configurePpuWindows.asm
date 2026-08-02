@@ -1,0 +1,51 @@
+; Adopted region configurePpuWindows; ported from snes_src at M5. File offset 0x00B047.
+; origin file/SNES context: $00B047
+.a16
+.i16
+TXY
+SEP #$20
+.a8
+.i16
+PHA
+PHA
+AND #$03
+TAX
+LDA $C0B0A6,X
+CPY #$0000
+BEQ +2
+AND #$AA
+STA $002123
+PLA
+LSR A
+LSR A
+PHA
+AND #$03
+TAX
+LDA $C0B0A6,X
+CPY #$0000
+BEQ +2
+AND #$AA
+STA $002124
+PLA
+LSR A
+LSR A
+AND #$03
+TAX
+LDA $C0B0A6,X
+CPY #$0000
+BEQ +2
+AND #$AA
+STA $002125
+PLA
+AND #$1F
+STA $00212E
+STA $00212F
+REP #$20
+.a16
+.i16
+LDA #$5555
+CPY #$0000
+BEQ +3
+LDA #$0000
+STA $00212A
+RTL

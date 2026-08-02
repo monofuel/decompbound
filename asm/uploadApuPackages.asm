@@ -1,0 +1,110 @@
+; Adopted region uploadApuPackages; ported from snes_src at M5. File offset 0x00AB06.
+; origin file/SNES context: $00AB06
+.a16
+.i16
+REP #$30
+.a16
+.i16
+STA $00C6
+STX $00C8
+PHB
+PEA $0000
+PLB
+PLB
+PHD
+PEA $0000
+PLD
+LDY #$0000
+LDA $2140
+CMP #$BBAA
+BEQ +3
+JSR $ABA8
+SEP #$20
+.a8
+.i16
+LDA $001E
+AND #$7F
+STA $001E
+STA $004200
+LDA #$CC
+BRA +38
+LDA [$C6],Y
+INY
+XBA
+LDA #$00
+BRA +11
+XBA
+LDA [$C6],Y
+INY
+XBA
+CMP $2140
+BNE -5
+INC A
+REP #$20
+.a16
+.i16
+STA $2140
+SEP #$20
+.a8
+.i16
+DEX
+BNE -21
+CMP $2140
+BNE -5
+ADC #$03
+BEQ -4
+PHA
+REP #$20
+.a16
+.i16
+LDA [$C6],Y
+BNE +6
+TAX
+LDA #$0500
+BRA +7
+TAX
+INY
+INY
+LDA [$C6],Y
+INY
+INY
+STA $2142
+SEP #$20
+.a8
+.i16
+CPX #$0001
+LDA #$00
+ROL A
+STA $2141
+ADC #$7F
+PLA
+STA $2140
+CMP $2140
+BNE -5
+BVS -85
+REP #$20
+.a16
+.i16
+LDA $2140
+BNE -5
+SEP #$20
+.a8
+.i16
+LDA $001E
+ORA #$80
+STA $001E
+STA $004200
+REP #$20
+.a16
+.i16
+PLD
+PLB
+RTL
+STZ $2142
+STZ $2140
+LDA #$00FF
+STA $2140
+LDA $2140
+CMP #$BBAA
+BNE -14
+RTS
