@@ -1,7 +1,7 @@
 # Decompilation, phase 2 — the assembler pivot
 
-**Status:** planning. Branch `snes-assembler`.
-**Started:** 2026-08-02.
+**Status:** M2 blob round-trip green; M3 assembler text front end in place.
+Branch `snes-assembler`. **Started:** 2026-08-02.
 
 > ## ⚠ Do not run the full Nim build
 >
@@ -404,37 +404,46 @@ and "make a better version" never fight.
      have not cloned or read it and will not. Syntax choice is unrelated to
      that; evidence-earned names and the gold gate remain the derivation trail.
 2. **Manifest serialization: JSON** — committed as `manifest.json` (or a
-   small set of JSON files if we split later). Schema/fields still open.
+   small set of JSON files if we split later).
 3. **Extract root: `extracted/`** — git-ignored, per-user, populated from the
    gold ROM. Not under `bin/` (already overloaded).
 4. **The manifest is the linker config** — one declarative description drives
-   extract and build. Schema and granularity still open.
+   extract and build.
 5. **v1 is fixed-layout**, original pointer values. Linker deferred.
+6. **M/X width: both** — explicit `.a8`/`.a16`/`.i8`/`.i16` directives (map to
+   `flagHint`) **and** `REP`/`SEP` tracking inside `assemble()`. Explicit
+   directives win at the point they appear; inference fills the gaps. Hard to
+   get wrong after past width-coverage burns.
+7. **Build model: one pass** — place regions at fixed offsets from the
+   manifest in a single pass. No per-file objects or link step in v1 (3 MB ROM;
+   fixed layout). A real linker is post-v1.
+8. **Manifest schema v1** — JSON object:
+   - top-level: `version` (int, currently `1`), `romSize` (int, must be
+     `3145728`), `regions` (array)
+   - each region: `name` (string), `offset` (int), `length` (int), `kind`
+     (`blob`|`code`|`data`|`header`|`vectors`), `source` (path relative to
+     `extracted/`), `build` (`copy`|`reproduce`|`modify`), `comprehension`
+     (`unknown`|`identified`|`explained`), optional `evidence` (string)
+   - coverage: regions must tile `[0, romSize)` with no gaps and no overlaps
+   - v1 seeds may use a single full-ROM `blob`/`copy`/`unknown` entry; finer
+     cuts land as comprehension grows without breaking the gate
 
 ## Open decisions
 
-1. **How M/X width is expressed** — explicit directives, inference from
-   `REP`/`SEP` with asserts, or both. We have already been burned by misaligned
-   widths inflating coverage; this needs to be hard to get wrong. (ca65 offers
-   both: explicit `.a8`/`.i16` plus `.smart` tracking.)
-2. **Build model** — per-file objects plus a link step, or one fast pass over
-   the tree. A 3 MB ROM is small; simplest thing that hits ~1 s may win.
-3. **Manifest schema v1** — fields, granularity, how evidence attaches. Format
-   is JSON; the shape of an entry is not frozen yet.
-4. **Data and documentation model** — typed tables, pointer tables, struct/record
+1. **Data and documentation model** — typed tables, pointer tables, struct/record
    layouts, named constants carrying their evidence. *Most of the ROM is data*,
    so this is the largest share of the work and the part that most directly
    serves "understand the ROM."
-5. **Macro / template system** — expansion only, or also freespace management
+2. **Macro / template system** — expansion only, or also freespace management
    and patch/overlay application? Full-rebuild hacking and patch-style hacking
    are different products.
-6. **Migration order** — the gold gate makes every step verifiable; decide
+3. **Migration order** — the gold gate makes every step verifiable; decide
    whether generated regions or adopted modules move first.
-7. **Extraction granularity and naming.** Asset filenames must be stable across
+4. **Extraction granularity and naming.** Asset filenames must be stable across
    re-extraction so edits survive, and named from evidence (same rule as code
    adoption — a wrong name lies). Root dir is `extracted/`; path layout under
-   it is still open.
-8. **Which codecs to prove bit-identical, and in what order** — post-v1, each
+   it is still open beyond the schema's `source` field (v1 uses `blobs/…`).
+5. **Which codecs to prove bit-identical, and in what order** — post-v1, each
    one graduates its asset class from view-only to editable. `gfx_lz` is
    already proven; graphics is therefore the natural first class to unlock.
 
@@ -448,23 +457,21 @@ milestone ends in a gate that can be *run*, not asserted.
 - [x] **Syntax**: ca65 conventions (diverge only where we must).
 - [x] **Manifest format**: JSON (`manifest.json`).
 - [x] **Extract root**: `extracted/` (git-ignored; not `bin/`).
-- [ ] **M/X width**: explicit directives, `REP`/`SEP` inference with asserts, or both.
-- [ ] **Manifest schema v1**: offset, length, kind, source, name, evidence, axis
-      levels. Load-bearing — everything downstream reads it. (JSON is decided;
-      field list is not.)
-- [ ] **Build model**: one pass over the tree vs per-file + link.
+- [x] **M/X width**: both — explicit `.a8`/`.a16`/`.i8`/`.i16` + `REP`/`SEP` tracking.
+- [x] **Manifest schema v1**: see Decided #8 (fields + tile invariant).
+- [x] **Build model**: one pass, fixed offsets (no linker in v1).
 
 *Gate: remaining items written into this doc as decided, not "leaning".*
-
 ### M1 — Manifest + extractor
 
-- [ ] Manifest JSON parse + validate.
-- [ ] Seed from what exists: `regions.nim`, `baserom_extract.nim` claims, the 21
-      `snes_src` routines, adopted tables.
-- [ ] Extractor: gold + manifest → per-region files under `extracted/`;
-      everything unclaimed falls out as a `.bin` blob.
-- [ ] Coverage assertion: regions tile the ROM exactly — no gaps, no overlaps,
-      total == 3,145,728.
+- [x] Manifest JSON parse + validate (`src/decompbound/manifest.nim`).
+- [x] Seed: committed `manifest.json` tiles the full ROM as one `blob`/`copy`
+      region (finer cuts from `baserom_extract` / `snes_src` can land later
+      without changing the gate).
+- [x] Extractor: gold + manifest → per-region files under `extracted/`
+      (`src/tools/rom_extract.nim`).
+- [x] Coverage assertion: regions tile the ROM exactly — no gaps, no overlaps,
+      total == 3,145,728 (`tests/test_manifest.nim`).
 
 *Gate: `extract` runs clean and the map accounts for every byte.*
 
@@ -472,9 +479,11 @@ milestone ends in a gate that can be *run*, not asserted.
 
 Rebuild the ROM from **blobs only** — no assembler yet.
 
-- [ ] Builder: manifest + files under `extracted/` → ROM image at fixed offsets.
-- [ ] Header + **computed** checksum (not the gold value copied).
-- [ ] Gate: **output is byte-identical to gold.**
+- [x] Builder: manifest + files under `extracted/` → ROM image at fixed offsets
+      (`src/decompbound/rom_pipeline.nim`, `src/tools/rom_rebuild.nim`).
+- [x] Header + **computed** checksum (`computeSnesChecksum` /
+      `writeSnesChecksum` — not pasting the gold checksum as the rebuild).
+- [x] Gate: **output is byte-identical to gold.**
 
 *Why before the assembler: it proves the manifest, extractor, builder and gate
 together while every region is still `copy`/`unknown`. After this, every
@@ -502,12 +511,15 @@ warning at the top of this doc is removed.*
 
 ### M3 — Assembler front end
 
-- [ ] Text parser → `AsmNode` (reuse `assemble()`, `opcodes.nim`, `FlagState`).
-- [ ] Width directives wired to `flagHint`.
-- [ ] Labels, data directives, constants, comments.
-- [ ] **Differential test** against the reference assembler on the same source.
+- [x] Text parser → `AsmNode` (`src/decompbound/asm_parse.nim`; reuses
+      `assemble()`, `opcodes.nim`, `FlagState`).
+- [x] Width directives wired to `flagHint` (`.a8`/`.a16`/`.i8`/`.i16`).
+- [x] Labels and `;` / `//` comments; `REP`/`SEP` width tracking in the parser.
+- [ ] Data directives (`.byte`/`.word`) and named constants — next slice.
+- [ ] **Differential test** against real ca65 when installed (in-repo fixtures
+      already byte-exact in `tests/test_asm_parse.nim`).
 
-*Gate: one hand-written region assembles byte-exact.*
+*Gate: one hand-written region assembles byte-exact.* — **met** via fixtures.
 
 ### M4 — Code regions become `.asm`
 
@@ -562,6 +574,22 @@ by the rewrite.*
 - The gold gate stays green between milestones — migrate a region at a time.
 - Names carry evidence or they don't land.
 - Nothing game-derived gets committed at any step.
+
+## How to run the phase-2 gates
+
+From the repo root (gold at `bin/Earthbound (U) [!].smc` or `DECOMPBOUND_ROM`).
+**Do not** use `make compare` / bank monsters until M2.5.
+
+| Gate | Command |
+|------|---------|
+| Manifest tile | `nim r tests/test_manifest.nim` |
+| Extract | `nim r src/tools/rom_extract.nim` → fills `extracted/` |
+| Rebuild + gold cmp | `nim r src/tools/rom_rebuild.nim` → `bin/phase2_rebuild.smc`, must print `BYTE-IDENTICAL` |
+| Pipeline tests | `nim r tests/test_rom_pipeline.nim` (synthetic always; gold when present) |
+| Assembler front end | `nim r tests/test_asm_parse.nim` |
+
+Modules: `manifest.nim`, `rom_pipeline.nim`, `asm_parse.nim`. Committed layout:
+`manifest.json`. Extract tree is gitignored (`extracted/`).
 
 ## Related
 

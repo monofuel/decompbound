@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "romSize": 3145728,
+  "regions": [
+    {
+      "name": "rom",
+      "offset": 0,
+      "length": 3145728,
+      "kind": "blob",
+      "source": "blobs/rom.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "v1 full-ROM blob seed; finer regions graduate without breaking tile invariant"
+    }
+  ]
+}
