@@ -86,4 +86,5 @@ Names for each Build × Comprehension combination. Rights is orthogonal.
 ## Related
 
 - [`decompilation-phase2.md`](decompilation-phase2.md)
+- [`phase2-checklist.md`](phase2-checklist.md)
 - `AGENTS.md` → Copyright hygiene · [`copyright-notes.md`](copyright-notes.md)
