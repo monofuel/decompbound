@@ -3,6 +3,26 @@
 **Status:** planning. Branch `snes-assembler`.
 **Started:** 2026-08-02.
 
+> ## ⚠ Do not run the full Nim build
+>
+> **Until the M2.5 checkpoint below, nobody — human or agent — runs
+> `make compare`, `make build`, `make test-banks`, or any `nim c` / `nim r` on
+> `src/decompbound.nim` or `src/decompbound/generated/*`.**
+>
+> Measured: **36.5 GB peak, 194 s** for one cold build; the four bank-monster
+> tests peak ~30 GB *each*. Two of those concurrently will exhaust a 128 GB box
+> and can take the desktop down with it — this has happened.
+>
+> - Use targeted tests instead: `nim r tests/test_<thing>.nim`.
+> - `make test` excludes the bank monsters; `make test-banks` is the dangerous one.
+> - If a full build is genuinely required, cap it so the kernel kills the build
+>   and not the machine:
+>   `systemd-run --user --scope -p MemoryMax=12G nim c ...`
+> - `--mm:refc` drops it to 25.4 GB / 128 s. Still not safe to run in parallel.
+>
+> **This restriction lifts at M2.5**, when `generated/*.nim` is deleted — that
+> is the entire source of the blow-up.
+
 ## Why there is a phase 2
 
 Phase 1 (`docs/goal-1.md`, `docs/goal-1.5.md`) converted ROM regions into Nim —
@@ -411,6 +431,128 @@ and "make a better version" never fight.
    are different products.
 6. **Migration order** — the gold gate makes every step verifiable; decide
    whether generated regions or adopted modules move first.
+
+## Implementation checklist
+
+**v1 is done when `build()` reproduces the gold ROM byte-for-byte.** Every
+milestone ends in a gate that can be *run*, not asserted.
+
+### M0 — Decide (no code)
+
+- [ ] **Syntax**: confirm ca65 conventions, and where we deliberately diverge.
+- [ ] **M/X width**: explicit directives, `REP`/`SEP` inference with asserts, or both.
+- [ ] **Manifest schema v1**: offset, length, kind, source, name, evidence, axis
+      levels. Load-bearing — everything downstream reads it.
+- [ ] **Build model**: one pass over the tree vs per-file + link.
+
+*Gate: written into this doc as decided, not "leaning".*
+
+### M1 — Manifest + extractor
+
+- [ ] Manifest format implemented (parse + validate).
+- [ ] Seed from what exists: `regions.nim`, `baserom_extract.nim` claims, the 21
+      `snes_src` routines, adopted tables.
+- [ ] Extractor: gold + manifest → per-region files; everything unclaimed falls
+      out as a `.bin` blob.
+- [ ] Coverage assertion: regions tile the ROM exactly — no gaps, no overlaps,
+      total == 3,145,728.
+
+*Gate: `extract` runs clean and the map accounts for every byte.*
+
+### M2 — Blob round-trip ⭐ the de-risking milestone
+
+Rebuild the ROM from **blobs only** — no assembler yet.
+
+- [ ] Builder: manifest + extracted files → ROM image at fixed offsets.
+- [ ] Header + **computed** checksum (not the gold value copied).
+- [ ] Gate: **output is byte-identical to gold.**
+
+*Why before the assembler: it proves the manifest, extractor, builder and gate
+together while every region is still `copy`/`unknown`. After this, every
+milestone is "move regions up an axis without breaking a gate that already
+passes."*
+
+### M2.5 — Gut the Nim representation ⭐ lifts the build restriction
+
+The moment M2 is green, `generated/*.nim` is redundant: it is
+`reproduce`/`unknown` scaffold, machine-produced by `convert_all`, regenerable
+on demand, and **read by nobody**. The blobs make the same bytes. Deleting it
+loses no knowledge.
+
+- [ ] Delete `src/decompbound/generated/*.nim` (50 files, 1,335,789 lines).
+- [ ] Delete the phase-1 adoption tooling that only services it:
+      `verify_seed_regions`, `verify_sandwich_seeds`, the `patch_*_seeds` tools,
+      and the `probe_*` files that import banks.
+- [ ] Retire the four bank-monster tests and the old `make compare` path once
+      the blob gate is the referee.
+- [ ] **Keep**: `snes_src/` (compiles at ~90 MB, holds the understood content),
+      `assembler.nim`, `opcodes.nim`, `disasm.nim`.
+
+*Gate: blob round-trip still byte-exact; a full build is now cheap; the ⚠
+warning at the top of this doc is removed.*
+
+### M3 — Assembler front end
+
+- [ ] Text parser → `AsmNode` (reuse `assemble()`, `opcodes.nim`, `FlagState`).
+- [ ] Width directives wired to `flagHint`.
+- [ ] Labels, data directives, constants, comments.
+- [ ] **Differential test** against the reference assembler on the same source.
+
+*Gate: one hand-written region assembles byte-exact.*
+
+### M4 — Code regions become `.asm`
+
+- [ ] `convert_all` emits `.asm` text instead of Nim procs.
+- [ ] Migrate region by region — each flips `copy` → `reproduce` with the gold
+      gate green after every step.
+- [ ] Gate: full ROM still byte-exact.
+- [ ] **Performance gate**: full build ≤ ~2 s, ≤ a few hundred MB. *If this is
+      not met, stop and rethink before migrating further — it is the entire
+      reason for phase 2.*
+
+### M5 — Port the adopted modules
+
+- [ ] Port the 21 `snes_src` modules to `.asm`, keeping names, comments and
+      evidence — that is the `explained` content, do not lose it.
+- [ ] Delete `snes_asm.nim`.
+
+*Gate: gold gate green; `make test` green.*
+
+### M6 — Reporting on the real axes
+
+- [ ] `compare`/`report` emits Build × Comprehension per [`terms.md`](terms.md),
+      in bytes, excluding coincidental matches.
+
+*Gate: new numbers reconcile with the current tiers — nothing silently promoted
+by the rewrite.*
+
+### M7 — View path (parallel, never blocking)
+
+- [ ] Graphics → PNG · Audio → WAV (one-way) · Script → text · Tables → CSV/JSON.
+
+### M8 — Docs reconciliation
+
+- [ ] Rewrite `goal.md` / `goal-1.5.md` — written on the native-reimplementation
+      premise this phase closes.
+- [ ] Fold the adoption pipeline's evidence rules into the new flow.
+
+### Post-v1 (out of scope until the gate is green)
+
+- Pointers from symbols → whole-ROM **linker**, freespace, relocation. Unlocks
+  `modify`.
+- Codecs proven bit-identical, one asset class at a time. `gfx_lz` is already
+  proven, so graphics is the natural first.
+- Macro / template system for hacks.
+- Patch-based hack distribution (assets are copyrighted, so hacks ship as diffs
+  against the user's own extraction — which makes deterministic builds a hard
+  requirement).
+
+### Standing rules
+
+- Every gate is a **command**, never a self-report ([`delegation.md`](delegation.md)).
+- The gold gate stays green between milestones — migrate a region at a time.
+- Names carry evidence or they don't land.
+- Nothing game-derived gets committed at any step.
 
 ## Related
 
