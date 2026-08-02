@@ -45,8 +45,12 @@ real game-data formats, so building it advances the decomp.
   (`docs/audio.md`); `sound_explore.nim` already resolves a song's packs, and
   the live-APU streaming path is designed in `docs/apps.md` App 1.
 - ✅ **PSI table** — `0x158C50`, ~15-byte records (holds *PSI Shield*).
-- ✅ **Formations** — `0x10D74C` located (which enemies appear together); the
-  group → background/music fields are not yet mapped — that's Track D.
+- ✅ **Battle-group table** — `$D0C60D` / file `0x10C60D`, **484 × 8-byte**
+  records: `+0..+2` far ptr to member list (`[u8 count, u16 enemyId]…$FF`),
+  `+4` u16 event-flag + `+6` wanted value (enable predicate, reader `$C0C524`),
+  `+7&3` letterbox selector (`$C2D121`). Bg layer pair per group reported at
+  `$CBD89A + groupId*4` — reconciliation with the `$CBDA9A` claim below is
+  Track D's job. (Older `0x10D74C` note was mid-blob, not a table base.)
 - ✅ **Text decode** — `text_decode.nim` (names, via the EB text encoding).
 - ❌ **Ability/action list** — where an enemy's castable-PSI/actions live is the
   open frontier (Track E).
@@ -103,15 +107,17 @@ the tool **says so explicitly** — never guesses.
 list must contain it. Acceptance test: *"does the Mani-Mani Statue have a
 shield?"* answered from ROM (or the gap honestly reported).
 
-### Track F — Battle music (song table done; one field to pin)
-Pin the **music field** — enemy record and/or formation record (coordinates
-with Track D; whichever holds it, evidence decides). Then playback: reuse the
-`docs/apps.md` App 1 path — live APU, write the song id to the driver's own
-"play song N" port command, stream PCM via slappy. The bestiary plays an
-enemy's battle theme(s) on demand.
-**Referee:** enter a known battle live; the song id hitting loader `$C4FBBD`
-matches the decoded field. Headless: rendered PCM is non-silent and differs
-between two enemies with different themes.
+### Track F — Battle music (✅ field PINNED 2026-08-01; playback remains)
+**Pinned:** battle song id = **enemy record `+0x37`** (u8), selected from the
+battle group's **first member**; the group record has **no music field**.
+Evidence: byte-exact chain `$C24A4B`/`$C24CD5` (`id×$5E` → `ADC #$0037` →
+`LDA $D59589,X` → `JSL $C4FBBD`); machine referee
+`src/probes/probe_battle_music.nim` (asserts opcode bytes, range-checks all
+231 records vs the 191-song table, cross-checks the live slot200 fight);
+module `src/decompbound/battle_music.nim`. Remaining: playback — reuse the
+`docs/apps.md` App 1 path (live APU, write song id to the driver's "play song
+N" port command, stream via slappy) so the bestiary plays battle themes on
+demand (lands with Track G).
 
 ### Track G — The EB-styled silky app (assembles A+B+C, then D/E/F slot in)
 `sprites_explore.nim` (currently a one-line silky stub) becomes the bestiary

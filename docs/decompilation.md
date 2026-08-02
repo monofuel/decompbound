@@ -185,11 +185,18 @@ of SRAM. Round-trip DoD: decode a table → re-encode → byte-exact.
 (SNES `$D58F51`), 4-byte LE u32, four per-character tables `0x190` apart
 (Ness/Paula/Jeff/Poo). Answers "EXP to next level" = `table[level] − current EXP`.
 
-- **Enemy-stat table** — `0x30`-byte records; verified against Pogo Punk (record
-  at file `0x15C6DE`): `HP` u16 `+0x00`, `PP +0x02`, `EXP-reward +0x04`,
-  `money +0x08`, then two 3-byte gfx pointers, and `Offense/Defense/Speed` as u16
-  at `+0x17 / +0x19 / +0x1B` (odd offsets — our review corrected grok's off-by-one).
-  Canonical table base + indexing code: next dig.
+- **Enemy configuration table** — base **SNES `$D59589` / file `0x159589`**,
+  **`0x5E`-byte records**, indexed `id × $5E` (`LDY #$005E` + `JSL $C08FF7` at
+  `$C24D88`; battle-init copy `$C2B6FA`). Pinned fields: **name** EB-text `+0x01`
+  (max `0x19`), **HP** u16 `+0x21`, **PP** `+0x23`, **EXP** u32 `+0x25`,
+  **money** `+0x29`, **battle music** u8 `+0x37` (song id → loader `$C4FBBD`;
+  byte-exact chain at `$C24A4B`/`$C24CD5`, pinned 2026-08-01,
+  `src/probes/probe_battle_music.nim` is the machine referee), **drop freq**
+  enum `+0x57`, **drop item id** `+0x58`. The older "`0x30`-byte records, Pogo
+  Punk at `0x15C6DE`" claim was a **misaligned slice** — `0x15C6DE` is Pogo Punk
+  (id 134) record `+0x21` (the HP field), so all offsets in that note were
+  mid-record (see `docs/sword-of-kings.md`). Remaining fields (off/def/speed,
+  resistances, sprite pointers) are being field-mapped — bestiary Track A.
 - **Item table** — **base SNES `$D55000` / file `0x155000`**, `0x27`-byte records,
   indexed `id * 0x27` via hardware mul `JSL $C08FF7` then `LDA $D55000,X` (or far
   ptr `$06/$08` = `$D55000`). **Name** is EB-encoded text at `+0x00` (id0=`Null`,
