@@ -3,8 +3,7 @@
 > **⚠ Historical.** Goal 1 was achieved — byte-matching output from source.
 > The *representation* it used (`generated/*.nim`) is being replaced by
 > [`decompilation-phase2.md`](decompilation-phase2.md); `generated/` is deleted
-> at M2.5. Read phase 2 for current direction. **Do not run `make compare`** —
-> 36.5 GB peak, see `AGENTS.md`.
+> at M2.5. Read phase 2 for current direction.
 
 The first proper milestone of the disasm/asm project, defined precisely so a
 session (human or agent) can tell whether it is done.

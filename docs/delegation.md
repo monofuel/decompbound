@@ -50,11 +50,6 @@ spend the expensive session on conducting.
 
 What "green" means here, by ticket type:
 
-> **⚠ `make compare` / `make build` / `make test-banks` are forbidden** until
-> the M2.5 checkpoint — 36.5 GB peak each, and they have taken the desktop
-> down. See `AGENTS.md` → *Do not run the full Nim build*. No verify bar below
-> may use them.
-
 | Ticket type | Verify bar |
 |-------------|-----------|
 | Phase-2 milestone (`docs/decompilation-phase2.md`) | The gate written on that milestone in the checklist — run it, don't assert it |
@@ -112,13 +107,10 @@ self-contained. Filled in for this repo:
 
 ```
 You are working in the decompbound repo (EarthBound SNES decompilation in Nim).
-Read AGENTS.md (copyright hygiene + the build warning), docs/decompilation-phase2.md
+Read AGENTS.md (copyright hygiene + the vanilla ROM gate), docs/decompilation-phase2.md
   (the current plan + milestone checklist), and docs/terms.md (vocabulary) first.
 Task: <one specific, bounded task>
 Verification: <exact commands — targeted, e.g. nim r tests/test_<thing>.nim>
-NEVER RUN: make compare, make build, make test-banks, or nim c/nim r on
-  src/decompbound.nim or src/decompbound/generated/* — 36.5 GB peak, has taken
-  the machine down. If you think you need a full build, stop and report instead.
 Report: findings + evidence (offsets, disasm addresses, command exit codes);
   end with a ```handoff``` block.
 Do not modify: src/decompbound/compare.nim, opcodes.nim, assembler.nim, tests/
