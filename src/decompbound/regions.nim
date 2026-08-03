@@ -1,15 +1,11 @@
-## Central registry of implemented ROM regions.
-## The ROM builder and the compare harness both derive from this list, so
-## coverage claims and generated output can never drift apart.
-##
-## Code regions live in generated/ — one module per traced code region,
-## produced by tools/convert_all.nim from gold ROM disassembly — except
-## adopted ranges, which come from hand-curated modules (docs/goal-1.5.md).
-## Header and vectors are hand-maintained data declarations.
+## Central registry of implemented ROM regions (phase-2).
+## Code no longer comes from generated/* banks — those were deleted at M2.5.
+## Vanilla whole-ROM rebuild is manifest + extracted/ (rom_pipeline). This
+## registry still exposes header, vectors, adopted snes_src, and baserom
+## extract claims for tools that need named region bytes without a full ROM.
 
 import
-  ./[adopted, baserom_extract, common, header, vectors],
-  ./generated/registry
+  ./[adopted, baserom_extract, common, header, vectors]
 
 type
   RomRegion* = object
@@ -18,7 +14,7 @@ type
     data*: seq[uint8]
 
 iterator eachRegion*(): RomRegion =
-  ## Stream every implemented region without retaining all assembled bytes.
+  ## Stream every still-assembled or extracted named region.
   yield RomRegion(name: "header", offset: HiRomHeaderOffset,
                    data: generateEarthboundHeader())
   yield RomRegion(name: "resetVectors", offset: ResetVectorOffset,
@@ -29,19 +25,8 @@ iterator eachRegion*(): RomRegion =
   for region in allBaseromExtractRegions():
     yield RomRegion(name: region.name, offset: region.offset,
                     data: region.data)
-  var holes: seq[tuple[start: int, last: int]] = @[]
-  for r in adoptedRanges():
-    holes.add r
-  for r in baseromExtractRanges():
-    holes.add r
-  for (offset, data) in eachCodeRegion():
-    for piece in carveSpanAroundHoles(offset, data.len, holes):
-      let rel = piece.offset - offset
-      yield RomRegion(name: "code", offset: piece.offset,
-                      data: data[rel ..< rel + piece.length])
 
 proc allRegions*(): seq[RomRegion] =
-  ## Build every implemented region: curated adoptions, generated code
-  ## assembled from disassembled mnemonics, plus header and vector data.
+  ## Collect every named region (adopted + extracts + header/vectors).
   for region in eachRegion():
     result.add region

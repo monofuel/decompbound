@@ -1,31 +1,30 @@
 ## Public interface for the decompbound decompilation project.
-## This generates the ROM based on our reverse-engineered understanding.
-## The gold master ROM is only used by compare.nim for validation.
+## Phase-2: vanilla ROM is built from manifest.json + extracted/ (blob gate).
+## Named adopted regions remain available via decompbound/regions for tools.
 
 # nim r src/decompbound.nim
 
 import
-  std/[strformat, parseopt, osproc],
-  decompbound/[common, regions]
+  std/[os, parseopt, strformat],
+  decompbound/[common, manifest, rom_pipeline]
 
-proc generateRom(): string =
-  ## Generate the decomp ROM from our reverse-engineered code and data.
-  ## Every region comes from the central registry: code regions are
-  ## assembled from disassembled mnemonics, data regions are declared data.
-  ## Regions stream one at a time so assembled bank bytes are not retained.
-  var rom = newString(EarthboundRomSize)
-  for i in 0..<rom.len:
-    rom[i] = '\x00'
-
-  for region in eachRegion():
-    for i in 0..<region.data.len:
-      rom[region.offset + i] = region.data[i].char
-
-  result = rom
+proc generateRom(): seq[uint8] =
+  ## Build the vanilla ROM via the phase-2 pipeline (extract must already exist,
+  ## or we extract from gold first when present).
+  let m = parseManifestFile(ManifestDefaultPath)
+  let cov = validateManifest(m)
+  if not cov.ok:
+    raise newException(ValueError, cov.message)
+  if not dirExists(ExtractDefaultRoot) or
+      not fileExists(ExtractDefaultRoot / "blobs/rom.bin"):
+    if not goldBaseromAvailable():
+      raise newException(IOError,
+        "no extracted/ tree and no gold baserom — run rom_extract first")
+    discard extractRegions(m, readGoldBaserom(), ExtractDefaultRoot)
+  result = rebuildRom(m, ExtractDefaultRoot, computeChecksum = true)
 
 when isMainModule:
   var runCompare = false
-
   var p = initOptParser()
   for kind, key, val in p.getOpt():
     case kind:
@@ -40,19 +39,20 @@ when isMainModule:
     of cmdEnd:
       discard
 
-  echo "Generating decomp ROM from reverse-engineered code..."
-
+  echo "building ROM (phase-2 manifest + extracted/)..."
   let rom = generateRom()
+  createDir("bin")
   writeFile(outputRom, rom)
-
-  echo &"Generated ROM: {outputRom} ({rom.len} bytes)"
+  echo &"wrote {outputRom} ({rom.len} bytes)"
 
   if runCompare:
-    echo ""
-    echo "Running comparison against gold master ROM..."
-    let (output, exitCode) = execCmdEx("nim r src/compare.nim")
-    echo output
-    if exitCode != 0:
-      quit(exitCode)
-  else:
-    echo "Use --compare or -c to validate against the gold master ROM."
+    if not goldBaseromAvailable():
+      echo "gold missing; skip compare"
+      quit(0)
+    let gold = readGoldBaserom()
+    if romsEqual(rom, gold):
+      echo "BYTE-IDENTICAL to gold"
+      quit(0)
+    let d = firstDiff(rom, gold)
+    echo &"MISMATCH at 0x{d:06X}"
+    quit(2)

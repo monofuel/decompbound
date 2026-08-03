@@ -3,6 +3,19 @@
 - Earthbound (SNES) decompilation project in Nim.
 - This will be a complex and open ended progress, you will need to get creative and may have to make tools to help.
 
+## Vanilla ROM gate (phase 2)
+
+`generated/*` bank modules are **gone** (M2.5). Vanilla rebuild is:
+
+```
+nim r src/tools/rom_extract.nim
+nim r src/tools/rom_rebuild.nim    # must print BYTE-IDENTICAL
+```
+
+or `make compare`. Prefer targeted `nim r tests/test_*.nim`; `make test` is fine.
+`make test-banks` is a retired no-op. Details:
+[`docs/decompilation-phase2.md`](docs/decompilation-phase2.md).
+
 ## Tools vs probes (keep `src/tools/` clean)
 
 | Path | What goes here |

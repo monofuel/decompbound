@@ -52,7 +52,8 @@ What "green" means here, by ticket type:
 
 | Ticket type | Verify bar |
 |-------------|-----------|
-| Region adoption (`docs/goal-1.5.md`) | `make test` / `nim r tests/test_regions.nim` exit 0; `make compare` "Understood" rises, never falls |
+| Phase-2 milestone (`docs/decompilation-phase2.md`) | The gate written on that milestone in the checklist — run it, don't assert it |
+| Extract / rebuild work | Round-trip: `extract(gold)` → `build()` → byte-identical to gold |
 | RE dig / format claim | Disasm the claimed offsets yourself; byte-exact round-trip (`encode(decode(b)) == b`); values range-check against a sibling table |
 | Emulator / rendering fix | Targeted test + sweep the **full** captured scene corpus + goldens — one or two scenes give false confidence |
 | Tool / feature | Compiles via `nim r`; a real test; run against the user's actual ROM or `.srm` |
@@ -70,20 +71,23 @@ path is naturally disjoint, which is why parallel digs rarely collide.
 
 ## Task shapes that delegate well
 
-1. **Region investigation** — `make disasm OFF=0x... N=...`; describe what the
-   routine does, what memory it touches, and the evidence. Parent spot-checks
-   the claimed targets.
-2. **Frontier jump-table resolution** — one entry from
-   `src/decompbound/generated/frontier.md` + surrounding disassembly; report
-   table location, entry count, target list. Parent disassembles the claimed
-   targets before trusting.
-3. **Adoption tickets** (`docs/goal-1.5.md`) — adopt region X under an
-   evidenced name, write the curated module, update the registry, delete the
-   generated file.
-4. **Mechanical sweeps** — regenerate regions after tooling changes, fix a lint
-   finding across generated modules, run and summarize vector sweeps.
+Current work is **phase 2** (`docs/decompilation-phase2.md`). Shapes:
+
+1. **Manifest / extractor work** — describe a region's layout in the manifest,
+   or teach the extractor to carve it. Gate: the region map still tiles the ROM
+   with no gaps or overlaps.
+2. **Region migration** — move one region up an axis (`copy` → `reproduce`).
+   Gate: the round-trip stays byte-exact after the move.
+3. **Assembler front end** — parser, directives, data forms, feeding the
+   existing `AsmNode` / `assemble()` path. Gate: a known region assembles
+   byte-exact, plus the differential test against the reference assembler.
+4. **RE dig** — pin a format or table with disassembly evidence; report offsets
+   and the address-by-address chain. Analysis only; no assets committed.
 5. **Bounded feature coding** — one ticket, one clear verify gate, worktree if
    other writers are live.
+
+*Phase-1 shapes (adoption tickets, frontier jump-table resolution, regenerating
+`generated/`) are retired — see `docs/goal-1.5.md`'s banner.*
 
 ## Task shapes that stay on the conductor
 
@@ -103,13 +107,14 @@ self-contained. Filled in for this repo:
 
 ```
 You are working in the decompbound repo (EarthBound SNES decompilation in Nim).
-Read docs/goal.md, docs/goal-1.5.md, and AGENTS.md (copyright hygiene) first.
+Read AGENTS.md (copyright hygiene + the vanilla ROM gate), docs/decompilation-phase2.md
+  (the current plan + milestone checklist), and docs/terms.md (vocabulary) first.
 Task: <one specific, bounded task>
-Verification: <exact commands — e.g. make test; nim r tests/test_regions.nim>
+Verification: <exact commands — targeted, e.g. nim r tests/test_<thing>.nim>
 Report: findings + evidence (offsets, disasm addresses, command exit codes);
   end with a ```handoff``` block.
-Do not modify: src/decompbound/compare.nim, opcodes.nim, tests/ (the referee),
-  the Makefile, or docs/*.md — report suggested doc edits instead.
+Do not modify: src/decompbound/compare.nim, opcodes.nim, assembler.nim, tests/
+  (the referee), the Makefile, or docs/*.md — report suggested doc edits instead.
 Constraints: probes go in src/probes/ only; no magic bytes without TODO +
   comment; only touch the files listed above; never commit ROM slices, states,
   SRAM, screenshots, or extracted assets. Do not push; commit only if this

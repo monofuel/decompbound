@@ -17,6 +17,7 @@ type
     ankInstr
     ankLabel
     ankFlagHint
+    ankRaw  ## Literal data bytes (.byte / .word), not an instruction.
 
   AsmNode* = object
     case kind*: AsmNodeKind
@@ -30,6 +31,8 @@ type
     of ankFlagHint:
       m8*: bool
       x8*: bool
+    of ankRaw:
+      rawBytes*: seq[uint8]
 
 proc decode*(data: openArray[uint8], offset: int, flags: FlagState): Instruction =
   ## Decode a single instruction at offset under the given flag state.
@@ -163,15 +166,23 @@ proc flagHint*(m8: bool, x8: bool): AsmNode =
   ## where flag state cannot be derived statically (after PLP, RTI).
   AsmNode(kind: ankFlagHint, m8: m8, x8: x8)
 
+proc rawData*(bytes: seq[uint8]): AsmNode =
+  ## Build a raw data node for `.byte` / `.word` payloads.
+  AsmNode(kind: ankRaw, rawBytes: bytes)
+
 proc nodeSize(node: AsmNode, flags: FlagState): int =
   ## Size in bytes a node will occupy under the given flag state.
-  if node.kind != ankInstr:
-    return 0
-  let opcode = findOpcode(node.mnemonic, node.mode)
-  if opcode < 0:
-    raise newException(ValueError,
-      &"No opcode for {node.mnemonic} with mode {node.mode}")
-  result = 1 + operandSize(node.mode, flags)
+  case node.kind
+  of ankInstr:
+    let opcode = findOpcode(node.mnemonic, node.mode)
+    if opcode < 0:
+      raise newException(ValueError,
+        &"No opcode for {node.mnemonic} with mode {node.mode}")
+    result = 1 + operandSize(node.mode, flags)
+  of ankRaw:
+    result = node.rawBytes.len
+  of ankLabel, ankFlagHint:
+    result = 0
 
 proc trackNode(flags: var FlagState, node: AsmNode) =
   ## Advance tracked flag state across a node.
@@ -183,7 +194,7 @@ proc trackNode(flags: var FlagState, node: AsmNode) =
   of ankInstr:
     let opcode = findOpcode(node.mnemonic, node.mode)
     flags.applyInstruction(opcode.uint8, node.value)
-  of ankLabel:
+  of ankLabel, ankRaw:
     discard
 
 proc assemble*(nodes: seq[AsmNode], origin: uint32,
@@ -205,7 +216,8 @@ proc assemble*(nodes: seq[AsmNode], origin: uint32,
   flags = entryFlags
   address = origin
   for node in nodes:
-    if node.kind == ankInstr:
+    case node.kind
+    of ankInstr:
       let opcode = findOpcode(node.mnemonic, node.mode)
       let size = nodeSize(node, flags)
       var value = node.value
@@ -232,5 +244,9 @@ proc assemble*(nodes: seq[AsmNode], origin: uint32,
             &"Label target not supported for mode {node.mode}")
       result.add encode(Instruction(
         opcode: opcode.uint8, operand: value, size: size, flags: flags))
+    of ankRaw:
+      result.add node.rawBytes
+    of ankLabel, ankFlagHint:
+      discard
     address += nodeSize(node, flags).uint32
     flags.trackNode(node)
