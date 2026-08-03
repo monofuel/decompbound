@@ -1,4 +1,4 @@
-.PHONY: help build compare test test-banks check clean regions boot screenshot intro title song vectors spc-vectors disasm play play-pokey archive archive-replays play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai llm-ai-scripted llm-ai-scripted-campaign llm-ai-display llm-ai-display-loop mcp testrom script-dump gfx-roundtrip battle-bg trace inspect audio-check jukebox-app chunk-summary chunk-check chunk-check-all eval eval-pin-baseline
+.PHONY: help build compare test integration-test e2e-test test-all test-banks check clean regions boot screenshot intro title song vectors spc-vectors disasm play play-pokey archive archive-replays play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai llm-ai-scripted llm-ai-scripted-campaign llm-ai-display llm-ai-display-loop mcp testrom script-dump gfx-roundtrip battle-bg trace inspect audio-check jukebox-app chunk-summary chunk-check chunk-check-all eval eval-pin-baseline
 
 # bash + pipefail: the test loop pipes nim through sed, and without
 # pipefail the pipeline's exit status is sed's (always 0), which turns
@@ -19,8 +19,10 @@ help:
 	@echo "decompbound targets:"
 	@echo "  make compare      - phase-2 extract/rebuild vs gold (BYTE-IDENTICAL gate)"
 	@echo "  make check        - nim check main entrypoints + tests (no run)"
-	@echo "  make test         - run the test suite"
-	@echo "  make test-banks   - retired (generated banks deleted at M2.5)"
+	@echo "  make test         - unit tests only, no fixtures needed (instant)"
+	@echo "  make integration-test - needs the gold ROM / CPU vectors (seconds)"
+	@echo "  make e2e-test     - boots the emulator + save-states (minutes)"
+	@echo "  make test-all     - all three tiers"
 	@echo "  make eval         - llm-play autoresearch gate: canary + scorecard (IDEA=name CONFIRM=1; docs/EVAL.md)"
 	@echo "  make chunk-summary - full-ROM typed chunk inventory (see docs/rom-chunks.md)"
 	@echo "  make chunk-check CHUNK=id - gold-check one chunk (sub-agent gate)"
@@ -282,18 +284,35 @@ audio-check: nim.cfg
 	nim r src/tools/audio_check.nim --frames 1400 "$(ROM)"
 
 
+# Three tiers, selected by filename prefix (scriptorium convention):
+#   tests/test_*.nim         unit — no ROM, no save-state, no vectors. Instant.
+#                            The only tier CI can run: every fixture is
+#                            gitignored for copyright hygiene.
+#   tests/integration_*.nim  needs the gold ROM or the SingleStepTests vector
+#                            repos. Local only, seconds.
+#   tests/e2e_*.nim          boots the emulator, restores a save-state, and
+#                            runs the LLM-play policy for thousands of frames.
+#                            Local only, minutes per test.
+#
 # Cap parallel test compiles so unbounded fan-out does not swamp the box.
 # Output is captured per test so a nim failure is not masked by the sed pipe.
 NIM_TEST_JOBS ?= 4
+
+RUN_TESTS = xargs -P $(NIM_TEST_JOBS) -I{} sh -c \
+	'out=$$(nim r $(NIM_TEST_FLAGS) "{}" 2>&1); rc=$$?; \
+	 printf "%s\n" "$$out" | sed "s|^|[{}] |"; exit $$rc'
+
 test: nim.cfg $(LUA_LIB)
-	@files=$$(ls tests/test_*.nim 2>/dev/null); \
-	if [ -z "$$files" ]; then \
-		echo "No unit tests found in tests/test_*.nim"; \
-		exit 0; \
-	fi; \
-	echo "$$files" | xargs -P $(NIM_TEST_JOBS) -I{} sh -c \
-		'out=$$(nim r $(NIM_TEST_FLAGS) "{}" 2>&1); rc=$$?; \
-		 printf "%s\n" "$$out" | sed "s|^|[{}] |"; exit $$rc' || exit 1
+	@ls tests/test_*.nim | $(RUN_TESTS)
+
+integration-test: nim.cfg $(LUA_LIB)
+	@ls tests/integration_*.nim | $(RUN_TESTS)
+
+# Minutes per test; several run >5 min. Run deliberately, not in a loop.
+e2e-test: nim.cfg $(LUA_LIB)
+	@ls tests/e2e_*.nim | $(RUN_TESTS)
+
+test-all: test integration-test e2e-test
 
 # Retired: generated/* bank modules deleted at M2.5.
 test-banks: nim.cfg
