@@ -21,19 +21,24 @@ proc readU16(snes: SnesBus, off: int): int =
   ## WRAM word at 7E:off.
   readU8(snes, off) or (readU8(snes, off + 1) shl 8)
 
-proc runLeg(statePath: string, frames: int, tickApuFull: bool): string =
+proc runLeg(statePath: string, frames: int, tickApuFull: bool,
+    holdJoy: uint16 = 0): string =
   ## Step `frames` from the state; return a one-line outcome summary.
+  ## holdJoy nonzero = keep that pad word held every frame (d-pad direction
+  ## hypothesis: phase-3 battler init reads the held direction nibble).
   let rom = policy.readRomFile(Rom)
   let snes = newSnesBus(rom)
   var c = snes.resetCpu()
   deserializeState(cast[seq[byte]](readFile(statePath)), snes, c)
   let img = newImage(ppu.ScreenWidth, ppu.ScreenHeight)
-  let label = if tickApuFull: "APU-533" else: "APU-none"
+  let label =
+    (if tickApuFull: "APU-533" else: "APU-none") &
+    (if holdJoy != 0: "+hold" else: "")
   var maxPhase = readU8(snes, 0x98A5)
   var promoted = false
   var battleLive = false
   for f in 0 ..< frames:
-    snes.joy1 = 0
+    snes.joy1 = holdJoy
     policy.stepOneFrame(snes, c, img)
     if tickApuFull:
       for _ in 0 ..< SamplesPerFrame:
@@ -73,9 +78,13 @@ proc main() =
   echo "state: ", statePath, "  frames: ", frames
   let a = runLeg(statePath, frames, tickApuFull = false)
   let b = runLeg(statePath, frames, tickApuFull = true)
+  # Held-direction legs: Up (0x0800) — the d-pad nibble the phase-3 battler
+  # init decodes into a facing; joy1=0 is the suspected abort cause.
+  let hd = runLeg(statePath, frames, tickApuFull = false, holdJoy = 0x0800)
   echo "== VERDICT =="
   echo "  ", a
   echo "  ", b
+  echo "  ", hd
 
 when isMainModule:
   main()

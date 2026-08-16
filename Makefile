@@ -336,6 +336,21 @@ eval-pin-baseline: nim.cfg $(LUA_LIB)
 eval-report: nim.cfg
 	nim r $(NIM_TEST_FLAGS) src/tools/eval_report.nim
 
+# Art-wall mode: a windowed Agent run (qwen writes the Lua live) that
+# restarts itself forever — leave it on a monitor and watch the bot work.
+# Compiled once so restarts are instant; log appends to bin/llm_reports/.
+llm-wall: nim.cfg
+	@mkdir -p bin bin/states/llm bin/llm_reports
+	nim c --hints:off --warnings:off --parallelBuild:4 -d:release -o:bin/llm_wall src/tools/llm_ai.nim
+	@echo "llm-wall: windowed Agent loop (Ctrl+C in this terminal to stop)"
+	while true; do \
+	  bin/llm_wall --no-mock --pilot agent --tempo theater --watch-async \
+	    --load-state-path bin/states/llm/bedroom.state \
+	    --frames 100000000 "$(ROM)" >> bin/llm_reports/wall.log 2>&1; \
+	  echo "llm-wall: run ended $$(date); restarting in 3s" | tee -a bin/llm_reports/wall.log; \
+	  sleep 3; \
+	done
+
 # Fast compile-only gate (same idea as racha/satisfactory_tools/coworld):
 # `nim check` entrypoints + unit tests without executing them.
 check: nim.cfg
