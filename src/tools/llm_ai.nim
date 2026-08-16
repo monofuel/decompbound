@@ -625,7 +625,7 @@ proc buildStateSummary*(ctx: policy.PolicyContext): string =
   if pokeyPct >= 100: pokeyDone = true
   let objective =
     if not tgDone:
-      "GET OUTSIDE. You're Ness in your bedroom after a meteor — use scene() + walkTo/navTo indoors, escapeMenu if needed, leave via the front door. Target tg_pct=100. No fights."
+      "GET OUTSIDE. You're Ness in your bedroom after a meteor. Indoors goToward works by name: goToward('stairs_down') then goToward('front_door') (or exitHouse()); escapeMenu if needed. Target tg_pct=100. No fights."
     elif not pokeyDone:
       "FIND POKEY AT THE METEOR. Use SCENE landmarks/entities (goToward names, approach/talk). Prefer talk('pokey') or talk(nearest) when he appears — READ screen.text(). Do NOT treat followRoute as the only way; explore with perception. Don't enter the Minch house as the goal. Target pokey_pct=100."
     elif pokeyKnockPct < 80:

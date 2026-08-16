@@ -10,7 +10,7 @@ th { background: #f3f4f6; }
 </style></head><body>
 <h1>LLM-plays-EarthBound — eval run history</h1>
 <p>Primary metric per run (max_knock on the latest run). Regenerate with <code>make eval-report</code>.</p>
-<svg viewBox="0 0 900 320" role="img" aria-label="primary metric over runs"><line x1="56" y1="272.0" x2="876" y2="272.0" stroke="#e5e7eb" stroke-width="1"/><text x="48" y="276.0" text-anchor="end" font-size="11" fill="#6b7280">0.</text><line x1="56" y1="210.0" x2="876" y2="210.0" stroke="#e5e7eb" stroke-width="1"/><text x="48" y="214.0" text-anchor="end" font-size="11" fill="#6b7280">28.</text><line x1="56" y1="148.0" x2="876" y2="148.0" stroke="#e5e7eb" stroke-width="1"/><text x="48" y="152.0" text-anchor="end" font-size="11" fill="#6b7280">55.</text><line x1="56" y1="86.0" x2="876" y2="86.0" stroke="#e5e7eb" stroke-width="1"/><text x="48" y="90.0" text-anchor="end" font-size="11" fill="#6b7280">83.</text><line x1="56" y1="24.0" x2="876" y2="24.0" stroke="#e5e7eb" stroke-width="1"/><text x="48" y="28.0" text-anchor="end" font-size="11" fill="#6b7280">110.</text><circle cx="466.0" cy="91.6" r="5" fill="#2f9e44" stroke="#ffffff" stroke-width="2"><title>20260729T023754Z phase1-bootstrap: max_knock=80. (keep)</title></circle><text x="466.0" y="81.6" text-anchor="middle" font-size="11" fill="#1a1a2e">80.</text><text x="466.0" y="288" text-anchor="middle" font-size="10" fill="#6b7280">0729</text><line x1="56" y1="272" x2="876" y2="272" stroke="#6b7280" stroke-width="1"/></svg>
+<svg viewBox="0 0 900 320" role="img" aria-label="primary metric over runs"><line x1="56" y1="272.0" x2="876" y2="272.0" stroke="#e5e7eb" stroke-width="1"/><text x="48" y="276.0" text-anchor="end" font-size="11" fill="#6b7280">0.</text><line x1="56" y1="210.0" x2="876" y2="210.0" stroke="#e5e7eb" stroke-width="1"/><text x="48" y="214.0" text-anchor="end" font-size="11" fill="#6b7280">82.</text><line x1="56" y1="148.0" x2="876" y2="148.0" stroke="#e5e7eb" stroke-width="1"/><text x="48" y="152.0" text-anchor="end" font-size="11" fill="#6b7280">165.</text><line x1="56" y1="86.0" x2="876" y2="86.0" stroke="#e5e7eb" stroke-width="1"/><text x="48" y="90.0" text-anchor="end" font-size="11" fill="#6b7280">248.</text><line x1="56" y1="24.0" x2="876" y2="24.0" stroke="#e5e7eb" stroke-width="1"/><text x="48" y="28.0" text-anchor="end" font-size="11" fill="#6b7280">330.</text><polyline points="56.0,211.9 466.0,211.9 876.0,46.5" fill="none" stroke="#4c6ef5" stroke-width="2"/><circle cx="56.0" cy="211.9" r="5" fill="#2f9e44" stroke="#ffffff" stroke-width="2"><title>20260729T023754Z phase1-bootstrap: max_knock=80. (keep)</title></circle><text x="56.0" y="201.9" text-anchor="middle" font-size="11" fill="#1a1a2e">80.</text><text x="56.0" y="288" text-anchor="middle" font-size="10" fill="#6b7280">0729</text><circle cx="466.0" cy="211.9" r="5" fill="#e03131" stroke="#ffffff" stroke-width="2"><title>20260816T042933Z qwen38-bump: max_knock=80. (discard)</title></circle><text x="466.0" y="201.9" text-anchor="middle" font-size="11" fill="#1a1a2e">80.</text><text x="466.0" y="288" text-anchor="middle" font-size="10" fill="#6b7280">0816</text><circle cx="876.0" cy="46.5" r="5" fill="#2f9e44" stroke="#ffffff" stroke-width="2"><title>20260816T044601Z phase2-reflex: max_knock=300. (keep)</title></circle><text x="876.0" y="36.5" text-anchor="middle" font-size="11" fill="#1a1a2e">300.</text><text x="876.0" y="288" text-anchor="middle" font-size="10" fill="#6b7280">0816</text><line x1="56" y1="272" x2="876" y2="272" stroke="#6b7280" stroke-width="1"/></svg>
 <p class="legend">
 <span style="color:#2f9e44">● keep</span>
 <span style="color:#e03131">✕ discard</span>
@@ -22,6 +22,14 @@ th { background: #f3f4f6; }
 </tr></thead><tbody><tr>
 <td>20260729T023754Z</td><td>phase1-bootstrap</td><td>screen</td><td>T4</td><td>scripted</td>
 <td>max_knock=80.</td><td>pass</td>
+<td><span style="color:#2f9e44">● keep</span></td>
+<td>keep</td><td>tg=25 pokey=100 knock=80</td></tr><tr>
+<td>20260816T042933Z</td><td>qwen38-bump</td><td>screen</td><td>T4</td><td>scripted</td>
+<td>max_knock=80.</td><td>FAIL</td>
+<td><span style="color:#e03131">✕ discard</span></td>
+<td>fail_referee</td><td>tg=25 pokey=100 knock=80</td></tr><tr>
+<td>20260816T044601Z</td><td>phase2-reflex</td><td>screen</td><td>T4</td><td>scripted</td>
+<td>max_knock=300.</td><td>pass</td>
 <td><span style="color:#2f9e44">● keep</span></td>
 <td>keep</td><td>tg=25 pokey=100 knock=80</td></tr></tbody></table>
 </body></html>
