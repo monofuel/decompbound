@@ -21,12 +21,14 @@ const
   # Party forms (probe_entity_name_survey 2026-08-16): a formed party uses the
   # character index $0001-$0004 as the group id in slots 24-27; solo overworld
   # Ness stays $01B5. Both forms must be here or midgame scenes go nameless.
+  # tracy/king: indoor Ness-house cast, same pixel across distinct snapshots
+  # (entity-name-survey follow-up 2026-08-16; king ctype $0006, dog).
   GroupNames = {0x0091: "mom", 0x002C: "pokey", 0x01B5: "ness",
                 0x0001: "ness", 0x0002: "paula", 0x0003: "jeff",
-                0x0004: "poo"}.toTable
+                0x0004: "poo", 0x00D7: "tracy", 0x0167: "king"}.toTable
   PtrNames   = {0x2A8A: "mom", 0x204B: "pokey", 0x4796: "ness",
                 0x1A88: "ness", 0x1AB1: "paula", 0x1ADA: "jeff",
-                0x1B03: "poo"}.toTable
+                0x1B03: "poo", 0x31B0: "tracy", 0x3FE8: "king"}.toTable
 
 proc entityName(snes: SnesBus, slot: int): string =
   ## Name for a slot from its sprite-group / ptr identity ("" if unknown).
