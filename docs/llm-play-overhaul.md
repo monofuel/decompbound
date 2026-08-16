@@ -122,13 +122,14 @@ Two complementary channels, sent every LLM tick:
      accurately — title text ("THE WAR AGAINST GIYGAS!"), street backdrop, and
      "the party is bottom-center-left, in the road, facing rightward." Good
      enough to perceive a scene.
-   - ⚠️ **Latency: ~138s for one image call** (first call, may include warmup)
-     on the Strix Halo APU. This SETTLES the architecture: **the structured
-     scene JSON (piece #2, sub-millisecond) is the primary per-tick channel;
-     vision is a sparse supplement** — gated behind `--vision` and fired only
-     on scene-change, or as an explicit "look carefully" action the bot can
-     choose. Do NOT put vision on every tick. Measure *warm* latency during
-     implementation (KV cache warm may be faster).
+   - ⚠️ **Latency (updated 2026-08-16, qwen3.8-27b@q4_k_m): ~33s per image
+     call, warm ≈ cold** — the time is reasoning-token generation, not image
+     encoding (4x faster than qwen3.6's ~138s). Frame reads are accurate
+     (naming screen: read the prompt text, typed name, and all three
+     function buttons). The architecture stands: **scene JSON is the
+     per-tick channel; vision is a sparse supplement** gated behind
+     `--vision`, fired on scene-change or as an explicit "look carefully"
+     action — but at 33s it is now genuinely viable in that role.
 
 2. **Structured scene (JSON).** A compact, deterministic JSON blob built from
    WRAM each tick — this is the reliable channel and works even without vision:

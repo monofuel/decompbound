@@ -22,7 +22,7 @@
 ## The harness + API is our code; ROM and any dumps are user-supplied at runtime.
 
 import
-  std/[os, strutils, strformat, times, algorithm, options, monotimes, httpclient, json, osproc],
+  std/[os, strutils, strformat, times, algorithm, options, monotimes, httpclient, json, osproc, tables],
   pixie,
   ../decompbound/[cpu, ppu, snesbus, lua53, policy, save_state],
   ./[touch_grass, llm_mock_policies, story_percents, scene, vision_payload]
@@ -47,8 +47,8 @@ const
     ## LM Studio on azem (local, free, always-on). Change for a cloud/other host.
   AzemApiKey = "lm-studio"
     ## LM Studio ignores the key; any non-empty value avoids the OPENAI_API_KEY env.
-  PolicyModel = "qwen3.6-27b@q6_k"
-    ## qwen3.6 reasoning model (exact server id from /v1/models; 27b@q6_k variant tested to accept chat + return reasoning_content). 256K-capable in principle; we keep sent context well under loaded n_ctx (~26k+) by trimming notes+last-policy. max_tokens set high enough for CoT + Lua output.
+  PolicyModel = "qwen3.8-27b@q4_k_m"
+    ## qwen3.8 reasoning model (exact server id from /v1/models; q8 pending LM Studio pickup — one-line swap when qwen3.8-27b@q8_0 appears). Same response shape as qwen3.6: fenced Lua in content, CoT in reasoning_content, and low max_tokens still returns EMPTY content (all tokens burn in reasoning) — keep max_tokens >= 2000. Vision (image_url) accepted; a frame call runs ~33s warm (4x faster than 3.6's ~138s; cost is reasoning tokens, not image encoding).
   SkillsFile = "bin/states/llm_skills.lua"
     ## Persistent skill library (walkTo etc). Loaded at boot into Lua BEFORE policy. Gitignored.
   NotesFile = "bin/states/llm_notes.txt"
@@ -70,6 +70,17 @@ const
   LlmPostKnockOutdoorState = "bin/states/llm/post_knock_outdoor.state"
     ## Free outdoor + knock signature (synth_post_knock_outdoor.nim) — playable.
   LlmDefaultSram = "bin/states/llm_ai.srm"
+  RetraceSampleFrames = 16
+    ## Fast-loop cadence for sampling the player position onto the retrace tape.
+  RetraceMinDist = 16
+    ## Manhattan px between tape samples — only genuinely-traveled ground lands.
+  RetraceTapeCap = 240
+    ## Ring cap: roughly the last few screens of walked ground.
+  RetraceMinPoints = 6
+    ## Below this the tape is too short to be a useful escape route.
+  RetraceHoldFrames = 600
+    ## Frames the retrace policy runs before the provider may replace it
+    ## (frame-based on purpose: correct under Turbo's uncapped fps).
 
 var
   ## Per-process rollback path — concurrent llm_ai runs must not share one file
@@ -1262,6 +1273,25 @@ when isMainModule:
     var maxGiant = story_percents.giantStepPercent(snes)
     var maxCaptain = story_percents.captainStrongPercent(snes)
     var pokeyAchievedFrame = -1
+    var maxBuzz = story_percents.buzzBuzzPercent(snes)
+    var maxSunrise = story_percents.sunrisePercent(snes)
+    # Frames-to-gate: first frame each gate hit its live ceiling (docs/EVAL.md
+    # ceilings table; unreachable ceilings simply never record).
+    var gateFrames = initTable[string, int]()
+    proc recordGate(name: string, latched, ceiling: int, frameNow: int) =
+      ## Record the first frame a latched gate reaches its live ceiling.
+      if latched >= ceiling and not gateFrames.hasKey(name):
+        gateFrames[name] = frameNow
+    # Retrace tape: recently-traveled ground recorded Nim-side (survives policy
+    # hot-swaps; needs no cooperation from LLM-authored Lua). Consumed by a
+    # generated followTrail policy as the stall escape BEFORE fixture rollback.
+    var retraceTape: seq[(int, int)]
+    var retraceTried = false
+    var retraceHoldUntil = 0
+    var retraceEscapes = 0
+    # Stall episodes by mechanical cause (text window open vs silent no-progress).
+    var stallTextWindow = 0
+    var stallNoProgress = 0
     if maxMagicant >= 95 or maxFourside >= 60 or maxCaptain >= 40:
       echo fmt"LATCH_START max_frank={maxFrank} max_giant={maxGiant} max_captain={maxCaptain} " &
         fmt"max_fourside={maxFourside} max_magicant={maxMagicant} max_giygas={maxGiygas}"
@@ -1272,6 +1302,20 @@ when isMainModule:
       f.writeLine(msg)
       f.close()
       echo msg
+
+    proc buildRetracePolicy(tape: seq[(int, int)]): string =
+      ## Lua chunk that backs out along the tape (most recent point first)
+      ## via followTrail — a known-good escape route made of ground the bot
+      ## genuinely walked, so it never needs pathfinding or glitches.
+      var pts: seq[string]
+      for i in countdown(tape.len - 1, 0):
+        pts.add fmt"{{x={tape[i][0]},y={tape[i][1]}}}"
+      result = "-- retrace: back out along recently-traveled ground (stall escape)\n" &
+        "_retrace_points = {" & pts.join(",") & "}\n" &
+        "function update()\n" &
+        "  if escapeMenu() then return end\n" &
+        "  followTrail(_retrace_points)\n" &
+        "end\n"
 
     when defined(noWindow):
       # No window deps linked at all; every windowed path below is compiled out.
@@ -1311,6 +1355,17 @@ when isMainModule:
       ctx.frameCount += 1
       if wasPending:
         framesDuringPending += 1
+
+      # Retrace tape: sample genuinely-traveled ground (position actually moved).
+      if ctx.frameCount mod RetraceSampleFrames == 0:
+        let pidx = touch_grass.PlayerSlot * touch_grass.SlotIndexStride
+        let sx = touch_grass.readU16(snes, touch_grass.WorldXBase + pidx).int
+        let sy = touch_grass.readU16(snes, touch_grass.WorldYBase + pidx).int
+        if retraceTape.len == 0 or
+            (abs(sx - retraceTape[^1][0]) + abs(sy - retraceTape[^1][1])) >= RetraceMinDist:
+          retraceTape.add (sx, sy)
+          if retraceTape.len > RetraceTapeCap:
+            retraceTape.delete(0)
 
       # Poll background result every frame (non-blocking). Hot-swap when ready.
       # Async watch path relies on this every-frame poll; sync path also uses it inside pause-wait.
@@ -1370,12 +1425,19 @@ when isMainModule:
         let sunrisePct = story_percents.sunrisePercent(snes)
         let oldTg = prevTg
         let oldRoom = prevRoom
+        if room != prevRoom:
+          # Coordinates are per-map-space; a stale cross-room tape is not a route.
+          retraceTape.setLen(0)
         if tg > maxTouchGrass:
           maxTouchGrass = tg
         if pokeyPct > maxPokey:
           maxPokey = pokeyPct
         if pokeyKnockPct > maxKnock:
           maxKnock = pokeyKnockPct
+        if buzzBuzzPct > maxBuzz:
+          maxBuzz = buzzBuzzPct
+        if sunrisePct > maxSunrise:
+          maxSunrise = sunrisePct
         let magLatch = story_percents.magicantPercent(snes)
         let giyLatch = story_percents.giygasPercent(snes)
         let foLatch = story_percents.foursidePercent(snes)
@@ -1388,6 +1450,19 @@ when isMainModule:
         if frLatch > maxFrank: maxFrank = frLatch
         if gsLatch > maxGiant: maxGiant = gsLatch
         if csLatch > maxCaptain: maxCaptain = csLatch
+        # Frames-to-gate at each gate's LIVE ceiling (docs/EVAL.md; knock=80
+        # sleep-blocked, magicant=98 / giygas=80 scorer soft caps).
+        recordGate("tg", maxTouchGrass, 100, ctx.frameCount)
+        recordGate("pokey", maxPokey, 100, ctx.frameCount)
+        recordGate("knock", maxKnock, 80, ctx.frameCount)
+        recordGate("buzzbuzz", maxBuzz, 90, ctx.frameCount)
+        recordGate("sunrise", maxSunrise, 90, ctx.frameCount)
+        recordGate("frank", maxFrank, 100, ctx.frameCount)
+        recordGate("giant", maxGiant, 100, ctx.frameCount)
+        recordGate("captain", maxCaptain, 100, ctx.frameCount)
+        recordGate("fourside", maxFourside, 100, ctx.frameCount)
+        recordGate("magicant", maxMagicant, 98, ctx.frameCount)
+        recordGate("giygas", maxGiygas, 80, ctx.frameCount)
         # Campaign fixture handoff: bot cannot trigger sleep→knock from pre_knock
         # bedroom (verified). When knock latches at 80 and --campaign-fixtures is
         # on, advance via the verified post_knock state (signature → knock 100).
@@ -1984,6 +2059,7 @@ when isMainModule:
           stuckCounter += 1
         else:
           stuckCounter = 0
+          retraceTried = false
         # Extra signal for oscillation/yo-yo at door thresholds (tg 25<->75 with bad fixed target policy).
         # Boosts counter so rollback + replan happens sooner instead of endless crossing.
         if tg < oldTg:
@@ -1999,7 +2075,32 @@ when isMainModule:
         prevPlayerY = py
         if stuckCounter > stuckThreshold:
           inc stuckRecoveryCount
-          if lastMilestonePath.len > 0 and fileExists(lastMilestonePath):
+          # Classify the stall mechanically before recovering (autoresearch
+          # reason codes: a text window open at fire time is a different bug
+          # class than silent no-progress on the overworld).
+          if policy.getScreenText(snes).len > 0:
+            inc stallTextWindow
+            echo fmt"STALL_CAUSE: text_window (total {stallTextWindow})"
+          else:
+            inc stallNoProgress
+            echo fmt"STALL_CAUSE: no_progress (total {stallNoProgress})"
+          if not retraceTried and retraceTape.len >= RetraceMinPoints:
+            # Escape rung 1: back out along recently-traveled ground before
+            # burning the checkpoint. One attempt per stall episode.
+            retraceTried = true
+            inc retraceEscapes
+            let retracePolicy = buildRetracePolicy(retraceTape)
+            if loadPolicyChunk(L, retracePolicy, "stall_retrace"):
+              currentPolicy = retracePolicy
+              retraceHoldUntil = ctx.frameCount + RetraceHoldFrames
+              stuckCounter = 0
+              pendingLlm = false
+              status = "retrace"
+              echo fmt"STUCK_RECOVERY: retrace escape #{retraceEscapes} " &
+                fmt"({retraceTape.len} tape points, hold {RetraceHoldFrames} frames)"
+            else:
+              echo "STUCK_RECOVERY: retrace policy failed to load; falling back"
+          elif lastMilestonePath.len > 0 and fileExists(lastMilestonePath):
             echo fmt"STUCK_DETECTED (counter={stuckCounter}); STUCK_RECOVERY rollback -> {lastMilestonePath} (recovery#{stuckRecoveryCount})"
             try:
               readStateFile(lastMilestonePath, snes, cpu)
@@ -2016,6 +2117,8 @@ when isMainModule:
               prevPlayerX = touch_grass.readU16(snes, touch_grass.WorldXBase + pidxR)
               prevPlayerY = touch_grass.readU16(snes, touch_grass.WorldYBase + pidxR)
               stuckCounter = 0
+              retraceTried = false
+              retraceTape.setLen(0)
               pendingLlm = false
               currentPolicy = scenarioPolicy
               discard loadPolicyChunk(L, currentPolicy, "post_rollback_safe_nav")
@@ -2028,6 +2131,7 @@ when isMainModule:
             # No checkpoint yet: replan by reloading the scenario seed (observable recovery).
             echo fmt"STUCK_DETECTED (counter={stuckCounter}); STUCK_RECOVERY replan (no checkpoint) recovery#{stuckRecoveryCount}"
             stuckCounter = 0
+            retraceTried = false
             pendingLlm = false
             currentPolicy = scenarioPolicy
             discard loadPolicyChunk(L, currentPolicy, "post_stuck_replan")
@@ -2037,7 +2141,9 @@ when isMainModule:
         prevTg = tg
         prevRoom = room
 
-        let doLlmCall = useMock or (tg >= 25)
+        # Hold the provider off while a retrace escape is driving — otherwise
+        # the next interval's policy replaces the escape before it can back out.
+        let doLlmCall = (useMock or (tg >= 25)) and ctx.frameCount >= retraceHoldUntil
         if doLlmCall:
           if not pendingLlm:
             status = if watchAsync: "thinking-async" else: "thinking"
@@ -2102,7 +2208,9 @@ when isMainModule:
     let finalPokeyKnock = story_percents.pokeyKnockPercent(snes)
     if finalPokeyKnock > maxKnock: maxKnock = finalPokeyKnock
     let finalBuzz = story_percents.buzzBuzzPercent(snes)
+    if finalBuzz > maxBuzz: maxBuzz = finalBuzz
     let finalSunrise = story_percents.sunrisePercent(snes)
+    if finalSunrise > maxSunrise: maxSunrise = finalSunrise
     let finalFrank = story_percents.frankPercent(snes)
     let finalGiant = story_percents.giantStepPercent(snes)
     let finalCaptain = story_percents.captainStrongPercent(snes)
@@ -2124,15 +2232,24 @@ when isMainModule:
     if resultJsonPath.len > 0:
       # Machine-readable end-of-run payload for the eval runner (docs/EVAL.md).
       # Latched maxima where they exist; finals for gates not latched yet.
+      var gateFramesJson = newJObject()
+      for name, fr in gateFrames:
+        gateFramesJson[name] = %fr
       let payload = %*{
         "frames": ctx.frameCount,
         "cpu_stopped": cpu.stopped,
         "stuck_recoveries": stuckRecoveryCount,
+        "retrace_escapes": retraceEscapes,
+        "stall_text_window": stallTextWindow,
+        "stall_no_progress": stallNoProgress,
+        "gate_frames": gateFramesJson,
         "pokey_achieved_frame": pokeyAchievedFrame,
         "max": {
           "tg": maxTouchGrass,
           "pokey": maxPokey,
           "knock": maxKnock,
+          "buzzbuzz": maxBuzz,
+          "sunrise": maxSunrise,
           "frank": maxFrank,
           "giant": maxGiant,
           "captain": maxCaptain,
