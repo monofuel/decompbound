@@ -18,8 +18,15 @@ const
   SpriteGroupBase = 0x2CD6
   SpritePtrBase   = 0x29CA
   # Known named characters. Appearance keys — same-looking townies share a group.
-  GroupNames = {0x0091: "mom", 0x002C: "pokey", 0x01B5: "ness"}.toTable
-  PtrNames   = {0x2A8A: "mom", 0x204B: "pokey", 0x4796: "ness"}.toTable
+  # Party forms (probe_entity_name_survey 2026-08-16): a formed party uses the
+  # character index $0001-$0004 as the group id in slots 24-27; solo overworld
+  # Ness stays $01B5. Both forms must be here or midgame scenes go nameless.
+  GroupNames = {0x0091: "mom", 0x002C: "pokey", 0x01B5: "ness",
+                0x0001: "ness", 0x0002: "paula", 0x0003: "jeff",
+                0x0004: "poo"}.toTable
+  PtrNames   = {0x2A8A: "mom", 0x204B: "pokey", 0x4796: "ness",
+                0x1A88: "ness", 0x1AB1: "paula", 0x1ADA: "jeff",
+                0x1B03: "poo"}.toTable
 
 proc entityName(snes: SnesBus, slot: int): string =
   ## Name for a slot from its sprite-group / ptr identity ("" if unknown).
@@ -77,6 +84,19 @@ const
       ("giant_west",     0x08F0, 0x0280),  # giant_step 70 police-west (d64 continuous)
 
     ],
+    # Ness's house interiors — waypoints promoted from the bot-verified
+    # exitHouse walkTo route (indoor collision pages are unpopulated, so
+    # goToward uses walkTo here). Same-floor targets only; the exitHouse
+    # skill remains the full bedroom->outside chain.
+    "bedroom": @[
+      ("bedroom_door", 0x1F00, 0x0450),
+      ("stairs_down",  0x1CC0, 0x03E8),
+    ],
+    "house_interior": @[
+      ("stairs_down",  0x1CC0, 0x03E8),
+      ("living_room",  0x1E70, 0x0170),  # downstairs family area (Mom/Tracy at night)
+      ("front_door",   0x1F40, 0x0148),
+    ],
   }.toTable
 
 proc compass(dx, dy: int): string =
@@ -99,7 +119,9 @@ proc buildScene*(snes: SnesBus): Scene =
   let pidx = PlayerSlot * SlotIndexStride
   result.px = readU16(snes, WorldXBase + pidx)
   result.py = readU16(snes, WorldYBase + pidx)
-  for s in 0..24:
+  # Slots 25-27 hold formed-party followers (paula/jeff/poo) — without them
+  # the scene channel can never name the party (probe_entity_name_survey).
+  for s in 0..27:
     if s == PlayerSlot: continue
     let i = s * SlotIndexStride
     let x = readU16(snes, WorldXBase + i)

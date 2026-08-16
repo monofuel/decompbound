@@ -2,7 +2,7 @@
 ## perceive "who is near me and in which direction" without any coordinates.
 import
   ../decompbound/[cpu, snesbus, save_state, policy],
-  ./scene
+  ../tools/scene
 
 let snes = newSnesBus(policy.readRomFile("bin/Earthbound (U) [!].smc"))
 var c = snes.resetCpu()

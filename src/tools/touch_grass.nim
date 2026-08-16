@@ -1558,6 +1558,12 @@ function goToward(name)
     _intentPressDir(_go.dir)
     return true
   end
+  -- Indoor maps (px in the interior band) have unpopulated collision pages,
+  -- so navTo's BFS is blind there — reactive walkTo is the indoor locomotion.
+  if px >= 0x1C00 then
+    walkTo(x, y)
+    return true
+  end
   if navTo then
     if navTo(x, y) then
       return true
