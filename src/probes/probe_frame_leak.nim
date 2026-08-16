@@ -39,6 +39,7 @@ proc stepFrame(snes: SnesBus, cpu: var Cpu, image: Image, doRender, doAudio, doH
     pcm = newSeq[uint8](SamplesPerFrame * 4)
   var l = 0
   while l < 262:
+    snes.tickScanline(l)
     if l == 224 and (snes.nmitimen and 0x80) != 0:
       cpu.nmiPending = true
     for i in 0 ..< InstrPerLine:

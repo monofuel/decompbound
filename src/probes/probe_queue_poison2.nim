@@ -64,6 +64,7 @@ proc stepFrame(snes: SnesBus, cpu: var Cpu, image: Image, ipl: int) =
     image.fill(ppu.bgr555ToColor(snes.cgram[0]))
   var l = 0
   while l < 262:
+    snes.tickScanline(l)
     if l == 224:
       ppu.renderSprites(snes, image)
       ppu.overlayForegroundBg(snes, image)

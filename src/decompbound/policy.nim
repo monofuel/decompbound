@@ -1009,6 +1009,7 @@ proc stepOneFrame*(snes: SnesBus, cpu: var Cpu, image: Image) =
     image.fill(backdrop)
   var l = 0
   while l < 262:
+    snes.tickScanline(l)
     if l == 224:
       # Sprites must render from OAM as it stands at the END of the visible
       # frame, BEFORE the game's NMI handler DMAs next frame's positions in —

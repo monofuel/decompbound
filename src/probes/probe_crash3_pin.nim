@@ -136,6 +136,7 @@ proc main() =
         img.fill(ppu.bgr555ToColor(snes.cgram[0]))
       var l = 0
       while l < 262:
+        snes.tickScanline(l)
         if l == 224:
           ppu.renderSprites(snes, img)
           ppu.overlayForegroundBg(snes, img)

@@ -1251,6 +1251,7 @@ void main() {
         var smp = 0
         var l = 0
         while l < 262:
+          snes.tickScanline(l)
           # NMI fires at vblank start (line 224), AFTER the visible scanlines are
           # drawn — so the game's vblank handler updates scroll/CGRAM/HDMA for the
           # NEXT frame, not mid-render (which flickered the top lines + the iris).

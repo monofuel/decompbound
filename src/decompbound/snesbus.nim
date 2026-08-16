@@ -61,6 +61,14 @@ type
     apuPostBoot*: seq[(uint32, uint8)]  ## Port writes after the driver ran.
     apuJumps*: seq[(uint8, uint8, uint16)]  ## (counter, flag, target) pairs for block starts.
     vblankToggle: bool
+    scanline*: int
+      ## Current scanline (0..261), maintained by the frame steppers via
+      ## tickScanline so $4210/$4212 report REAL frame phase. Runtime-only:
+      ## never serialized (steppers reset it every frame).
+    nmiReadLatch: bool
+      ## RDNMI bit7: set at vblank start (line 224), cleared on $4210 read —
+      ## real clear-on-read semantics, not a toggle. A wait loop spins while
+      ## the stepper advances lines, so it exits exactly once per frame.
     recordMmioTrace*: bool
       ## OFF by default. Only debug tools (boot_trace) enable it. In live play,
       ## recording every MMIO access grew mmioReads/mmioWrites unbounded — the
@@ -228,9 +236,15 @@ proc mmioRead(snes: SnesBus, offset: uint32): uint8 =
     of ahsRunning:
       0x00'u8
   of 0x4210:
-    # RDNMI: NMI flag toggles so vblank wait loops make progress.
-    snes.vblankToggle = not snes.vblankToggle
-    if snes.vblankToggle: 0xC2'u8 else: 0x42'u8
+    # RDNMI: real clear-on-read vblank flag (set by tickScanline at line 224).
+    # The old toggle-per-read stub let ANY wait loop exit within 2 reads, so
+    # engines that pace on $4210 (text crawl, transitions) raced at
+    # thousands of iterations per frame instead of one.
+    if snes.nmiReadLatch:
+      snes.nmiReadLatch = false
+      0xC2'u8
+    else:
+      0x42'u8
   of 0x4211:
     0x00  # TIMEUP: no IRQ pending.
   of 0x4214:
@@ -246,9 +260,18 @@ proc mmioRead(snes: SnesBus, offset: uint32): uint8 =
   of 0x4219:
     (snes.joy1 shr 8).uint8
   of 0x4212:
-    # HVBJOY: toggle vblank/hblank bits so polls terminate.
+    # HVBJOY: bit7 vblank and bit0 auto-joypad-busy from the REAL scanline;
+    # bit6 hblank keeps a per-read toggle (no intra-line position without
+    # cycle emulation, and hblank spins must terminate).
+    var v = 0'u8
+    if snes.scanline >= 224:
+      v = v or 0x80
+    if snes.scanline >= 224 and snes.scanline <= 226:
+      v = v or 0x01
     snes.vblankToggle = not snes.vblankToggle
-    if snes.vblankToggle: 0x81'u8 else: 0x00'u8
+    if snes.vblankToggle:
+      v = v or 0x40
+    v
   of 0x2134:
     # MPYL: low 8 bits of signed M7A * (int8)M7B product.
     (snes.mpy and 0xFF).uint8
@@ -521,6 +544,15 @@ proc runDma(snes: SnesBus, channels: uint8) =
     snes.dmaRegs[base + 5] = 0
     snes.dmaRegs[base + 6] = 0
     snes.dmaTransfers += 1
+
+proc tickScanline*(snes: SnesBus, l: int) =
+  ## Per-line frame-phase bookkeeping for the timing registers: every frame
+  ## stepper calls this at the top of each scanline so $4212 reports real
+  ## vblank/auto-joypad phase and $4210 latches its clear-on-read NMI flag
+  ## at vblank start.
+  snes.scanline = l
+  if l == 224:
+    snes.nmiReadLatch = true
 
 proc initHdma*(snes: SnesBus) =
   ## Initialize HDMA channels at the start of a frame for currently enabled ones.
@@ -941,6 +973,8 @@ proc resetChipState(snes: SnesBus) =
   snes.rddiv = 0
   snes.rdmpy = 0
   snes.vblankToggle = false
+  snes.scanline = 0
+  snes.nmiReadLatch = false
   snes.joy1 = 0
 
   snes.ppuRegs = default(array[0x100, uint8])

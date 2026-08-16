@@ -1254,13 +1254,19 @@ when isMainModule:
     else:
       echo "  headless mode (no window)"
 
-    # Arm stuck recovery from the start state so long campaigns always have a checkpoint.
-    try:
-      writeStateFile(LlmRollbackState, snes, cpu)
-      lastMilestonePath = LlmRollbackState
-      echo fmt"STUCK_ANCHOR: armed initial state -> {LlmRollbackState} (threshold={stuckThreshold} slow-ticks)"
-    except CatchableError as e:
-      echo "STUCK_ANCHOR failed: ", e.msg
+    # Arm stuck recovery from the start state so long campaigns always have a
+    # checkpoint — unless the start state itself has the scene-dialogue window
+    # open (a poisoned mid-cutscene load): anchoring that would make every
+    # rollback land back inside the deadlock.
+    if snes.bus.mem[0x7E8654] == 0xFF:
+      try:
+        writeStateFile(LlmRollbackState, snes, cpu)
+        lastMilestonePath = LlmRollbackState
+        echo fmt"STUCK_ANCHOR: armed initial state -> {LlmRollbackState} (threshold={stuckThreshold} slow-ticks)"
+      except CatchableError as e:
+        echo "STUCK_ANCHOR failed: ", e.msg
+    else:
+      echo "STUCK_ANCHOR: start state has dialogue open — not anchoring (poison guard)"
 
     var maxTouchGrass = touch_grass.touchGrassPercent(snes)
     var maxPokey = story_percents.pokeyPercent(snes)
@@ -1287,6 +1293,7 @@ when isMainModule:
     # generated followTrail policy as the stall escape BEFORE fixture rollback.
     var retraceTape: seq[(int, int)]
     var retraceTried = false
+    var drainTried = 0
     var retraceHoldUntil = 0
     var retraceEscapes = 0
     # Stall episodes by mechanical cause (text window open vs silent no-progress).
@@ -1313,6 +1320,9 @@ when isMainModule:
       result = "-- retrace: back out along recently-traveled ground (stall escape)\n" &
         "_retrace_points = {" & pts.join(",") & "}\n" &
         "function update()\n" &
+        "  -- NEVER walk while a text window is open: drain dialogue first\n" &
+        "  -- (walking under an open bubble reads as broken play).\n" &
+        "  if advanceDialogue and advanceDialogue() then return end\n" &
         "  if escapeMenu() then return end\n" &
         "  followTrail(_retrace_points)\n" &
         "end\n"
@@ -1350,6 +1360,14 @@ when isMainModule:
         echo fmt"policy runtime error frame {ctx.frameCount}: {err}"
         status = "err"
 
+      # Movement lock mirror: while the NPC/scene dialogue window (slot1
+      # $8654) is allocated outside battle, the game ignores player movement
+      # — mask the d-pad from bot input too so NO policy (seed, retrace, or
+      # LLM-authored) can slide Ness under an open bubble. Menus (slot0) and
+      # battles keep the d-pad; they need it for navigation.
+      if snes.bus.mem[0x7E8654] != 0xFF and
+          touch_grass.readU16(snes, 0x4DBA) == 0:
+        ctx.joy1 = ctx.joy1 and 0xF0FF'u16
       snes.joy1 = ctx.joy1
       policy.stepOneFrame(snes, cpu, frameImage)
       ctx.frameCount += 1
@@ -1425,6 +1443,10 @@ when isMainModule:
         let sunrisePct = story_percents.sunrisePercent(snes)
         let oldTg = prevTg
         let oldRoom = prevRoom
+        # Scene-dialogue window slot1 ($8654) free = safe to snapshot. A
+        # mid-cutscene save can capture a deadlocked script (actors off
+        # their marks) and poisons every later rollback.
+        let dialogClosed = snes.bus.mem[0x7E8654] == 0xFF
         if room != prevRoom:
           # Coordinates are per-map-space; a stale cross-room tape is not a route.
           retraceTape.setLen(0)
@@ -1985,7 +2007,7 @@ when isMainModule:
           writeMilestoneReport(mname, ctx.frameCount, oldTg, tg, oldRoom, room, px, py, currentPolicy)
 
           # On real progress (tg up), snapshot under LLM namespace only (never play slots).
-          if tg > oldTg:
+          if tg > oldTg and dialogClosed:
             try:
               writeStateFile(LlmRollbackState, snes, cpu)
               lastMilestonePath = LlmRollbackState
@@ -1999,7 +2021,7 @@ when isMainModule:
         # the doorstep (60/90), not back at outside-start (0). Suppress once HEAD HOME begins —
         # there pokey_pct climbing means Ness drifted BACK toward the crater, not progress.
         let madeKnockProgress = knockPhase and pokeyKnockPct > prevKnock
-        if madePokeyProgress and not knockPhase:
+        if madePokeyProgress and not knockPhase and dialogClosed:
           try:
             writeStateFile(LlmRollbackState, snes, cpu)
             lastMilestonePath = LlmRollbackState
@@ -2009,7 +2031,7 @@ when isMainModule:
             echo "  save pokey milestone failed: ", e.msg
         # HEAD HOME milestone: re-anchor rollback FORWARD along the home leg (door=50,
         # bedroom=80) so a stall never drags Ness back up the hill to the crater.
-        if madeKnockProgress:
+        if madeKnockProgress and dialogClosed:
           try:
             writeStateFile(LlmRollbackState, snes, cpu)
             lastMilestonePath = LlmRollbackState
@@ -2025,7 +2047,8 @@ when isMainModule:
         let madeCaptainProgress = captainPctLive > prevCaptain
         # Only snapshot when spine does not regress (cs climb while frank drops undoes day-1).
         let day1SpineOk = frankPctLive >= prevFrank
-        if (madeFrankProgress or madeCaptainProgress) and day1SpineOk:
+        if (madeFrankProgress or madeCaptainProgress) and day1SpineOk and
+            dialogClosed:
           try:
             writeStateFile(LlmRollbackState, snes, cpu)
             lastMilestonePath = LlmRollbackState
@@ -2060,6 +2083,11 @@ when isMainModule:
         else:
           stuckCounter = 0
           retraceTried = false
+          # A deadlocked cutscene can FLAP a percent (e.g. knock 10<->50)
+          # without real progress — only a closed dialogue clears the drain
+          # budget, so two failed drains still escalate to rollback.
+          if dialogClosed:
+            drainTried = 0
         # Extra signal for oscillation/yo-yo at door thresholds (tg 25<->75 with bad fixed target policy).
         # Boosts counter so rollback + replan happens sooner instead of endless crossing.
         if tg < oldTg:
@@ -2078,13 +2106,33 @@ when isMainModule:
           # Classify the stall mechanically before recovering (autoresearch
           # reason codes: a text window open at fire time is a different bug
           # class than silent no-progress on the overworld).
-          if policy.getScreenText(snes).len > 0:
+          let textStall = policy.getScreenText(snes).len > 0
+          if textStall:
             inc stallTextWindow
             echo fmt"STALL_CAUSE: text_window (total {stallTextWindow})"
           else:
             inc stallNoProgress
             echo fmt"STALL_CAUSE: no_progress (total {stallNoProgress})"
-          if not retraceTried and retraceTape.len >= RetraceMinPoints:
+          if textStall and drainTried < 2:
+            # A text-window stall means undrained dialogue — the ONLY correct
+            # reflex is pressing through it. Walking/retracing under an open
+            # bubble is exactly the "Ness moves during dialogue" bug. Two
+            # failed drains mean the cutscene is deadlocked (script waiting
+            # on an actor that can't arrive) — fall through to rollback.
+            inc drainTried
+            const drainPolicy =
+              "function update()\n" &
+              "  if advanceDialogue and advanceDialogue() then return end\n" &
+              "  if escapeMenu then escapeMenu() end\n" &
+              "end\n"
+            if loadPolicyChunk(L, drainPolicy, "stall_drain_dialogue"):
+              currentPolicy = drainPolicy
+              retraceHoldUntil = ctx.frameCount + RetraceHoldFrames
+              stuckCounter = 0
+              pendingLlm = false
+              status = "drain"
+              echo fmt"STUCK_RECOVERY: dialogue drain #{drainTried} (text stall; no walking under a bubble)"
+          elif not textStall and not retraceTried and retraceTape.len >= RetraceMinPoints:
             # Escape rung 1: back out along recently-traveled ground before
             # burning the checkpoint. One attempt per stall episode.
             retraceTried = true
@@ -2118,6 +2166,7 @@ when isMainModule:
               prevPlayerY = touch_grass.readU16(snes, touch_grass.WorldYBase + pidxR)
               stuckCounter = 0
               retraceTried = false
+              drainTried = 0
               retraceTape.setLen(0)
               pendingLlm = false
               currentPolicy = scenarioPolicy

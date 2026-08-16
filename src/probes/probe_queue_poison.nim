@@ -137,6 +137,7 @@ proc stepFrameBudget(snes: SnesBus, cpu: var Cpu, image: Image, instrPerLine: in
     image.fill(backdrop)
   var l = 0
   while l < 262:
+    snes.tickScanline(l)
     if l == 224:
       ppu.renderSprites(snes, image)
       ppu.overlayForegroundBg(snes, image)
@@ -260,6 +261,7 @@ proc runIdleHunt(png: string, frames, instrPerLine: int, logAll: bool,
       img.fill(ppu.bgr555ToColor(snes.cgram[0]))
     var l = 0
     while l < 262:
+      snes.tickScanline(l)
       line = l
       if l == 224:
         ppu.renderSprites(snes, img)

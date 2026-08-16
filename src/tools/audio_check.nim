@@ -129,6 +129,7 @@ proc runFramesCollect(snes: SnesBus, cpu: var Cpu, numFrames: int): seq[int16] =
   while f < numFrames and not cpu.stopped:
     var l = 0
     while l < 262:
+      snes.tickScanline(l)
       if l == 224 and (snes.nmitimen and 0x80) != 0:
         cpu.nmiPending = true
       for i in 0..<InstrPerLine:
