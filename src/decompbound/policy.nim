@@ -500,19 +500,6 @@ proc memRead*(L: lua53.PState): cint {.cdecl.} =
   L.pushinteger(ctx.snes.bus.mem[eff].int)
   return 1
 
-proc memWrite*(L: lua53.PState): cint {.cdecl.} =
-  ## Lua binding: mem.write(addr, byte) — WRAM only ($7E/$7F).
-  ## For engine skill recovery after RE'd soft-locks (e.g. goHome $9877 bit0).
-  ## Not a general cheat API: pad-first; write only when a probe names the bit.
-  let ctx = getPolicyCtx(L)
-  let a = L.toInteger(1).int
-  let v = L.toInteger(2).int and 0xFF
-  let eff = memWramEff(a)
-  if eff < 0 or eff >= ctx.snes.bus.mem.len:
-    return 0
-  ctx.snes.bus.mem[eff] = uint8(v)
-  return 0
-
 proc isSystemBank(bank: int): bool {.inline.} =
   ## True for banks that host low-RAM mirrors + the $2000-$5FFF port window.
   (bank <= SystemBankMax) or (bank >= SystemBankHiMin and bank <= SystemBankHiMax)
@@ -928,7 +915,8 @@ proc simNormal*(L: lua53.PState): cint {.cdecl.} =
 
 proc setupPolicyApi*(L: lua53.PState, ctx: PolicyContext) =
   ## Expose the sandboxed surface to Lua.
-  ## mem.read / mem.write (WRAM-only; write for engine recovery after RE'd locks),
+  ## mem.read (WRAM-only, READ-ONLY — policies press buttons, never write
+  ## game memory; the old mem.write recovery hooks masked emulation bugs),
   ## snes.read / snes.readRange (full-bus, side-effect-free),
   ## nav.walkable / nav.findPath (native hitbox collision + BFS pathfinding),
   ## screen.{width,height,pixel,text,dialogue,inBattle,battleText}, pad.{set,press},
@@ -944,8 +932,6 @@ proc setupPolicyApi*(L: lua53.PState, ctx: PolicyContext) =
   L.newtable()
   L.pushcfunction(memRead)
   L.setfield(-2, "read".cstring)
-  L.pushcfunction(memWrite)
-  L.setfield(-2, "write".cstring)
   L.setglobal("mem".cstring)
   # snes (full-bus read-only; prerequisite for Lua map/collision navigation)
   L.newtable()

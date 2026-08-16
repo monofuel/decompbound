@@ -28,7 +28,10 @@ honest bot-reachable top, not the scorer max:
 
 | gate | tg | pokey | knock | buzzbuzz | sunrise | frank | giant | captain | fourside | magicant | giygas |
 |------|---:|------:|------:|---------:|--------:|------:|------:|--------:|---------:|---------:|-------:|
-| live ceiling | 100 | 100 | **80** | 90 | 90 | 100 | 100 | 100 | 100 | **98** | **80** |
+| live ceiling | 100 | 100 | **80** | 90 | 90 | **90** | 100 | 100 | 100 | **98** | **80** |
+
+frank=90: 100 is the Frank-defeated flag — a real battle, blocked on the
+battle-entry track like every other fight.
 
 knock=80: bot cannot trigger sleep→knock (needs prologue-night capture).
 magicant=98 / giygas=80: scorer soft caps await flag RE. A run that reads

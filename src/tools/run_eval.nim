@@ -49,7 +49,7 @@ const
     (name: "knock", ceiling: 80),
     (name: "buzzbuzz", ceiling: 90),
     (name: "sunrise", ceiling: 90),
-    (name: "frank", ceiling: 100),
+    (name: "frank", ceiling: 90),
     (name: "giant", ceiling: 100),
     (name: "captain", ceiling: 100),
     (name: "fourside", ceiling: 100),

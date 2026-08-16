@@ -255,21 +255,10 @@ function escapeMenu()
     pad.press("B")
     return true
   end
-  -- d85: south-commercial freeze after continuous frank 90 — $10E5/$10E7 == 0xC0
-  -- blocks all pad locomotion (pos walkable under free control). Clearing both to
-  -- 0x00 restores walk-like steps and continuous gs70 (probe_south_freeze_10e0).
-  -- Do NOT return true after clear — consume the frame only for real menus, so
-  -- pad can still walk this tick (else re-set C0 → infinite clear thrash).
-  -- TODO(magic): identify game writer for $10E5/$10E7 movement-block bits.
-  if outdoor and mem.write then
-    local a = mem.read(0x10E5)
-    local b = mem.read(0x10E7)
-    if a == 0xC0 or b == 0xC0 then
-      if a == 0xC0 then mem.write(0x10E5, 0x00) end
-      if b == 0xC0 then mem.write(0x10E7, 0x00) end
-      -- fall through; still allow pad this frame
-    end
-  end
+  -- The old d85 south-freeze WRAM clear ($10E5/$10E7) is GONE: policies are
+  -- read-only on game memory. If that freeze recurs, root-cause the game
+  -- writer (likely the same timing-register class fixed 2026-08-16), never
+  -- poke the lock bytes.
   return false
 end
 """
@@ -1599,16 +1588,9 @@ function goHome()
   if px >= 0x1C00 then
     return false
   end
-  -- d50: live AgentOutdoor Pokey talk leaves $9877 bit0 set → thrash at the
-  -- meteor talk tile. Clear once while still on the talk seat only (not the whole
-  -- reverse trail — mid-route clear broke pokey_done approach).
-  -- TODO(magic): $9877 bit0 — find game writer that clears after meteor script.
-  if mem.write and py <= 0x0108 and px >= 0x0840 and px <= 0x0880 then
-    local lock = mem.read(0x9877)
-    if (lock % 2) == 1 then
-      mem.write(0x9877, lock - 1)
-    end
-  end
+  -- The old d50 $9877 bit0 WRAM clear is GONE: policies are read-only on
+  -- game memory. The game's own script clears that bit when its dialogue
+  -- drains properly (the old thrash came from harness bugs, not the bit).
   local j = scene() or ""
   local doorDist = tonumber(j:match('"name":"ness_home_door","dir":"[^"]*","dist_tiles":(%d+)'))
   if doorDist == nil then

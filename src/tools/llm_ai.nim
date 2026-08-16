@@ -1296,6 +1296,15 @@ when isMainModule:
     var drainTried = 0
     var retraceHoldUntil = 0
     var retraceEscapes = 0
+    # Anti-stall (2026-08-16): progress must be REAL. Position progress is
+    # net displacement from the last stall-reset anchor (a bot bouncing in a
+    # small box near a door never counts), and percent progress is the sum
+    # of latched maxima rising (a flapping ladder value never counts).
+    var stallAnchorX = -1
+    var stallAnchorY = -1
+    var prevLatchSum = -1
+    var lastSavedPokey = -1
+    var lastSavedKnock = -1
     # Stall episodes by mechanical cause (text window open vs silent no-progress).
     var stallTextWindow = 0
     var stallNoProgress = 0
@@ -1479,7 +1488,7 @@ when isMainModule:
         recordGate("knock", maxKnock, 80, ctx.frameCount)
         recordGate("buzzbuzz", maxBuzz, 90, ctx.frameCount)
         recordGate("sunrise", maxSunrise, 90, ctx.frameCount)
-        recordGate("frank", maxFrank, 100, ctx.frameCount)
+        recordGate("frank", maxFrank, 90, ctx.frameCount)
         recordGate("giant", maxGiant, 100, ctx.frameCount)
         recordGate("captain", maxCaptain, 100, ctx.frameCount)
         recordGate("fourside", maxFourside, 100, ctx.frameCount)
@@ -1982,8 +1991,13 @@ when isMainModule:
         let pidx = touch_grass.PlayerSlot * touch_grass.SlotIndexStride
         let px = touch_grass.readU16(snes, touch_grass.WorldXBase + pidx)
         let py = touch_grass.readU16(snes, touch_grass.WorldYBase + pidx)
-        let posDelta = abs(px - prevPlayerX) + abs(py - prevPlayerY)
-        let madePosProgress = posDelta > 12   # meaningful world movement since last slow tick
+        if stallAnchorX < 0:
+          stallAnchorX = px.int
+          stallAnchorY = py.int
+        # NET displacement from the stall anchor — activity is not progress;
+        # bouncing at a door stays inside the box and counts as stalled.
+        let anchorDelta = abs(px.int - stallAnchorX) + abs(py.int - stallAnchorY)
+        let madePosProgress = anchorDelta > 0x40
 
         # Record recent history (last few actions + did tg%/room change since prior LLM tick?)
         # This lets qwen course-correct when stuck (no progress = try different skill/approach).
@@ -2021,8 +2035,10 @@ when isMainModule:
         # the doorstep (60/90), not back at outside-start (0). Suppress once HEAD HOME begins —
         # there pokey_pct climbing means Ness drifted BACK toward the crater, not progress.
         let madeKnockProgress = knockPhase and pokeyKnockPct > prevKnock
-        if madePokeyProgress and not knockPhase and dialogClosed:
+        if madePokeyProgress and not knockPhase and dialogClosed and
+            pokeyPct > lastSavedPokey:
           try:
+            lastSavedPokey = pokeyPct
             writeStateFile(LlmRollbackState, snes, cpu)
             lastMilestonePath = LlmRollbackState
             stuckCounter = 0
@@ -2031,8 +2047,9 @@ when isMainModule:
             echo "  save pokey milestone failed: ", e.msg
         # HEAD HOME milestone: re-anchor rollback FORWARD along the home leg (door=50,
         # bedroom=80) so a stall never drags Ness back up the hill to the crater.
-        if madeKnockProgress and dialogClosed:
+        if madeKnockProgress and dialogClosed and pokeyKnockPct > lastSavedKnock:
           try:
+            lastSavedKnock = pokeyKnockPct
             writeStateFile(LlmRollbackState, snes, cpu)
             lastMilestonePath = LlmRollbackState
             stuckCounter = 0
@@ -2065,12 +2082,15 @@ when isMainModule:
         let moneyProg = curMoney != prevMoney
         # In HEAD HOME phase, pokey_pct climbing is backward drift, not progress —
         # count knock progress instead so the stuck detector reads the home leg.
+        # Latch-sum progress: any latched max rising is real; a flapping
+        # live percent (knock 10<->50 at the door) is not.
+        let latchSum = maxTouchGrass + maxPokey + maxKnock + maxBuzz +
+          maxSunrise + maxFrank + maxGiant + maxCaptain + maxFourside +
+          maxMagicant + maxGiygas
+        let madeLatchProgress = prevLatchSum >= 0 and latchSum > prevLatchSum
+        prevLatchSum = latchSum
         let madeAnyProgress =
-          if knockPhase:
-            madeTgRoomProgress or madePosProgress or moneyProg or madeKnockProgress
-          else:
-            madeTgRoomProgress or madePosProgress or moneyProg or madePokeyProgress or
-              madeFrankProgress or madeCaptainProgress
+          madeLatchProgress or (room != oldRoom) or moneyProg or madePosProgress
         # At the goal the bot deliberately stands still mashing to trigger a scene —
         # "not moving" there is success, not a stall. Pre-home that's adjacency to
         # Pokey (pokey_pct>=90); on the home leg it's reaching the door (knock>=50),
@@ -2083,6 +2103,9 @@ when isMainModule:
         else:
           stuckCounter = 0
           retraceTried = false
+          # Progress observed: re-anchor the displacement reference here.
+          stallAnchorX = px.int
+          stallAnchorY = py.int
           # A deadlocked cutscene can FLAP a percent (e.g. knock 10<->50)
           # without real progress — only a closed dialogue clears the drain
           # budget, so two failed drains still escalate to rollback.
@@ -2106,7 +2129,12 @@ when isMainModule:
           # Classify the stall mechanically before recovering (autoresearch
           # reason codes: a text window open at fire time is a different bug
           # class than silent no-progress on the overworld).
-          let textStall = policy.getScreenText(snes).len > 0
+          # Classify from the REAL window WRAM slots ($8650 menu / $8654
+          # dialogue), never getScreenText — outdoor BG tiles decode to
+          # garbage "text" and a false text_window here made the bot drain
+          # dialogue at nothing ("talking to the void") instead of walking.
+          let textStall = snes.bus.mem[0x7E8650] != 0xFF or
+            snes.bus.mem[0x7E8654] != 0xFF
           if textStall:
             inc stallTextWindow
             echo fmt"STALL_CAUSE: text_window (total {stallTextWindow})"

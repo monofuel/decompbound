@@ -1,7 +1,7 @@
 ## Capture $C0404F's real return (A at $C04AC8) on a doomed phase-3 fixture
 ## while $0065 is the live joy1-held word. Also watch $C466A4 (phase-2 store).
 import
-  std/[os, strformat],
+  std/[os, strformat, strutils],
   ../decompbound/[cpu, snesbus, save_state, policy]
 
 const

@@ -70,6 +70,9 @@ function update()
   if escapeMenu() then return end
   if inBattle() then winBattle(); return end
   if advanceDialogue and advanceDialogue() then return end
+  -- Self-sufficient from any start: if still indoors, leave the house first
+  -- (an outdoor seed loaded in the bedroom used to wedge + rollback-loop).
+  if exitHouse and exitHouse() then return end
   -- Talk when close (talk returns false beyond 8 tiles).
   if talk and talk("pokey") then return end
   -- Engine corridor door → meteor site (intent-shaped skill name).
@@ -129,6 +132,19 @@ function update()
       walkTo(0x1D80, 0x03E8)
       return
     end
+    -- Downstairs: Mom is home at night — talk to her ONCE (the faithful
+    -- story beat) before heading for the stairs.
+    if _mom_talked_in == nil then _mom_talked_in = false end
+    if not _mom_talked_in and py < 0x0200 then
+      local ji = scene() or ""
+      local momSlot = ji:match('"slot":(%d+),"kind":"npc","name":"mom"')
+      if momSlot ~= nil then
+        if talk and talk(tonumber(momSlot)) then
+          return
+        end
+        _mom_talked_in = true
+      end
+    end
     -- Stairs (d50 continuous): probe_stair_aup — seat near (0x1D14,0x0173),
     -- pure Up x100 → upstairs, Right x200 → bedroom 80. NEVER Down once in
     -- stair column — that undoes the 0x0158 climb detour.
@@ -152,33 +168,34 @@ function update()
     pad.press("Up")
     return
   end
-  -- Outdoor door: enter house (knock 50→70/80). Never talk mom.
+  -- Outdoor door: the FAITHFUL beat — talk to Mom once (she carries the
+  -- head-home story dialogue), then enter with pure Up. No A-pulses next to
+  -- her (that reopens her dialogue and jams the entry) and no WRAM pokes.
   local j = scene() or ""
   local doorDist = tonumber(j:match('"name":"ness_home_door","dir":"[^"]*","dist_tiles":(%d+)')) or 999
   local ddx = math.abs(px - 0x0A60) + math.abs(py - 0x0158)
   if doorDist <= 8 or ddx <= 0x30 then
-    -- d50: Align X before Up. Exclusive Up while py>0x0168 never seated
-    -- (live continuous thrash at 0x0A4B,0x016B).
+    if _mom_talked == nil then _mom_talked = false end
+    if not _mom_talked then
+      local momSlot = j:match('"slot":(%d+),"kind":"npc","name":"mom"')
+      if momSlot ~= nil then
+        -- talk() approaches, faces, presses A, and drains her dialogue;
+        -- returns false when the conversation is fully done.
+        if talk and talk(tonumber(momSlot)) then
+          return
+        end
+        _mom_talked = true
+      else
+        _mom_talked = true  -- Mom not out here; proceed to the door.
+      end
+    end
+    -- Align X to the door, then hold pure Up — the home door enters on a
+    -- walk-up, and any A press beside Mom would restart her dialogue.
     if math.abs(px - 0x0A60) > 10 then
       if px > 0x0A60 then pad.press("Left") else pad.press("Right") end
       return
     end
-    if py > 0x0168 then
-      pad.press("Up")
-      return
-    end
-    -- d50: post-meteor door can re-lock ($9877 bit0). Clear at seat only.
-    -- probe_door_fix_vs_live: clear+held Up+A → indoor knock70.
-    -- TODO(magic): $9877 bit0 writer after house approach.
-    if mem.write then
-      local lock = mem.read(0x9877)
-      if (lock % 2) == 1 then
-        mem.write(0x9877, lock - 1)
-      end
-    end
-    -- Held Up + pulse A (not exclusive talk — random NPCs steal the frame).
     pad.press("Up")
-    if (frame() % 12) < 4 then pad.press("A") end
     return
   end
   -- Far from door: goHome first (never exclusive-talk Pokey at the crater).

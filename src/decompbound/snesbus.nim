@@ -65,10 +65,6 @@ type
       ## Current scanline (0..261), maintained by the frame steppers via
       ## tickScanline so $4210/$4212 report REAL frame phase. Runtime-only:
       ## never serialized (steppers reset it every frame).
-    nmiReadLatch: bool
-      ## RDNMI bit7: set at vblank start (line 224), cleared on $4210 read —
-      ## real clear-on-read semantics, not a toggle. A wait loop spins while
-      ## the stepper advances lines, so it exits exactly once per frame.
     recordMmioTrace*: bool
       ## OFF by default. Only debug tools (boot_trace) enable it. In live play,
       ## recording every MMIO access grew mmioReads/mmioWrites unbounded — the
@@ -236,12 +232,13 @@ proc mmioRead(snes: SnesBus, offset: uint32): uint8 =
     of ahsRunning:
       0x00'u8
   of 0x4210:
-    # RDNMI: real clear-on-read vblank flag (set by tickScanline at line 224).
-    # The old toggle-per-read stub let ANY wait loop exit within 2 reads, so
-    # engines that pace on $4210 (text crawl, transitions) raced at
-    # thousands of iterations per frame instead of one.
-    if snes.nmiReadLatch:
-      snes.nmiReadLatch = false
+    # RDNMI bit7: LEVEL-based on the real scanline (set through vblank).
+    # Not clear-on-read: with our coarse per-line stepping the NMI handler's
+    # own RDNMI ack would consume a latched flag before other wait loops
+    # ever see it (proven: the post-Pokey cutscene deadlocked on exactly
+    # that race). Level semantics still give one vblank edge per frame, so
+    # pacing loops run at frame rate — never the old toggle-per-read race.
+    if snes.scanline >= 224:
       0xC2'u8
     else:
       0x42'u8
@@ -547,12 +544,9 @@ proc runDma(snes: SnesBus, channels: uint8) =
 
 proc tickScanline*(snes: SnesBus, l: int) =
   ## Per-line frame-phase bookkeeping for the timing registers: every frame
-  ## stepper calls this at the top of each scanline so $4212 reports real
-  ## vblank/auto-joypad phase and $4210 latches its clear-on-read NMI flag
-  ## at vblank start.
+  ## stepper calls this at the top of each scanline so $4210/$4212 report
+  ## the real vblank / auto-joypad phase.
   snes.scanline = l
-  if l == 224:
-    snes.nmiReadLatch = true
 
 proc initHdma*(snes: SnesBus) =
   ## Initialize HDMA channels at the start of a frame for currently enabled ones.
@@ -974,7 +968,6 @@ proc resetChipState(snes: SnesBus) =
   snes.rdmpy = 0
   snes.vblankToggle = false
   snes.scanline = 0
-  snes.nmiReadLatch = false
   snes.joy1 = 0
 
   snes.ppuRegs = default(array[0x100, uint8])
