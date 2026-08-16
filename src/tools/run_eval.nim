@@ -278,9 +278,27 @@ proc main() =
   var gates = newJObject()
   for gate, v in fixtures.pairs:
     gates[gate] = v
+  var domainExtra = %*{
+    "scaffold_tier": "T4",
+    "pilot": "scripted",
+    "tempo": "turbo",
+  }
   if walkMax != nil:
     for gate, v in walkMax.pairs:
       gates["walk_" & gate] = v
+    # Reflex telemetry from the walk payload (stall causes feed future
+    # ratchet axes; frames-to-gate feeds the speed panel).
+    let walkPath = getTempDir() / fmt"eval_walk_{ideaId}.json"
+    let walkFull = parseJson(readFile(walkPath))
+    domainExtra["stalls"] = %*{
+      "text_window": walkFull{"stall_text_window"}.getInt(0),
+      "no_progress": walkFull{"stall_no_progress"}.getInt(0),
+      "retrace_escapes": walkFull{"retrace_escapes"}.getInt(0),
+      "stuck_recoveries": walkFull{"stuck_recoveries"}.getInt(0),
+    }
+    if walkFull.hasKey("gate_frames"):
+      domainExtra["gate_frames"] = walkFull["gate_frames"]
+  domainExtra["gates"] = gates
 
   let card = Scorecard(
     ideaId: ideaId,
@@ -299,12 +317,7 @@ proc main() =
     seedsOrSlate: "scripted-deterministic",
     decision: decision,
     reasonCodes: reasonCodes,
-    domainExtra: %*{
-      "scaffold_tier": "T4",
-      "pilot": "scripted",
-      "tempo": "turbo",
-      "gates": gates,
-    },
+    domainExtra: domainExtra,
   )
   let cardPath = writeScorecard(card, runsDir)
   echo fmt"scorecard: {cardPath}"
