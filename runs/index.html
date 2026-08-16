@@ -1,0 +1,27 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>llm-play eval runs</title>
+<style>
+body { background: #ffffff; color: #1a1a2e; font-family: system-ui, sans-serif; margin: 2rem; }
+h1 { font-size: 1.3rem; }
+.legend span { margin-right: 1rem; }
+table { border-collapse: collapse; font-size: 0.85rem; }
+th, td { border: 1px solid #e5e7eb; padding: 4px 8px; text-align: left; }
+th { background: #f3f4f6; }
+</style></head><body>
+<h1>LLM-plays-EarthBound — eval run history</h1>
+<p>Primary metric per run (max_knock on the latest run). Regenerate with <code>make eval-report</code>.</p>
+<svg viewBox="0 0 900 320" role="img" aria-label="primary metric over runs"><line x1="56" y1="272.0" x2="876" y2="272.0" stroke="#e5e7eb" stroke-width="1"/><text x="48" y="276.0" text-anchor="end" font-size="11" fill="#6b7280">0.</text><line x1="56" y1="210.0" x2="876" y2="210.0" stroke="#e5e7eb" stroke-width="1"/><text x="48" y="214.0" text-anchor="end" font-size="11" fill="#6b7280">28.</text><line x1="56" y1="148.0" x2="876" y2="148.0" stroke="#e5e7eb" stroke-width="1"/><text x="48" y="152.0" text-anchor="end" font-size="11" fill="#6b7280">55.</text><line x1="56" y1="86.0" x2="876" y2="86.0" stroke="#e5e7eb" stroke-width="1"/><text x="48" y="90.0" text-anchor="end" font-size="11" fill="#6b7280">83.</text><line x1="56" y1="24.0" x2="876" y2="24.0" stroke="#e5e7eb" stroke-width="1"/><text x="48" y="28.0" text-anchor="end" font-size="11" fill="#6b7280">110.</text><circle cx="466.0" cy="91.6" r="5" fill="#2f9e44" stroke="#ffffff" stroke-width="2"><title>20260729T023754Z phase1-bootstrap: max_knock=80. (keep)</title></circle><text x="466.0" y="81.6" text-anchor="middle" font-size="11" fill="#1a1a2e">80.</text><text x="466.0" y="288" text-anchor="middle" font-size="10" fill="#6b7280">0729</text><line x1="56" y1="272" x2="876" y2="272" stroke="#6b7280" stroke-width="1"/></svg>
+<p class="legend">
+<span style="color:#2f9e44">● keep</span>
+<span style="color:#e03131">✕ discard</span>
+<span style="color:#e8890c">◇ inconclusive</span>
+— discards stay on the chart; deleting failed runs is an anti-pattern.</p>
+<table><thead><tr>
+<th>utc</th><th>idea</th><th>tier</th><th>scaffold</th><th>pilot</th>
+<th>primary</th><th>floors</th><th>decision</th><th>reasons</th><th>gates</th>
+</tr></thead><tbody><tr>
+<td>20260729T023754Z</td><td>phase1-bootstrap</td><td>screen</td><td>T4</td><td>scripted</td>
+<td>max_knock=80.</td><td>pass</td>
+<td><span style="color:#2f9e44">● keep</span></td>
+<td>keep</td><td>tg=25 pokey=100 knock=80</td></tr></tbody></table>
+</body></html>

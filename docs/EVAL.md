@@ -9,6 +9,7 @@ Design + rationale: [autoresearch-llm-play.md](autoresearch-llm-play.md).
 make eval IDEA=<idea_id>       # screen tier — every candidate change
 make eval IDEA=<x> CONFIRM=1   # confirm tier — required before promote (5x walk budget)
 make eval-pin-baseline         # promote-time only: re-measure + pin baseline.ref
+make eval-report               # regenerate runs/index.html (hero series + table)
 ```
 
 Writes `runs/<utc>-<idea>/scorecard.json` (schema v0) and prints
@@ -20,21 +21,40 @@ regressed / referee red).
 
 ## Primary (hero metric)
 
-**`max_knock`** — latched knock % from the scripted turbo walk (Phase 1;
-chain encoder comes with buzz/sunrise latching, see plan doc). Higher is
-better. Live ceiling is knock=80 (bot cannot trigger sleep→knock);
-`--campaign-fixtures` is **banned in eval** — it seats past the ceiling and
-voids "the harness still walks".
+**`chain_progress`** — the chain encoder over the story spine:
+`100 × consecutively-complete gates + frontier gate %`, computed from the
+walk's latched maxima. A gate is complete at its **live ceiling** — the
+honest bot-reachable top, not the scorer max:
+
+| gate | tg | pokey | knock | buzzbuzz | sunrise | frank | giant | captain | fourside | magicant | giygas |
+|------|---:|------:|------:|---------:|--------:|------:|------:|--------:|---------:|---------:|-------:|
+| live ceiling | 100 | 100 | **80** | 90 | 90 | 100 | 100 | 100 | 100 | **98** | **80** |
+
+knock=80: bot cannot trigger sleep→knock (needs prologue-night capture).
+magicant=98 / giygas=80: scorer soft caps await flag RE. A run that reads
+"capped at N, blocked on X" every time is the ceiling made visible — that is
+the point. `--campaign-fixtures` is **banned in eval** — it seats past
+ceilings and voids "the harness still walks".
 
 ## Hard floors (any fail ⇒ discard, even if primary improved)
 
 | Floor | Check |
 |-------|-------|
 | `harness_canary` | Fixture gates score their `baseline.ref` pins (bedroom→tg, pokey_done→pokey, pre_knock_bed→knock) AND the scripted walk reaches the pinned latches |
-| `referee_green` | `tests/test_knock_complete.nim` + `tests/test_eval_scorecard.nim` exit 0 |
+| `referee_green` | `tests/e2e_knock_complete.nim` + `tests/test_eval_scorecard.nim` exit 0 |
+| `primary_ratchet` | Chain primary ≥ the champion primary computed from `baseline.ref`'s pinned walk — the hero number never regresses past promote |
 
 Deferred (need instrumentation first — see plan doc): `no_softlock`,
 `legit_play`, `readiness`.
+
+## Timeouts are frame-based by construction (sim-time audit, 2026-08-16)
+
+The Lua sandbox exposes `frame()` and no wall clock (`os` is nil'd), so every
+skill constant (trail recover/retreat, A-pulse periods, retrace hold) counts
+FRAMES and scales correctly under Turbo's uncapped fps — the wow-style
+"6 seconds fired in 0.6s at 10x" bug class cannot occur in the reflex layer.
+The only wall-clock users are the pacing loop (`getMonoTime`, real-time by
+design) and LLM latency. Keep it that way: new skill timeouts count frames.
 
 ## Sacred surfaces (experiment agents never edit)
 

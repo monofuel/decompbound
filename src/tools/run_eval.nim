@@ -31,7 +31,7 @@ const
   WalkerBin = "bin/eval_llm_walker"
     ## Compiled-once llm_ai (-d:noWindow, release) used for every walk.
   RefereeTests = [
-    "tests/test_knock_complete.nim",
+    "tests/e2e_knock_complete.nim",
     "tests/test_eval_scorecard.nim",
   ]
     ## The referee_green subset: fast, ROM-light gate tests. Full `make test`
@@ -43,6 +43,35 @@ const
   ]
     ## Segmented canary part 1: each fixture must still score its pinned
     ## percent through the sacred scorer (cheap, no emulation).
+  ChainGates = [
+    (name: "tg", ceiling: 100),
+    (name: "pokey", ceiling: 100),
+    (name: "knock", ceiling: 80),
+    (name: "buzzbuzz", ceiling: 90),
+    (name: "sunrise", ceiling: 90),
+    (name: "frank", ceiling: 100),
+    (name: "giant", ceiling: 100),
+    (name: "captain", ceiling: 100),
+    (name: "fourside", ceiling: 100),
+    (name: "magicant", ceiling: 98),
+    (name: "giygas", ceiling: 80),
+  ]
+    ## The story spine in play order with each gate's LIVE ceiling — the
+    ## honest bot-reachable top, not the scorer max (docs/EVAL.md): knock=80
+    ## is sleep-blocked, magicant=98 / giygas=80 await flag RE. A gate at its
+    ## ceiling counts complete; the chain stops at the first incomplete gate.
+
+proc chainPrimary(walkMax: JsonNode): float =
+  ## Chain encoder: 100 per consecutively-complete gate (at its live
+  ## ceiling), plus the frontier gate's raw percent. Missing keys score 0 so
+  ## older result payloads stay comparable.
+  for g in ChainGates:
+    let v = if walkMax.hasKey(g.name): walkMax[g.name].getInt() else: 0
+    if v >= g.ceiling:
+      result += 100.0
+    else:
+      result += v.float
+      return
 
 proc gatePercent(snes: SnesBus, gate: string): int =
   ## Score one named gate through the sacred scorer surface.
@@ -217,11 +246,20 @@ proc main() =
   # Floor 2: referee_green — the named test subset.
   let refereePass = runRefereeTests()
 
-  # Primary (Phase 1): max_knock from the walk; fixture knock when walk skipped.
+  # Primary (Phase 2 encoder): chain progress from the walk; the fixture
+  # knock value remains the degenerate fallback when the walk is skipped.
   let primary =
-    if walkMax != nil: walkMax["knock"].getInt().float
+    if walkMax != nil: chainPrimary(walkMax)
     elif fixtures.hasKey("knock"): fixtures["knock"].getInt().float
     else: 0.0
+
+  # Floor 3: primary_ratchet (champion floor) — the chain primary may never
+  # regress vs the pinned baseline walk. New failure classes surface as gate
+  # drops, which the canary already vetoes axis-by-axis.
+  let championPrimary = chainPrimary(baseline["walk"]["max"])
+  let ratchetPass = walkMax == nil or primary >= championPrimary
+  if not ratchetPass:
+    echo fmt"RATCHET REGRESSED: chain primary {primary:g} < champion {championPrimary:g}"
 
   var reasonCodes: seq[string]
   var decision = edKeep
@@ -231,6 +269,9 @@ proc main() =
   if not refereePass:
     decision = edDiscard
     reasonCodes.add("fail_referee")
+  if not ratchetPass:
+    decision = edDiscard
+    reasonCodes.add("fail_ratchet")
   if decision == edKeep:
     reasonCodes.add("keep")
 

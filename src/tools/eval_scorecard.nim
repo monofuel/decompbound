@@ -50,7 +50,8 @@ const
   ## so ad-hoc fields (which tend to grow prose) cannot creep in.
   DomainExtraAllowlist* = [
     "scaffold_tier", "pilot", "tempo", "gates", "frames", "llm_calls",
-    "harness_commit", "stuck_recoveries", "fixture_scores",
+    "harness_commit", "stuck_recoveries", "fixture_scores", "stalls",
+    "gate_frames",
   ]
 
 proc isTokenShaped(s: string): bool =

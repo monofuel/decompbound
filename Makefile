@@ -331,6 +331,11 @@ eval: nim.cfg $(LUA_LIB)
 eval-pin-baseline: nim.cfg $(LUA_LIB)
 	nim r $(NIM_TEST_FLAGS) src/tools/run_eval.nim --pin-baseline "$(ROM)"
 
+# Regenerate the static run-history report (hero series + per-run table)
+# from runs/*/scorecard.json. Artifact is committed; numbers-only.
+eval-report: nim.cfg
+	nim r $(NIM_TEST_FLAGS) src/tools/eval_report.nim
+
 # Fast compile-only gate (same idea as racha/satisfactory_tools/coworld):
 # `nim check` entrypoints + unit tests without executing them.
 check: nim.cfg
