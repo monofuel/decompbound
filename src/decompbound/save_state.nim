@@ -190,6 +190,8 @@ proc readState(s: Stream, snes: SnesBus, cpu: var Cpu) =
   if ver < StateVersionMin or ver > StateVersion:
     raise newException(ValueError, &"unsupported state version {ver}")
 
+  snes.resetUnserialized()
+
   cpu.a = readU16le(s)
   cpu.x = readU16le(s)
   cpu.y = readU16le(s)
@@ -300,10 +302,12 @@ proc readState(s: Stream, snes: SnesBus, cpu: var Cpu) =
     snes.apu.resyncPortEchoAfterLoad((cpu.a and 0xFF).uint8)
 
   # Load guard: NMI masked outside uploadApuPackages looks mid-derail (BRK
-  # sink / abandoned transfer). Do not mutate state — fail loud only.
+  # sink / abandoned transfer). Reset at $00:8141 is the cold-boot entry
+  # (native RESET vector) — NMI is supposed to be off there.
   let inApuUpload =
     cpu.pbr == 0xC0'u8 and cpu.pc >= 0xAB06'u16 and cpu.pc <= 0xABBC'u16
-  if (snes.nmitimen and 0x80) == 0 and not inApuUpload:
+  let atReset = cpu.pbr == 0x00'u8 and cpu.pc == 0x8141'u16
+  if (snes.nmitimen and 0x80) == 0 and not inApuUpload and not atReset:
     echo &"WARNING: snapshot looks mid-derail " &
       &"(NMI masked nmitimen={snes.nmitimen:02X} " &
       &"PC={cpu.pbr:02X}:{cpu.pc:04X} — not in $C0AB06-$C0ABBC)"

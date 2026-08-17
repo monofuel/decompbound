@@ -443,6 +443,14 @@ proc decodeDialogueStream(snes: SnesBus, rom: openArray[uint8], start, curLimit:
         result.add ch
   result = result.strip()
 
+proc decodeDialogueAtCursor(snes: SnesBus): string =
+  ## Expand the $96C5 stream at the current cursor. Empty if the pointer is dead.
+  let cur = textStreamFileOffset(snes)
+  if cur < 0 or cur >= snes.rom.len:
+    return ""
+  let start = findDialogueMsgStart(snes.rom, cur)
+  decodeDialogueStream(snes, snes.rom, start, cur)
+
 proc getDialogueText*(snes: SnesBus): string =
   ## Return the active window's dialogue as clean text, or "" if no window is open.
   ## Prefers the live script stream at WRAM $96C5 (call-expanded, ASCII+0x30) over
@@ -450,11 +458,22 @@ proc getDialogueText*(snes: SnesBus): string =
   ## READ-ONLY on WRAM + ROM. Leaves getScreenText untouched for callers that want it.
   if not dialogueWindowOpen(snes):
     return ""
+  decodeDialogueAtCursor(snes)
+
+proc getRecentDialogue*(snes: SnesBus): string =
+  ## Last expanded stream text, even after the window closed.
+  ## F12 bookmarks usually land between lines; the cursor still points at the
+  ## message that just finished. Tilemap OCR is not a fallback (VWF garbage).
+  decodeDialogueAtCursor(snes)
+
+proc getDialogueBlock*(snes: SnesBus): string =
+  ## Full message at the $96C5 cursor, not clipped to the live byte.
+  ## Use for F12s taken after the window closed.
   let cur = textStreamFileOffset(snes)
   if cur < 0 or cur >= snes.rom.len:
     return ""
   let start = findDialogueMsgStart(snes.rom, cur)
-  decodeDialogueStream(snes, snes.rom, start, cur)
+  decodeDialogueStream(snes, snes.rom, start, -1)
 
 type
   PolicyContext* = ref object
@@ -986,11 +1005,12 @@ proc setupPolicyApi*(L: lua53.PState, ctx: PolicyContext) =
   L.setfield(-2, "normal".cstring)
   L.setglobal("sim".cstring)
 
-proc stepOneFrame*(snes: SnesBus, cpu: var Cpu, image: Image) =
-  ## Advance the emulator by exactly one frame (262 scanlines), render to image.
-  ## Mirrors the core stepping from play.nim (NMI at line 224, InstrPerLine=40).
+proc stepOneFrame*(snes: SnesBus, cpu: var Cpu, image: Image, render = true) =
+  ## Advance the emulator by exactly one frame (262 scanlines).
+  ## Mirrors play.nim (NMI at line 224, InstrPerLine=150). Pass render=false
+  ## to skip PPU draws (headless TAS reports).
   let forceBlank = (snes.ppuRegs[0x00] and 0x80) != 0
-  if not forceBlank:
+  if render and not forceBlank:
     let backdrop = ppu.bgr555ToColor(snes.cgram[0])
     image.fill(backdrop)
   var l = 0
@@ -1000,8 +1020,9 @@ proc stepOneFrame*(snes: SnesBus, cpu: var Cpu, image: Image) =
       # Sprites must render from OAM as it stands at the END of the visible
       # frame, BEFORE the game's NMI handler DMAs next frame's positions in —
       # else sprites lead the background by one frame (1px ghost when moving).
-      ppu.renderSprites(snes, image)
-      ppu.overlayForegroundBg(snes, image)
+      if render:
+        ppu.renderSprites(snes, image)
+        ppu.overlayForegroundBg(snes, image)
       if (snes.nmitimen and 0x80) != 0:
         cpu.nmiPending = true
     for i in 0 ..< InstrPerLine:
@@ -1010,7 +1031,7 @@ proc stepOneFrame*(snes: SnesBus, cpu: var Cpu, image: Image) =
         break
     if l < 224:
       snes.runHdma()
-      if (snes.ppuRegs[0x00] and 0x80) == 0:
+      if render and (snes.ppuRegs[0x00] and 0x80) == 0:
         ppu.renderScanline(snes, image, l)
     for k in 0 ..< 2:
       discard snes.tickApu()

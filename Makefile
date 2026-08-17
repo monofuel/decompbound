@@ -1,4 +1,4 @@
-.PHONY: help build compare test integration-test e2e-test test-all test-banks check clean regions boot screenshot intro title song vectors spc-vectors disasm play play-pokey archive archive-replays play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai llm-ai-scripted llm-ai-scripted-campaign llm-ai-display llm-ai-display-loop mcp testrom script-dump gfx-roundtrip battle-bg trace inspect audio-check jukebox-app chunk-summary chunk-check chunk-check-all eval eval-pin-baseline
+.PHONY: help build compare test integration-test e2e-test test-all test-banks check clean regions boot screenshot intro title song vectors spc-vectors disasm play play-tas play-cont play-pokey archive archive-replays play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai llm-ai-prologue llm-ai-scripted llm-ai-scripted-campaign llm-ai-display llm-ai-display-loop mcp testrom script-dump gfx-roundtrip battle-bg trace inspect audio-check jukebox-app chunk-summary chunk-check chunk-check-all eval eval-pin-baseline run-report
 
 # bash + pipefail: the test loop pipes nim through sed, and without
 # pipefail the pipeline's exit status is sed's (always 0), which turns
@@ -30,6 +30,10 @@ help:
 	@echo "  make boot         - trace the real ROM booting on the emulator"
 	@echo "  make screenshot   - render the boot state to bin/screenshot.png"
 	@echo "  make play         - windowed interactive player (arrows/ZXAS/Enter/RShift/Space/N/F12/+/ - /Esc)"
+	@echo "  make play-tas       - replay chain from first segment through latest"
+	@echo "  make play-cont     - continue from the newest F12 / end screenstate"
+	@echo "  make llm-ai-prologue - gold TAS to sunrise, then the LLM/bot takes over"
+	@echo "  make run-report SESSION=... - TAS/F12 diagnostic report → bin/reports/ (gitignored)"
 	@echo "  make mcp          - Goal 5 playthrough co-pilot MCP (http://localhost:4343/mcp)"
 	@echo "  make intro        - screenshot the 'War Against Giygas' title card"
 	@echo "  make title        - screenshot deep into the attract sequence"
@@ -98,6 +102,25 @@ play: nim.cfg
 	nim r -d:release src/tools/play.nim "$(ROM)"
 	@echo "player exited"
 
+# Windowed TAS: no TAS= → newest cadence-emu movie. Sequels chain automatically.
+play-tas: nim.cfg
+	@mkdir -p bin
+	@if [ -n "$(TAS)" ] && [ -n "$(STATE)" ]; then \
+	  nim r -d:release src/tools/play.nim --tas "$(TAS)" --load-state-path "$(STATE)" "$(ROM)"; \
+	elif [ -n "$(TAS)" ]; then \
+	  nim r -d:release src/tools/play.nim --tas "$(TAS)" "$(ROM)"; \
+	else \
+	  nim r -d:release src/tools/play.nim --tas-latest "$(ROM)"; \
+	fi
+	@echo "player exited"
+
+# Continue the last human seat: newest earthbound_*.png F12 (session or Pictures).
+play-cont: nim.cfg
+	@mkdir -p bin
+	@printf '%s  commit %s%s  ROM=%s --continue\n' "$$(date '+%Y-%m-%d %H:%M:%S')" "$$(git rev-parse --short HEAD 2>/dev/null || echo unknown)" "$$(git diff --quiet HEAD 2>/dev/null || echo ' +dirty')" "$(ROM)" | tee -a bin/play_sessions.log
+	nim r -d:release src/tools/play.nim --continue "$(ROM)"
+	@echo "player exited"
+
 # Archive capture sessions (replay pairs + F12 bookmarks) to the private
 # secret repo. play.nim auto-archives on clean exit; this sweeps everything
 # (crashed sessions, legacy bin/replays). Game-derived states never go in
@@ -123,6 +146,21 @@ play-pokey: nim.cfg
 	@mkdir -p bin
 	nim r -d:release src/tools/play.nim --load-state-path bin/states/llm/onett_start.state "$(ROM)"
 	@echo "player exited"
+
+# Headless TAS report (dialogue / story / levels). SESSION= or TAS=+STATE=.
+# Writes bin/reports/ only — extracted game text, never commit.
+# Docs: docs/run-report.md
+run-report: nim.cfg
+	@mkdir -p bin/reports
+	@if [ -n "$(SESSION)" ]; then \
+	  nim r -d:release src/tools/run_report.nim --session "$(SESSION)" $(ARGS); \
+	elif [ -n "$(TAS)" ] && [ -n "$(STATE)" ]; then \
+	  nim r -d:release src/tools/run_report.nim "$(ROM)" "$(STATE)" "$(TAS)" $(ARGS); \
+	else \
+	  echo "usage: make run-report SESSION=../decompbound_secret/sessions/<ts>"; \
+	  echo "       make run-report TAS=path.tas STATE=path.state"; \
+	  exit 2; \
+	fi
 
 # Same as play, but prints which paddy gamepad buttons/axes fire — use this to
 # report how a specific controller maps its face buttons + d-pad.
@@ -198,6 +236,14 @@ llm-ai: nim.cfg
 	  echo "seeded bin/states/llm/bedroom.state from game_start.state"; \
 	fi
 	nim r src/tools/llm_ai.nim -- --no-mock --load-state-path bin/states/llm/bedroom.state --speed 60 --watch-async --frames 20000 $(ARGS) "$(ROM)"
+
+# Gold opening TAS (bedroom → sunrise) then the bot takes the pad.
+PROLOGUE_TAS ?= ../decompbound_secret/sessions/20260816-223148/20260816-223148.tas
+llm-ai-prologue: nim.cfg $(LUA_LIB)
+	@mkdir -p bin bin/states/llm
+	@test -f "$(or $(TAS),$(PROLOGUE_TAS))" || (echo "missing TAS=$(or $(TAS),$(PROLOGUE_TAS))"; exit 2)
+	@echo "llm-ai-prologue: TAS prefix $(or $(TAS),$(PROLOGUE_TAS)) then agent"
+	nim r src/tools/llm_ai.nim -- --no-mock --tas "$(or $(TAS),$(PROLOGUE_TAS))" --speed 60 --watch-async --frames 20000 $(ARGS) "$(ROM)"
 
 # Deterministic seed Lua (no qwen). Same Agent* policies product tests exercise.
 # Prologue only from bedroom — stalls at bed/sleep (knock soft 80) without campaign seats.

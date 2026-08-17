@@ -1,12 +1,14 @@
 # Goal: input recording & replay (a TAS format)
 
-**Status:** FORMAT + STUB IN PROGRESS. The text `.tas` codec lives in
-`src/decompbound/replay.nim` (serialize/parse round-trip, file record appends,
-`deltasToTable` / `joyAtFrame`). `play.nim` already has F7 record taps writing
-`bin/replays/*.tas` + `start.state`; headless feed is `src/tools/replay.nim`.
-Verified by `tests/test_replay.nim`. Full record→byte-identical replay from a
-pinned state (checkpoint hashes end-to-end) is still open — see DoD below.
-A companion to the accuracy work, and fun in its own right.
+**Status:** RECORD + REPLAY. Codec is `src/decompbound/replay.nim` (`DBTAS1`,
+`cadence emu`, `apu_ticks 533`, in-log `chk`). `play.nim` records one joy1
+sample per emulated frame (not per window loop) and writes
+`<session>/<ts>.tas` + `<ts>_start.state`. After writing the start state it
+deserializes it back so live == file. Headless feed is `src/tools/replay.nim`
+via `applyTas`. Windowed: `make play-tas TAS=path.tas` (start state comes
+from the header). Verified by `tests/e2e_replay.nim` + `tests/e2e_tas_identity.nim`
+(serialize match). Old movies without `cadence emu` are refused unless
+`--legacy-stretch N`. Re-record those.
 
 Record every controller input during a session — frame number → joypad byte —
 so an entire playthrough can be **replayed exactly**. A human (or the LLM agent,
@@ -42,11 +44,18 @@ Both are small taps on an existing chokepoint.
 A replay is only exact if the run is deterministic from a fixed start. Two
 things threaten that today:
 
+- **Record tap must be per emulated frame.** `play.nim` can step 0–4 emu
+  frames per window loop (pacing + turbo). The recorder used to increment
+  once per window loop, so `.tas` timestamps were display iterations.
+  Turbo made A land before title was ready; replay stayed on title. Fixed:
+  record inside the `for t in 0 ..< ticks` emu loop. **Old movies (including
+  `20260816-183136.tas`) are window-loop time and will not replay.** Re-record.
 - **Boot-timing non-determinism** (issue #13): the live APU (real SPC700 + IPL)
   handshake + our fixed-cadence NMI make cold boot slightly non-deterministic
   run-to-run. So replays should start from a **pinned state**, not a cold boot —
   either a savestate snapshot bundled with the log, or a recording that begins
-  after boot settles.
+  after boot settles. A snapshot at `$00:8141` with NMI off is the RESET
+  vector (normal), not a hang.
 - **Any wall-clock or nondeterministic input** to the emulator must be excluded
   from the replay path (replay reads the log, nothing else).
 
@@ -60,24 +69,30 @@ replay identically is itself evidence of a timing bug to chase.
    Procs: `serializeReplay` / `parseReplayString` / `parseReplay`,
    `writeReplayHeader` / `appendReplayDelta`. See module header comment in
    `src/decompbound/replay.nim`.
-2. **Record mode** in `play.nim` — **stubbed.** F7 toggles recording: snaps
-   `bin/replays/start.state`, writes deltas on joy1 change to `bin/replays/<ts>.tas`.
-3. **Replay mode** — **headless stub.** `src/tools/replay.nim` loads start state
-   + log and feeds `snes.joy1` from the schedule. Windowed replay-in-`play.nim`
-   not required yet.
-4. **Pinned start state** — **partial.** Recorder writes `start.state`; headless
-   tool accepts a path or slot. Exact end-to-end determinism still blocked on
-   boot-timing / full checkpoint story.
-5. **Checkpoint hashes (optional)** — **helpers only.** `wramHash` exists for
-   end-of-run reports; periodic in-log checkpoints not wired yet.
+2. **Record mode** in `play.nim` — **done.** Always on (F7 toggles). One
+   start-state + sparse joy1 deltas per segment. `chk` every 60 frames.
+3. **Replay mode** — **done.** Headless `src/tools/replay.nim`; windowed
+   `play --tas` / `make play-tas TAS=…`. Same `applyTas` / `stepReplayFrame`
+   stepper (533 APU ticks). TAS joy is applied inside the emu-frame loop so
+   catch-up ticks cannot skip inputs.
+4. **Pinned start state** — **done.** Recorder writes `_start.state` and
+   reloads it. `play --tas` loads the header path if `--load-state-path` is
+   omitted. Deserialize wipes leftover APU mix / PPU latches so two loads of
+   the same blob are the same machine.
+5. **Checkpoint hashes** — **done.** `chk` every 60 frames; replay aborts on
+   the first mismatch (`verifyChk`).
 
 ## Definition of done
 
 - [x] Log format serialize/parse round-trip (`tests/test_replay.nim`).
 - [x] `play` can **record** a session to an input-log file (F7 → `.tas`).
 - [x] Replay runs **headless** (`src/tools/replay.nim`).
-- [ ] The log **replays** to a byte-identical run from a pinned start state
-      (verified by matching WRAM checkpoint hashes end to end).
+- [x] Start + TAS **reproduces** serialize + WRAM hash (`tests/e2e_tas_identity.nim`).
+- [x] **One stepper:** 533 APU ticks/frame always (play turbo no longer
+      shortens the APU). `cadence emu` in the header. Replay refuses
+      logs without it unless `--legacy-stretch N`.
+- [x] In-log `chk` every 60 frames; replay aborts on first mismatch.
+- [ ] llm_ai writes the same format.
 - [ ] A recorded human playthrough and a recorded LLM-agent run use the same
       format and both replay cleanly.
 
@@ -91,4 +106,30 @@ replay identically is itself evidence of a timing bug to chase.
 **Scope:** `play.nim` record/replay taps + a small log format + a pinned start
 state. Enables the regression half of `docs/accuracy.md`; parallel-safe; off the
 `docs/goal.md` critical path.
+
+## Recorded sessions
+
+Chain a new segment from the last F12 / window-close end snap:
+
+`make play-cont`
+
+Each run writes `_start.state` plus `started_from.png` when you loaded an
+F12. Close the window (not Ctrl+C) to write an end screenstate.
+
+Diagnose a session with [run-report.md](run-report.md):
+`make run-report SESSION=../decompbound_secret/sessions/<ts>`.
+
+- [2026-08-16/17 day-1 TAS](2026-08-16-day1-tas.md) — **the ultimate
+  unlucky run.** Sunrise → sharks → Frank, deaths **way past 6** (15+
+  year player, legit bad territory), no Mr. Baseball cap. Segments
+  `235052` + `000051`.
+- [2026-08-16 sunrise TAS](2026-08-16-sunrise-tas.md) — **first cadence-emu
+  movie, human-verified.** Fast-text bedroom → meteor night → leaving
+  Pokey's house / sunrise. `make play-tas TAS=../decompbound_secret/sessions/20260816-223148/20260816-223148.tas`.
+- [2026-08-16 Fast-text TAS](2026-08-16-fast-text-tas.md) — cold-boot new file
+  (Steak / Rockin', Fast text), meteor night through Starman Jr, sunrise,
+  sharks, Frank (loss). `.tas` is window-loop; F12s are the ground truth.
+  `bin/states/llm/bedroom.state` is that run's standing-bedroom F12.
+- [2026-08-16 bedroom TAS](2026-08-16-bedroom-tas.md) — aborted after one fight.
+  Fixture text speed was medium/slow. Do not use as bot ground truth.
 </content>

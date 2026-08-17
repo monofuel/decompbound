@@ -49,6 +49,18 @@ Copy this template when adding a row (agents: always use it):
 
 ### Harness / eval
 
+- [ ] **`make llm-ai-prologue` hands the bot day Onett** · 2026-08-16 · TAS prefix
+  - **Run:** `make llm-ai-prologue` — wait through the gold movie (~13 min at 1x), then watch the bot
+  - **Pass if:** after the prefix, Ness is in **day** Onett with the Sound Stone and the bot is driving (not frozen on title)
+  - **Fail if:** stuck in bedroom/night, no Sound Stone, or TAS desync
+  - **Notes:** Prefix is `20260816-223148`. `--pilot tas` is still mock Lua, not this movie.
+
+- [ ] **`make play-cont` resumes the last F12** · 2026-08-16 · TAS chain
+  - **Run:** `make play-cont` (should load sunrise snap `224434` or newer)
+  - **Pass if:** you spawn at that seat (day, south of Pokey's house) and a new RECORDING line appears
+  - **Fail if:** title / bedroom / wrong room
+  - **Notes:** Close the window to write the next end snap.
+
 - [ ] **llm-ai window still opens after -d:noWindow gating** · 2026-07-28 · eval loop Phase 1
   - **Run:** `make llm-ai-scripted` → let it run ~30 seconds
   - **Pass if:** the GL window opens, title updates with frame count, game
@@ -129,12 +141,19 @@ Copy this template when adding a row (agents: always use it):
   - **Run:** **`make play-pokey`** → you spawn at Ness's front door on the meteor night (bot fixture, your personal slots untouched). Just walk the real route (south → west along the paths → the winding climb) to Pokey and **talk to him**, then close the window. Recording is automatic now — no keys to remember.
   - **Pass if:** a fresh `.tas` + `_start.state` pair lands in `bin/sessions/<session>/` (auto-archived to the secret repo on exit); say roughly when you did it
   - **Notes:** replayable headlessly to pin the exact corridor + Pokey's coords. Audited all 365 secret states: no house→meteor trail exists. Static map decode found a door→north corridor via the WESTERN hill (exit at ~(0x06C0,0x00B0)) — your run confirms/corrects it.
+    2026-08-16 cadence-emu trail: [sunrise TAS](2026-08-16-sunrise-tas.md) F12s `223656` (path) → `223935` / `224058` (crater).
 
 - [ ] **Session capture dirs + auto-archive** · 2026-07-10 · play.nim sessions
   - **Run:** `make play` → take an F12, walk a bit, close the window; check `bin/sessions/<ts>/` and `../decompbound_secret/sessions/<ts>/`
   - **Pass if:** the session dir holds the `.tas`+`_start.state` pair and `f12/` screenstate; the F12 also mirrored to `~/Pictures/Screenshots`; on exit the terminal prints "session archived: N file(s)" with replay pairs in `secret/sessions/<ts>/` and the screenstate in `secret/screenstates/` (flat)
   - **Fail if:** captures land in old paths, no archive line on exit, or launch/exit regresses
   - **Notes:** autoshots stay in `bin/autoshots` (scratch, not archived — replay_seek regenerates moments).
+
+- [x] **Remake bedroom.state with Fast text** · 2026-08-16 · llm-play fixture
+  - **Run:** cold-boot `make play` (no load-state). New file. Name the party. Set text speed **Fast**. Reach Ness's bedroom. F12 or Ctrl+1, then copy that snapshot over `bin/states/llm/bedroom.state` (and `bin/states/game_start.state` if it is still the seed).
+  - **Pass if:** a fresh bedroom fixture exists, in-game text is Fast, and `make play` / `make llm-ai` from that path skip naming with Fast text
+  - **Fail if:** the old medium/slow file is still the start seat
+  - **Notes:** Installed 2026-08-16 from F12 `earthbound_20260816-183333.png` (standing bedroom). Old medium file kept as `bin/states/llm/bedroom_medium.state`. See [Fast-text TAS](2026-08-16-fast-text-tas.md).
 
 - [ ] **Always-on input recording doesn't hurt play feel** · 2026-07-09 · play.nim recording default
   - **Run:** `make play` normally for a few minutes; load a slot mid-session
@@ -258,6 +277,9 @@ leave a short **OPEN** row here if you need a later eyeball on a fix.
 
 Move checked rows here so OPEN stays short. Prune freely.
 
+- **Windowed TAS replay (`make play-tas`)** · 2026-08-16 · cadence emu
+  - Confirmed: [sunrise TAS](2026-08-16-sunrise-tas.md) `20260816-223148`
+    replays bedroom → leaving Pokey's house / sunrise. No desync.
 - **Mini Barf battle BG + UI** · 2026-07-08 · mode-0 priority ladder
 
 ---

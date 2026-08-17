@@ -85,4 +85,10 @@ block serializePreservesTimersWhenRomPresent:
     let after = snes.apu.getTimerSnapshot(0)
     doAssert after.target == before.target,
       &"target {after.target} vs {before.target}"
+    let b1 = serializeState(snes, cpu)
+    for _ in 0 ..< 200:
+      discard snes.tickApu()
+    deserializeState(b1, snes, cpu)
+    let b2 = serializeState(snes, cpu)
+    doAssert b1 == b2, "deserialize must wipe leftover APU mix so serialize matches"
     echo &"[test_save_state] serialize ok: blob={blob.len} T0 target={after.target:02X}"

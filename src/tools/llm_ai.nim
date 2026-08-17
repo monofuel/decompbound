@@ -24,7 +24,7 @@
 import
   std/[os, strutils, strformat, times, algorithm, options, monotimes, httpclient, json, osproc, tables],
   pixie,
-  ../decompbound/[cpu, ppu, snesbus, lua53, policy, save_state],
+  ../decompbound/[cpu, ppu, snesbus, lua53, policy, replay, replay_run, save_state],
   ./[touch_grass, llm_mock_policies, story_percents, scene, vision_payload]
 
 # windy/glblit only needed for the windowed main loop. Library importers
@@ -65,6 +65,8 @@ const
   LlmStateDir = "bin/states/llm"
     ## LLM-only savestates. NEVER bin/states/slotN.state (human make-play slots).
   LlmBedroomState = "bin/states/llm/bedroom.state"
+  LlmSunriseMorningState = "bin/states/llm/sunrise_morning.state"
+    ## Opening-day seat after the gold TAS prefix (Sound Stone, day Onett).
   LlmPostKnockState = "bin/states/llm/post_knock.state"
     ## Knock-complete fixture (sleep unreproducible bot-side; signature $99F2=$58).
   LlmPostKnockOutdoorState = "bin/states/llm/post_knock_outdoor.state"
@@ -898,6 +900,8 @@ when isMainModule:
     var saveSramEnabled = false
     var loadStateSlot = -1
     var loadStatePath = ""
+    var tasPath = ""
+    var legacyStretch = 0
     var policyFile = ""
     var resultJsonPath = ""
       ## --result-json PATH: write a machine-readable end-of-run payload
@@ -992,6 +996,16 @@ when isMainModule:
         loadStatePath = paramStr(i)
       elif a.startsWith("--load-state-path="):
         loadStatePath = a[18..^1]
+      elif a == "--tas" and i < paramCount():
+        inc i
+        tasPath = paramStr(i)
+      elif a.startsWith("--tas="):
+        tasPath = a[6 .. ^1]
+      elif a == "--legacy-stretch" and i < paramCount():
+        inc i
+        legacyStretch = parseInt(paramStr(i))
+      elif a.startsWith("--legacy-stretch="):
+        legacyStretch = parseInt(a[17 .. ^1])
       elif a == "--policy-file" and i < paramCount():
         inc i
         policyFile = paramStr(i)
@@ -1016,7 +1030,7 @@ when isMainModule:
       elif a.startsWith("--speed="):
         targetSpeed = parseInt(a[8..^1])
       elif a == "--help" or a == "-h":
-        echo "usage: nim r src/tools/llm_ai.nim -- [--pilot scripted|agent] [--tempo theater|turbo|adaptive] [--frames N] [--llm-interval K] [--png-every M] [--speed N] [--watch-async|--sync-llm|--pause-llm] [--verbose] [--vision] [--headless] [--mock|--no-mock] [--save-srm | --save-srm=PATH] [--load-state N | --load-state=N] [--load-state-path PATH] [rom]"
+        echo "usage: nim r src/tools/llm_ai.nim -- [--pilot scripted|agent] [--tempo theater|turbo|adaptive] [--frames N] [--llm-interval K] [--png-every M] [--speed N] [--watch-async|--sync-llm|--pause-llm] [--verbose] [--vision] [--headless] [--mock|--no-mock] [--save-srm | --save-srm=PATH] [--load-state N | --load-state=N] [--load-state-path PATH] [--tas MOVIE.tas] [rom]"
         echo "  TRACK MATRIX: --pilot scripted (deterministic seed Lua) | agent (qwen live);  --tempo theater (60fps+window) | turbo (headless uncapped) | adaptive (policy-driven fps). See docs/llm-play-overhaul.md + docs/grok_play_work.md."
         echo "  defaults: --frames 60 --llm-interval 20 --speed 0 ROM=bin/Earthbound (U) [!].smc"
         echo "  windowed by default (opens GL window titled 'EarthBound - LLM (qwen)' for watching)"
@@ -1102,6 +1116,28 @@ when isMainModule:
     else:
       echo fmt"NOTES: {NotesFile} absent (empty brain start; first -- NOTE: will create+append)"
 
+    var tasDeltas: seq[ReplayDelta] = @[]
+    var tasChks: seq[ReplayCheckpoint] = @[]
+    var tasMaxFrame = 0
+    var tasStretch = 1
+    if tasPath.len > 0:
+      if not fileExists(tasPath):
+        echo "ERROR: tas not found: ", tasPath
+        quit(1)
+      let (th, td) = parseReplay(tasPath)
+      if isLegacyReplay(th):
+        if legacyStretch < 1:
+          echo "ERROR: legacy TAS (no cadence emu). Re-record, or --legacy-stretch N"
+          quit(1)
+        tasStretch = legacyStretch
+      tasDeltas = td
+      tasChks = th.checkpoints
+      tasMaxFrame = lastDeltaFrame(td)
+      if loadStatePath.len == 0 and th.startStateRef.len > 0:
+        loadStatePath = th.startStateRef
+      echo "TAS prefix: ", tasPath, " frames 0..", tasMaxFrame,
+        " cadence=", th.cadence
+
     let rom = policy.readRomFile(romPath)
     let snes = newSnesBus(rom)
     if saveSramEnabled:
@@ -1149,6 +1185,18 @@ when isMainModule:
         scenarioPolicy = llm_mock_policies.BattlePolicy
     else:
       snes.initHdma()
+
+    if tasDeltas.len > 0 or tasPath.len > 0:
+      echo "TAS prefix replaying ", tasMaxFrame, " frames..."
+      discard applyTas(snes, cpu, tasDeltas, tasMaxFrame, stretch = tasStretch,
+        checkpoints = tasChks)
+      echo "TAS prefix done. sunrise=", story_percents.sunrisePercent(snes),
+        " stone=", story_percents.partyHasSoundStone(snes)
+      writeStateFile(LlmSunriseMorningState, snes, cpu)
+      echo "wrote ", LlmSunriseMorningState
+      if story_percents.sunrisePercent(snes) >= 100 and scenarioName.len == 0:
+        scenarioPolicy = llm_mock_policies.AgentFrankPolicy
+        echo "POLICY: opening sunrise — AgentFrankPolicy"
 
     # Initialize progress trackers from whatever start state we have (fresh boot or loaded).
     # This gives the first slow-tick a sane baseline for pos-delta and tg checks.

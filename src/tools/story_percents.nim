@@ -9,8 +9,11 @@
 ## checkpoints.md segments so Agent progress is graded by story beats.
 
 import
-  ../decompbound/snesbus,
+  ../decompbound/[party_wram, snesbus],
   ./touch_grass
+
+const
+  SoundStoneItemName = "Sound Stone"
 
 const
   # === Pokey % ground truth (2026-07-09, replayed human TAS 20260709-225653 +
@@ -238,9 +241,22 @@ proc buzzBuzzPercent*(snes: SnesBus): int =
     return 40
   20
 
+proc partyHasSoundStone*(snes: SnesBus): bool =
+  ## True when any party inventory slot decodes to the Sound Stone (ROM name).
+  let vitals = readPartyVitalsFromWram(snes)
+  for m in vitals.members:
+    for it in m.inventory:
+      if it.name == SoundStoneItemName:
+        return true
+
 proc sunrisePercent*(snes: SnesBus): int =
-  ## Sunrise % — prologue MVP. Gated on knockComplete; partial ladder only.
-  ## Full 100 needs day-phase flag RE (human sleep→day capture still open).
+  ## Sunrise % — prologue MVP.
+  ## Opening-day (human TAS 20260816-223148): Sound Stone in inventory is 100.
+  ## Knock-night path still uses the knockComplete ladder below.
+  if partyHasSoundStone(snes):
+    return 100
+  ## Knock-gated partial ladder only.
+  ## Full 100 on that path still wants a day-phase flag (not guessed).
   ## Site-talk sticky: $9887=01 + $9885=00 (arm consumed after knock site talk)
   ## holds escort progress even when position leaves the meteor box (bb drops).
   ## Partial:

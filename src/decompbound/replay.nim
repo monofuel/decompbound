@@ -13,18 +13,36 @@ const
   ReplayHeaderComment* =
     "# frame joy1   -- joy1 (hex) holds from listed frame until next delta line"
 
+const
+  ReplayCadenceEmu* = "emu"
+  ReplayApuTicksPerFrame* = 533
+  ReplayChkInterval* = 60
+
 type
+  ReplayCheckpoint* = object
+    ## In-log referee: pos + WRAM hash at a TAS frame.
+    frame*: int
+    x*, y*: uint16
+    wramHash*: uint32
+
   ReplayHeader* = object
     ## Parsed header from a .tas log.
     magic*: string
     romHash*: uint32
     startStateRef*: string
     buildCommit*: string  ## Build provenance of the recorder ("" if absent).
+    cadence*: string      ## "emu" = one TAS frame is one stepReplayFrame. "" = legacy.
+    apuTicks*: int        ## APU ticks per TAS frame (533 for cadence emu).
+    checkpoints*: seq[ReplayCheckpoint]
 
   ReplayDelta* = object
     ## A (frame, joy1) entry. joy1 applies from this frame until the next delta.
     frame*: int
     joy1*: uint16
+
+proc isLegacyReplay*(header: ReplayHeader): bool =
+  ## True when the log has no emu cadence (window-loop era).
+  header.cadence != ReplayCadenceEmu
 
 proc parseJoy1Token(tok: string): uint16 =
   ## Accept 0x0400, 0400 (4 hex digits), 1024 (dec), etc. Prefer hex for typical joy values.
@@ -45,6 +63,10 @@ proc formatDeltaLine*(frame: int, joy1: uint16): string =
   ## Format one delta line as written by the recorder.
   &"{frame} {joy1:04x}"
 
+proc formatChkLine*(c: ReplayCheckpoint): string =
+  ## One referee line as written by the recorder.
+  &"chk {c.frame} {c.x:04x} {c.y:04x} {c.wramHash:08x}"
+
 proc serializeReplay*(header: ReplayHeader, deltas: seq[ReplayDelta]): string =
   ## Serialize header + deltas to the text .tas format (trailing newline).
   ## Inverse of parseReplayString for the fields we define.
@@ -57,20 +79,29 @@ proc serializeReplay*(header: ReplayHeader, deltas: seq[ReplayDelta]): string =
   lines.add(&"start_state {header.startStateRef}")
   if header.buildCommit.len > 0:
     lines.add(&"build {header.buildCommit}")
+  if header.cadence.len > 0:
+    lines.add(&"cadence {header.cadence}")
+  if header.apuTicks > 0:
+    lines.add(&"apu_ticks {header.apuTicks}")
   lines.add(ReplayHeaderComment)
   for d in deltas:
     lines.add(formatDeltaLine(d.frame, d.joy1))
+  for c in header.checkpoints:
+    lines.add(formatChkLine(c))
   result = lines.join("\n") & "\n"
 
 proc writeReplayHeader*(f: File, romHash: uint32, startStateRef: string,
-    buildCommit = "") =
+    buildCommit = "", cadence = ReplayCadenceEmu,
+    apuTicks = ReplayApuTicksPerFrame) =
   ## Write header block (once) when starting a recording. buildCommit stamps
   ## the recorder's build provenance (pass build_info.buildLabel()).
   let header = ReplayHeader(
     magic: ReplayMagic,
     romHash: romHash,
     startStateRef: startStateRef,
-    buildCommit: buildCommit
+    buildCommit: buildCommit,
+    cadence: cadence,
+    apuTicks: apuTicks
   )
   f.write(serializeReplay(header, @[]))
   f.flushFile()
@@ -78,6 +109,12 @@ proc writeReplayHeader*(f: File, romHash: uint32, startStateRef: string,
 proc appendReplayDelta*(f: File, frame: int, joy1: uint16) =
   ## Append a delta. Caller ensures only on change (or initial frame 0).
   f.writeLine(formatDeltaLine(frame, joy1))
+  f.flushFile()
+
+proc appendReplayChk*(f: File, frame: int, x, y: uint16, wramHash: uint32) =
+  ## Append a checkpoint. Replay must match or abort.
+  f.writeLine(formatChkLine(ReplayCheckpoint(
+    frame: frame, x: x, y: y, wramHash: wramHash)))
   f.flushFile()
 
 proc parseReplayString*(content: string): tuple[header: ReplayHeader, deltas: seq[ReplayDelta]] =
@@ -119,9 +156,42 @@ proc parseReplayString*(content: string): tuple[header: ReplayHeader, deltas: se
           elif key in ["build", "build_commit"]:
             header.buildCommit = val
             continue
+          elif key == "cadence":
+            header.cadence = val.toLowerAscii()
+            continue
+          elif key in ["apu_ticks", "aputicks"]:
+            try:
+              header.apuTicks = parseInt(val)
+            except ValueError:
+              discard
+            continue
+          elif key == "chk":
+            let hp = line.split()
+            if hp.len >= 5:
+              try:
+                header.checkpoints.add ReplayCheckpoint(
+                  frame: parseInt(hp[1]),
+                  x: parseHexInt(hp[2]).uint16,
+                  y: parseHexInt(hp[3]).uint16,
+                  wramHash: parseHexInt(hp[4]).uint32
+                )
+              except ValueError:
+                discard
+            continue
         continue  # still in header, skip
-    # delta line
+    # body: chk or delta
     let parts = line.split()
+    if parts.len >= 1 and parts[0].toLowerAscii() == "chk" and parts.len >= 5:
+      try:
+        header.checkpoints.add ReplayCheckpoint(
+          frame: parseInt(parts[1]),
+          x: parseHexInt(parts[2]).uint16,
+          y: parseHexInt(parts[3]).uint16,
+          wramHash: parseHexInt(parts[4]).uint32
+        )
+      except ValueError:
+        discard
+      continue
     if parts.len >= 2:
       try:
         let fr = parseInt(parts[0])
@@ -145,6 +215,12 @@ proc deltasToTable*(deltas: seq[ReplayDelta]): Table[int, uint16] =
   result = initTable[int, uint16]()
   for d in deltas:
     result[d.frame] = d.joy1
+
+proc lastDeltaFrame*(deltas: seq[ReplayDelta]): int =
+  ## Last TAS frame mentioned in the log, or 0.
+  if deltas.len == 0:
+    return 0
+  result = deltas[^1].frame
 
 proc joyAtFrame*(deltas: seq[ReplayDelta], frame: int): uint16 =
   ## Resolve held joy1 at `frame` (last delta with d.frame <= frame, else 0).

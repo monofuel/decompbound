@@ -13,7 +13,7 @@ import
   slappy,
   ../decompbound/[
     apu, battle_formation, build_info, cpu, party_sram, party_wram, ppu,
-    policy, replay, rng_oracle, save_state, snesbus, png_state, sword_dial
+    policy, replay, replay_run, rng_oracle, save_state, snesbus, png_state, sword_dial
   ],
   ./[play_mcp, hud_font]
 
@@ -300,6 +300,152 @@ proc saveScreenshot(frameImage: Image, dir: string, state: seq[byte], romHash: u
   echo "screenshot: ", path
   path
 
+proc screenstateStamp(path: string): string =
+  ## `earthbound_yyyyMMdd-HHmmss.png` → the timestamp, else "".
+  let n = path.extractFilename
+  if n.startsWith("earthbound_") and n.endsWith(".png") and n.len >= 16:
+    result = n[11 .. ^5]
+
+proc findLatestScreenstate*(secretRoot, picturesDir: string): string =
+  ## Newest F12 / Pictures `earthbound_*.png` by filename stamp.
+  var bestStamp = ""
+  var bestPath = ""
+  proc consider(p: string) =
+    let st = screenstateStamp(p)
+    if st.len > 0 and st > bestStamp:
+      bestStamp = st
+      bestPath = p
+  if dirExists(secretRoot / "sessions"):
+    for kind, sdir in walkDir(secretRoot / "sessions"):
+      if kind != pcDir:
+        continue
+      let f12 = sdir / "f12"
+      if not dirExists(f12):
+        continue
+      for k2, p in walkDir(f12):
+        if k2 == pcFile and p.endsWith(".png"):
+          consider(p)
+  if dirExists(picturesDir):
+    for k, p in walkDir(picturesDir):
+      if k == pcFile and p.endsWith(".png"):
+        consider(p)
+  result = bestPath
+
+proc sessionTasPath(sdir: string): string =
+  ## Main movie in a session dir: `<stamp>.tas` if present, else longest .tas.
+  let stamp = sdir.extractFilename
+  let named = sdir / (stamp & ".tas")
+  if fileExists(named):
+    return named
+  var best = ""
+  var bestLen = -1
+  for kind, p in walkDir(sdir):
+    if kind == pcFile and p.endsWith(".tas"):
+      let n = getFileSize(p).int
+      if n > bestLen:
+        bestLen = n
+        best = p
+  result = best
+
+proc findLatestCadenceTas*(secretRoot: string): string =
+  ## Newest session `*.tas` whose header is cadence emu.
+  var bestStamp = ""
+  if not dirExists(secretRoot / "sessions"):
+    return
+  for kind, sdir in walkDir(secretRoot / "sessions"):
+    if kind != pcDir:
+      continue
+    let stamp = sdir.extractFilename
+    let tas = sessionTasPath(sdir)
+    if tas.len == 0 or stamp <= bestStamp:
+      continue
+    let (h, _) = parseReplay(tas)
+    if isLegacyReplay(h):
+      continue
+    bestStamp = stamp
+    result = tas
+
+proc sessionStampsInText(text: string): seq[string] =
+  ## Session dir stamps mentioned as `sessions/yyyyMMdd-HHmmss`.
+  const
+    Marker = "sessions/"
+    StampLen = 15
+  var i = 0
+  while true:
+    let j = text.find(Marker, i)
+    if j < 0:
+      break
+    let start = j + Marker.len
+    if start + StampLen <= text.len:
+      let stamp = text[start ..< start + StampLen]
+      if stamp[8] == '-' and stamp[0] in {'0'..'9'}:
+        result.add stamp
+    i = j + 1
+
+proc findPrevTas*(secretRoot, currentTas: string): string =
+  ## Immediate parent movie: latest earlier session this one loaded from.
+  let curStamp = currentTas.parentDir.extractFilename
+  var blob = currentTas
+  let txt = currentTas.parentDir / "session.txt"
+  if fileExists(txt):
+    blob.add "\n"
+    blob.add readFile(txt)
+  let (h, _) = parseReplay(currentTas)
+  if h.startStateRef.len > 0:
+    blob.add "\n"
+    blob.add h.startStateRef
+  var bestStamp = ""
+  for stamp in sessionStampsInText(blob):
+    if stamp >= curStamp:
+      continue
+    let tas = sessionTasPath(secretRoot / "sessions" / stamp)
+    if tas.len == 0:
+      continue
+    let (ph, _) = parseReplay(tas)
+    if isLegacyReplay(ph):
+      continue
+    if stamp > bestStamp:
+      bestStamp = stamp
+      result = tas
+
+proc findChainRootTas*(secretRoot: string): string =
+  ## Oldest cadence-emu ancestor of the newest movie (play from start).
+  result = findLatestCadenceTas(secretRoot)
+  var guard = 0
+  while result.len > 0 and guard < 32:
+    inc guard
+    let prev = findPrevTas(secretRoot, result)
+    if prev.len == 0:
+      break
+    result = prev
+
+proc findNextTas*(secretRoot, currentTas: string): string =
+  ## Later session whose session.txt mentions this movie's session stamp.
+  let parentStamp = currentTas.parentDir.extractFilename
+  if parentStamp.len == 0:
+    return
+  var bestStamp = ""
+  if not dirExists(secretRoot / "sessions"):
+    return
+  for kind, sdir in walkDir(secretRoot / "sessions"):
+    if kind != pcDir:
+      continue
+    let stamp = sdir.extractFilename
+    if stamp <= parentStamp:
+      continue
+    let txt = sdir / "session.txt"
+    if not fileExists(txt) or parentStamp notin readFile(txt):
+      continue
+    let tas = sessionTasPath(sdir)
+    if tas.len == 0:
+      continue
+    let (h, _) = parseReplay(tas)
+    if isLegacyReplay(h):
+      continue
+    if bestStamp.len == 0 or stamp < bestStamp:
+      bestStamp = stamp
+      result = tas
+
 proc main() =
   ## Open a windowed player, run the emulator at ~60 fps, accept input,
   ## render frames, and support debug controls. Keyboard + all connected
@@ -308,6 +454,10 @@ proc main() =
   var verbose = false
   var romPath = ""
   var startStatePath = ""
+  var tasPath = ""
+  var legacyStretch = 0
+  var continueFromLast = false
+  var tasLatest = false
   # Leak-bisection toggles: RssAnon growth in live play can come from the OpenAL
   # audio queue or the per-frame glTexImage2D upload — neither shows up in a Nim
   # heap probe. Run with --no-audio or --no-tex and watch the mem heartbeat to see
@@ -328,6 +478,22 @@ proc main() =
       startStatePath = arg[18..^1]
     elif startStatePath.len == 0 and i > 1 and paramStr(i - 1) == "--load-state-path":
       startStatePath = arg
+    elif arg == "--tas" and i < paramCount():
+      discard
+    elif arg.startsWith("--tas="):
+      tasPath = arg[6 .. ^1]
+    elif tasPath.len == 0 and i > 1 and paramStr(i - 1) == "--tas":
+      tasPath = arg
+    elif arg == "--legacy-stretch" and i < paramCount():
+      discard
+    elif arg.startsWith("--legacy-stretch="):
+      legacyStretch = parseInt(arg[17 .. ^1])
+    elif i > 1 and paramStr(i - 1) == "--legacy-stretch":
+      legacyStretch = parseInt(arg)
+    elif arg == "--continue":
+      continueFromLast = true
+    elif arg == "--tas-latest":
+      tasLatest = true
     elif romPath.len == 0:
       romPath = arg
     else:
@@ -335,7 +501,13 @@ proc main() =
       quit(1)
 
   if romPath.len == 0:
-    echo "Usage: nim r src/tools/play.nim [--verbose|-v] [--load-state-path PATH(.state|.png)] <rom>"
+    echo "Usage: nim r src/tools/play.nim [--verbose|-v] [--continue] [--load-state-path PATH] [--tas MOVIE.tas] [--tas-latest] [--legacy-stretch N] <rom>"
+    quit(1)
+  if continueFromLast and (startStatePath.len > 0 or tasPath.len > 0 or tasLatest):
+    echo "ERROR: --continue cannot be combined with --load-state-path or --tas"
+    quit(1)
+  if tasLatest and tasPath.len > 0:
+    echo "ERROR: --tas-latest cannot be combined with --tas"
     quit(1)
 
   const
@@ -492,6 +664,21 @@ Controls:
   createDir("bin/states")
   let screenshotsDir = getHomeDir() / "Pictures" / "Screenshots"
   createDir(screenshotsDir)
+  if continueFromLast:
+    startStatePath = findLatestScreenstate(SecretArchiveRoot, screenshotsDir)
+    if startStatePath.len == 0:
+      echo "ERROR: --continue: no earthbound_*.png F12 in sessions or Pictures"
+      quit(1)
+    echo "continue from ", startStatePath
+  if tasLatest:
+    let tip = findLatestCadenceTas(SecretArchiveRoot)
+    tasPath = findChainRootTas(SecretArchiveRoot)
+    if tasPath.len == 0:
+      echo "ERROR: --tas-latest: no cadence-emu .tas under ", SecretArchiveRoot / "sessions"
+      quit(1)
+    echo "TAS from chain start: ", tasPath
+    if tip.len > 0 and tip != tasPath:
+      echo "  (plays through ", tip, ")"
   # Per-session capture home: the durable artifacts of ONE play session live
   # together — replay segments (.tas + _start.state) + F12 bookmarks (f12/).
   # Sessions write DIRECTLY into the capture root (secret repo when present)
@@ -720,7 +907,9 @@ void main() {
     createDir(sessionDir)
     let ts = now().format("yyyyMMdd-HHmmss")
     let startP = sessionDir / &"{ts}_start.state"
-    writeFile(startP, cast[string](serializeState(snes, cpu)))
+    let startBlob = serializeState(snes, cpu)
+    writeFile(startP, cast[string](startBlob))
+    deserializeState(startBlob, snes, cpu)
     replayLogPath = sessionDir / &"{ts}.tas"
     replayLogOpen = open(replayLog, replayLogPath, fmWrite)
     if replayLogOpen:
@@ -730,6 +919,11 @@ void main() {
       lastRecordJoy = 0xFFFF'u16  # impossible joy1 → force a delta on frame 0
       echo &"RECORDING ({tag}) -> {replayLogPath} (+ {startP})"
       writeLog(&"RECORD ON {tag} {replayLogPath}")
+      if startStatePath.endsWith(".png") and fileExists(startStatePath):
+        let fromP = sessionDir / "started_from.png"
+        if not fileExists(fromP):
+          copyFile(startStatePath, fromP)
+          echo "started_from ", startStatePath
     else:
       echo "ERROR: failed to open record log ", replayLogPath
 
@@ -784,9 +978,37 @@ void main() {
       echo "drop restore failed (deserialize): ", e.msg
       # never crash the live game
 
-  # Optional start state from the CLI (make play-pokey etc): .state blob or
-  # ebSt .png both work. Applied once before the loop; recording then starts
-  # its first segment from exactly this state.
+  # TAS first so a movie can supply its own start_state when the CLI omitted
+  # --load-state-path. Cold-boot + someone else's inputs is how you sit on title.
+  var tasDeltas: seq[ReplayDelta] = @[]
+  var tasChks: seq[ReplayCheckpoint] = @[]
+  var tasPlayFrame = 0
+  var tasHold = 0
+  var tasStretch = 1
+  var tasPlayback = false
+  var tasLastFrame = 0
+  var tasChainTried = false
+  if tasPath.len > 0:
+    if not fileExists(tasPath):
+      echo "ERROR: tas not found: ", tasPath
+      quit(1)
+    let (th, td) = parseReplay(tasPath)
+    if isLegacyReplay(th):
+      if legacyStretch < 1:
+        echo "ERROR: legacy TAS (no cadence emu). Re-record, or pass --legacy-stretch N"
+        quit(1)
+      tasStretch = legacyStretch
+      echo "LEGACY TAS window-loop; stretch=", tasStretch
+    tasDeltas = td
+    tasChks = th.checkpoints
+    tasLastFrame = lastDeltaFrame(td)
+    tasPlayback = true
+    if startStatePath.len == 0:
+      startStatePath = th.startStateRef
+    echo "TAS playback: ", tasPath, " frames 0..", tasLastFrame
+
+  # Optional start state from the CLI (make play-pokey etc) or the .tas header.
+  # .state blob or ebSt .png both work. Applied once before the loop.
   if startStatePath.len > 0:
     try:
       if startStatePath.endsWith(".png") or startStatePath.endsWith(".PNG"):
@@ -797,13 +1019,24 @@ void main() {
           quit(1)
         deserializeState(ex.get, snes, cpu)
       else:
+        if not fileExists(startStatePath):
+          echo "ERROR: start state not found: ", startStatePath
+          quit(1)
         deserializeState(cast[seq[byte]](readFile(startStatePath)), snes, cpu)
       echo "start state loaded: ", startStatePath
       writeLog(&"start state loaded: {startStatePath}")
+      let sessNote = open(sessionDir / "session.txt", fmAppend)
+      sessNote.writeLine("load " & startStatePath)
+      sessNote.close()
     except CatchableError as e:
       echo "start-state load failed: ", e.msg
       quit(1)
-  startRecording("boot")
+  elif tasPlayback:
+    echo "ERROR: TAS has no loadable start_state. Pass --load-state-path"
+    quit(1)
+
+  if not tasPlayback:
+    startRecording("boot")
 
   while not window.closeRequested:
     let iterStart = getMonoTime()
@@ -952,15 +1185,9 @@ void main() {
           writeLog("DIAL: walk timeout, no battle")
     # No input latch: faithful d-pad, no held-frame band-aid. A good controller
     # handles its own diagonals; we don't hack around bad hardware.
+    if tasPlayback:
+      joy1 = joyAtFrame(tasDeltas, tasPlayFrame)
     snes.joy1 = joy1
-
-    # MINIMAL record tap (ONLY at the joy1 chokepoint; play.nim render/emu untouched).
-    # Deltas written only on joy1 change (plus first after toggle).
-    if recording and replayLogOpen:
-      if recordFrame == 0 or joy1 != lastRecordJoy:
-        replay.appendReplayDelta(replayLog, recordFrame, joy1)
-        lastRecordJoy = joy1
-      inc recordFrame
 
     # Live input logging: decode bitmask to names, append to title, and print on
     # change (with kbd/pad source note). Always active (verbose adds raw dumps).
@@ -1112,7 +1339,7 @@ void main() {
         except CatchableError as e:
           echo "DIAL: no usable recipe — run sword_recipe on an F12 first (", e.msg, ")"
           writeLog("DIAL: recipe load failed: " & e.msg)
-    if window.buttonPressed[KeyF7]:
+    if window.buttonPressed[KeyF7] and not tasPlayback:
       if not recording:
         startRecording("F7")
       else:
@@ -1213,6 +1440,19 @@ void main() {
             inc n
           n
       for t in 0 ..< ticks:
+        # TAS joy is per emu frame. Setting it only once per window used the
+        # same pad for ticks=2..4 catch-up while advancing the movie — desync.
+        if tasPlayback:
+          joy1 = joyAtFrame(tasDeltas, tasPlayFrame)
+          snes.joy1 = joy1
+        # Record once per EMULATED frame, not once per window loop. ticks can
+        # be 0–4 (pacing / turbo); a window-loop tap made .tas timestamps
+        # mean "display iterations" so replay pressed A before title was ready.
+        if recording and replayLogOpen:
+          if recordFrame == 0 or joy1 != lastRecordJoy:
+            replay.appendReplayDelta(replayLog, recordFrame, joy1)
+            lastRecordJoy = joy1
+          inc recordFrame
         let emuStart = getMonoTime()
         # F8 overlay: seed snapshot only when on (zero cost when off). Reconstruct
         # advance count from before/after via advanceSeed — not a PC watch on
@@ -1290,14 +1530,15 @@ void main() {
           if l >= 262:
             snes.initHdma()
             break
-        # Top up to a full frame (262*2 = 524 < 533) so slappy never underruns.
-        while genAudio and smp < SamplesPerFrame:
+        # Always 533 APU ticks/frame (TAS cadence). Only queue PCM at 1x.
+        while smp < SamplesPerFrame:
           let (lft, rgt) = snes.tickApu()
-          let off = smp * 4
-          pcm[off + 0] = (lft and 0xFF).uint8
-          pcm[off + 1] = ((lft shr 8) and 0xFF).uint8
-          pcm[off + 2] = (rgt and 0xFF).uint8
-          pcm[off + 3] = ((rgt shr 8) and 0xFF).uint8
+          if genAudio:
+            let off = smp * 4
+            pcm[off + 0] = (lft and 0xFF).uint8
+            pcm[off + 1] = ((lft shr 8) and 0xFF).uint8
+            pcm[off + 2] = (rgt and 0xFF).uint8
+            pcm[off + 3] = ((rgt shr 8) and 0xFF).uint8
           smp += 1
         # (Sprites + foreground-BG interleave were rendered at line 224 above,
         # from pre-NMI OAM — see the vblank comment in the scanline loop.)
@@ -1378,6 +1619,41 @@ void main() {
             echo "wrote ", autoshotsDir / "scanline_trace.txt"
             writeLog("wrote scanline_trace.txt")
         frameCount += 1
+        if recording and replayLogOpen and recordFrame > 0:
+          let done = recordFrame - 1
+          if done > 0 and done mod ReplayChkInterval == 0:
+            let (cx, cy) = playerPos(snes)
+            appendReplayChk(replayLog, done, cx, cy, wramHash(snes))
+        if tasPlayback:
+          inc tasHold
+          if tasHold >= tasStretch:
+            tasHold = 0
+            if tasStretch == 1:
+              try:
+                verifyChk(snes, tasPlayFrame, tasChks)
+              except ValueError as e:
+                echo e.msg
+                writeLog(e.msg)
+            if tasPlayFrame < tasLastFrame:
+              inc tasPlayFrame
+            elif not tasChainTried:
+              tasChainTried = true
+              let nxt = findNextTas(SecretArchiveRoot, tasPath)
+              if nxt.len > 0:
+                let (nh, nd) = parseReplay(nxt)
+                if nh.startStateRef.len > 0 and fileExists(nh.startStateRef):
+                  deserializeState(
+                    cast[seq[byte]](readFile(nh.startStateRef)), snes, cpu)
+                tasPath = nxt
+                tasDeltas = nd
+                tasChks = nh.checkpoints
+                tasLastFrame = lastDeltaFrame(nd)
+                tasPlayFrame = 0
+                tasHold = 0
+                tasStretch = 1
+                tasChainTried = false
+                echo "TAS chain -> ", nxt, " frames 0..", tasLastFrame
+                writeLog("TAS chain " & nxt)
         # CPU-DERAIL?: stuck at EB unused-vector BRK sink with NMI often off.
         if cpu.pbr == 0x00'u8 and cpu.pc == 0x5FFF'u16:
           inc brkSinkFrames
@@ -1702,6 +1978,29 @@ void main() {
   # Flush any pending battery save, then shut audio down cleanly, on exit.
   if snes.sramDirty:
     snes.saveSram(sramPath)
+  # Close-window end snap so the next `make play-cont` does not need an F12.
+  # TAS playback does not write one (that would snapshot the replay, not play).
+  if not tasPlayback and frameCount > 0:
+    try:
+      let stateBytes = serializeState(snes, cpu)
+      writeFile(sessionDir / "end.state", cast[string](stateBytes))
+      createDir(sessionDir / "f12")
+      let shotPath = saveScreenshot(frameImage, sessionDir / "f12", stateBytes,
+        romHashOf(rom))
+      try:
+        copyFile(shotPath, screenshotsDir / shotPath.extractFilename)
+      except CatchableError:
+        discard
+      try:
+        createDir(SecretArchiveRoot / "screenstates")
+        copyFile(shotPath,
+          SecretArchiveRoot / "screenstates" / shotPath.extractFilename)
+      except CatchableError:
+        discard
+      echo "end screenstate: ", shotPath
+      writeLog("end screenstate " & shotPath)
+    except CatchableError as e:
+      echo "end screenstate failed: ", e.msg
   stopLiveMcp()
   if recording and replayLogOpen:
     replayLog.close()

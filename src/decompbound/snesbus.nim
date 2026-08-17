@@ -1037,6 +1037,67 @@ proc resetChipState(snes: SnesBus) =
   snes.apu = newApu()
   snes.apu.bootWithIpl()
 
+proc resetUnserialized*(snes: SnesBus) =
+  ## Zero fields the save-state blob does not carry so load is deterministic.
+  ## Deserialize calls this before restoring serialized fields. Leftover DSP
+  ## voices / PPU latches from a previous walk would otherwise leak into TAS
+  ## replay and make serialize(start+inputs) depend on who ran last.
+  snes.bus.cpuInApuHandshake = false
+  snes.mulOperandA = 0
+  snes.divDividend = 0
+  snes.rddiv = 0
+  snes.rdmpy = 0
+  snes.vblankToggle = false
+  snes.scanline = 0
+  snes.apuPortCatchup = 0
+  snes.apuHangFramePolled = false
+  snes.apuHangLastPort = 0
+  snes.apuHangPrevPortsOut = default(array[4, uint8])
+  snes.apuHangStuckFrames = 0
+  snes.apuHangLogged = false
+  snes.apuState = ahsIdle
+  snes.apuPort0 = 0
+  snes.apuPort1 = 0
+  snes.apuPort2 = 0
+  snes.apuPort3 = 0
+  snes.apuTransferAddr = 0
+  snes.apuCounterJustWritten = false
+  snes.apuReadStreak = 0
+  snes.apuExpect = 0
+  snes.apuPendingCounter = -1
+  snes.apuCursor = 0
+  snes.bgScrollLatch = 0
+  snes.bgHofsLatch = 0
+  snes.vmain = 0
+  snes.vmadd = 0
+  snes.cgadd = 0
+  snes.cgLatch = -1
+  snes.oamAddr = 0
+  snes.dmaBytesThisFrame = 0
+  snes.dmaStorm = false
+  snes.dmaWramToA = false
+  snes.dmaWramToADmap = 0
+  snes.dmaWramToABank = 0
+  snes.dmaWramToAAddr = 0
+  snes.dmaWramToASize = 0
+  snes.dma64kSpray = false
+  snes.dma64kSprayDmap = 0
+  snes.dma64kSprayBbad = 0
+  snes.dma64kSprayBank = 0
+  snes.dma64kSprayAddr = 0
+  snes.m7a = 0
+  snes.m7b = 0
+  snes.m7MulLatch = 0
+  snes.mpy = 0
+  for i in 0 ..< 8:
+    snes.hdmaDone[i] = false
+  snes.hdmaWrites = @[]
+  if snes.recordMmioTrace:
+    snes.mmioReads = @[]
+    snes.mmioWrites = @[]
+  if snes.apu != nil:
+    snes.apu.resetTransient()
+
 proc resetCpu*(snes: SnesBus): Cpu =
   ## CPU state at power-on: emulation mode, reset vector from $00:FFFC. Read
   ## through the mapped bus memory (not the raw file), so it is correct for both

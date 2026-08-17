@@ -131,6 +131,11 @@ proc runSample*(apu: Apu): tuple[left: int16, right: int16] =
   apu.tickTimers(CyclesPerSample)
   result = apu.dsp.mixSample()
 
+proc resetTransient*(apu: Apu) =
+  ## Clear mix state the v1/v2 save-state blob does not carry.
+  apu.cycleRemainder = 0
+  apu.dsp.resetMixState()
+
 proc getTimerSnapshot*(apu: Apu, index: int): TimerSnapshot =
   ## Copy one hardware timer's state for serialization.
   let t = apu.timers[index]

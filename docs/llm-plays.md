@@ -10,6 +10,8 @@ See [Where it actually stands](#where-it-actually-stands--what-works-whats-next)
 for the honest state of the code. Off the critical path; sanctioned fun.
 Awareness of pre-training / seed / notes leakage: [llm-contamination.md](llm-contamination.md).  
 **Campaign / story percents (tg → Pokey → knock → Buzz Buzz → Sunrise MVP):** [llm-sequence.md](llm-sequence.md).
+Opening sunrise: `make llm-ai-prologue` (`--tas` the gold movie, then the bot).
+`--pilot tas` is still mock Lua — not a movie.
 
 Give an LLM a way to *play* the game: it authors **Lua** that can read game
 memory (read-only), see the screen, and press buttons — but never write game

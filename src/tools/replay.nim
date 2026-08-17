@@ -17,7 +17,7 @@
 import
   std/[os, strformat, strutils, tables, options],
   pixie,
-  ../decompbound/[cpu, ppu, policy, png_state, replay, save_state, snesbus]
+  ../decompbound/[cpu, ppu, policy, png_state, replay, replay_run, save_state, snesbus]
 
 proc main() =
   ## Parse args, load ROM + start state, parse log, run feeding joy1 from deltas,
@@ -28,7 +28,7 @@ proc main() =
     argBase = 2
 
   if paramCount() < argBase + 2:
-    echo "Usage: nim r src/tools/replay.nim <rom> <start-state> <input-log.tas> [--png-every N] [--frames N]"
+    echo "Usage: nim r src/tools/replay.nim <rom> <start-state> <input-log.tas> [--png-every N] [--frames N] [--legacy-stretch N]"
     quit(1)
 
   let romPath = paramStr(argBase)
@@ -36,7 +36,8 @@ proc main() =
   let logPath = paramStr(argBase + 2)
 
   var pngEvery = 0
-  var maxFrames = 300
+  var maxFrames = -1
+  var legacyStretch = 0
   var i = argBase + 3
   while i <= paramCount():
     let arg = paramStr(i)
@@ -50,6 +51,11 @@ proc main() =
       maxFrames = parseInt(paramStr(i))
     elif arg.startsWith("--frames="):
       maxFrames = parseInt(arg[9 .. ^1])
+    elif arg == "--legacy-stretch" and i < paramCount():
+      inc i
+      legacyStretch = parseInt(paramStr(i))
+    elif arg.startsWith("--legacy-stretch="):
+      legacyStretch = parseInt(arg[17 .. ^1])
     elif arg == "--":
       discard
     else:
@@ -83,13 +89,19 @@ proc main() =
 
   # Parse the input log (deltas only on change)
   let (rheader, deltas) = replay.parseReplay(logPath)
-  echo &"Loaded replay log: {logPath}  magic={rheader.magic} romHashInLog=0x{rheader.romHash:08X} startRef={rheader.startStateRef}  deltas={deltas.len}"
+  echo &"Loaded replay log: {logPath}  magic={rheader.magic} cadence={rheader.cadence} romHashInLog=0x{rheader.romHash:08X} startRef={rheader.startStateRef}  deltas={deltas.len} chk={rheader.checkpoints.len}"
   if rheader.romHash != 0 and rheader.romHash != romHash:
     echo &"WARNING: log ROM hash 0x{rheader.romHash:08X} != current 0x{romHash:08X} (replay may be for different ROM)"
-
-  # Build joy1 schedule from deltas (frame -> joy1 to set at start of that frame)
-  let joySchedule = replay.deltasToTable(deltas)
-  echo &"Replay schedule has {joySchedule.len} joy1 changes"
+  var stretch = 1
+  if isLegacyReplay(rheader):
+    if legacyStretch < 1:
+      echo "ERROR: legacy TAS (no cadence emu). Re-record, or pass --legacy-stretch N"
+      quit(1)
+    stretch = legacyStretch
+    echo "LEGACY TAS; stretch=", stretch
+  if maxFrames < 0:
+    maxFrames = lastDeltaFrame(deltas)
+  echo &"Replay {maxFrames} TAS frames stretch={stretch}"
   let (initX, initY) = replay.playerPos(snes)
   echo &"initial player pos (from start state): x=0x{initX:04x} y=0x{initY:04x}"
 
@@ -97,35 +109,33 @@ proc main() =
     createDir("bin/replay_frames")
     echo &"PNG dumps every {pngEvery} frames -> bin/replay_frames/"
 
-  var frameImage = newImage(ppu.ScreenWidth, ppu.ScreenHeight)
-  # Initial clear (will be filled on first step)
-  frameImage.fill(rgbx(0, 0, 0, 255))
-
-  var currentJoy1: uint16 = 0
-  var replayFrame = 0
-  # Use table for O(1) lookup on frame -> joy1.
-
   echo "Starting headless replay..."
-  while replayFrame < maxFrames and not cpu.stopped:
-    # Apply any joy1 change scheduled for *this* frame (before stepping it)
-    if replayFrame in joySchedule:
-      currentJoy1 = joySchedule[replayFrame]
-    # TEMP probe: force Down after initial to see if pos moves from game_start
-    snes.joy1 = currentJoy1
-
-    # Exact one frame using the canonical stepper (matches play + llm policy runs)
-    policy.stepOneFrame(snes, cpu, frameImage)
-    inc replayFrame
-
-    if pngEvery > 0 and (replayFrame mod pngEvery == 0):
-      let p = &"bin/replay_frames/frame_{replayFrame:04d}.png"
-      frameImage.writeFile(p)
-      let (px, py) = replay.playerPos(snes)
-      echo &"  frame {replayFrame}: wrote {p}  player=({px},{py}) joy1=0x{currentJoy1:04x}"
-
-    if cpu.stopped:
-      echo "CPU stopped during replay"
-      break
+  var replayFrame = 0
+  if pngEvery > 0:
+    var frameImage = newImage(ppu.ScreenWidth, ppu.ScreenHeight)
+    var joy = 0'u16
+    let sched = replay.deltasToTable(deltas)
+    for tf in 0 .. maxFrames:
+      if tf in sched:
+        joy = sched[tf]
+      for s in 1 .. stretch:
+        snes.joy1 = joy
+        policy.stepOneFrame(snes, cpu, frameImage, render = true)
+        for k in 0 ..< (ReplayApuTicksPerFrame - 262 * 2):
+          discard snes.tickApu()
+        inc replayFrame
+      if stretch == 1:
+        verifyChk(snes, tf, rheader.checkpoints)
+      if pngEvery > 0 and (tf + 1) mod pngEvery == 0:
+        let p = &"bin/replay_frames/frame_{tf:04d}.png"
+        frameImage.writeFile(p)
+        let (px, py) = replay.playerPos(snes)
+        echo &"  frame {tf}: wrote {p}  player=({px},{py})"
+      if cpu.stopped:
+        break
+  else:
+    replayFrame = applyTas(snes, cpu, deltas, maxFrames, stretch = stretch,
+      checkpoints = rheader.checkpoints)
 
   # Final report (the proof data)
   let (finalX, finalY) = replay.playerPos(snes)

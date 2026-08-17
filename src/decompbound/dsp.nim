@@ -85,6 +85,17 @@ const
     1282, 1283, 1284, 1286, 1287, 1288, 1290, 1291, 1292, 1293, 1294, 1295, 1296, 1297, 1297, 1298,
     1299, 1300, 1300, 1301, 1302, 1302, 1303, 1303, 1303, 1304, 1304, 1304, 1304, 1304, 1305, 1305]
 
+proc resetMixState*(dsp: Dsp) =
+  ## Clear voice/echo/noise internals. Register file and shared RAM stay.
+  ## v1/v2 save-states do not store this; deserialize must start from here.
+  dsp.voices = default(array[8, Voice])
+  dsp.sampleCounter = 0
+  dsp.firHistL = default(array[8, int32])
+  dsp.firHistR = default(array[8, int32])
+  dsp.echoOffset = 0
+  dsp.noiseLfsr = 0x4000
+  dsp.noiseCounter = 0
+
 proc newDsp*(ram: ref array[0x10000, uint8]): Dsp =
   ## DSP sharing the SPC700's RAM. Power-on register state is
   ## unpredictable on hardware; nonzero values here matter because the
@@ -94,7 +105,7 @@ proc newDsp*(ram: ref array[0x10000, uint8]): Dsp =
   for i in 0..<128:
     result.regs[i] = 0xFF
   result.regs[0x6C] = 0xE0  # FLG: reset + mute + echo disable.
-  result.noiseLfsr = 0x4000  # Non-zero seed; a zero LFSR would never advance.
+  result.resetMixState()
 
 proc sampleTableAddr(dsp: Dsp, voice: int): uint16 =
   ## Sample directory entry address for a voice's SRCN.

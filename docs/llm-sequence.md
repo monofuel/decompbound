@@ -1,8 +1,14 @@
 # LLM-ai campaign sequence (story percents)
 
-**Status:** design / campaign spine. Not all metrics are implemented in code yet.
+**Status:** opening sunrise is driven by the **gold human TAS**, not by
+qwen/Lua playing Starman Jr. `make llm-ai-prologue` replays
+`20260816-223148` (`cadence emu`) then hands the pad to the bot.
+`sunrisePercent` is **100** when the Sound Stone is in inventory
+(opening-day). The knock-night ladder is unchanged.
+
 **n=1 done:** touch grass (`tg_pct` 25 → 100).  
-**MVP wall:** **Sunrise %** (prologue complete; game “properly” starts).  
+**n=2 done:** Pokey talk (`pokey_pct`).  
+**Opening MVP:** TAS prefix → sunrise / Sound Stone (human-verified 2026-08-16).  
 **Stretch:** full game clear (local qwen on the pad; cloud models as skill/fixture authors).
 
 **Related:** [llm-plays.md](llm-plays.md) (harness), [llm-contamination.md](llm-contamination.md)
@@ -100,8 +106,8 @@ These are the **next** goals after house exit. Order is story order.
 | **Win (intent)** | 1. Escort **Pokey + Picky** back to **Pokey’s house** (Minch home). 2. **Lardna Minch kills Buzz Buzz** (mandatory story beat — do not skip in framing or routing). 3. Leave the house → **the sun rises** and day-one Onett begins. |
 | **Narrative requirement** | The AI (prompt, notes, milestone report) should treat Buzz Buzz’s death as **weighty**. Feel **significant remorse** for Buzz Buzz. Then walk out into sunrise. Remorse is a **framing / reporting** goal, not a WRAM bit — but the death scene is a **mechanical** gate. |
 | **New pressure** | Escort both brothers, full Minch-house script, exit trigger for sunrise. |
-| **Metric (code)** | Stub `sunrisePercent` in `src/tools/story_percents.nim` (returns 0 until RE). |
-| **Status** | Stub only. **This is the MVP wall** — harder than tg by far; much of full-game difficulty after this is longer routes on the same verbs. |
+| **Metric (code)** | `sunrisePercent`: **100** if Sound Stone is in party inventory (opening TAS). Knock-night path still uses the knockComplete ladder. |
+| **Status** | Opening-day **done** via `llm_ai --tas` / `make llm-ai-prologue`. Unassisted LLM play of this arc is out of scope. |
 
 After Sunrise, the bot is in **real game start** (cops, Frank, free(ish) Onett day). That is a **new arc**, not more prologue percents.
 
@@ -115,7 +121,7 @@ After Sunrise, the bot is in **real game start** (cops, Frank, free(ish) Onett d
 | 1 | `pokey_pct` | Talked to Pokey at the meteor | **Done** (2026-07-10; human-confirmed) |
 | 2 | `pokey_knock_pct` | Home + knock / meteor invite | Stub — **next** (see [roadmap.md](roadmap.md)) |
 | 3 | `buzzbuzz_pct` | Meteor arc; **Picky** acquired | Stub (`src/tools/story_percents.nim`) |
-| 4 | `sunrise_pct` | Brothers home → Lardna kills Buzz Buzz → leave → **sunrise** | Stub (MVP wall) |
+| 4 | `sunrise_pct` | Opening TAS → Sound Stone / **sunrise** | **Done** (`make llm-ai-prologue`) |
 | … | (later) | Onett day-1 / police / Frank / Twoson / … | Stretch stubs only |
 
 Pure stubs (all return 0 until RE): **`src/tools/story_percents.nim`**. Surfaced in llm_ai rich state + slow-tick log next to `tg_pct`.

@@ -141,6 +141,43 @@ block missingFileRaises:
     raised = true
   doAssert raised, "parseReplay must raise IOError for missing path"
 
+block cadenceHeaderRoundTrip:
+  let header = ReplayHeader(
+    magic: ReplayMagic,
+    romHash: 0x11,
+    startStateRef: "s",
+    cadence: ReplayCadenceEmu,
+    apuTicks: ReplayApuTicksPerFrame
+  )
+  let text = serializeReplay(header, @[ReplayDelta(frame: 0, joy1: 0)])
+  let (h, d) = parseReplayString(text)
+  doAssert h.cadence == ReplayCadenceEmu
+  doAssert h.apuTicks == ReplayApuTicksPerFrame
+  doAssert not isLegacyReplay(h)
+  doAssert d.len == 1
+
+block chkLineParse:
+  let content = """
+DBTAS1
+rom_hash 0x1
+start_state x
+cadence emu
+apu_ticks 533
+0 0000
+chk 60 1fb8 0452 deadbeef
+"""
+  let (h, d) = parseReplayString(content)
+  doAssert d.len == 1
+  doAssert h.checkpoints.len == 1
+  doAssert h.checkpoints[0].frame == 60
+  doAssert h.checkpoints[0].x == 0x1fb8'u16
+  doAssert h.checkpoints[0].y == 0x0452'u16
+  doAssert h.checkpoints[0].wramHash == 0xdeadbeef'u32
+  let round = serializeReplay(h, d)
+  let (h2, _) = parseReplayString(round)
+  doAssert h2.checkpoints.len == 1
+  doAssert h2.checkpoints[0].wramHash == 0xdeadbeef'u32
+
 block commentsAndBlanksIgnored:
   let content = """
 DBTAS1
