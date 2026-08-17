@@ -124,8 +124,9 @@ Diagnose a session with [run-report.md](run-report.md):
 `make run-report SESSION=../decompbound_secret/sessions/<ts>`.
 
 - [2026-08-16/17 day-1 TAS](2026-08-16-day1-tas.md) — **the ultimate
-  unlucky run.** Sunrise → sharks → Frank, deaths **way past 6** (15+
-  year player, legit bad territory), no Mr. Baseball cap. Segments
+  unlucky run** that still **beat Titanic Ant** (F12 `011117`) and is
+  now **in Peaceful Rest Valley** (F12 `015946`). Sunrise → sharks →
+  Frank → Giant Step → Twoson → valley; deaths way past 6. Segments
   `235052` + `000051`.
 - [2026-08-16 sunrise TAS](2026-08-16-sunrise-tas.md) — **first cadence-emu
   movie, human-verified.** Fast-text bedroom → meteor night → leaving
