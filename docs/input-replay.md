@@ -109,6 +109,10 @@ state. Enables the regression half of `docs/accuracy.md`; parallel-safe; off the
 
 ## Recorded sessions
 
+`make play-tas` re-reads the current `.tas` several times a second (title
+shows `TAS frame/last file` and `live` when the file grew) and hops to a
+new `play-cont` segment when the tape ends.
+
 Chain a new segment from the last F12 / window-close end snap:
 
 `make play-cont`

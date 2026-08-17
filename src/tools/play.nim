@@ -989,7 +989,8 @@ void main() {
   var tasLastFrame = 0
   var tasChainTried = false
   var tasReloadAcc = 0
-  const TasReloadEvery = 60
+  var tasGrewFrame = -999
+  const TasReloadEvery = 15
   if tasPath.len > 0:
     if not fileExists(tasPath):
       echo "ERROR: tas not found: ", tasPath
@@ -1649,6 +1650,7 @@ void main() {
                     echo "TAS grew to frame ", rec
                     writeLog(&"TAS grew {tasLastFrame} -> {rec}")
                     tasLastFrame = rec
+                    tasGrewFrame = frameCount
                   tasChainTried = false
             if tasPlayFrame < tasLastFrame:
               inc tasPlayFrame
@@ -1930,7 +1932,13 @@ void main() {
       fpsClock = getMonoTime()
     let pausedStr = if paused: " (paused)" else: ""
     let inputTitlePart = if currentInputDisplay != "none": " [" & currentInputDisplay & "]" else: ""
-    let newTitle = &"decompbound player - {fpsShown:.0f} fps - frame {frameCount}{pausedStr} x{framesPerTick}{inputTitlePart}"
+    let tasTitle =
+      if tasPlayback:
+        let live = if frameCount - tasGrewFrame < 180: " live" else: ""
+        &" TAS {tasPlayFrame}/{tasLastFrame} {tasPath.extractFilename}{live}"
+      else:
+        ""
+    let newTitle = &"decompbound player - {fpsShown:.0f} fps - frame {frameCount}{pausedStr} x{framesPerTick}{inputTitlePart}{tasTitle}"
     if window.title != newTitle:
       window.title = newTitle
 
