@@ -19,6 +19,11 @@ debug bundles (regs, traces), not the normal F12 archive.
 Agents: when a chat message names `earthbound_….png`, resolve under
 `~/Pictures/Screenshots/` first. See root `AGENTS.md` → *State-screenshots*.
 
+**Full inventory:** [screenstates-catalog.md](screenstates-catalog.md) —
+every unique `earthbound_*.png` name (1190 with `ebSt` as of 2026-08-17).
+Room / pos / story percents only. Regen:
+`nim r -d:release src/probes/probe_catalog_screenstates.nim`.
+
 ## How to tell a PNG has a save-state attached
 
 Play F12s are **normal PNGs** (open in any viewer). Extra payload is a private

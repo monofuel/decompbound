@@ -125,6 +125,7 @@ proc sampleFrame(snes: SnesBus, frame: int): FrameSample =
   result.posY = py.int
   result.spine = sampleSpine(snes)
   result.members = sampleParty(snes)
+  result.wramHash = replay.wramHash(snes)
 
 proc loadBookmark(rom: seq[uint8], pngPath: string): Bookmark =
   ## Deserialize ebSt from an F12 and sample WRAM. Empty name if no chunk.
@@ -158,8 +159,46 @@ proc defaultOutPath(tasPath: string): string =
   let stem = tasPath.extractFilename.changeFileExt("")
   ReportOutDir / (stem & ".md")
 
+proc screenstateStamp(path: string): string =
+  ## `earthbound_yyyyMMdd-HHmmss.png` → stamp, else "".
+  let n = path.extractFilename
+  if n.startsWith("earthbound_") and n.endsWith(".png") and n.len >= 16:
+    result = n[11 .. ^5]
+
+proc findLatestF12(): string =
+  ## Newest earthbound_*.png in session f12/, secret/screenstates, Pictures.
+  const
+    Secret = "../decompbound_secret"
+    Pictures = "/home/monofuel/Pictures/Screenshots"
+  var bestStamp = ""
+  var bestPath = ""
+  proc consider(p: string) =
+    let st = screenstateStamp(p)
+    if st.len > 0 and st > bestStamp:
+      bestStamp = st
+      bestPath = p
+  if dirExists(Secret / "sessions"):
+    for kind, sdir in walkDir(Secret / "sessions"):
+      if kind != pcDir:
+        continue
+      let f12 = sdir / "f12"
+      if not dirExists(f12):
+        continue
+      for k2, p in walkDir(f12):
+        if k2 == pcFile and p.endsWith(".png"):
+          consider(p)
+  if dirExists(Secret / "screenstates"):
+    for k, p in walkDir(Secret / "screenstates"):
+      if k == pcFile and p.endsWith(".png"):
+        consider(p)
+  if dirExists(Pictures):
+    for k, p in walkDir(Pictures):
+      if k == pcFile and p.endsWith(".png"):
+        consider(p)
+  result = bestPath
+
 proc parseArgs(): tuple[rom, state, tas, outPath: string, frames: int, session: string,
-    bookmarksOnly: bool, stretch: int] =
+    bookmarksOnly: bool, stretch: int, f12: string] =
   ## CLI args. Session mode fills tas/state from the longest pair.
   result.rom = ""
   result.state = ""
@@ -169,6 +208,7 @@ proc parseArgs(): tuple[rom, state, tas, outPath: string, frames: int, session: 
   result.session = ""
   result.bookmarksOnly = false
   result.stretch = 1
+  result.f12 = ""
   var i = 1
   if paramCount() >= 1 and paramStr(1) == "--":
     i = 2
@@ -197,6 +237,19 @@ proc parseArgs(): tuple[rom, state, tas, outPath: string, frames: int, session: 
       result.rom = arg[6 .. ^1]
     elif arg == "--bookmarks-only":
       result.bookmarksOnly = true
+    elif arg == "--f12" and i < paramCount():
+      inc i
+      result.f12 = paramStr(i)
+      result.bookmarksOnly = true
+    elif arg.startsWith("--f12="):
+      result.f12 = arg[6 .. ^1]
+      result.bookmarksOnly = true
+    elif arg == "--latest-f12":
+      result.f12 = findLatestF12()
+      result.bookmarksOnly = true
+      if result.f12.len == 0:
+        echo "ERROR: --latest-f12 found no earthbound_*.png"
+        quit(1)
     elif arg == "--legacy-stretch" and i < paramCount():
       inc i
       result.stretch = parseInt(paramStr(i))
@@ -213,16 +266,24 @@ proc parseArgs(): tuple[rom, state, tas, outPath: string, frames: int, session: 
     else:
       pos.add arg
     inc i
+  if result.rom.len == 0:
+    result.rom = DefaultRom
   if result.session.len > 0:
     let pair = pickSessionPair(result.session)
     result.tas = pair.tas
     result.state = pair.state
-    if result.rom.len == 0:
-      result.rom = DefaultRom
+  elif result.f12.len > 0:
+    if not fileExists(result.f12):
+      echo "ERROR: f12 not found: ", result.f12
+      quit(1)
+    if result.outPath.len == 0:
+      result.outPath = ReportOutDir / (result.f12.extractFilename.changeFileExt("") & ".md")
   else:
     if pos.len < 3:
-      echo "Usage: nim r src/tools/run_report.nim <rom> <start.state> <log.tas> [--out bin/reports/x.md] [--frames N] [--stretch N]"
-      echo "       nim r src/tools/run_report.nim --session <session-dir> [--stretch N] [--bookmarks-only]"
+      echo "Usage: nim r src/tools/run_report.nim <rom> <start.state> <log.tas> [--out bin/reports/x.md]"
+      echo "       nim r src/tools/run_report.nim --session <session-dir> [--bookmarks-only]"
+      echo "       nim r src/tools/run_report.nim --latest-f12"
+      echo "       nim r src/tools/run_report.nim --f12 PATH.png"
       quit(1)
     result.rom = pos[0]
     result.state = pos[1]
@@ -239,6 +300,32 @@ proc main() =
   if not fileExists(args.rom):
     echo "ERROR: ROM not found: ", args.rom
     quit(1)
+  if args.f12.len > 0 and args.session.len == 0:
+    let rom = readRom(args.rom)
+    let romHash = romHashOf(rom)
+    echo "ROM: ", args.rom, &"  hash=0x{romHash:08X}"
+    echo "screenstate: ", args.f12
+    var report = RunReport(
+      romPath: args.rom,
+      tasPath: "(none)",
+      startStatePath: args.f12,
+      build: buildLabel(),
+      romHash: romHash,
+    )
+    report.notes.add "Single screenstate snapshot (no TAS replay)."
+    echo "  bookmark ", args.f12.extractFilename
+    report.bookmarks = @[loadBookmark(rom, args.f12)]
+    foldBookmarks(report)
+    if report.bookmarks.len > 0:
+      report.wramHash = report.bookmarks[0].sample.wramHash
+    let md = renderMarkdown(report)
+    if args.outPath == "-":
+      stdout.write md
+    else:
+      createDir(parentDir(args.outPath))
+      writeFile(args.outPath, md)
+      echo &"wrote {args.outPath} ({report.events.len} events)"
+    return
   if not fileExists(args.state):
     echo "ERROR: start state not found: ", args.state
     quit(1)

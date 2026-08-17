@@ -280,6 +280,8 @@ Move checked rows here so OPEN stays short. Prune freely.
 - **Windowed TAS replay (`make play-tas`)** · 2026-08-16 · cadence emu
   - Confirmed: [sunrise TAS](2026-08-16-sunrise-tas.md) `20260816-223148`
     replays bedroom → leaving Pokey's house / sunrise. No desync.
+  - 2026-08-17: chain replay in a second window while live play was at
+    Giant Step — **no TAS bugs**; Onett delay = deaths on the tape.
 - **Mini Barf battle BG + UI** · 2026-07-08 · mode-0 priority ladder
 
 ---

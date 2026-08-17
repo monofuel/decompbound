@@ -100,7 +100,7 @@ proc main() =
     stretch = legacyStretch
     echo "LEGACY TAS; stretch=", stretch
   if maxFrames < 0:
-    maxFrames = lastDeltaFrame(deltas)
+    maxFrames = lastRecordedFrame(rheader, deltas)
   echo &"Replay {maxFrames} TAS frames stretch={stretch}"
   let (initX, initY) = replay.playerPos(snes)
   echo &"initial player pos (from start state): x=0x{initX:04x} y=0x{initY:04x}"

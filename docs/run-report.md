@@ -10,6 +10,14 @@ nim r src/tools/run_report.nim <rom> <start.state> <log.tas> [--out bin/reports/
 make run-report SESSION=../decompbound_secret/sessions/20260816-183136
 ```
 
+One current F12 (no TAS replay):
+
+```
+make run-report LATEST=1
+nim r src/tools/run_report.nim --latest-f12
+nim r src/tools/run_report.nim --f12 ~/Pictures/Screenshots/earthbound_….png
+```
+
 `--session` uses the longest `.tas` in that dir (the main segment) and its
 matching `_start.state`. Default `--frames` is the last input delta.
 Default `--out` is `bin/reports/<tas-stem>.md`. `--bookmarks-only` skips

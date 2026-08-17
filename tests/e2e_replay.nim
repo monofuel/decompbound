@@ -177,6 +177,7 @@ chk 60 1fb8 0452 deadbeef
   let (h2, _) = parseReplayString(round)
   doAssert h2.checkpoints.len == 1
   doAssert h2.checkpoints[0].wramHash == 0xdeadbeef'u32
+  doAssert lastRecordedFrame(h, d) == 60
 
 block commentsAndBlanksIgnored:
   let content = """

@@ -222,6 +222,15 @@ proc lastDeltaFrame*(deltas: seq[ReplayDelta]): int =
     return 0
   result = deltas[^1].frame
 
+proc lastRecordedFrame*(header: ReplayHeader, deltas: seq[ReplayDelta]): int =
+  ## High-water mark: last input delta or last chk, whichever is later.
+  ## Hold tails only write chk lines; stopping at lastDeltaFrame ends the
+  ## movie early and wanders on the last joy.
+  result = lastDeltaFrame(deltas)
+  for c in header.checkpoints:
+    if c.frame > result:
+      result = c.frame
+
 proc joyAtFrame*(deltas: seq[ReplayDelta], frame: int): uint16 =
   ## Resolve held joy1 at `frame` (last delta with d.frame <= frame, else 0).
   result = 0'u16

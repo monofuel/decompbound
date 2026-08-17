@@ -131,6 +131,7 @@ type
     posY*: int
     spine*: seq[(string, int)]
     members*: seq[PartySnap]
+    wramHash*: uint32
 
   Bookmark* = object
     ## One F12 / ebSt snapshot sampled without replaying the TAS.
@@ -337,9 +338,10 @@ proc foldBookmarks*(r: var RunReport) =
           seedIdx = i
           foundParty = true
           break
-  latchHeadlineSpine(stamped)
-  for i, s in stamped:
-    r.bookmarks[i].sample.spine = s.spine
+  if stamped.len > 1:
+    latchHeadlineSpine(stamped)
+    for i, s in stamped:
+      r.bookmarks[i].sample.spine = s.spine
   seedReport(r, stamped[seedIdx])
   var prev = stamped[0]
   for i in 1 ..< stamped.len:
@@ -379,18 +381,18 @@ proc renderMarkdown*(r: RunReport): string =
       let s = b.sample
       lines.add &"### {b.name}"
       lines.add &"- pos {fmtPos(s.posX, s.posY)}  room `{s.room}`  money {s.money}  battle={s.inBattle}"
+      if s.wramHash != 0:
+        lines.add &"- wram_hash `0x{s.wramHash:08X}`"
       var spineBits: seq[string] = @[]
       for (k, v) in s.spine:
-        if v != 0:
-          spineBits.add k & "=" & $v
+        spineBits.add k & "=" & $v
       if spineBits.len > 0:
         lines.add "- spine: " & spineBits.join(" ")
       if s.members.len == 0:
         lines.add "- party: (empty)"
       else:
         for m in s.members:
-          if m.inParty:
-            lines.add "- " & fmtMember(m)
+          lines.add "- " & fmtMember(m)
       if s.dialogue.len > 0:
         lines.add "- dialogue:"
         for ln in s.dialogue.splitLines:

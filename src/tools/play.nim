@@ -988,6 +988,8 @@ void main() {
   var tasPlayback = false
   var tasLastFrame = 0
   var tasChainTried = false
+  var tasReloadAcc = 0
+  const TasReloadEvery = 60
   if tasPath.len > 0:
     if not fileExists(tasPath):
       echo "ERROR: tas not found: ", tasPath
@@ -1001,7 +1003,7 @@ void main() {
       echo "LEGACY TAS window-loop; stretch=", tasStretch
     tasDeltas = td
     tasChks = th.checkpoints
-    tasLastFrame = lastDeltaFrame(td)
+    tasLastFrame = lastRecordedFrame(th, td)
     tasPlayback = true
     if startStatePath.len == 0:
       startStatePath = th.startStateRef
@@ -1634,6 +1636,20 @@ void main() {
               except ValueError as e:
                 echo e.msg
                 writeLog(e.msg)
+            inc tasReloadAcc
+            if tasReloadAcc >= TasReloadEvery:
+              tasReloadAcc = 0
+              if fileExists(tasPath):
+                let (rh, rd) = parseReplay(tasPath)
+                if not isLegacyReplay(rh) or tasStretch > 1:
+                  tasDeltas = rd
+                  tasChks = rh.checkpoints
+                  let rec = lastRecordedFrame(rh, rd)
+                  if rec > tasLastFrame:
+                    echo "TAS grew to frame ", rec
+                    writeLog(&"TAS grew {tasLastFrame} -> {rec}")
+                    tasLastFrame = rec
+                  tasChainTried = false
             if tasPlayFrame < tasLastFrame:
               inc tasPlayFrame
             elif not tasChainTried:
@@ -1647,11 +1663,12 @@ void main() {
                 tasPath = nxt
                 tasDeltas = nd
                 tasChks = nh.checkpoints
-                tasLastFrame = lastDeltaFrame(nd)
+                tasLastFrame = lastRecordedFrame(nh, nd)
                 tasPlayFrame = 0
                 tasHold = 0
                 tasStretch = 1
                 tasChainTried = false
+                tasReloadAcc = 0
                 echo "TAS chain -> ", nxt, " frames 0..", tasLastFrame
                 writeLog("TAS chain " & nxt)
         # CPU-DERAIL?: stuck at EB unused-vector BRK sink with NMI often off.

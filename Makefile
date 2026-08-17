@@ -156,9 +156,15 @@ run-report: nim.cfg
 	  nim r -d:release src/tools/run_report.nim --session "$(SESSION)" $(ARGS); \
 	elif [ -n "$(TAS)" ] && [ -n "$(STATE)" ]; then \
 	  nim r -d:release src/tools/run_report.nim "$(ROM)" "$(STATE)" "$(TAS)" $(ARGS); \
+	elif [ -n "$(F12)" ]; then \
+	  nim r -d:release src/tools/run_report.nim --f12 "$(F12)" $(ARGS); \
+	elif [ "$(LATEST)" = "1" ]; then \
+	  nim r -d:release src/tools/run_report.nim --latest-f12 $(ARGS); \
 	else \
 	  echo "usage: make run-report SESSION=../decompbound_secret/sessions/<ts>"; \
 	  echo "       make run-report TAS=path.tas STATE=path.state"; \
+	  echo "       make run-report LATEST=1   # current screenstate"; \
+	  echo "       make run-report F12=path.png"; \
 	  exit 2; \
 	fi
 
