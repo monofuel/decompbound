@@ -72,6 +72,23 @@ hang, Saturn Valley corruption, half-speed music) are tracked together in
 - Sprite-behind-object 1px flicker/lag during movement (OAM/frame-timing polish).
 - test_speed ROM fails (CPU cycle-accuracy — we use a fixed instruction budget, not cycles).
 
+- **2nd sanctuary (Lilliput Steps cave mouth) — 1-tile black column**
+  (2026-08-18, reproduced on **two** independent playthroughs).
+  ~8px **viewport-fixed** vertical hole through the overworld at the
+  cave: grass/rock/path missing, sprites still draw. Not a world tile
+  (column stays on screen when the camera moves). **No HDMA**
+  (`HDMAEN=00`), no color math (`CGADSUB=00` `CGWSEL=00`), `BGMODE=09`
+  `TM=17` `BG1SC=39`. BG1/BG2 scroll locked together.
+
+  | Run | F12 (local `~/Pictures/Screenshots/`, do not commit) | pos | bg1 scroll |
+  |-----|------------------------------------------------------|-----|------------|
+  | 2026-08-18 TAS | `earthbound_20260818-005541.png` `005543` `005556` | `(0C20,1FDB)` | (928, 875) |
+  | 2026-07-07 | `earthbound_20260707-014807.png` `014825` `014835` | `(0C18,1FDA)` → `(0C05,1FEF)` | (920,874) → (901,895) |
+
+  Probe: `nim r src/probes/probe_sanc2_column.nim`. Reload any F12 via
+  drag-drop / `make play-cont` from that PNG. Hypothesis: mode-1 BG
+  tilemap fetch / 64-wide wrap at this HOFs, not a map-data hole.
+
 Prior detailed sections for now-resolved items (old milestones, input latch, APU snapshot replay, menu hangs, logo fade, etc.) removed; still-relevant mechanics (HDMA per-line TM/TS splits for battle bands, top-scanline vblank timing, CPU budget vs. cycle accuracy) are summarized in the items above.
 
 ## Perf / investigations

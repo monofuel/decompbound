@@ -37,6 +37,15 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 ## OPEN — please check
 
+- [ ] **Lilliput cave mouth: black column** · 2026-08-18 · `master`
+  - **Run:** drag-drop `earthbound_20260818-005541.png` (or `005543` /
+    `005556`, or July `20260707-014807` / `014825` / `014835`) onto
+    `make play`. Same cave as 2nd sanctuary / Mondo Mole.
+  - **Pass if:** no 8px black vertical strip; grass and cliff are solid
+  - **Fail if:** a screen-fixed black column cuts the cave / path
+  - **Notes:** two runs, six F12s. Ticket: `docs/issues.md` OPEN
+    “2nd sanctuary black column”. Do not commit the PNGs.
+
 Copy this template when adding a row (agents: always use it):
 
 ```markdown
@@ -266,7 +275,10 @@ Add a bullet when something is wrong **while you're playing**. No essay.
 - **YYYY-MM-DD** · where (intro / Onett / battle / menu) · one line what's wrong · F12 name if any
 ```
 
--
+- **2026-08-18** · Lilliput / 2nd sanctuary cave mouth · 1-tile black
+  vertical column, two runs · F12 `earthbound_20260818-005541.png`
+  `005543` `005556` and `earthbound_20260707-014807.png` `014825`
+  `014835` (Pictures only)
 
 Agents: promote durable items into `docs/issues.md` (IN PROGRESS / OPEN) and
 leave a short **OPEN** row here if you need a later eyeball on a fix.
