@@ -99,7 +99,8 @@ Concrete located graphics (all `gfx_lz`-compressed; decode confirmed):
   `0x03ED00`); larger overworld sets share the maps load path (some uncompressed
   via the `~0x008ED2` far-copy).
 - **Still open:** the player (Ness) + NPC **overworld** OBJ CHR + the
-  sprite-definition table + the OAM builder — the entity-gfx path is script-driven
+  sprite-definition table + sprite composition (buffer initialization is explained
+  below) — the entity-gfx path is script-driven
   (`$C09470` + `gfx_lz` calls), no static table isolated; best cracked by watching
   the OBJ-VRAM DMA during an overworld load.
 
@@ -119,3 +120,57 @@ Concrete located graphics (all `gfx_lz`-compressed; decode confirmed):
 **Scope:** data RE + codecs + a silky explorer. Feeds the maps track (shared
 tileset decoding) and cross-checks the emulator's PPU. Parallel-safe.
 </content>
+
+## OAM build initialization
+
+`initializeOamBuild` at `$C088B1`, file `[0x0088B1, 0x008B19)`, is adopted
+as [annotated assembly](../asm/initializeOamBuild.asm). It prepares sprite
+output in WRAM; it does not decode graphics or transfer tiles to VRAM.
+
+The routine clears the four 16-bit sprite queue counts at `$2504`, `$2606`,
+`$2708`, and `$280A`. Selector word `$002E` chooses a build buffer:
+
+| Selector | Low OAM table | High OAM table | Low-table entries |
+|---|---|---|---|
+| 1 | `$0500` | `$0700` | 128 × 4 bytes |
+| Any other value | `$0800` | `$0A00` | 128 × 4 bytes |
+
+It installs the low-table cursor at `$0003`, its end at `$0005`, and the
+high-table cursor at `$0007`. Byte `$000A` is initialized to `$80` for the
+subsequent high-bit packing algorithm. That packer's full contract is a
+separate investigation.
+
+Each low-table entry's Y byte (offset 1) becomes `$E0`, outside the visible
+224-line area. X, tile number, attributes, and the high table are deliberately
+left unchanged. Two unrolled groups of 64 stores temporarily move direct
+page across the two 256-byte pages; the original direct page is restored.
+The other build buffer and selector are untouched.
+
+Native-mode callers supply DBR `$7E`, so absolute accesses and bank-zero
+direct-page accesses address the same WRAM buffers. The routine preserves DBR,
+direct page, Y, stack depth, and carry/decimal/overflow flags. It returns
+with 16-bit A/X, A's low byte `$E0` (high byte preserved), and X holding the
+high-table base. The next routine starts at `$C08B19`; it is not part of this
+adopted span.
+
+`nim r tests/integration_oam_build.nim` compares all 616 assembled bytes
+with the original ROM and executes the ROM routine for five selectors,
+three initial accumulators, and all 256 native processor-status combinations
+(3,840 calls). It checks both complete buffer areas, all four counts, build
+pointers, selector preservation, and the stated register contract using only
+synthetic RAM. This passed on 2026-09-10; `make compare` remains byte-identical.
+
+### Connection to the frame service and next graphics question
+
+The normal branch of `$C1004E` calls the initializer at `$C10067`, then
+`$C09466` (entity processing), `$C08B26` (compose/publish), and `$C08756`
+(wait and refresh input). The `$9643 != 0` branch instead calls `$C43568`.
+Entity processing crosses to bank `$80` via `JML $809470`; instruction traces
+must account for that bank alias when looking for callbacks.
+
+Static inspection locates queued-sprite composition at `$C08B8E` and the
+per-sprite emitter at `$C08CD5`. These are concrete entry points, not yet
+adopted complete explanations. Next: derive the queue record layout and
+five-byte sprite-element semantics, then execute synthetic examples to verify
+coordinate clipping, tile/attribute output, and packed X-high/size bits.
+That is the link needed between sprite definitions and a faithful asset browser.

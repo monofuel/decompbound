@@ -55,9 +55,29 @@
     {
       "name": "blob_008573",
       "offset": 34163,
-      "length": 1778,
+      "length": 830,
       "kind": "blob",
       "source": "blobs/blob_008573.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "initializeOamBuild",
+      "offset": 34993,
+      "length": 616,
+      "kind": "code",
+      "source": "asm/initializeOamBuild.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md OAM build initialization; tests/integration_oam_build.nim verifies full buffer effects and original bytes"
+    },
+    {
+      "name": "blob_008B19",
+      "offset": 35609,
+      "length": 332,
+      "kind": "blob",
+      "source": "blobs/blob_008B19.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"

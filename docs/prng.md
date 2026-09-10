@@ -234,3 +234,42 @@ These checks passed on 2026-09-10. They validate gate behavior and setter
 contracts, not the unresolved long service path or the selected record's
 higher-level semantics. The old map research attribution of `$C3E4CA` as a
 graphics loader was incorrect; the complete routine only clears suppression.
+
+### Complete-call observation of the normal service path
+
+`src/probes/probe_service_rng.nim` follows a service invocation until both its
+saved JSL return address and returned stack depth match. It counts RNG entries
+while that invocation is active, including nested calls, rather than inferring
+ancestry from fixed offsets farther up the stack. Calls still active at the
+observation boundary are reported separately. Counts include any interrupt
+activity during the invocation; the probe does not claim interrupt isolation.
+Entry matching uses the canonical `$C0`/`$C1` addresses; execution through ROM
+aliases such as RNG entry `$808E9A` is not counted. These are observed invocation
+intervals, not proof that every counted draw descends from the service call.
+
+On 2026-09-10, using 533 APU ticks per frame and 150 CPU instructions per
+scanline:
+
+| Local state / input | Frames | Completed services | Pending | Result |
+|---|---:|---:|---:|---|
+| `slot210.state`, idle | 180 | 0 | 0 | No service entries observed |
+| `slot219.state`, idle | 180 | 0 | 0 | No service entries observed |
+| `slot210.state`, held B (`8000`) | 180 | 179 | 1 | Every completed call took the long path and consumed one draw |
+
+For the B case both gate bytes were zero. Watched calls included `$C107AF`,
+`$C2109F`, `$C213AC`, `$C1FF2C`, `$C2038B`, and `$C1004E`. The latter took its
+normal `$C088B1 → $C09466 → $C08B26 → $C08756` path. The one pending call
+also contributed service-entry counts, so these totals are 180 rather than
+179. All 180 observed RNG entries returned to `$C12DDB`.
+
+```sh
+nim r src/probes/probe_service_rng.nim bin/states/slot210.state 180
+nim r src/probes/probe_service_rng.nim bin/states/slot219.state 180
+nim r src/probes/probe_service_rng.nim bin/states/slot210.state 180 8000
+```
+
+This explains the measured B-window draw rate through complete-call evidence.
+It does not prove other entity callbacks or the alternate `$9643` frame path
+consume no additional draws. The probe remains useful for those open contexts.
+The normal path also led to the verified
+[OAM initializer](graphics.md#oam-build-initialization).

@@ -16,6 +16,7 @@ type
 
 const
   AdoptedSpecs: seq[AdoptedSpec] = @[
+    AdoptedSpec(name: "initializeOamBuild", offset: 0x0088B1),
     AdoptedSpec(name: "clearServiceSuppression", offset: 0x03E4CA),
     AdoptedSpec(name: "setServiceSuppression", offset: 0x03E4D4),
     AdoptedSpec(name: "sramMirrorPiracyCheck", offset: 0x00A11C),
