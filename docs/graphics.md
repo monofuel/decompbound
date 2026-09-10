@@ -242,6 +242,64 @@ is a byte count: the drain's index advances by two for each entry. Counts are
 not cleared by the drain; initialization clears them before entity processing.
 The bank word is copied to `$000B/$000C`; the emitter reads only its low byte.
 
-This layout is static evidence, pending an enqueue-to-drain behavioral test.
-Next: verify that integration, explain partial high-table flushing in `$C08B26`,
-and follow definition producers to their graphics and palette references.
+The layout and group/insertion order are verified by the original-ROM pipeline
+test below. Queue capacity is inferred from the array spacing; enqueue has no
+bounds check. Definition producers and their graphics/palette references remain
+open.
+
+
+## Queue-to-buffer publication
+
+The long-call enqueue wrapper `$C08C54` calls `$C08C58`, which selects one of
+four append handlers via word `$2400` and jump table `$C08C65`. It stores the
+incoming A definition pointer, X/Y origin, and word `$000B` in parallel arrays,
+then increments that queue's byte count by two. Native 16-bit indices are
+required: the code pushes X and retrieves it with a 16-bit accumulator pull.
+It forces M16 but does not force X16. Valid queue indices are 0–3, and each
+queue has space for 32 records; neither limit is checked by the routine.
+
+`$C08B26..$C08B8D` first calls the queue drain at `$C08B8E`. Definitions are
+emitted in queue order 0–3, preserving insertion order within each queue. This
+can differ from the order in which entities enqueued them. Counts remain intact
+after draining, so publication is not a queue reset.
+
+After draining, publication finalizes the pending high-table byte. If `$000A`
+is not the empty sentinel `$80`, it shifts right two bits at a time until the
+sentinel exits through carry. For one/two/three pending sprites, this moves
+packed pairs right by six/four/two bits. It then writes the result at the
+address in word `$0007`, using DBR rather than the emitter's long-pointer bank.
+Both accesses must refer to the same WRAM: the tested contract uses DBR `$7E`
+and pointer bank `$00` or `$7E`.
+
+The final store is **unconditional**. Zero sprites write `$80` at the high-table
+base. A multiple of four sprites writes `$80` after the completed groups; with
+128 sprites this is one byte beyond the 32-byte OAM high table. This is actual
+ROM behavior, not an additional sprite or a requirement to transfer that extra
+byte to the PPU. The final store does not modify `$000A` or advance `$0007`.
+
+Publication then copies eight words from `$0031+2*i` to
+`$0041+4*i+2*(selector-1)`, using selector word `$002E`. It writes the selector's
+low byte to `$002C` and toggles the low byte of `$002E` with XOR 3. This selects
+the other build buffer on the next initialization. The upper byte of `$002C`
+is preserved. Valid selector words here are 1 and 2; the initializer's fallback
+for other values does not imply that publication accepts them safely. The
+meaning and consumers of the eight snapshot words need further investigation.
+
+Evidence: original enqueue at file `0x008C54` and handler entry `0x008C6D`;
+drain at `0x008B8E`; final store at `0x008B40`; snapshot and publication writes
+at `0x008B48..0x008B8A`. The DBR `$FF` branch at `0x008B33` deliberately spins;
+that path is outside the normal WRAM contract.
+
+`nim r tests/integration_oam_publish.nim` verifies 258 full pipeline scenarios:
+both buffers, each with 0–128 sprites. Each scenario runs original initialization,
+enqueues synthetic definitions interleaved across all four queues, and runs
+original publication. Assertions cover queue field layout, retained counts,
+reordered output, every low-table entry, complete and partial packed bytes,
+the extra sentinel byte, preserved pending accumulator, snapshots, selector
+toggling, and the untouched alternate buffer. Each queue stays within its
+32-record capacity. The two buffer cases also exercise long-pointer banks `$00`
+and `$7E`. No game assets, frames, or machine-state fixtures are used.
+
+This establishes CPU/WRAM composition, not PPU upload or visual fidelity. Next:
+trace the published selector and snapshot consumers into the VBlank transfer,
+and follow entity definition pointers back to graphics and palette selection.
