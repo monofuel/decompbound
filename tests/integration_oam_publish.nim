@@ -35,6 +35,58 @@ proc run(snes: SnesBus, caller: uint32, a = 0, x = 0, y = 0) =
   doAssert cpu.s == StackTop and cpu.d == 0 and cpu.dbr == 0x7E
   doAssert (cpu.p and (FlagM or FlagX)) == 0
 
+proc runInterruptBlock(snes: SnesBus, startPc, endPc: uint16) =
+  ## Execute a bounded original interrupt fragment with its established widths.
+  var
+    cpu = Cpu(pbr: 0xC0, pc: startPc, s: StackTop, p: FlagX)
+    steps = 0
+  while cpu.pbr != 0xC0 or cpu.pc != endPc:
+    doAssert steps < StepLimit, "Interrupt fragment failed to reach its boundary"
+    cpu.step(snes.bus)
+    inc steps
+  doAssert cpu.s == StackTop
+
+proc checkTransfer(snes: SnesBus, low, selector: int) =
+  ## Verify DMA bytes, scroll-port writes, and consumption of pending publication.
+  let transfers = snes.dmaTransfers
+  snes.putWord(0x99, 0x1234)
+  snes.putWord(0x61, 0x5A5A)
+  snes.putWord(0x63, 0x5A5A)
+  snes.bus.write8(0x2102, 0xFF)
+  snes.bus.write8(0x2103, 1)
+  for value in snes.oam.mitems:
+    value = Sentinel
+  snes.runInterruptBlock(0x8196, 0x81C8)
+  doAssert snes.dmaTransfers == transfers + 1
+  doAssert snes.dmaRegs[0] == 0 and snes.dmaRegs[1] == 4
+  doAssert snes.dmaRegs[4] == 0
+  doAssert snes.dmaRegs[2].int + (snes.dmaRegs[3].int shl 8) == low + 544
+  doAssert snes.dmaRegs[5] == 0 and snes.dmaRegs[6] == 0
+  doAssert snes.word(0x99) == 0x1234 + 544
+  for i, value in snes.oam:
+    doAssert value == snes.bus.read8(Wram + (low + i).uint32)
+  doAssert snes.word(0x2C) == 0xA500 + selector
+  snes.recordMmioTrace = true
+  snes.mmioWrites.setLen(0)
+  snes.runInterruptBlock(0x8278, 0x8338)
+  doAssert snes.mmioWrites.len == 16
+  for i in 0 ..< 8:
+    doAssert snes.mmioWrites[i * 2] == ((0x210D + i).uint32, i.uint8)
+    doAssert snes.mmioWrites[i * 2 + 1] == ((0x210D + i).uint32, 0xB0'u8)
+    doAssert snes.bgScroll[i] == i.uint16
+  snes.recordMmioTrace = false
+  doAssert snes.word(0x61) == (if selector == 2: 0xB000 else: 0x5A5A)
+  doAssert snes.word(0x63) == (if selector == 2: 0xB001 else: 0x5A5A)
+  doAssert snes.word(0x2C) == 0xA500
+  let
+    previousOam = snes.oam
+    previousScroll = snes.bgScroll
+  snes.runInterruptBlock(0x8196, 0x81C8)
+  snes.runInterruptBlock(0x8278, 0x8338)
+  doAssert snes.dmaTransfers == transfers + 1
+  doAssert snes.word(0x99) == 0x1234 + 544
+  doAssert snes.oam == previousOam and snes.bgScroll == previousScroll
+
 proc checkFrame(snes: SnesBus, selector, count: int) =
   ## Verify original initialization, interleaved enqueue, drain, and publication.
   let
@@ -122,6 +174,7 @@ proc checkFrame(snes: SnesBus, selector, count: int) =
       if 3 - i mod 4 == group:
         inc members
     doAssert snes.word(QueueBases[group] + 0x100) == members * 2
+  snes.checkTransfer(low, selector)
 
 proc main() =
   ## Sweep every legal total occupancy in both OAM buffers using original code.

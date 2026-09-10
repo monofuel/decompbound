@@ -282,8 +282,8 @@ Publication then copies eight words from `$0031+2*i` to
 low byte to `$002C` and toggles the low byte of `$002E` with XOR 3. This selects
 the other build buffer on the next initialization. The upper byte of `$002C`
 is preserved. Valid selector words here are 1 and 2; the initializer's fallback
-for other values does not imply that publication accepts them safely. The
-meaning and consumers of the eight snapshot words need further investigation.
+for other values does not imply that publication accepts them safely. These
+are BG1–4 horizontal/vertical scroll snapshots, consumed as described below.
 
 Evidence: original enqueue at file `0x008C54` and handler entry `0x008C6D`;
 drain at `0x008B8E`; final store at `0x008B40`; snapshot and publication writes
@@ -300,6 +300,52 @@ toggling, and the untouched alternate buffer. Each queue stays within its
 32-record capacity. The two buffer cases also exercise long-pointer banks `$00`
 and `$7E`. No game assets, frames, or machine-state fixtures are used.
 
-This establishes CPU/WRAM composition, not PPU upload or visual fidelity. Next:
-trace the published selector and snapshot consumers into the VBlank transfer,
-and follow entity definition pointers back to graphics and palette selection.
+The test also executes the bounded interrupt consumers below to establish the
+PPU transfer. Full interrupt scheduling and visual fidelity remain outside its
+scope. Entity definition pointers and graphics/palette selection remain open.
+
+
+## Published buffer transfer and scroll snapshots
+
+The shared interrupt handler consumes the pending byte `$002C`. The fragment
+at `$C08196..$C081C7` runs with M16/X8, direct page zero, and DBR zero. Zero
+means no pending OAM transfer; 1 selects bank-zero `$0500`, and other nonzero
+values select `$0800`. The normal producer publishes only 1 or 2.
+
+It resets both OAM address registers with a 16-bit store at `$2102`, then sets
+DMA channel 0 to incrementing mode 0, destination `$2104`, source bank zero,
+and length `$0220` (544 bytes). This transfers exactly the 512-byte low table
+and 32-byte high table. The extra `$80` byte written after a completely full
+high table by publication is **not transferred**. The fragment adds 544 to
+word `$0099`, which accumulates transfer bytes in this handler.
+
+Later, `$C08278..$C08337` consumes the associated scroll snapshots. For selector
+1, words `$0041+4*i` supply successive low/high writes to register `$210D+i`;
+for selector 2, words `$0043+4*i` do so. These eight ports are BG1 H/V, BG2 H/V,
+BG3 H/V, and BG4 H/V. Thus publication preserves background scroll values
+alongside the sprite buffer until interrupt-time application.
+
+The second branch also copies current words `$0031/$0033` into `$0061/$0063`;
+the first branch does not. The role of these additional copies is unresolved.
+Finally, an 8-bit store clears `$002C`, preserving upper byte `$002D`. This
+happens after scroll application, not immediately after OAM DMA. With no new
+publication, the next visit skips both transfers. Other interrupt work still
+runs and is outside this observation.
+
+Original evidence: NMI entry `$C08170` establishes direct page and DBR zero;
+OAM DMA begins at file `0x008196`; scroll application begins at `0x008278`;
+consumption occurs at `0x008334`. These ranges are fragments of a larger
+interrupt handler, not independently callable routines.
+
+`tests/integration_oam_publish.nim` extends each of its 258 pipeline scenarios
+with execution of those original fragments, stopping at `$C081C8` and
+`$C08338`. It deliberately dirties the OAM address before transfer, verifies
+all 544 resulting PPU OAM bytes and channel configuration, checks the exact 16
+scroll-port writes and latched scroll values, and verifies the branch-specific
+copies and pending-byte consumption. Re-execution with a cleared pending byte
+must leave OAM/scroll state and the DMA count unchanged. This uses the actual
+emulator bus and DMA implementation, with synthetic data only.
+
+The test initializes the fragments' entry contracts directly. It does not yet
+verify an entire NMI/IRQ entry/return, cycle timing, interactions with other
+DMA channels, or how publication behaves if interrupted partway through.
