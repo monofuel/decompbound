@@ -55,51 +55,30 @@ the sword; brute-force play did (see Outcome above).
   recordings derived from the commercial ROM never land in git (existing
   policy); the harness's committed outputs are recipe strings + docs.
 
-## What we ALREADY have (verified by review, file:line in review doc)
+## Current research reference
 
-| Piece | Where | Notes |
-|-------|-------|-------|
-| **The PRNG, fully RE'd** | `snes_src/rng.nim`, docs/memory-map.md:38 | Routine `$C08E9A` (56 bytes, adopted byte-exact, gold-gated by tests/test_rng.nim). Seed = 32-bit LE at WRAM **`$0024`/`$0026`**. Cold init `$5678_1234` at `$C08121`. Algorithm known (HW mul $4202/$4216, +$6D, rotate/mix). JSL-only, **59 call sites** in generated banks; known consumers incl. battle roll site `$C2008C`, ~1/16 site `$C02686`. |
-| F12 PNGs embed savestates | png_state.nim (ebSt chunk) | extractState / png_to_slot convert to harness-loadable state |
-| Headless replay | replay.nim + src/tools/replay.nim | Loads slot/.state + .tas; e2e byte-identical gold gate still OPEN (docs/input-replay.md:79-80) — see Layer 2 gate 1 |
-| Keybinds | play.nim | F7 (TAS), F9-F12 taken; **F8 free** |
-| Frame compositing | play.nim frameImage | HUD drawable pre-swap; no text font exists yet (terminal echo only) |
-| MCP co-pilot | play_mcp.nim :4343 | get_party_vitals; snapshot published every **30 frames** (staleness matters for RNG) |
-| EXP table + live EXP | file 0x158F51 (docs/decompilation.md:184), party_wram.nim | Overlay EXP-to-next needs no new RE |
-| Writer-trace probe pattern | probe_queue_poison2.nim:94-111 etc. | Chain-wrap `snes.bus.writeHook`, stamp `c.pbr:c.pc` |
+[prng.md](prng.md) is authoritative for the generator, seed oracle, measured
+menu advancement, and drop-roll timing. The original Layer 0 questions below
+were subsequently answered in part: the pure oracle exists, drop fields and
+mask comparisons are mapped, and the Starman experiment observed the roll at
+battle initialization. Do not restart those investigations from this old plan.
 
-**Stale doc note:** docs/rom-emulator-tests.md:56-58 still says "TODO: RE
-the RNG seed address" — obsolete, superseded by memory-map.md:38 +
-snes_src/rng.nim. Do not re-open.
+Current source and checks:
 
-## What we do NOT know (this is the real Layer 0)
+- `asm/earthboundRandom.asm`: adopted generator.
+- `src/decompbound/rng_oracle.nim`: pure seed stepper.
+- `tests/integration_rng.nim`: assembly identity and CPU differential checks.
+- `tests/e2e_rng_oracle.nim`: calls observed during game execution.
+- `src/tools/sword_recipe.nim`: local pre-battle recipe experiments.
+- F8 in `play.nim`: live RNG HUD; it is no longer an unused key.
 
-1. **Action → advances table.** Which of the 59 call sites fire for which
-   player actions (menu open/close, cursor, overworld idle frame, NPC
-   animation, battle actions, win fanfare)? Event-driven vs frame-driven
-   is the make-or-break question for human-executable recipes: monofuel's
-   past success with input-count manipulation suggests event-driven —
-   verify, don't assume. Includes a **menu-open dwell experiment**: does
-   an open menu consume RNG per frame? (Decides whether "toggle N times"
-   survives human timing.)
-2. **The drop decision.** Which battle-end routine consumes the drop roll,
-   the comparison + real denominator, and **where the enemy table stores
-   drop item + rate** (bestiary mapping has HP/PP/EXP/money but no drop
-   fields pinned — docs/bestiary.md:61-64).
-3. **When the roll happens.** 🟡 **Player memory (monofuel, several past
-   grinds): drops are determined from RNG BEFORE the battle starts** — not
-   at the final blow. Consistent with his proven method (savestate before
-   the battle, vary menu-input count, then fight). If the RE confirms it,
-   the manipulation anchor moves to the pre-battle overworld (toggle
-   before engaging) and the fight itself doesn't matter to the roll.
-   Verify by pinning where `$C24Dxx` (drop path) is called from — battle
-   init vs victory flow — and/or a write-hook run on a live encounter.
-4. **A callable seed stepper.** `snes_src/rng.nim` is byte-exact snesAsm,
-   not a pure `advanceSeed(seed) -> (byte, seed')` API. Small explicit
-   deliverable (pure Nim from the documented algorithm, verified against
-   the emulator 10/10+ like the original adoption was).
+Open work is establishing coverage beyond the measured contexts and a reliable
+human recipe workflow. The service routine at `$C12DD5` remains only partially
+explained; one observed draw per menu iteration is not a proof about all its
+nested service paths. The live outcome at the top of this document still governs
+claims about usefulness: the support tools did not deliver the sword.
 
-## Layered plan
+## Historical layered plan
 
 ### Layer 0 — call-site + drop RE (grok ticket #1)
 
@@ -316,7 +295,7 @@ Source: `src/probes/probe_rng_advances.nim` (headless, counts `$C08E9A`
 entries + caller return addresses over scripted inputs on local states).
 Pure mirror `src/decompbound/rng_oracle.nim` (`advanceSeed`) verified
 against every live RNG call over hundreds of frames —
-`tests/test_rng_oracle.nim`, zero mismatches.
+`tests/e2e_rng_oracle.nim`, zero mismatches.
 
 | Action | Advances | Dominant caller | Note |
 |--------|----------|-----------------|------|

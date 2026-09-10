@@ -1,9 +1,9 @@
 ## Pure-Nim arithmetic mirror of EarthBound's PRNG advance at $C08E9A.
 ##
-## `asm/earthboundRandom.asm` is the adopted byte-exact snesAsm routine. This module
+## `asm/earthboundRandom.asm` is the adopted byte-exact assembly routine. This module
 ## exports the same step as a pure function over a 32-bit seed so Layer 2 can
 ## scan drop windows without spinning the emulator. Verified against live
-## emulator calls in tests/test_rng_oracle.nim (50+ pre/post seed + return byte).
+## emulator calls in tests/integration_rng.nim and tests/e2e_rng_oracle.nim.
 
 const
   ## Odd additive constant folded into the high word each step (matches RngStepConstant).
@@ -22,6 +22,7 @@ proc ror16(value: uint16, carryIn: bool): tuple[value: uint16, carry: bool] =
 
 proc advanceSeed*(seed: uint32): tuple[value: uint8, seed: uint32] =
   ## Advance the EarthBound PRNG one step.
+  ## Models the game's native-mode call with decimal arithmetic disabled.
   ##
   ## Mirrors $C08E9A exactly: 8x8 HW mul of seed_hi.lo * seed_lo.lo, fold +$6D
   ## into a 16-bit reconstruction of (seed_lo.lo << 8 | seed_hi.lo) written back

@@ -6,59 +6,78 @@ Kings campaign live in [sword-of-kings.md](sword-of-kings.md); this doc is
 the general mechanism. Started 2026-07-27 after live F8-HUD play produced
 major advancement discoveries.
 
-## The generator (✅ adopted + gold-gated)
+## Generator and verified calling contract
 
-| | |
-|--|--|
-| Routine | `$C08E9A` (56 bytes, JSL-only, 59 call sites) |
-| Seed | 32-bit LE at WRAM `$0024` (lo) / `$0026` (hi) |
-| Cold init | `$5678_1234` written at `$C08121` |
-| Algorithm | 8×8 HW mul (`$4202/$4216`) of hi.lo×lo.lo, `+$6D` fold, double-ROR mix |
-| Adopted asm | `snes_src/rng.nim` (byte-exact, tests/test_rng.nim) |
-| **Pure oracle** | `src/decompbound/rng_oracle.nim` `advanceSeed(seed) -> (value, seed')` — verified vs every live call over hundreds of frames, zero mismatches (tests/test_rng_oracle.nim) |
-| Live HUD | **F8** in play: seed hex + advance counter (seed-delta + oracle walk) |
+The routine at SNES `$C08E9A`, file `0x008E9A`, occupies 56 bytes. Its
+annotated source is [earthboundRandom.asm](../asm/earthboundRandom.asm);
+[rng_oracle.nim](../src/decompbound/rng_oracle.nim) implements the same arithmetic
+as `advanceSeed(seed) -> (value, seed)`.
 
-Key property: advancement is **event-driven** — zero advances on overworld
-idle. Every advance is caused by something.
+The game stores the little-endian seed in WRAM `$0024`–`$0027`, initialized
+at `$C08121` to `$56781234`. A call updates the seed and returns a byte in A.
+The native-mode contract requires **decimal arithmetic disabled** and a data
+bank mapping absolute `$0024`/`$0026` to the intended WRAM. Input accumulator
+and index widths may vary. PHP/PLP restore processor status; X/Y, DBR, direct
+page, and the caller's stack depth are preserved. The routine does not clear
+the decimal flag itself, so restoring flags does not mean its result is
+independent of them.
+
+Write the seed as two 16-bit words `lo` and `hi`. In binary arithmetic:
+
+1. Multiply the low byte of `hi` by the low byte of `lo` using the SNES
+   unsigned 8×8 multiplier.
+2. Form `(lowByte(lo) << 8) | lowByte(hi)`, add `$006D`, and store the low
+   16 bits as the new `hi`. This is **not** simply `oldHi + $006D`.
+3. Rotate the product right twice through carry, starting with the carry from
+   that addition. Keep the rotated product for the return-value calculation.
+4. Add its low two bits to the old `lo`; rotate that sum right through the
+   addition's carry. If the rotation shifts out a one, force bit 15 on. Store
+   this as the new `lo`.
+5. Rotate the saved product right twice more, starting with the carry left by
+   the sum rotation. Return its low byte.
+
+The bit rotations are 65816 rotate-through-carry operations. The sum's carry
+and shifted-out bit affect the new low seed word. For the return value, carry
+bits inserted at the top are discarded by the final byte mask: it simplifies
+to `(product >> 4) & 255`, the product's bits 4 through 11. The integration
+test also checks this independent expression. Same seed and call sequence
+give the same results; input timing can change which calls occur before a
+game decision.
+
+## Verification
+
+`nim r tests/integration_rng.nim` assembles the annotated routine and compares
+it with the original ROM. It then calls the **ROM routine** through the CPU and
+SNES multiplier using synthetic WRAM seeds:
+
+- All 65,536 combinations of the multiplier input bytes.
+- Ten boundary values for each seed word, across all 128 processor-status
+  combinations with decimal clear: 12,800 additional calls.
+- A decimal-mode counterexample, checking that the binary oracle contract
+  does not accidentally get generalized to decimal arithmetic.
+
+Each binary call compares both updated seed and full A against the oracle,
+checks return/stack behavior, and checks preserved registers/status. This is
+78,336 binary-mode calls, not exhaustive coverage of all 32-bit seeds. The test
+requires the user's ROM and fails if it is missing; it needs no save-state.
+
+`nim r tests/e2e_rng_oracle.nim` separately checks at least 50 calls encountered
+while running the game, preferring a local state or otherwise cold booting.
+That existing test skips when its default ROM is absent, so inspect the output
+before treating a zero exit status as evidence. Both checks passed on 2026-09-10.
 
 ## Advancement schedule
 
-Two evidence classes, which DISAGREE in places — menu RNG consumption is
-**context-dependent** (menu type, window contents, party, place). Do not
-average them; reconcile per-context.
+Advancement depends on executed game code, not a universal draws-per-frame rule.
+The measurements below are from the documented Stonehenge/menu experiments;
+they are not guarantees for every place, party, or window configuration.
 
-### Probe-measured (probe_rng_advances.nim, specific states, 2026-07-27)
+### Menu contexts measured by probe_rng_reconcile
 
-Context: overworld command menu states (poo_deep_south etc.), generic +
-Starman Super battle states.
-
-| Action | Advances | Caller |
-|--------|----------|--------|
-| Overworld idle 60/180f | 0 | — |
-| Walk (direction/context-dep) | 0-1 /60f | `$C02823` |
-| Command menu open (A) | 2 | `$C12DDB` |
-| Command menu dwell 120f | 0 | — |
-| Command menu cursor move | 0 | — |
-| Menu close (B) | 64 | `$C12DDB` |
-| Dialogue on screen | ~50 /60f | `$C12DDB` |
-| Battle command menu dwell | 0 | — |
-| Battle cursor 60f | 5 | `$C12DDB` |
-| Battle attack window 180f | ~101-131 | mixed |
-
-### Live-observed (monofuel, F8 HUD, Stonehenge Base session 2026-07-27)
-
-| Action | Advances | Note |
-|--------|----------|------|
-| **Stat menu opened with B: EVERY FRAME, constantly** | ~60/s sustained | **THE discovery — see "spinner" below** |
-| Menu open/close with A | **+1 per button press** (min 2 for a toggle) | differs from probe's open=2/close=64 context |
-| Menu navigation | **+1 per input** | differs from probe's cursor=0 (different menu/context) |
-| Any menu open | **≥1 per second** | suspected `>` cursor blink animation |
-
-### Reconciliation — RESOLVED with caller PCs (probe_rng_reconcile, ✅)
-
-Both measurement sets were right; menu type + window focus decide the
-cost. Every menu-context advance goes through wrapper `$C12DD5` (one
-draw per call); the L1 stack parent identifies the true consumer:
+Earlier probe and live observations differed because menu type and window
+focus differed. In these measured contexts the RNG call is reached through
+`$C12DD5`; the recorded stack parent identifies the consumer. This does not
+prove every path through that service routine consumes exactly one draw:
 
 | Menu context | Action | Advances | L1 parent | Period |
 |---|---|---:|---|---|
@@ -70,10 +89,24 @@ draw per call); the L1 stack parent identifies the true consumer:
 | A-cmd + side window | cursor nav | +1/input | `$C11B29` | — |
 | Status screen once focused | dwell | 0 | — | dwell-safe |
 
-The B-window "spinner" is the `$C13CB1` wait loop calling the RNG
-unconditionally every iteration while it polls for a face button — not
-an HP-meter or animation consumer. The old "close B = 64" was this same
+The B-window "spinner" is the `$C13CB1` wait loop calling `$C12DD5`
+unconditionally every iteration while it polls for a face button. That service
+routine makes an unconditional direct RNG call before checking its other work. The old "close B = 64" was this same
 free-run measured for 64 frames of window-wait, not a distinct cost.
+
+### Other historical measurements
+
+`probe_rng_advances.nim` also recorded the following in its specific
+overworld and battle states on 2026-07-27. These results have not been
+re-measured in this consolidation and are not universal action costs.
+
+| Context/action | Measured advances | Attribution |
+|---|---:|---|
+| Walking for 60 frames | 0–1 | `$C02823`, direction/context dependent |
+| Dialogue visible for 60 frames | About 50 | Return site `$C12DDB` |
+| Battle command menu dwell | 0 | Observed battle-menu context |
+| Battle cursor input over 60 frames | 5 | Return site `$C12DDB` |
+| Battle attack window over 180 frames | 101–131 | Mixed callers |
 
 ## The manipulation interface (the big one)
 
@@ -94,9 +127,8 @@ execute the fixed kill script"), the human procedure is: spin close with
 the B-stat menu, fine-step with navigation, confirm on the HUD, go.
 
 Caveat for recipes: the ≥1/s menu-open tick means fine-stepping should
-be done briskly or with menus closed between steps; the exact source and
-rate need the reconciliation pass above before recipes rely on dwelling
-with a menu open.
+be done briskly or with menus closed between steps. Use the measured window
+context above; verify a new context before assuming its dwell rate.
 
 ## Drop rolls (summary — details in sword-of-kings.md)
 
@@ -130,4 +162,36 @@ with a menu open.
 | `src/probes/probe_drop_table.nim` | enemy drop table dump |
 | `src/probes/probe_spy_roll.nim` | Spy semantics referee |
 | F8 HUD (play) | live seed/advances/EXP/formation |
-| tests/test_rng.nim, test_rng_oracle.nim | gold gates |
+| `tests/integration_rng.nim` | assembly identity and synthetic-seed CPU differential checks |
+| `tests/e2e_rng_oracle.nim` | observed calls during game execution |
+
+## Service routine frontier: `$C12DD5`
+
+Static inspection on 2026-09-10 established a 109-byte routine spanning file
+`[0x012DD5, 0x012E42)`. It forces 16-bit registers, calls the generator at
+`$C12DD7`, then replaces A with service state. It is not a random-byte-return
+wrapper. Its early exits test bytes at DBR:`$968C` (clear then exit) and
+DBR:`$9622` (exit without clearing). The longer path tests further state and
+calls several services before returning with a 16-bit accumulator.
+
+The input loop at `$C13CB1` calls it, reads `$006D`, and tests button masks
+`$00A0` and `$A000`; the latter zero result loops back. The blink/window path
+also calls it at `$C11B26`. These call sites explain why menus can advance RNG
+without making an explicit random choice.
+
+Reproduce the static inspection using our disassembler:
+
+```sh
+nim r src/tools/disasm.nim 'bin/Earthbound (U) [!].smc' 0x12DD5 8
+nim r src/tools/disasm.nim 'bin/Earthbound (U) [!].smc' 0x12DEA 12
+nim r src/tools/disasm.nim 'bin/Earthbound (U) [!].smc' 0x13CA1 22
+```
+
+Restart at `$C12DEA` in 16-bit mode: linear disassembly otherwise inherits the
+8-bit mode from an early-exit branch that does not reach that address.
+
+**Next question:** establish the meaning and callers of the two early-exit
+flags, then trace the longer service path for additional RNG consumers. Do not
+adopt this routine as fully explained until its state and callee contracts are
+known. The historical 59-call-site count came from retired generated banks;
+it is not a freshly verified complete inventory of callers.

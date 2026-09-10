@@ -8,25 +8,22 @@
 ; is why a fixed save-state replays byte-identically (verified: seed at $0024
 ; reproduced across runs). RE'd 2026-07-21 (dynamic trace + round-trip).
 ;
-; Documentation of the understood routine, expressed through `snesAsm` so it
-; reads as annotated assembly. ADOPTED into the region registry (adopted.nim):
-; convert_all carves these 56 bytes out of the enclosing traced region
-; (0x008C6D-0x008F97), so this curated source — not generated scaffold —
-; produces $C08E9A in the build. Gold-gated two ways: tests/test_regions.nim
-; (byte-exact vs gold, un-fakeable) and tests/test_rng.nim (routine fully
-; covered by one region). This is the first mid-region Goal 1.5 adoption.
-;
+; Build source is registered in manifest.json and adopted.nim.
+; integration_rng checks assembly identity and synthetic-seed CPU execution;
+; e2e_rng_oracle checks calls observed while running the game.
 ;
 ; --- earthboundRandom ---
 ; Advance the RNG one step; returns a random byte 0..255 in A.
 ;
-; Mixes the seed via the hardware multiplier: seed_hi.lo * seed_lo.lo, folds
-; +$6D into seed_hi, rotates the product into seed_lo (with a carry-driven
-; high-bit set), and returns the rotated product byte. Reimplementation
+; Mixes the seed via the hardware multiplier: seed_hi.lo * seed_lo.lo, adds
+; $6D to (seed_lo.lo << 8 | seed_hi.lo) to replace seed_hi, and rotates
+; the product into seed_lo with a carry-driven high-bit set. Returns the
+; rotated product byte. Reimplementation
 ; matched the live emulator 10/10 advances (seed + return byte).
 ;
-; Entry: any flags (saves via PHP, manages M itself). Called via JSL only
-; (59 sites); e.g. $C2008C gates a battle roll, $C02686 branches ~1/16.
+; Entry: native mode, decimal clear, DBR mapping $0024/$0026 to WRAM.
+; Saves flags via PHP and restores them with PLP; manages M itself.
+; JSL callers include $C12DD7 in the menu service path.
 ;
 ; Named constants (values inlined below; names preserved as comments):
 ;   RngAdvanceOffset = $8E9A
@@ -41,7 +38,7 @@
 ;     loads both. Product reads back at $4216 (RDMPYL/H) a few cycles later.
 ;   MultiplyResult = $4216
 ;   RngStepConstant = $6D
-;     Odd additive constant folded into the high word each step (LCG-like stir).
+;     Added to the reconstructed word (seed_lo.lo << 8 | seed_hi.lo).
 ;   RngLowMix = $03
 ;     Low two bits of the rotated product mix into the low word; if the final
 ;     ROR sets carry, the high bit is forced (keeps the low word from decaying).
@@ -66,7 +63,7 @@ REP #$20  ; StatusM
 .i16
 STA $004202  ; MultiplyInput — WRMPYA = seed_hi.lo, WRMPYB = seed_lo.lo
 CLC
-ADC #$6D  ; RngStepConstant — seed_hi += $6D
+ADC #$6D  ; RngStepConstant — add to the reconstructed word, not the old seed_hi.
 STA $0026  ; RngSeedHi
 LDA $004216  ; MultiplyResult — 16-bit product
 ROR A
