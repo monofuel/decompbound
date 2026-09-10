@@ -7,64 +7,41 @@ byte-for-byte — and, along the way, a real SNES emulator plus tools that make
 the reverse-engineering honest and fun. Progress is one verified region at a
 time; the gold ROM is always the referee.
 
-**Goal 2 is done:** the Nim SNES emulator runs EarthBound end-to-end. monofuel
-finished the entire game on it — intro through Giygas. It works.
-
-See **`docs/goal.md`** for the full scope, ordering, and verification rules.
+See **[GOAL.md](GOAL.md)** for the canonical goals, completion criteria, and
+investigation loop. The current game-source target is annotated 65816 assembly;
+Nim implements the tools and emulator.
 
 ## Goals
 
 | | Goal | Status |
 |---|------|--------|
-| **1** | 65816 assembler + disassembler + byte-exact code regions (round-trip vs gold) | **In progress** — tooling works; coverage and adoption still growing |
-| **1.5** | Adoption: replace generated scaffolding with named, documented routines | **In progress** — see `docs/goal-1.5.md` |
-| **2** | EarthBound-focused SNES emulator in Nim (CPU, PPU, APU, play harness) | **Done** — full game cleared on `make play` (2026-07) |
-| **3** | Verified native Nim reimplementation (subsystem by subsystem under the emu) | Someday |
-| **4** | LLM plays EarthBound (Lua policy harness + story milestones) | **WIP** — see `docs/llm-plays.md` / `docs/llm-sequence.md` |
-| **5** | MCP playthrough co-pilot (help *your* save — not the agent player) | **MVP** — `make mcp`, `docs/mcp-server.md` |
+| **1** | Rebuild the original ROM byte-identically | **Met; maintain** — extraction + assembly + copied residual regions |
+| **2** | Understand all game code | **Early** — 36 explained assembly regions, plus further research in tools/docs |
+| **3** | Understand scripting | **Partial** — text decoding and action-script machinery; complete semantics remain open |
+| **4** | Understand graphics, including the game map | **Partial** — codecs and exploratory exporters; comprehensive browsing remains open |
+| **5** | Understand audio | **Partial** — playback and upload/song-loader knowledge; complete driver/sequence understanding remains open |
 
-**Goal 1** is still the core decomp needle: decompiled code regions must assemble
-to the gold bytes. Unsupervised “match rate” without the assembler DSL does not
-count.
+## Current state
 
-**Goal 2** is the playable Nim SNES emulator (pixie video, slappy audio, save
-states, `make play`). It is **built for EarthBound only** — not a general SNES
-compatibility layer; other games are out of scope. **Verified by a full human
-playthrough:** the entire commercial game, start to credits, on this emulator.
-Minor fidelity bugs may still exist; the subsystem bar is cleared.
+- **Vanilla rebuild:** `make compare` extracts the user's ROM into ignored
+  `extracted/` files and rebuilds it using `manifest.json` and `asm/`. The output
+  must be byte-identical. Copied bytes do not count as understood code or assets.
+- **Explained regions:** the 2026-09-10 manifest contains 2,026 explained and
+  reproduced bytes (0.0644% of the whole 3 MB ROM). Other knowledge lives in
+  subsystem docs and tools; there is no complete code-only denominator yet.
+- **Emulator:** the repo records a complete human EarthBound playthrough through
+  Giygas on the Nim SNES core. Remaining fidelity issues are tracked in
+  [docs/issues.md](docs/issues.md). Playability supports the research goals.
+- **Supporting tools:** F12 state-screenshots, TAS replay, Lua/LLM play experiments,
+  asset exporters, and an MCP co-pilot. These are tools for investigation, not
+  separate top-level completion goals.
+- **Asset policy:** supply your own US ROM at `bin/Earthbound (U) [!].smc`.
+  Extracted assets, scripts, saves, and captures stay local and uncommitted.
 
-**Goal 4** is the experimental agent track: an LLM authors Lua that drives the
-emulator (landmarks, routes, battles, knock arc, etc.). Fun and useful for RE
-pressure tests; not a substitute for Goal 1.
-
-**Goal 5** is the opposite product shape: *you* play; chat tools (MCP via
-MCPort) read your playthrough (battery save today — party HP/PP) so an LLM can
-answer grounded questions like “what’s everyone’s HP?” or later “what heals
-sunstroke on *this* party.” See `docs/mcp-server.md`.
-
-## Current state (2026-07)
-
-- **Emulator (Goal 2):** **works.** Full EarthBound playthrough completed on the
-  Nim SNES core — 65816, PPU (Mode 7 / HDMA / color math paths EB uses), APU/SPC,
-  joypad, save-states / F12 state-screenshots, windowed player (`make play`).
-  Stonehenge, Magicant, Cave of the Past, Giygas — all on this stack.
-- **Decomp (honest tiers via `make compare`):** the **primary** needle is
-  Goal 1.5 **understood** bytes — named `snes_src` / adopted tables that still
-  match gold (a few KB, ≪1% of ROM). The implemented **map** can be ~99%
-  byte-exact (scaffold + baserom extracts + adopted) without being understood;
-  compare ranks those lower. See `report.md`.
-- Code regions ship as bank modules under `src/decompbound/generated/`
-  (assembler DSL from the gold ROM via `convert_all` / tracing). Goal 1.5
-  peels understood routines into named `snesAsm` modules under
-  `src/decompbound/snes_src/` (registered via `adopted.nim`).
-- Shared **opcode table** (`opcodes.nim`); **assembler** + **disassembler**
-  derive from it; round-trip and unit tests in `tests/`.
-- **LLM-play:** two-clock harness (`make llm-ai`), Lua skills, story percents
-  (touch grass → Pokey → knock → …). Still WIP; docs under `docs/llm-*.md`.
-- **MCP co-pilot (Goal 5):** `make mcp` → HTTP MCP on `:4343`, tool
-  `get_party_vitals` from the battery `.srm` (`docs/mcp-server.md`).
-- Gold ROM (you supply it): `./bin/Earthbound (U) [!].smc`  
-  sha256: `a8fe2226728002786d68c27ddddf0b90a894db52e4dfe268fdf72a68cae5f02e`
+Older documents may use the retired goal numbering and generated Nim bank paths.
+[GOAL.md](GOAL.md) and the [phase-2 plan](docs/decompilation-phase2.md) define the
+current direction. `generated/` and `snes_src/` have been replaced by the manifest
+and annotated assembly; native Nim reimplementation is outside the current goals.
 
 ## Quick start
 
@@ -99,7 +76,7 @@ Other useful targets: `make help`, `make intro`, `make jukebox`, `make audio-che
 
 | Doc | What |
 |-----|------|
-| [docs/goal.md](docs/goal.md) | Goals, ordering, verification |
+| [GOAL.md](GOAL.md) | Goals, completion criteria, investigation loop |
 | [docs/goal-1.md](docs/goal-1.md) | Goal 1 MVP (boot path as real asm) |
 | [docs/goal-1.5.md](docs/goal-1.5.md) | Adoption campaign |
 | [docs/decompilation.md](docs/decompilation.md) | How tracing / coverage works |

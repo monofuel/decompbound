@@ -1,5 +1,14 @@
 # decompbound
 
+Read [GOAL.md](GOAL.md) for the canonical five goals, completion criteria, and
+investigation loop. Older goal numbering in topic docs is historical.
+
+**Leave the code better than you found it.** Follow the
+[maintenance rules in GOAL.md](GOAL.md#leave-the-code-better-than-you-found-it):
+consolidate stale docs, retire completed probes after preserving their evidence,
+and verify that tests exercise meaningful behavior and actually run. Keep cleanup
+scoped to the task and never weaken the referee to obtain a passing result.
+
 - Earthbound (SNES) decompilation project in Nim.
 - This will be a complex and open ended progress, you will need to get creative and may have to make tools to help.
 
