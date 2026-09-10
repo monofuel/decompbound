@@ -146,9 +146,13 @@ tile+attr words, standard SNES BG format), and **tileset graphics** at file
   recompute (likely a per-tile sector attribute or a grid lookup) isn't isolated yet.
 - **Doors/warps** — *not* a flat door table: exits are per-entity **script streams**
   run by the object interpreter, executor at file `0x009D9E` (`JML [$0A5A]`).
-  **Data source (2026-07-08):** object-config far-ptr table at SNES `$EF133F`
-  (file `0x2F133F`, 4-byte entries, `id*4`) → records (script bank `@+8`, script
-  base `@+9`) → spawn `$C01E49` / `$C09321` → run `$C09D9E`. Placement also uses
+  **Separate resource and script selection:** `$EF133F` (file `0x2F133F`,
+  four-byte entries) supplies sprite resources. Byte `+8` is a graphics DMA
+  source bank; the record address plus 9 starts graphics entries, not scripts.
+  Spawn `$C01E49` passes its separate script selector to `$C09321`, which indexes
+  `$C400D4` in three-byte entries. See the verified
+  [resource-field distinction](graphics.md#real-resource-layout-checks-and-field-correction).
+  Placement also uses
   8-byte object-ID records at `$C3E012` (file `0x03E012`) and a coarse map-
   attribute filter at `$D7A800` (file `0x17A800`).
 - **Player position + collision (for pathfinding)** — the player/entity **world X/Y**

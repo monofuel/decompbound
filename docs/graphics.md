@@ -519,3 +519,43 @@ patch executable ROM bytes or commit extracted data.
 This establishes record construction independently of allocation, resource-ID
 validation, or CHR transfer. Those surrounding mechanisms still need their own
 evidence before claiming a complete asset loader or browse-all catalog.
+
+
+## Real-resource layout checks and field correction
+
+The existing research used 464 entries for the resource table at `$EF133F`.
+Independent inspection supports that structural boundary: all 464 candidate
+pointers target bank `$EF`, and their lowest target is `$EF1A7F`, exactly the
+address after 464 four-byte entries. This is not evidence of a runtime bounds
+check or permission to accept arbitrary resource IDs.
+
+Those entries reference layout IDs 0–16. IDs 0 and 1 share one layout pointer,
+so there are 16 distinct layout bodies in this set. Their per-variant record
+counts range from 1 to 20. These are structural facts derived from the user's
+ROM; no layout or resource payload is committed.
+
+`tests/integration_sprite_layout.nim` now also runs the original builder for
+all 464 resource entries at two tile-allocation slots (928 additional cases).
+Each case follows the actual resource/layout pointers, uses resource byte 3 as
+the attribute modifier, and compares both generated variants with the format
+model. It checks group-count consistency, return values, and surrounding output
+sentinels. The 32,000 synthetic cases remain alongside these real-input checks.
+This executes the builder, not the allocator or complete resource loader.
+
+An older description in the data-research hub called resource byte 8 a script
+bank and resource offset 9 a script base. The original consumers establish a
+graphics path instead:
+
+- `$C01FD4..$C01FDD` stores resource byte 8 in entity `$2A42`.
+- `$C0200E..$C02019` installs **resource address + 9** in `$29CA` and the resource
+  bank in `$2A06`; this is an inline entry-list address, not a pointer read at +9.
+- `$C0A53F..$C0A559` retains a selected entry in `$341A`, masks its low four bits
+  off to form transfer source offset `$0094`, loads source bank `$0096` from
+  `$2A42`, and calls the graphics-transfer path.
+
+Script selection is separate: spawn `$C01E49` receives a selector in X and
+passes it to `$C09321`. The latter indexes the three-byte table at `$C400D4`
+and installs action-script address/bank fields `$13FE/$148A`. This separation
+corrects the hub's field labels; it does not settle all graphics-entry flags or
+all script behavior. Next: verify graphics-entry selection and transfer together
+for a known resource, including how low-bit flags choose the definition variant.
