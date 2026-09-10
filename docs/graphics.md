@@ -679,16 +679,51 @@ palette-fidelity claim.
 
 The test initializes entity fields from the derived resource formulas. It does
 not execute the allocator, the whole spawn sequence, or full interrupt timing.
-Allocation clearing and screen rendering remain open. Next: verify how the
-allocator clears unused tile rows, then combine the baseline
+Screen rendering remains open. Next: combine the allocation clearing verified
+below with the baseline
 OBJ palette verified below with this upload and the verified definitions to
 render a representative sprite faithfully.
 
-The allocation-clear investigation starts at `$C01C52`: dimensions are rounded
-to even values before the branch into `$C01CA2..1D33`. The latter constructs
-fixed-source requests from `$C40BE8`, using the allocation mapping table
-`$C42F8C` and destination offsets `$4000`/`$4100`. Behavioral verification of
-this path is still needed, especially for resource 437's unused top tile row.
+### Sprite allocation and clearing
+
+The resource-header reader `$C01DED` derives width in 8-pixel tiles as resource
+byte 1 shifted right four, storing it in `$467A`; resource byte 0 supplies
+height in `$467C`. The original caller `$C01EA0..1EB2` passes width in A,
+height in X, and the owner tag in Y to `$C01C52`.
+
+`$C01C52` rounds both dimensions up to even values and requests
+`ceil(width/2) * ceil(height/2)` slots from `$C01B96`. Each slot represents
+one 16×16 tile block. The allocator searches 88 occupancy bytes at
+`$7E4A00..4A57` for the first contiguous free run, accepting a run ending at
+the final slot. It writes `owner.lowByte | $80` to each selected byte and
+returns the starting slot, or `$FF03` on exhaustion. Owner values `$7F` and
+`$FF` consequently produce the same stored tag. This contract is for positive
+dimensions whose rounded allocation fits the pool; oversized and zero-sized
+requests are not established as safe inputs.
+
+If either dimension was rounded, `$C01CA2..1D33` clears the **entire allocated
+region**, not just padding. If both were already even, it leaves VRAM untouched.
+For slot `s`, the top two 8×8 tiles occupy 32 VRAM words starting at
+`$4000 + (s div 8)*$200 + (s mod 8)*$20`; the bottom two occupy another
+32 words at that address plus `$100`. The mapping comes from `$C42F8C`.
+The clearing loop batches adjacent slots up to eight-slot boundaries and sends
+two fixed-source DMA requests per batch, using the zero byte at `$C40BE8`.
+Allocation failure changes neither occupancy nor VRAM.
+
+`nim r tests/integration_sprite_allocation.nim` verifies 3,072 synthetic cases:
+dimensions 1–8, seven occupied-prefix lengths plus a fragmented pool, three
+owner tags, and queued/immediate DMA. It checks every occupancy byte, boundary
+guards, the returned slot, register-width/D/DBR/stack contract, all VRAM words,
+and transfer counts. Another 928 cases execute the original header-reader and
+allocation call chain for all 464 resource entries in both DMA modes, including
+the real height-10 resources. Calls enter native, decimal-clear with DBR `$7E`
+and private direct-page scratch. Full spawning and full interrupt timing are
+outside this test.
+
+Resource 437 is 2×3 tiles, so allocation reserves two 16×16 slots and clears
+them before its three-row graphics upload. At slot 0, the upload starts at
+`$4100`, leaving the unused top row zero. This explains the transparent padding
+needed when combining its two sprite elements with the actual graphics.
 
 ### Baseline OBJ palette and interrupt upload
 
