@@ -61,10 +61,9 @@ still open):
   head) and drives each entity via the `$C09558` action-script engine — the same
   script dispatch as events/doors (`docs/scripts.md`). Animation is script-driven.
 - **Still open (the graphics themselves):** the sprite-definition table (ID → CHR
-  + palette + size + frame layout), the OBJ CHR location, and the routine that
-  *builds* the OAM buffer from entity poses. These resisted static RE — best
-  cracked by watching the OBJ CHR DMA during a known sprite (the emulator-as-
-  instrument approach).
+  + palette + size + frame layout) and OBJ CHR locations. The entity-to-OAM
+  table callback, queue/emitter, and publication path are explained below;
+  linking their definitions to the complete asset inventory remains open.
 
 ### Compression — CRACKED (verified byte-exact)
 
@@ -355,3 +354,50 @@ emulator bus and DMA implementation, with synthetic data only.
 The test initializes the fragments' entry contracts directly. It does not yet
 verify an entire NMI/IRQ entry/return, cycle timing, interactions with other
 DMA channels, or how publication behaves if interrupted partway through.
+
+
+## Entity frame tables and action-script configuration
+
+One entity rendering callback, `$C0A0FA..$C0A11A`, treats A as a frame index
+into a table of 16-bit definition pointers sharing the table's base bank. It doubles A, reads the
+word through long pointer `$8C`, and enqueues that selected definition using
+entity queue group `$103E,X` and origin words `$0B8E,X` / `$0BCA,X`. The table's
+bank byte at `$8E` becomes the definition bank at `$000B`; the neighboring
+byte `$000C` is preserved. Tile and attribute bytes come from the selected
+five-byte definition records, unchanged by this callback.
+
+The preceding dispatch at `$C0A0E3` loads the table address from entity word
+`$112E,X` and the bank/state word from `$116A,X`. It loads `$10F2,X` as the
+callback's A input, rejecting negative values, then jumps indirectly through
+entity callback word `$11E2,X`. For the `$A0FA` callback this makes `$10F2` a
+**frame index**, not merely a timer. Other callbacks may interpret it differently.
+Entity arrays here use byte offsets into word arrays (`X = entity index * 2`).
+
+Action-script opcode `$1C` installs the pointer: handler `$C09B4D` reads a
+three-byte operand, stores its word at entity `$112E,X` and its bank byte at
+`$116A,X`, preserving the neighboring high state byte. Opcode `$22`, handler
+`$C09BE4`, installs the two-byte callback address at `$11E2,X`. Both obtain the
+entity offset from direct-page `$88`; their input stream is long pointer `$80`
+with Y already at the operands. These are action-VM opcodes, not dialogue codes.
+
+The normal dispatch rejects a negative bank/state word and also branches on
+**inherited overflow** at `$C0A0E8`: its preceding LDA does not update V.
+Do not reinterpret that branch as a test of bank/state bit 14. The test below
+uses a positive bank/state word and V clear; meanings of the upper state bits
+and all suppression paths are not yet established.
+
+`nim r tests/integration_entity_sprite.nim` checks 8,640 synthetic scenarios:
+30 entity offsets, four queue groups, two RAM banks, and 36 frame indices
+(0–31, 127, 128, 255, 256). It verifies the two opcode dispatch-table entries,
+executes their original handlers with synthetic operands, then runs original
+entity dispatch, table lookup, enqueue, and publication. Checks include operand
+advancement, preservation of the high bank/state byte, selected table word,
+queue bank and coordinates, and resulting tile/attribute/size/position in OAM.
+No ROM graphics or script bodies are embedded. The action-VM fetch loop itself
+is not executed by this test; the handlers receive its documented entry state.
+
+This proves the configured table-based path. It does not inventory all frame
+tables, explain how CHR is uploaded, or prove palette selection for every entity.
+Other callbacks can construct or modify definitions instead of indexing this
+table. Next: distinguish those callback families and link their definition
+sources to actual graphics and palettes.

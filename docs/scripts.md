@@ -143,7 +143,7 @@ ROM by the conductor):** the dispatch is **two tables**, split by opcode value a
   `$96CF $9A38 $9A3E $9A44 $9713 $9731 $974F $993D`.
 - Sampled handlers all disassemble as real routines ending `RTS`. A few whose
   bodies are unambiguous: high-path `$9A38 = INC $10F2,X`, `$9A3E = DEC $10F2,X`
-  (per-entity timer op at `$10F2`), `$96CF` sets `$10F2,X = −1` on a `$FF`
+  (frame/animation value at `$10F2`), `$96CF` sets `$10F2,X = −1` on a `$FF`
   stream sentinel. Most bodies still need the live trace for full semantics.
 - **NOT a single `0x00–0x6F` table** (an earlier note); opcodes past the 77 low
   slots route through the high-path table, and frontier sites like `($FCFC,X)` /
@@ -215,14 +215,14 @@ reject the walk. Gold-gated in `tests/test_baserom_extract.nim`.
 **Tentative (🟡 — from a PARTIAL live trace; only ~12 of 77 ops fired in idle
 Onett):** rough semantics clusters seen so far — `0x06` wait, `0x19` goto,
 `0x42` far-call (`$C09D9E` anim/interaction kernel), conditionals sourced from
-`$1516,X` (per-entity work register), timers from `$10F2,X`. Movement (`0x28–
+`$1516,X` (per-entity work register), frame/animation values from `$10F2,X`. Movement (`0x28–
 0x30`), far-call (`0x03–0x05`), bitop-to-flags (`0x0D`), and halt (`0x00`) did
 **not** fire idle — they need door/talk/cutscene states to observe. Treat the
 per-opcode meaning table as unproven until each opcode is traced live. The story
 event ops (item/battle/teleport/party) are the OTHER VM and remain unmapped.
 
 **Script-engine WRAM (🟡, from the same trace — verify before relying):** entity
-work/condition `$1516,X`; frame/anim timer `$10F2,X`; story/event flags `$988B…`
+work/condition `$1516,X`; frame/animation value `$10F2,X`; story/event flags `$988B…`
 (hit via absolute WRAM bitops, not a dedicated opcode). Candidates needing a
 clean trace: `$1372` wait, `$13FE`/`$148A` script PC, `$12E6` stack depth.
 
@@ -297,3 +297,20 @@ the extractor on your ROM*, not *open a file in the repo*.** See AGENTS.md
 **Scope:** text + event-system RE + an extractor + a round-trip encoder. The
 live-log feature (`docs/text-log.md`) rides on the text half. Parallel-safe.
 </content>
+
+
+### Verified entity graphics configuration
+
+Action opcode `$1C` has three operand bytes: a 16-bit definition/table address and
+an 8-bit bank. Its handler `$C09B4D` uses entity offset DP `$88`, writes
+`$112E,X` and byte `$116A,X`, preserves `$116B,X`, and advances Y by three.
+Opcode `$22` has a two-byte callback address, written by `$C09BE4` to
+`$11E2,X`; Y advances by two. Both descriptions assume M16/X16 handler entry,
+with Y already pointing at operands and long stream pointer in DP `$80`.
+
+When callback `$A0FA` is selected, the entity's `$10F2,X` value selects a frame
+from the installed pointer table. The synthetic integration check follows
+these handlers through original entity dispatch and sprite publication; see
+[entity frame tables](graphics.md#entity-frame-tables-and-action-script-configuration)
+for the 8,640-case evidence and its limits. This establishes these two handler
+semantics without claiming whole-script or whole-VM coverage.
