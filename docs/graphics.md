@@ -669,6 +669,43 @@ palette-fidelity claim.
 
 The test initializes entity fields from the derived resource formulas. It does
 not execute the allocator, the whole spawn sequence, or full interrupt timing.
-Palette loading, filler effects, and screen rendering remain open. Next: locate
-the OBJ palette data and combine this upload with the verified definitions to
+Filler effects and screen rendering remain open. Next: combine the baseline
+OBJ palette verified below with this upload and the verified definitions to
 render a representative sprite faithfully.
+
+### Baseline OBJ palette and interrupt upload
+
+The original fragment `$C0B55B..B56E` sets the caller's long source pointer
+at direct-page `$0E` to `$C30000` (file `$030000`), requests 256 bytes, and
+calls `$C08ED2` with destination `$0300`. With DBR `$7E` and native 16-bit
+registers, that helper copies 128 words into WRAM `$7E0300..03FF`. These are
+the baseline OBJ colors; this does not establish the active palette in every
+scene, which may modify the staging buffer before publication.
+
+`requestCgramDma` at `$C0856B` stores only A's low byte in `$0030`, then
+returns with M clear. The interrupt fragment `$C081C8..81F6` reads this byte
+as a descriptor offset. Verified requests are:
+
+| Request | Source in bank 0 | Bytes | First CGRAM color |
+|---|---|---|---|
+| `$00` | No transfer | 0 | — |
+| `$08` | `$0200` | 256 | 0 |
+| `$10` | `$0300` | 256 | 128 |
+| `$18` | `$0200` | 512 | 0 |
+
+Descriptor fields are size at `$C08F92 + request`, source offset at
+`$C08F94 + request`, and CGRAM start at `$C08F96 + request`. The fragment
+uses DMA channel 0, mode 0, destination `$2122`, resets the CGRAM address
+through `$2121`, clears the request byte, and adds the size to `$0099`.
+Entry requires M16/X8, D/DBR zero, and decimal mode clear. This is a bounded
+interrupt-fragment contract, not a full interrupt timing test.
+
+`nim r tests/integration_sprite_palette.nim` executes the original request
+routine and interrupt fragment for 16 synthetic 15-bit palette patterns and
+all four requests (64 cases). It checks every CGRAM entry, preservation of
+the unselected half, the neighboring byte `$0031`, transfer accounting, and
+the next visit skipping the cleared request. A further case executes the
+original baseline copy, checks all 256 staging bytes against the user's ROM
+and both boundary guards, then uploads them to OBJ CGRAM. No palette bytes
+are embedded in the test. Scene overrides and the combination with sprite
+rendering remain unverified.
