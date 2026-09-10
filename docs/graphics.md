@@ -97,11 +97,10 @@ Concrete located graphics (all `gfx_lz`-compressed; decode confirmed):
 - **Tilesets** — `0x3E408` (verified) + small compressed candidates nearby (e.g.
   `0x03ED00`); larger overworld sets share the maps load path (some uncompressed
   via the `~0x008ED2` far-copy).
-- **Still open:** the player (Ness) + NPC **overworld** OBJ CHR + the
-  sprite-definition table + sprite composition (buffer initialization is explained
-  below) — the entity-gfx path is script-driven
-  (`$C09470` + `gfx_lz` calls), no static table isolated; best cracked by watching
-  the OBJ-VRAM DMA during an overworld load.
+- **Still open:** complete player/NPC OBJ CHR and palette mapping. The resource
+  and layout tables are located below, together with verified sprite composition.
+  Correlating those resources with OBJ-VRAM transfers during an overworld load
+  remains necessary for a faithful catalog.
 
 ## Definition of done
 
@@ -401,3 +400,69 @@ tables, explain how CHR is uploaded, or prove palette selection for every entity
 Other callbacks can construct or modify definitions instead of indexing this
 table. Next: distinguish those callback families and link their definition
 sources to actual graphics and palettes.
+
+## Default callback: two priority groups
+
+The default callback at `$C0A3A4..$C0A442` operates on a writable definition,
+rather than looking up a frame pointer like `$A0FA`. If entity word `$341A,X`
+has bit 0 set, it adds word `$2916,X` to the definition pointer's low word at
+DP `$8C`. This selects another definition region without changing its bank.
+
+It patches two consecutive groups of five-byte records. Byte `$2BE7,X` counts
+the first group and byte `$2BE6,X` counts the second. For each record, only
+attribute bits 4–5 change:
+
+| Group | Control bit in `$2BAA,X` | Bit clear | Bit set |
+|---|---|---|---|
+| First | 1 | `(attribute & $CF) | $30` | `(attribute & $CF) | $20` |
+| Second | 0 | `(attribute & $CF) | $30` | `(attribute & $CF) | $20` |
+
+These are OAM priority bits. Palette bits, tile-high bit, and flips are preserved.
+Both loops use 8-bit indices; the verified small-group cases below do not imply
+that arbitrary large counts or definitions crossing a 256-byte indexing window
+work. After patching, the callback resolves a queue group, calls overlay helper
+`$C0AC43`, then enqueues the direct definition pointer using screen-position
+words `$0B16,X` and `$0B52,X`.
+
+`nim r tests/integration_sprite_priority.nim` verifies 12,288 scenarios for
+entity offset zero: every attribute byte, all four priority-control combinations,
+six first/second group-count pairs, and both pointer-offset choices. It executes
+the complete original callback with overlays inactive (`$2BAA & $0C = 0` and
+`$2E7A = 0`), then original publication. It checks all 512 bytes spanning both
+synthetic definition regions for unintended writes and checks resulting OAM
+positions, tile bytes, attributes, and emitted count. Either group may be empty;
+the combined record list is nonempty and terminated.
+
+The test uses direct page `$0200` for entity scratch. This matters: the overlay
+helper uses DP `$00..$08`, while global OAM pointers live at absolute `$0003`
+and nearby addresses. Using direct page zero for this complete callback would
+alias unrelated scratch and OAM state. Overlay-producing paths and indirect
+queue-group references are not yet covered by this test.
+
+## Resource and layout tables: static route into runtime definitions
+
+Original code now supplies concrete table addresses for the default path:
+
+| Source | Selection | Evidence |
+|---|---|---|
+| `$EF133F` (file `0x2F133F`) | Four-byte resource-pointer slots indexed by resource ID | `$C01E79..$C01E96` |
+| `$C42B0D` (file `0x042B0D`) | Four-byte layout-pointer slots indexed by layout ID | `$C01EBE..$C01EDB` |
+
+The resource lookup helper `$C01DED` supplies the layout ID. Initialization
+reads layout byte 0 as a record count and requests ten bytes per record at
+`$C01EE9`. It passes resource byte 3 and the selected layout to builder
+`$C01D38` at `$C01F27`. Later it installs the runtime definition at WRAM
+`$467E + allocationOffset` into entity `$112E`, with bank `$7E` in `$116A`.
+
+The count split is visible at `$C020A4..$C020C6`: layout byte 1 becomes the
+first-group count in `$2BE7`; `(layout byte 0 - layout byte 1) & $FF` becomes
+second-group count `$2BE6`. This connects the layout header to the priority
+loops, rather than treating their counts as unrelated entity state.
+
+These are **static findings**, not a completed resource catalog. Table lengths,
+valid ID ranges, complete layout records, allocation behavior, graphics frame
+pointers, and palette interpretation remain to be verified. Next: execute the
+runtime-definition builder on synthetic layouts and correlate a real resource's
+layout with its generated records and graphics transfer. Keep extracted resource
+and layout contents local; only the code, structural facts, and evidence belong
+in the repository.
