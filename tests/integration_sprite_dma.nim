@@ -9,6 +9,7 @@ const
   Sizes = [32, 64, 128, 256]
   Sentinel = 0x5A5A'u16
   StepLimit = 6000
+  FixedFillFile = 0x040BE8
   FrameResources = [0, 7, 15, 16, 27, 40, 41, 44, 49, 50, 145, 177,
     203, 204, 205, 206, 209, 252, 437]
 
@@ -135,8 +136,8 @@ proc checkResourceEntry(snes: SnesBus, gold: seq[uint8], resourceId,
     doAssert snes.vram[address] == expected
 
 proc checkFullFrame(snes: SnesBus, gold: seq[uint8], resourceId,
-    direction, phase, allocationSlot: int, immediate: bool) =
-  ## Check normal full-frame selection and transfer using original resource sizes.
+    direction, phase, allocationSlot, effectFlags: int, immediate: bool) =
+  ## Check full-frame selection and optional fixed-source leading chunks.
   let
     pointer = 0x2F133F + resourceId * 4
     resourceAddress = gold[pointer].uint32 or (gold[pointer + 1].uint32 shl 8) or
@@ -152,7 +153,11 @@ proc checkFullFrame(snes: SnesBus, gold: seq[uint8], resourceId,
     slotOffset = 0x042F8C + allocationSlot * 2
     destination = 0x4000 + gold[slotOffset].int + (gold[slotOffset + 1].int shl 8) +
       (if (segments and 1) != 0: 0x100 else: 0)
+    fillerChunks = if (entry and 2) != 0 or (effectFlags and 8) == 0: 0
+      elif (effectFlags and 4) != 0: min(2, segments)
+      else: 1
   doAssert source >= 0 and source + segments * size <= gold.len
+  snes.initHdma()
   snes.putWord(0, 0)
   snes.putWord(0x99, 0)
   snes.putWord(0x2ABA, segments)
@@ -163,13 +168,15 @@ proc checkFullFrame(snes: SnesBus, gold: seq[uint8], resourceId,
   snes.putWord(0x2A42, gold[resource + 8].int)
   snes.putWord(0x2AF6, direction)
   snes.putWord(0x2892, phase)
-  snes.putWord(0x2BAA, 0)
+  snes.putWord(0x2BAA, effectFlags)
+  snes.putWord(0x341A, 0x5A5A)
   snes.bus.write8(Wram + 0x0D, (if immediate: 0x80'u8 else: 0'u8))
   for value in snes.vram.mitems:
     value = Sentinel
   var cpu = Cpu(pc: 0x1E20, s: 0x1FFF, d: 0x200, dbr: 0x7E)
   snes.runUntil(cpu, 0, 0x1E24)
-  doAssert snes.bus.read16(Wram + 0x341A) == entry.uint16
+  doAssert snes.bus.read16(Wram + 0x341A) ==
+    (if fillerChunks == segments: 0x5A5A'u16 else: entry.uint16)
   if not immediate:
     var interrupt = Cpu(pbr: 0xC0, pc: 0x8238, s: 0x1FFF)
     snes.runUntil(interrupt, 0xC0, 0x8278)
@@ -183,16 +190,25 @@ proc checkFullFrame(snes: SnesBus, gold: seq[uint8], resourceId,
     for wordIndex in 0 ..< size div 2:
       let
         address = target + wordIndex + (if wordIndex >= firstWords: 0x100 else: 0)
-        sourceOffset = source + segment * size + wordIndex * 2
-      expected[address] = gold[sourceOffset].uint16 or (gold[sourceOffset + 1].uint16 shl 8)
+        sourceOffset = source + (segment - fillerChunks) * size + wordIndex * 2
+      expected[address] = if segment < fillerChunks:
+        gold[FixedFillFile].uint16 * 0x0101'u16
+      else:
+        gold[sourceOffset].uint16 or (gold[sourceOffset + 1].uint16 shl 8)
     if (target and 0x100) == 0:
       target += 0x100
     else:
       target += ((size + 32) div 64) * 32
       if (target and 0x100) != 0:
         target -= 0x100
-  doAssert snes.vram == expected
+  for address in 0 ..< expected.len:
+    doAssert snes.vram[address] == expected[address],
+      "Resource " & $resourceId & " direction " & $direction & " phase " & $phase &
+      " slot " & $allocationSlot & " effects " & $effectFlags &
+      " immediate " & $immediate & " address " & $address &
+      " actual " & $snes.vram[address] & " expected " & $expected[address]
   doAssert snes.bus.read16(Wram + 0x97) == target.uint16
+  doAssert not snes.dmaStorm
 
 proc main() =
   ## Verify transfer splitting, queue wrap, and all affected VRAM words.
@@ -212,8 +228,9 @@ proc main() =
     for direction in 0 ..< 8:
       for phase in 0 .. 1:
         for slot in [0, 16]:
-          for immediate in [false, true]:
-            snes.checkFullFrame(gold, resourceId, direction, phase, slot, immediate)
+          for effectFlags in [0, 4, 8, 12]:
+            for immediate in [false, true]:
+              snes.checkFullFrame(gold, resourceId, direction, phase, slot, effectFlags, immediate)
   for resourceId in [0, 44, 145, 437]:
     for entryIndex in 0 .. 1:
       for immediate in [false, true]:

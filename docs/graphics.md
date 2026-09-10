@@ -652,12 +652,22 @@ is read from the user's ROM; no selector bounds check has been established.
 The routine loads the chunk count, byte size, and initial destination from the
 entity fields, then transfers consecutive source chunks through the placement
 wrapper. Entry flags remain in `$341A`, including the definition-variant bit.
-The filler path controlled by `$2BAA` is disabled in the normal-path checks.
+The optional leading-chunk fill is controlled by `$2BAA`. At `$C0A501`,
+graphics-entry bit 1 bypasses filling. Otherwise `$2BAA` bit 3 enables one
+leading fixed-source chunk, and bit 2 enables a second. `$C0A512..A53B`
+uses DMA profile 3 and the zero byte at `$C40BE8` (file `$040BE8`). Each
+fill consumes one chunk from the count, without advancing the graphics source.
+The remaining chunks therefore start at the original graphics-entry address.
+If filling consumes the entire count, the routine returns before updating
+`$341A`; the prior retained entry survives. The game meaning of these effect
+bits and the callers that set them remain open.
 
-`tests/integration_sprite_dma.nim` adds **1,216 full-upload cases** using 19
+`tests/integration_sprite_dma.nim` runs **4,864 full-upload cases** using 19
 resources: representatives of every count/size combination plus the previously
 examined character resources. Each runs original `$C0A4C4` across eight direction
-selectors, two phases, two allocation slots, and queued/immediate transfer modes.
+selectors, two phases, two allocation slots, `$2BAA` values 0/4/8/12, and
+queued/immediate transfer modes. Each case resets the emulator's per-frame DMA
+budget, since these independent uploads do not represent one enormous frame.
 The expected model reads the selected real graphics entry and compares the whole
 VRAM array after placing every chunk; it also checks the final destination and
 retained entry word. Existing synthetic and short-transfer tests remain.
@@ -669,9 +679,16 @@ palette-fidelity claim.
 
 The test initializes entity fields from the derived resource formulas. It does
 not execute the allocator, the whole spawn sequence, or full interrupt timing.
-Filler effects and screen rendering remain open. Next: combine the baseline
+Allocation clearing and screen rendering remain open. Next: verify how the
+allocator clears unused tile rows, then combine the baseline
 OBJ palette verified below with this upload and the verified definitions to
 render a representative sprite faithfully.
+
+The allocation-clear investigation starts at `$C01C52`: dimensions are rounded
+to even values before the branch into `$C01CA2..1D33`. The latter constructs
+fixed-source requests from `$C40BE8`, using the allocation mapping table
+`$C42F8C` and destination offsets `$4000`/`$4100`. Behavioral verification of
+this path is still needed, especially for resource 437's unused top tile row.
 
 ### Baseline OBJ palette and interrupt upload
 
