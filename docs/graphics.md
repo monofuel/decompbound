@@ -622,5 +622,53 @@ check, not a complete frame upload: the request size and destination are supplie
 by the test, and upstream animation-entry selection is not executed. No graphics
 bytes or screenshots are written to tracked files.
 
-Next: derive each resource's full frame-transfer dimensions and palette source,
-then decode and assemble a representative sprite using these verified paths.
+Full normal frame-transfer dimensions are verified below. Palette sources and
+faithful scene assembly remain open.
+
+## Full normal frame uploads
+
+The initializer defines the request dimensions directly from the resource:
+byte 0 becomes the chunk count at entity `$2ABA`; twice byte 1 becomes the
+bytes-per-chunk value at `$2A7E` (`$C01FAD..$C01FC4`). The 464 candidate resources
+contain 16 distinct count/size combinations, with counts from 2 to 10 and chunk
+sizes from 64 to 256 bytes. This describes transfer dimensions, not necessarily
+a rectangular image's pixel dimensions.
+
+Initial VRAM word address `$298E` is `$4000 + word($C42F8C + 2*allocationSlot)`,
+plus `$100` for an odd chunk count. The connection is explicit: `$C01E38` stores
+resource byte 0 at `$467C`, and `$C0201C..$C0202B` applies the odd-count adjustment.
+The allocation algorithm deciding which slot is available is separate.
+
+The normal upload entry `$C0A4C4` chooses an inline resource entry using:
+
+```
+entryAddress = resourceAddress + 9
+             + 4 * word($C0A60B + 2*directionSelector)
+             + 2 * (animationPhase != 0)
+```
+
+The tested selectors are 0–7 and phase values 0/1. The actual direction table
+is read from the user's ROM; no selector bounds check has been established.
+The routine loads the chunk count, byte size, and initial destination from the
+entity fields, then transfers consecutive source chunks through the placement
+wrapper. Entry flags remain in `$341A`, including the definition-variant bit.
+The filler path controlled by `$2BAA` is disabled in the normal-path checks.
+
+`tests/integration_sprite_dma.nim` adds **1,216 full-upload cases** using 19
+resources: representatives of every count/size combination plus the previously
+examined character resources. Each runs original `$C0A4C4` across eight direction
+selectors, two phases, two allocation slots, and queued/immediate transfer modes.
+The expected model reads the selected real graphics entry and compares the whole
+VRAM array after placing every chunk; it also checks the final destination and
+retained entry word. Existing synthetic and short-transfer tests remain.
+
+For resource 437, the normal upload is three 64-byte chunks (192 bytes total).
+Direction 0/phase 0 selects source `$D1BAC0`; allocation slot 0 starts at VRAM
+word `$4100`. This is a fully sized transfer example, not a rendered-image or
+palette-fidelity claim.
+
+The test initializes entity fields from the derived resource formulas. It does
+not execute the allocator, the whole spawn sequence, or full interrupt timing.
+Palette loading, filler effects, and screen rendering remain open. Next: locate
+the OBJ palette data and combine this upload with the verified definitions to
+render a representative sprite faithfully.

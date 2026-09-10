@@ -8,7 +8,9 @@ const
   Destinations = [0x6000, 0x6080, 0x60F0, 0x6100, 0x6180, 0x61F0, 0x6200, 0x62F0]
   Sizes = [32, 64, 128, 256]
   Sentinel = 0x5A5A'u16
-  StepLimit = 1000
+  StepLimit = 6000
+  FrameResources = [0, 7, 15, 16, 27, 40, 41, 44, 49, 50, 145, 177,
+    203, 204, 205, 206, 209, 252, 437]
 
 proc putWord(snes: SnesBus, address: uint32, value: int) =
   ## Write a synthetic WRAM word.
@@ -132,6 +134,66 @@ proc checkResourceEntry(snes: SnesBus, gold: seq[uint8], resourceId,
       else: Sentinel
     doAssert snes.vram[address] == expected
 
+proc checkFullFrame(snes: SnesBus, gold: seq[uint8], resourceId,
+    direction, phase, allocationSlot: int, immediate: bool) =
+  ## Check normal full-frame selection and transfer using original resource sizes.
+  let
+    pointer = 0x2F133F + resourceId * 4
+    resourceAddress = gold[pointer].uint32 or (gold[pointer + 1].uint32 shl 8) or
+      (gold[pointer + 2].uint32 shl 16)
+    resource = snesToFile(resourceAddress)
+    segments = gold[resource].int
+    size = gold[resource + 1].int * 2
+    directionOffset = 0xA60B + direction * 2
+    directionGroup = gold[directionOffset].int or (gold[directionOffset + 1].int shl 8)
+    entryOffset = resource + 9 + directionGroup * 4 + phase * 2
+    entry = gold[entryOffset].int or (gold[entryOffset + 1].int shl 8)
+    source = snesToFile((gold[resource + 8].uint32 shl 16) or (entry and 0xFFF0).uint32)
+    slotOffset = 0x042F8C + allocationSlot * 2
+    destination = 0x4000 + gold[slotOffset].int + (gold[slotOffset + 1].int shl 8) +
+      (if (segments and 1) != 0: 0x100 else: 0)
+  doAssert source >= 0 and source + segments * size <= gold.len
+  snes.putWord(0, 0)
+  snes.putWord(0x99, 0)
+  snes.putWord(0x2ABA, segments)
+  snes.putWord(0x2A7E, size)
+  snes.putWord(0x298E, destination)
+  snes.putWord(0x29CA, ((resourceAddress + 9) and 0xFFFF).int)
+  snes.putWord(0x2A06, (resourceAddress shr 16).int)
+  snes.putWord(0x2A42, gold[resource + 8].int)
+  snes.putWord(0x2AF6, direction)
+  snes.putWord(0x2892, phase)
+  snes.putWord(0x2BAA, 0)
+  snes.bus.write8(Wram + 0x0D, (if immediate: 0x80'u8 else: 0'u8))
+  for value in snes.vram.mitems:
+    value = Sentinel
+  var cpu = Cpu(pc: 0x1E20, s: 0x1FFF, d: 0x200, dbr: 0x7E)
+  snes.runUntil(cpu, 0, 0x1E24)
+  doAssert snes.bus.read16(Wram + 0x341A) == entry.uint16
+  if not immediate:
+    var interrupt = Cpu(pbr: 0xC0, pc: 0x8238, s: 0x1FFF)
+    snes.runUntil(interrupt, 0xC0, 0x8278)
+  var
+    expected: array[0x8000, uint16]
+    target = destination
+  for value in expected.mitems:
+    value = Sentinel
+  for segment in 0 ..< segments:
+    let firstWords = min(size div 2, 0x100 - (target and 255))
+    for wordIndex in 0 ..< size div 2:
+      let
+        address = target + wordIndex + (if wordIndex >= firstWords: 0x100 else: 0)
+        sourceOffset = source + segment * size + wordIndex * 2
+      expected[address] = gold[sourceOffset].uint16 or (gold[sourceOffset + 1].uint16 shl 8)
+    if (target and 0x100) == 0:
+      target += 0x100
+    else:
+      target += ((size + 32) div 64) * 32
+      if (target and 0x100) != 0:
+        target -= 0x100
+  doAssert snes.vram == expected
+  doAssert snes.bus.read16(Wram + 0x97) == target.uint16
+
 proc main() =
   ## Verify transfer splitting, queue wrap, and all affected VRAM words.
   let
@@ -143,6 +205,15 @@ proc main() =
   let entryCode = assembleAsm(".a16\n.i16\nJSL $C0A53F\n", 0x1E10)
   for i, value in entryCode:
     snes.bus.write8(0x1E10 + i.uint32, value)
+  let frameCode = assembleAsm(".a16\n.i16\nJSL $C0A4C4\n", 0x1E20)
+  for i, value in frameCode:
+    snes.bus.write8(0x1E20 + i.uint32, value)
+  for resourceId in FrameResources:
+    for direction in 0 ..< 8:
+      for phase in 0 .. 1:
+        for slot in [0, 16]:
+          for immediate in [false, true]:
+            snes.checkFullFrame(gold, resourceId, direction, phase, slot, immediate)
   for resourceId in [0, 44, 145, 437]:
     for entryIndex in 0 .. 1:
       for immediate in [false, true]:
