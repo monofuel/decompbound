@@ -461,8 +461,61 @@ loops, rather than treating their counts as unrelated entity state.
 
 These are **static findings**, not a completed resource catalog. Table lengths,
 valid ID ranges, complete layout records, allocation behavior, graphics frame
-pointers, and palette interpretation remain to be verified. Next: execute the
-runtime-definition builder on synthetic layouts and correlate a real resource's
-layout with its generated records and graphics transfer. Keep extracted resource
+pointers, and palette interpretation remain to be verified. The runtime-definition
+builder is verified below. Next: correlate a real resource's layout with its
+generated records and graphics transfer. Keep extracted resource
 and layout contents local; only the code, structural facts, and evidence belong
 in the repository.
+
+## Runtime-definition builder
+
+`buildSpriteDefinitions` at `$C01D38..$C01DEC` is adopted as
+[annotated assembly](../asm/buildSpriteDefinitions.asm), with all 181 bytes
+checked against the original ROM. It converts a layout into **two consecutive variants** of
+five-byte sprite records. Inputs are A = output allocation offset, X = tile
+allocation slot, Y = resource attribute modifier. The caller supplies a long
+layout pointer at direct-page offset `$0E`; DBR selects WRAM `$7E`, and decimal
+mode must be clear. The routine moves direct page down by `$1A` for local scratch
+and restores it on return.
+
+The source consists of a two-byte header followed by `2 * count` five-byte
+records, where count is header byte 0. Header byte 1 is skipped here; entity
+initialization uses it separately for priority groups. Source records continue
+sequentially from the first variant into the second. The tile-allocation element
+index restarts at zero for the second variant.
+
+For variant `v` and element `i`, the output starts at
+`$7E467E + allocationOffset + 5*(v*count+i)`. The tile word is read from
+`$C4303C + 2*(tileAllocationSlot+i)`:
+
+| Output byte | Source |
+|---|---|
+| Y displacement | Layout record byte 0 |
+| Tile low byte | Tile-map word low byte |
+| Attributes | `(layout byte 2 & $FE) | resourceModifier | tile-map word high byte` |
+| X displacement | Layout record byte 3 |
+| Size/end flags | Layout record byte 4 |
+
+Layout record byte 1 is unused by this builder. Resource attributes are ORed,
+not substituted into a masked palette field; interpreting resource byte 3 solely
+as a palette number would discard part of the actual operation. The routine
+copies size/end flags as supplied and does not synthesize list termination.
+
+A zero count produces no output. For count `n`, return values are A=`n`, Y=2,
+and X=`allocationOffset+10*n` (16-bit); M/X are 16-bit, while DBR, direct page,
+and caller stack depth are preserved. Source cursor increments update only its
+low word, leaving the bank unchanged. A layout crossing that address boundary
+cannot be treated as a contiguous 24-bit stream without further analysis.
+
+`nim r tests/integration_sprite_layout.nim` verifies 32,000 original-ROM
+executions: five counts including zero, five tile allocation slots, every
+layout attribute byte, and five resource modifiers. Layouts are synthetic;
+tile-map words are read at test time from the user's ROM. Assertions verify
+both complete output variants, untouched surrounding bytes, tile-index restart,
+ignored source byte 1, merged attributes, and the return contract. The test
+enters the ROM routine with a synthetic same-bank return frame; it does not
+patch executable ROM bytes or commit extracted data.
+
+This establishes record construction independently of allocation, resource-ID
+validation, or CHR transfer. Those surrounding mechanisms still need their own
+evidence before claiming a complete asset loader or browse-all catalog.

@@ -15,9 +15,29 @@
     {
       "name": "blob_000013",
       "offset": 19,
-      "length": 33923,
+      "length": 7461,
       "kind": "blob",
       "source": "blobs/blob_000013.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "buildSpriteDefinitions",
+      "offset": 7480,
+      "length": 181,
+      "kind": "code",
+      "source": "asm/buildSpriteDefinitions.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md Runtime-definition builder; tests/integration_sprite_layout.nim checks original bytes and 32000 synthetic layout cases"
+    },
+    {
+      "name": "blob_001DED",
+      "offset": 7661,
+      "length": 26281,
+      "kind": "blob",
+      "source": "blobs/blob_001DED.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"

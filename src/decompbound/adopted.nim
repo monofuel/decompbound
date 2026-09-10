@@ -16,6 +16,7 @@ type
 
 const
   AdoptedSpecs: seq[AdoptedSpec] = @[
+    AdoptedSpec(name: "buildSpriteDefinitions", offset: 0x001D38),
     AdoptedSpec(name: "initializeOamBuild", offset: 0x0088B1),
     AdoptedSpec(name: "publishOamBuild", offset: 0x008B26),
     AdoptedSpec(name: "emitSpriteElements", offset: 0x008CD5),
