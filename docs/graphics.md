@@ -559,3 +559,68 @@ and installs action-script address/bank fields `$13FE/$148A`. This separation
 corrects the hub's field labels; it does not settle all graphics-entry flags or
 all script behavior. Next: verify graphics-entry selection and transfer together
 for a known resource, including how low-bit flags choose the definition variant.
+
+## Sprite graphics transfer to VRAM
+
+The selected graphics-entry word is retained in entity `$341A` by `$C0A53F`;
+its address portion (`entry & $FFF0`) becomes source offset `$0094`. Source bank
+comes from `$2A42` into byte `$0096`. This establishes the path from a resource's
+inline entries to graphics bytes; the low bits remain available to the default
+callback, whose bit-0 definition-offset choice is described above.
+
+The public request helper `$C08643` uses these global fields:
+
+| Address | Meaning |
+|---|---|
+| `$0091` byte | Offset into the three-byte DMA-profile table at `$C08FB0` |
+| `$0092` word | Transfer size in bytes |
+| `$0094` word | Source address within its bank |
+| `$0096` byte | Source bank |
+| `$0097` word | Destination VRAM word address |
+
+Profile offset 0 selects incrementing mode-1 DMA to `$2118/$2119`, with VMAIN
+`$80`. The helper temporarily sets direct page and DBR to zero and restores
+processor status, direct page, DBR, and stack depth. It does not preserve A/X;
+Y returns zero because it is used to establish DBR before the inner call.
+
+If forced-blank shadow byte `$000D` has bit 7 set, the helper performs DMA
+immediately on channel 1. Otherwise it appends an eight-byte record containing
+`$0091..$0098` to the ring at `$0400`, using byte head/tail indices `$00/$01`.
+The producer advances by eight modulo 256. The interrupt consumer at
+`$C08238..$C08277` drains these records via channel 0 and advances the tail.
+The two paths are expected to produce the same VRAM data for a given request.
+
+Queued byte counts accumulate in `$0099`. The inner helper waits for interrupt
+progress if adding a request exceeds `$1200` bytes or the ring would become
+full. These waits are intentional; tests with no interrupt scheduling must
+provide available space and budget rather than bypassing the waits.
+
+Sprite wrapper `$C0A56E..$C0A60A` applies a placement rule before invoking that
+helper. For the tested even sizes, if the destination range crosses a
+`$100`-word boundary, the first transfer ends at that boundary and the second
+starts another `$100` words later. Source bytes remain consecutive. The wrapper
+restores the original source offset and byte count after splitting; it advances
+`$0097` separately to prepare the next sprite segment. Destination advancement
+is also checked: if the initial destination has bit 8 clear, add `$100`.
+Otherwise add `32 * floor((size+32)/64)` words, then subtract `$100` if bit 8
+is still set. This describes the tested small, even transfer sizes.
+Oversized requests crossing multiple boundaries and source-bank wrapping remain
+outside the verified scope.
+
+`nim r tests/integration_sprite_dma.nim` verifies 256 synthetic scenarios:
+eight destination positions, four byte sizes (32/64/128/256), two source banks,
+two ring positions (including wrap from `$F8`), and queued/immediate modes. It
+executes the original sprite wrapper and, for queued work, the bounded original
+interrupt drain. It checks queue records, DMA counts, source/size preservation, next-destination advancement,
+and every VRAM word, including the skipped region and untouched surroundings.
+
+Sixteen further cases use resources 0, 44, 145, and 437, each with its first two
+inline graphics entries and both transfer modes. They run original entry
+decoding at `$C0A53F`, verify the retained flags/source address/bank, and compare
+a 32-byte transfer against the user's ROM. This is a representative source-path
+check, not a complete frame upload: the request size and destination are supplied
+by the test, and upstream animation-entry selection is not executed. No graphics
+bytes or screenshots are written to tracked files.
+
+Next: derive each resource's full frame-transfer dimensions and palette source,
+then decode and assemble a representative sprite using these verified paths.
