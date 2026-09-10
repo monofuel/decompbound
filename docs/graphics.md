@@ -170,7 +170,78 @@ must account for that bank alias when looking for callbacks.
 
 Static inspection locates queued-sprite composition at `$C08B8E` and the
 per-sprite emitter at `$C08CD5`. These are concrete entry points, not yet
-adopted complete explanations. Next: derive the queue record layout and
-five-byte sprite-element semantics, then execute synthetic examples to verify
-coordinate clipping, tile/attribute output, and packed X-high/size bits.
-That is the link needed between sprite definitions and a faithful asset browser.
+adopted complete explanations. The emitter's verified record semantics and the
+queue's statically derived layout follow below. Definition producers and their
+graphics references remain the link needed for a faithful asset browser.
+
+## Sprite-element emission
+
+The emitter at `$C08CD5..$C08D78` consumes a definition at A in the bank
+specified by byte `$000B`, with X/Y as origin coordinates. It switches direct
+page to zero and preserves the caller's direct page, DBR, and processor status.
+The verified coordinate contract uses native mode with decimal arithmetic off.
+It is not yet adopted as reproduced assembly in the manifest.
+
+Ordinary records are five bytes:
+
+| Offset | Meaning |
+|---|---|
+| 0 | Signed Y displacement; `$80` instead introduces a redirect |
+| 1 | OAM tile low byte |
+| 2 | OAM attributes, including tile high bit |
+| 3 | Signed X displacement |
+| 4 | Bit 0: OAM size bit; bit 7: last element; other bits do not affect emission |
+
+A redirect consists of `$80` followed by a little-endian word naming another
+position in the same bank. It emits no sprite. There is no cycle detection.
+For ordinary records, arithmetic wraps at 16 bits:
+
+- `screenY = originY + signed(dy) - 1`. Accepted Y values are `-32..223`.
+- `screenX = originX + signed(dx)`. Accepted X values are `-256..255`.
+- These bounds do not change with the size bit; they are the routine's coarse
+  rejection rules, not a guarantee that the PPU displays a visible pixel.
+
+The low-table cursor/end are words `$03/$05`. Y rejection writes no sprite
+bytes. After Y passes, tile/attributes and low X are written **before** X
+rejection. Thus an X-rejected element leaves partial bytes at the current slot,
+without advancing the cursor or replacing its Y. A later accepted element
+can overwrite that slot. The last-element flag ends processing even when the
+record is rejected. Capacity is checked at entry and after each accepted record.
+
+For an accepted sprite, X bit 8 and record bit 0 are shifted into the byte at
+`$0A`. After four sprites, bits 0/1 describe the first sprite's X-high/size,
+bits 2/3 the second, and so on. The byte is written through long pointer `$07`,
+its low address byte is incremented, and `$0A` resets to sentinel `$80`.
+A partial group remains pending in `$0A`; the emitter does not flush it on
+return. This pointer increment is byte-wide, so callers must supply an OAM
+high table that does not require a page crossing during the group writes.
+
+Evidence: original instructions at file `0x008CD5`, including the Y check at
+`0x008D12`, X check at `0x008D3E`, and packed-bit writes at `0x008D4B`.
+Disassemble `0x008D28` separately with M16: a linear disassembly that carries
+M8 from the rejected-Y branch misdecodes that branch target.
+
+`nim r tests/integration_oam_emit.nim` runs original ROM code against synthetic
+WRAM definitions. It checks 12,264 single-element cases across all ordinary
+byte displacements, 12 boundary/wrap origins, and both size bits; a four-sprite
+packing/capacity case; a same-bank redirect; and an initially full buffer.
+An additional sequence rejects one record on Y and another on X before accepting
+a final record into the original slot, including ignored flag bits 1–6.
+It verifies partial writes and untouched bytes as well as accepted output.
+These are CPU/memory checks, not a visual fidelity claim or exhaustive caller
+coverage. Decimal mode, malformed definitions, and the complete range of caller
+processor-width combinations remain outside this test's contract.
+
+### Queue connection
+
+Static inspection of `$C08B8E` shows four queues drained in order. For queue
+bases `$2404`, `$2506`, `$2608`, and `$270A`, parallel word arrays hold definition
+pointers at `base+$00`, origin X at `base+$40`, origin Y at `base+$80`, and bank
+words at `base+$C0`. Each array has room for 32 entries. The word at `base+$100`
+is a byte count: the drain's index advances by two for each entry. Counts are
+not cleared by the drain; initialization clears them before entity processing.
+The bank word is copied to `$000B/$000C`; the emitter reads only its low byte.
+
+This layout is static evidence, pending an enqueue-to-drain behavioral test.
+Next: verify that integration, explain partial high-table flushing in `$C08B26`,
+and follow definition producers to their graphics and palette references.
