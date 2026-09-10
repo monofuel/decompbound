@@ -123,11 +123,13 @@ F12. Close the window (not Ctrl+C) to write an end screenstate.
 Diagnose a session with [run-report.md](run-report.md):
 `make run-report SESSION=../decompbound_secret/sessions/<ts>`.
 
-- [2026-08-16/17 day-1 TAS](2026-08-16-day1-tas.md) — **the ultimate
-  unlucky run** that still **beat Titanic Ant** (F12 `011117`) and is
-  now **in Peaceful Rest Valley** (F12 `015946`). Sunrise → sharks →
-  Frank → Giant Step → Twoson → valley; deaths way past 6. Segments
-  `235052` + `000051`.
+- [2026-08-16/17 day-1 TAS](2026-08-16-day1-tas.md) — **extremely
+  unlucky** (9 deaths on the early tape, then **3 more to Mondo Mole**)
+  that still **beat Titanic Ant** (F12 `011117`) and reached **Peaceful
+  Rest Valley**. Paula is in (`003751`). Sunrise → sharks → Frank →
+  Giant Step → Twoson → valley → Mondo Mole → Happy Happy. Deaths are
+  **edge-case coverage**. Segments `235052` + `000051` + `225201` +
+  `230734`.
 - [2026-08-16 sunrise TAS](2026-08-16-sunrise-tas.md) — **first cadence-emu
   movie, human-verified.** Fast-text bedroom → meteor night → leaving
   Pokey's house / sunrise. `make play-tas TAS=../decompbound_secret/sessions/20260816-223148/20260816-223148.tas`.
