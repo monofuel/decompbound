@@ -169,8 +169,8 @@ Entity processing crosses to bank `$80` via `JML $809470`; instruction traces
 must account for that bank alias when looking for callbacks.
 
 Static inspection locates queued-sprite composition at `$C08B8E` and the
-per-sprite emitter at `$C08CD5`. These are concrete entry points, not yet
-adopted complete explanations. The emitter's verified record semantics and the
+per-sprite emitter at `$C08CD5`. The emitter is adopted; the queue drain remains
+unadopted. The emitter's verified record semantics and the
 queue's statically derived layout follow below. Definition producers and their
 graphics references remain the link needed for a faithful asset browser.
 
@@ -180,7 +180,8 @@ The emitter at `$C08CD5..$C08D78` consumes a definition at A in the bank
 specified by byte `$000B`, with X/Y as origin coordinates. It switches direct
 page to zero and preserves the caller's direct page, DBR, and processor status.
 The verified coordinate contract uses native mode with decimal arithmetic off.
-It is not yet adopted as reproduced assembly in the manifest.
+It is adopted as [annotated assembly](../asm/emitSpriteElements.asm), with all
+164 bytes compared against the original ROM by the emitter integration test.
 
 Ordinary records are five bytes:
 
@@ -258,12 +259,17 @@ required: the code pushes X and retrieves it with a 16-bit accumulator pull.
 It forces M16 but does not force X16. Valid queue indices are 0–3, and each
 queue has space for 32 records; neither limit is checked by the routine.
 
-`$C08B26..$C08B8D` first calls the queue drain at `$C08B8E`. Definitions are
+`publishOamBuild` at `$C08B26..$C08B8D` is adopted as
+[annotated assembly](../asm/publishOamBuild.asm). Its 104 bytes are checked
+against the original ROM by the pipeline integration test. It first calls the
+queue drain at `$C08B8E`. Definitions are
 emitted in queue order 0–3, preserving insertion order within each queue. This
 can differ from the order in which entities enqueued them. Counts remain intact
 after draining, so publication is not a queue reset.
 
-After draining, publication finalizes the pending high-table byte. If `$000A`
+Publication requires initialized cursors and a valid packing sentinel at
+`$000A`; zero is invalid and would leave the alignment loop spinning. After
+draining, publication finalizes the pending high-table byte. If `$000A`
 is not the empty sentinel `$80`, it shifts right two bits at a time until the
 sentinel exits through carry. For one/two/three pending sprites, this moves
 packed pairs right by six/four/two bits. It then writes the result at the

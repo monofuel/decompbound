@@ -1,5 +1,5 @@
 import
-  decompbound/[asm_parse, cpu, rom_pipeline, snesbus]
+  decompbound/[adopted, asm_parse, cpu, rom_pipeline, snesbus]
 
 const
   InitCaller = 0x0200'u32
@@ -178,7 +178,11 @@ proc checkFrame(snes: SnesBus, selector, count: int) =
 
 proc main() =
   ## Sweep every legal total occupancy in both OAM buffers using original code.
-  let snes = newSnesBus(readGoldBaserom())
+  let
+    gold = readGoldBaserom()
+    snes = newSnesBus(gold)
+    publishedCode = assembleAdoptedFile("publishOamBuild", 0x008B26)
+  doAssert publishedCode == gold[0x008B26 ..< 0x008B8E]
   for entry in [(InitCaller, "C088B1"), (EnqueueCaller, "C08C54"),
       (PublishCaller, "C08B26")]:
     let code = assembleAsm(".a16\n.i16\nJSL $" & entry[1] & "\n", entry[0])

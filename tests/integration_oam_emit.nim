@@ -1,5 +1,5 @@
 import
-  decompbound/[asm_parse, cpu, rom_pipeline, snesbus]
+  decompbound/[adopted, asm_parse, cpu, rom_pipeline, snesbus]
 
 const
   Caller = 0x0200'u32
@@ -130,8 +130,11 @@ proc checkRejectedPrefix(snes: SnesBus) =
 proc main() =
   ## Sweep signed offsets and boundary origins against original ROM execution.
   let
-    snes = newSnesBus(readGoldBaserom())
+    gold = readGoldBaserom()
+    snes = newSnesBus(gold)
+    emittedCode = assembleAdoptedFile("emitSpriteElements", 0x008CD5)
     caller = assembleAsm(".a16\n.i16\nJSL $C08CD5\n", Caller)
+  doAssert emittedCode == gold[0x008CD5 ..< 0x008D79]
   for i, value in caller:
     snes.bus.write8(Caller + i.uint32, value)
   for origin in Origins:

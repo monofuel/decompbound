@@ -75,9 +75,29 @@
     {
       "name": "blob_008B19",
       "offset": 35609,
-      "length": 332,
+      "length": 13,
       "kind": "blob",
       "source": "blobs/blob_008B19.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "publishOamBuild",
+      "offset": 35622,
+      "length": 104,
+      "kind": "code",
+      "source": "asm/publishOamBuild.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md Queue-to-buffer publication; tests/integration_oam_publish.nim verifies original bytes and full synthetic pipeline"
+    },
+    {
+      "name": "blob_008B8E",
+      "offset": 35726,
+      "length": 215,
+      "kind": "blob",
+      "source": "blobs/blob_008B8E.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
@@ -95,12 +115,22 @@
     {
       "name": "blob_008C6D",
       "offset": 35949,
-      "length": 268,
+      "length": 104,
       "kind": "blob",
       "source": "blobs/blob_008C6D.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
+    },
+    {
+      "name": "emitSpriteElements",
+      "offset": 36053,
+      "length": 164,
+      "kind": "code",
+      "source": "asm/emitSpriteElements.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md Sprite-element emission; tests/integration_oam_emit.nim verifies original bytes and synthetic clipping/packing; integration_oam_publish.nim verifies queue-to-PPU pipeline"
     },
     {
       "name": "setBgMode",
