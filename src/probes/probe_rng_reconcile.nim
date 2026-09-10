@@ -867,9 +867,9 @@ proc main() =
       "the L0 return PC alone does not distinguish consumers.",
     "- **L1 parents** (stack return of the JSL into `$C12DD5`) pin the real " &
       "consumer. See per-segment `parents(L1)` rows above.",
-    "- Wrapper always burns one RNG draw, then branches on `$968C` " &
-      "(nonzero → early RTL; zero → longer path). So every JSL `$C12DD5` " &
-      "= exactly +1 advance.",
+    "- Service makes one direct RNG draw before checking `$968C` and `$9622`. " &
+      "Either early exit consumes exactly one draw. The long path calls other " &
+      "services; its total draw count must be measured in context.",
     "",
     "### `$C13CB1` → L1 `$C13CB4` — B-status free-run (1/frame)",
     "",

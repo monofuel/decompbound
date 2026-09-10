@@ -190,8 +190,47 @@ nim r src/tools/disasm.nim 'bin/Earthbound (U) [!].smc' 0x13CA1 22
 Restart at `$C12DEA` in 16-bit mode: linear disassembly otherwise inherits the
 8-bit mode from an early-exit branch that does not reach that address.
 
-**Next question:** establish the meaning and callers of the two early-exit
-flags, then trace the longer service path for additional RNG consumers. Do not
+**Next question:** trace the longer service path for additional RNG consumers
+and establish the higher-level record lifecycle that sets these flags. Do not
 adopt this routine as fully explained until its state and callee contracts are
 known. The historical 59-call-site count came from retired generated banks;
 it is not a freshly verified complete inventory of callers.
+
+### Early-exit flags and adopted setters
+
+The persistent gate byte at `$7E9622` suppresses work **after** the RNG draw.
+[clearServiceSuppression.asm](../asm/clearServiceSuppression.asm) at `$C3E4CA`
+clears that byte; [setServiceSuppression.asm](../asm/setServiceSuppression.asm)
+at `$C3E4D4` writes one. They occupy 10 and 12 bytes respectively and are now
+reproduced from annotated source. Both require native mode and the intended
+WRAM data bank; both return with 16-bit registers and carry clear. The setter
+changes only A's low byte to one, retaining its high byte. Neither touches the
+adjacent `$9623` byte.
+
+The caller at `$C3E4E0` clears suppression, invokes `$C12DD5`, then sets
+suppression again. That enables one service invocation, but does not guarantee
+that invocation takes its long path: the independent `$968C` gate can still
+skip it. The flag names describe their tested effect in this service, not a
+complete explanation of every consumer elsewhere in the game.
+
+`$968C` is a one-shot gate: nonzero skips service work and is cleared. One
+confirmed writer is `$C11672`. Its enclosing path first rejects `$8958 == $FFFF`,
+then selects a record via
+`$8650 + $52 * word[$88E4 + 2 * word[$8958]]`; when the record's word at
+`+$2B` is `$FFFF`, it writes `$FF` to `$968C`. The other branch calls the
+persistent setter at `$C11685`. The record-field meaning remains unresolved;
+this evidence does not justify naming the flag "window closed".
+
+`nim r tests/integration_rng_service.nim` exercises all 65,536 pairs of gate
+bytes against the original ROM with synthetic WRAM and DBR `$7E`. It verifies
+one RNG draw before either early exit, byte clearing/preservation, and entry
+into the longer path when both are zero. It stops at that path's entry rather
+than assuming its behavior. It also checks both adopted setters byte-for-byte
+against the ROM and executes 2,048 setter calls across all native processor
+statuses and four accumulator inputs, checking flags, register preservation,
+stack balance, and neighboring-byte preservation.
+
+These checks passed on 2026-09-10. They validate gate behavior and setter
+contracts, not the unresolved long service path or the selected record's
+higher-level semantics. The old map research attribution of `$C3E4CA` as a
+graphics loader was incorrect; the complete routine only clears suppression.

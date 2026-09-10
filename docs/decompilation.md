@@ -129,7 +129,10 @@ stated TODO), with a keybind to overlay impassable tiles.
 **Located (verified byte-exact):** a **tilemap pointer table** at file `0x100000`
 (4-byte entries → bank `$CF`), **tilemap data** at file `0x101800` (2-byte
 tile+attr words, standard SNES BG format), and **tileset graphics** at file
-`0x3E408` (loaded via `JSL $C3E4CA` etc.).
+`0x3E408` (historical candidate; loader attribution needs verification).
+`$C3E4CA` was previously called a graphics loader here, but its complete
+10-byte routine only clears the service-suppression byte at `$9622`; see
+[the verified service setters](prng.md#early-exit-flags-and-adopted-setters).
 
 - **Sectors** — the per-sector graphic-set config is an 8-byte-record table at file
   `0x03E250` (SNES `$C3E250`), resolved through a `~0x35`-entry RAM cache (`$88E4`)

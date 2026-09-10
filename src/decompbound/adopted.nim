@@ -16,6 +16,8 @@ type
 
 const
   AdoptedSpecs: seq[AdoptedSpec] = @[
+    AdoptedSpec(name: "clearServiceSuppression", offset: 0x03E4CA),
+    AdoptedSpec(name: "setServiceSuppression", offset: 0x03E4D4),
     AdoptedSpec(name: "sramMirrorPiracyCheck", offset: 0x00A11C),
     AdoptedSpec(name: "earthboundRandom", offset: 0x008E9A),
     AdoptedSpec(name: "uploadApuPackages", offset: 0x00AB06),

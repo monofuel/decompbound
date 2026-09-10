@@ -515,9 +515,39 @@
     {
       "name": "blob_00B425",
       "offset": 46117,
-      "length": 280472,
+      "length": 209061,
       "kind": "blob",
       "source": "blobs/blob_00B425.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "clearServiceSuppression",
+      "offset": 255178,
+      "length": 10,
+      "kind": "code",
+      "source": "asm/clearServiceSuppression.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/prng.md service suppression; integration_rng_service verifies original instructions and byte-wide effects"
+    },
+    {
+      "name": "setServiceSuppression",
+      "offset": 255188,
+      "length": 12,
+      "kind": "code",
+      "source": "asm/setServiceSuppression.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/prng.md service suppression; integration_rng_service verifies original instructions and byte-wide effects"
+    },
+    {
+      "name": "blob_03E4E0",
+      "offset": 255200,
+      "length": 71389,
+      "kind": "blob",
+      "source": "blobs/blob_03E4E0.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"

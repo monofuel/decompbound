@@ -16,7 +16,7 @@ Nim implements the tools and emulator.
 | | Goal | Status |
 |---|------|--------|
 | **1** | Rebuild the original ROM byte-identically | **Met; maintain** — extraction + assembly + copied residual regions |
-| **2** | Understand all game code | **Early** — 36 explained assembly regions, plus further research in tools/docs |
+| **2** | Understand all game code | **Early** — 38 explained assembly regions, plus further research in tools/docs |
 | **3** | Understand scripting | **Partial** — text decoding and action-script machinery; complete semantics remain open |
 | **4** | Understand graphics, including the game map | **Partial** — codecs and exploratory exporters; comprehensive browsing remains open |
 | **5** | Understand audio | **Partial** — playback and upload/song-loader knowledge; complete driver/sequence understanding remains open |
@@ -26,8 +26,8 @@ Nim implements the tools and emulator.
 - **Vanilla rebuild:** `make compare` extracts the user's ROM into ignored
   `extracted/` files and rebuilds it using `manifest.json` and `asm/`. The output
   must be byte-identical. Copied bytes do not count as understood code or assets.
-- **Explained regions:** the 2026-09-10 manifest contains 2,026 explained and
-  reproduced bytes (0.0644% of the whole 3 MB ROM). Other knowledge lives in
+- **Explained regions:** the 2026-09-10 manifest contains 2,048 explained and
+  reproduced bytes (0.0651% of the whole 3 MB ROM). Other knowledge lives in
   subsystem docs and tools; there is no complete code-only denominator yet.
 - **Emulator:** the repo records a complete human EarthBound playthrough through
   Giygas on the Nim SNES core. Remaining fidelity issues are tracked in
