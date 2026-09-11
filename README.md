@@ -26,8 +26,8 @@ Nim implements the tools and emulator.
 - **Vanilla rebuild:** `make compare` extracts the user's ROM into ignored
   `extracted/` files and rebuilds it using `manifest.json` and `asm/`. The output
   must be byte-identical. Copied bytes do not count as understood code or assets.
-- **Explained regions:** the 2026-09-10 manifest contains 3,113 explained and
-  reproduced bytes (0.0990% of the whole 3 MB ROM). Other knowledge lives in
+- **Explained regions:** the 2026-09-10 manifest contains 3,236 explained and
+  reproduced bytes (0.1029% of the whole 3 MB ROM). Other knowledge lives in
   subsystem docs and tools; there is no complete code-only denominator yet.
 - **Emulator:** the repo records a complete human EarthBound playthrough through
   Giygas on the Nim SNES core. Remaining fidelity issues are tracked in

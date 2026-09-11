@@ -15,9 +15,29 @@
     {
       "name": "blob_000013",
       "offset": 19,
-      "length": 7461,
+      "length": 7043,
       "kind": "blob",
       "source": "blobs/blob_000013.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "allocateSpriteSlots",
+      "offset": 7062,
+      "length": 123,
+      "kind": "code",
+      "source": "asm/allocateSpriteSlots.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md Sprite allocation and clearing; tests/integration_sprite_allocation.nim verifies original bytes, all supported counts, occupancy boundaries, and original callers"
+    },
+    {
+      "name": "blob_001C11",
+      "offset": 7185,
+      "length": 295,
+      "kind": "blob",
+      "source": "blobs/blob_001C11.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"

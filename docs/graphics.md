@@ -727,6 +727,14 @@ returns the starting slot, or `$FF03` on exhaustion. Owner values `$7F` and
 dimensions whose rounded allocation fits the pool; oversized and zero-sized
 requests are not established as safe inputs.
 
+The 123-byte allocator is reproduced by
+[`allocateSpriteSlots.asm`](../asm/allocateSpriteSlots.asm) and marked explained
+in the manifest. Its calling allocation/clear wrapper remains outside that
+adoption. The test compares assembled bytes against the original ROM and adds
+23,496 direct calls: all counts 1–88, occupied-prefix lengths 0–88, and three
+owner tags. This checks the full supported count range, final-slot acceptance,
+exhaustion without partial marking, occupancy guards, and preserved D/DBR/stack.
+
 If either dimension was rounded, `$C01CA2..1D33` clears the **entire allocated
 region**, not just padding. If both were already even, it leaves VRAM untouched.
 For slot `s`, the top two 8×8 tiles occupy 32 VRAM words starting at

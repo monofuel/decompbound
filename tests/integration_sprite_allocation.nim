@@ -1,5 +1,5 @@
 import
-  decompbound/[asm_parse, cpu, memmap, rom_pipeline, snesbus]
+  decompbound/[adopted, asm_parse, cpu, memmap, rom_pipeline, snesbus]
 
 const
   Caller = 0x1E00'u32
@@ -96,12 +96,42 @@ proc checkAllocation(snes: SnesBus, width, height, prefix, owner: int,
   doAssert snes.dmaTransfers == transfers + groups * 2
   doAssert not snes.dmaStorm
 
+proc checkSlotCounts(snes: SnesBus) =
+  ## Cover every supported count and occupied-prefix length directly.
+  let code = assembleAsm(".a16\n.i16\nJSL $C01B96\n", Caller)
+  for index, value in code:
+    snes.bus.write8(Caller + index.uint32, value)
+  for count in 1 .. SlotCount:
+    for prefix in 0 .. SlotCount:
+      for owner in [0, 0x7F, 0xFF]:
+        for index in 0 ..< SlotCount:
+          snes.bus.write8(Wram + Occupancy + index.uint32,
+            (if index < prefix: 0x91'u8 else: 0'u8))
+        snes.bus.write8(Wram + Occupancy - 1, 0x69)
+        snes.bus.write8(Wram + Occupancy + SlotCount.uint32, 0x96)
+        let fits = prefix + count <= SlotCount
+        var cpu = Cpu(pc: Caller.uint16, s: 0x1FFF, d: 0x1000, dbr: 0x7E,
+          a: count.uint16, x: owner.uint16)
+        snes.runUntil(cpu, 0, (Caller + 4).uint16)
+        doAssert cpu.a == (if fits: prefix.uint16 else: 0xFF03'u16)
+        doAssert cpu.d == 0x1000 and cpu.dbr == 0x7E and cpu.s == 0x1FFF
+        doAssert (cpu.p and (FlagM or FlagX)) == 0
+        for index in 0 ..< SlotCount:
+          let expected = if index < prefix: 0x91'u8
+            elif fits and index < prefix + count: (owner or 0x80).uint8
+            else: 0'u8
+          doAssert snes.bus.read8(Wram + Occupancy + index.uint32) == expected
+        doAssert snes.bus.read8(Wram + Occupancy - 1) == 0x69
+        doAssert snes.bus.read8(Wram + Occupancy + SlotCount.uint32) == 0x96
+
 proc main() =
   ## Exercise odd/even dimensions, fragmented occupancy, boundaries, and DMA modes.
   let
     gold = readGoldBaserom()
     snes = newSnesBus(gold)
     code = assembleAsm(".a16\n.i16\nJSL $C01C52\n", Caller)
+  doAssert assembleAdoptedFile("allocateSpriteSlots", 0x001B96) == gold[0x001B96 ..< 0x001C11]
+  snes.checkSlotCounts()
   for index, value in code:
     snes.bus.write8(Caller + index.uint32, value)
   for width in 1 .. 8:
