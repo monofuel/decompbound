@@ -1,5 +1,5 @@
 import
-  decompbound/[asm_parse, cpu, rom_pipeline, snesbus]
+  decompbound/[adopted, asm_parse, cpu, rom_pipeline, snesbus]
 
 const
   Wram = 0x7E0000'u32
@@ -30,7 +30,7 @@ proc remove(snes: SnesBus, entity: int) =
   doAssert cpu.s == 0x1FFF and cpu.d == 0x200 and cpu.dbr == 0x7E
   doAssert cpu.y == 0x1234 and cpu.a == (entity * 2).uint16
 
-proc checkRemoval(snes: SnesBus, entity, position, chainLength, nextRelation: int) =
+proc checkRemoval(snes: SnesBus, entity, position, chainLength, nextRelation, ordering: int) =
   ## Verify active-list splicing and whole-chain return against synthetic list models.
   let
     offset = entity * 2
@@ -45,6 +45,9 @@ proc checkRemoval(snes: SnesBus, entity, position, chainLength, nextRelation: in
   var
     remaining: seq[int]
     free: seq[int]
+    states: seq[int]
+  for index in 0 ..< StateCount:
+    states.add (if ordering == 0: index * 2 else: ((index * 31 + 17) mod StateCount) * 2)
   for entry in active:
     if entry != offset:
       remaining.add entry
@@ -59,11 +62,11 @@ proc checkRemoval(snes: SnesBus, entity, position, chainLength, nextRelation: in
   snes.putWord(0x0A50, active[0])
   snes.putWord(0x0A52, free[0])
   snes.putWord(0x0A56, current)
-  snes.putWord(0x0ADA + offset, if chainLength == 0: EndOfList else: 0)
-  snes.putWord(0x0A54, if chainLength == StateCount: EndOfList else: chainLength * 2)
-  for state in 0 ..< StateCount:
-    snes.putWord(0x125A + state * 2,
-      if state + 1 == chainLength or state + 1 == StateCount: EndOfList else: (state + 1) * 2)
+  snes.putWord(0x0ADA + offset, if chainLength == 0: EndOfList else: states[0])
+  snes.putWord(0x0A54, if chainLength == StateCount: EndOfList else: states[chainLength])
+  for index, state in states:
+    snes.putWord(0x125A + state,
+      if index + 1 == chainLength or index + 1 == StateCount: EndOfList else: states[index + 1])
   snes.remove(entity)
   doAssert snes.word(0x0A50) == (if remaining.len == 0: EndOfList else: remaining[0])
   doAssert snes.word(0x0A52) == offset
@@ -81,11 +84,11 @@ proc checkRemoval(snes: SnesBus, entity, position, chainLength, nextRelation: in
   doAssert snes.word(0x0A62 + offset) == EndOfList
   doAssert snes.word(0x107A + offset) == 0x943B
   doAssert snes.word(0x10B6 + offset) == 0xC0
-  doAssert snes.word(0x0ADA + offset) == (if chainLength == 0: EndOfList else: 0)
-  doAssert snes.word(0x0A54) == 0
-  for state in 0 ..< StateCount:
-    doAssert snes.word(0x125A + state * 2) ==
-      (if state + 1 == StateCount: EndOfList else: (state + 1) * 2)
+  doAssert snes.word(0x0ADA + offset) == (if chainLength == 0: EndOfList else: states[0])
+  doAssert snes.word(0x0A54) == states[0]
+  for index, state in states:
+    doAssert snes.word(0x125A + state) ==
+      (if index + 1 == StateCount: EndOfList else: states[index + 1])
   var before: seq[uint8]
   for address in 0x0A50 .. 0x1515:
     before.add snes.bus.read8(Wram + address.uint32)
@@ -96,15 +99,18 @@ proc checkRemoval(snes: SnesBus, entity, position, chainLength, nextRelation: in
 proc main() =
   ## Sweep every entity slot, list position, script-chain length, and saved-next relation.
   let
-    snes = newSnesBus(readGoldBaserom())
+    gold = readGoldBaserom()
+    snes = newSnesBus(gold)
     code = assembleAsm(".a16\n.i16\nJSL $C09C35\n", Caller)
+  doAssert assembleAdoptedFile("entityListLifecycle", 0x9C35) == gold[0x9C35 ..< 0x9CD7]
   for index, value in code:
     snes.bus.write8(Caller + index.uint32, value)
   for entity in 0 ..< EntityCount:
     for position in 0 .. 3:
       for chainLength in 0 .. StateCount:
         for nextRelation in 0 .. 1:
-          snes.checkRemoval(entity, position, chainLength, nextRelation)
+          for ordering in 0 .. 1:
+            snes.checkRemoval(entity, position, chainLength, nextRelation, ordering)
 
 when isMainModule:
   main()

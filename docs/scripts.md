@@ -212,12 +212,16 @@ A negative script ID at `$0A62 + entityOffset` makes repeated removal a no-op.
 An active entity must occur in the active list, and both lists must be acyclic;
 these routines do not validate malformed links or impose traversal bounds.
 
-Run `nim r tests/integration_entity_remove.nim` with the local ROM. Its 17,040
+Run `nim r tests/integration_entity_remove.nim` with the local ROM. Its 34,080
 synthetic cases cover all 30 entity IDs, singleton/head/middle/tail removal,
-chain lengths 0–70, and matching/unrelated saved-next offsets. It checks the
+chain lengths 0–70, matching/unrelated saved-next offsets, and both contiguous
+and permuted state-slot chains. It checks the
 remaining active and free links, returned state-chain order, callback reset,
 and unchanged list/record memory on a second removal. This verifies the removal
 helper directly; it does not prove how script calls construct nested chains.
+The complete `$C09C35..9CD6` helper group is reproduced from
+`asm/entityListLifecycle.asm` (162 bytes); the removal test checks byte identity,
+and the constructor integration test covers its active-list append entry.
 
 ### Entity action-script VM — opcode mapping (dig 2026-07-21)
 

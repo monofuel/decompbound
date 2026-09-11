@@ -375,9 +375,29 @@
     {
       "name": "blob_0096E3",
       "offset": 38627,
-      "length": 2617,
+      "length": 1362,
       "kind": "blob",
       "source": "blobs/blob_0096E3.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "entityListLifecycle",
+      "offset": 39989,
+      "length": 162,
+      "kind": "code",
+      "source": "asm/entityListLifecycle.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md Entity removal and script-state chain return; tests/integration_entity_remove.nim verifies list splicing and state-chain return; tests/integration_entity_create.nim verifies active-list append"
+    },
+    {
+      "name": "blob_009CD7",
+      "offset": 40151,
+      "length": 1093,
+      "kind": "blob",
+      "source": "blobs/blob_009CD7.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
