@@ -5,8 +5,7 @@ const
   Wram = 0x7E0000'u32
   Caller = 0x1E00'u32
   DirectPage = 0x1000'u16
-  DefinitionOffset = 0x100
-  DefinitionAddress = 0x477E
+  DefinitionPool = 0x467E
   ResourceCount* = 464
   StepLimit = 20000
 
@@ -24,13 +23,14 @@ proc runUntil(snes: SnesBus, cpu: var Cpu, bank: uint8, pc: uint16) =
     cpu.step(snes.bus)
     inc steps
 
-proc call(snes: SnesBus, instruction: string, a = 0) =
+proc call(snes: SnesBus, instruction: string, a = 0): uint16 {.discardable.} =
   ## Invoke an original routine through an isolated WRAM trampoline.
   let code = assembleAsm(".a16\n.i16\n" & instruction & "\n", Caller)
   for index, value in code:
     snes.bus.write8(Caller + index.uint32, value)
   var cpu = Cpu(pc: Caller.uint16, s: 0x1FFF, d: DirectPage, dbr: 0x7E, a: a.uint16)
   snes.runUntil(cpu, 0, (Caller + code.len.uint32).uint16)
+  cpu.a
 
 proc buildSpritePreview*(gold: seq[uint8], resourceId, direction, phase: int): SnesBus =
   ## Build an isolated normal sprite using original routines and the baseline palette.
@@ -57,11 +57,15 @@ proc buildSpritePreview*(gold: seq[uint8], resourceId, direction, phase: int): S
   if allocation.a >= 88:
     raise newException(ValueError, "Sprite preview allocation failed")
   let slot = allocation.a.int
+  result.call("JSL $C01A86")
+  let definitionOffset = result.call("JSL $C01A9D", count * 10)
+  if definitionOffset >= 0x380:
+    raise newException(ValueError, "Sprite preview definition allocation failed")
   result.putWord(0x100E, (layoutAddress and 0xFFFF).int)
   result.putWord(0x1010, (layoutAddress shr 16).int)
   result.putWord(0x1FFE, Caller.int - 1)
   var builder = Cpu(pbr: 0xC0, pc: 0x1D38, s: 0x1FFD, d: DirectPage,
-    dbr: 0x7E, a: DefinitionOffset, x: slot.uint16, y: gold[resource + 3].uint16)
+    dbr: 0x7E, a: definitionOffset, x: slot.uint16, y: gold[resource + 3].uint16)
   result.runUntil(builder, 0xC0, Caller.uint16)
   let tileMapping = 0x042F8C + slot * 2
   result.putWord(0x298E, 0x4000 + gold[tileMapping].int +
@@ -80,7 +84,7 @@ proc buildSpritePreview*(gold: seq[uint8], resourceId, direction, phase: int): S
   result.putWord(0x2E, 1)
   result.call("JSL $C088B1")
   result.putWord(0x1088, 0)
-  result.putWord(0x108C, DefinitionAddress)
+  result.putWord(0x108C, DefinitionPool + definitionOffset.int)
   result.putWord(0x108E, 0x7E)
   result.putWord(0x2916, count * 5)
   result.putWord(0x2BE6, (firstGroup shl 8) or (count - firstGroup))

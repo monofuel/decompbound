@@ -759,6 +759,42 @@ them before its three-row graphics upload. At slot 0, the upload starts at
 `$4100`, leaving the unused top row zero. This explains the transparent padding
 needed when combining its two sprite elements with the actual graphics.
 
+### Runtime definition storage
+
+Sprite definitions use a separate byte pool from the 88 VRAM tile slots.
+`$C01A86..1A9C` initializes exactly 896 bytes, `$7E467E..49FD`, to `$FF`.
+`$C01A9D..1B14` searches five-byte records for a run whose flag bytes (record
+offset 4) are `$FF`. The other four bytes do not determine availability.
+It takes requested bytes in A, stores that size at `$4A6A`, and returns a pool
+offset. It does **not** reserve or modify the selected records. The builder
+occupies the run by writing its two variants; the real spawn requests
+`layoutCount * 10` at `$C01EDD..1EE9` and subsequently builds them.
+
+The finder requires `start + size < 896`, strictly. No free candidate returns
+`$FF01`; a free candidate too near the end returns `$FF02`. Its scan can reach
+candidate offset 895 and inspect a flag beyond the initialized pool at `$4A01`
+(using a masked word read through `$4A02`). Tests explicitly reproduce the
+resulting dependency of the exhaustion code on adjacent bytes. These are
+original-code edge behaviors, not guarantees of safe oversized requests.
+
+`$C01B15..1B95` takes an absolute definition pointer and overwrites each visited
+five-byte record with `$FF`, counting bit 7 of the **old** flag. It stops after
+two terminating records, releasing both variants without a stored length.
+Its initial range check accepts `$467E..49FE` inclusive, including one byte past
+the initialized pool, and does not check alignment or bound the later walk.
+Use only a valid built allocation with intact terminators; this is not a safe
+general-purpose free operation on arbitrary pointers.
+
+`nim r tests/integration_sprite_definition_pool.nim` checks 160 synthetic
+search cases with 1–20 records per variant, occupied prefixes, fragmentation,
+exhaustion, and the adjacent-byte dependency. It verifies that searches leave
+the pool unchanged. Another 464 cases initialize, find space, build an actual
+resource's two variants, find the next free run, release the original allocation,
+and find that same space again, checking the entire pool and boundary guards.
+The local sprite preview uses this initializer/finder before building its
+definitions. These routines are researched and tested but not yet adopted as
+explained assembly in the manifest.
+
 ### Slot release and ownership transfer
 
 [`replaceSpriteSlotTags.asm`](../asm/replaceSpriteSlotTags.asm) reproduces the
@@ -782,8 +818,8 @@ possible input occupancy byte. It checks all output bytes, boundary guards,
 M/X16, X=88, Y=entry X, and preserved D/DBR/stack. Another 128 cases allocate,
 free one owner, reuse its hole, reset, and reserve the whole pool; 128 more
 execute the original spawn retag fragment against separated temporary runs and
-an unrelated owner. This does not yet verify full entity creation/destruction
-or the separate definition-buffer allocator.
+an unrelated owner. Full entity creation/destruction remains outside this test;
+the separate definition-buffer lifecycle is verified above.
 
 ### Baseline OBJ palette and interrupt upload
 
