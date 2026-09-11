@@ -96,6 +96,55 @@ was byte-identical before and after removal, and the song-start probe for songs
 the intentional song-3 case without package 1 still halted. This does not prove
 all 191 songs sound correct or that their sequences are fully decoded.
 
+## Verified SPC700 sequence fetch and dispatch
+
+Package 1 maps its large payload to APU `$0500`, so addresses in that block
+map back to ROM as `file = apuAddress + $25FB42`.
+
+| APU address | ROM file offset | Verified role |
+|---|---|---|
+| `$0955..095E` | `$260497..2604A0` | Advancing byte fetch through pointer `$30+X` |
+| `$08C0` | `$260402` | Compare an event/command byte with `$E0` |
+| `$0943` | `$260485` | Command handler dispatch and optional first-operand fetch |
+| `$0D10/$0D19` | `$260852/$26085B` | Separate lookahead reads through `$14+Y` |
+
+The advancing fetch returns the byte in A and Y, increments the pointer as a
+16-bit word (including `$FFFF` to zero), and preserves X and status except N/Z.
+X indexes the channel pointer pairs; the observed driver uses even offsets.
+The instruction helper also honors the SPC direct-page flag, though the traced
+song uses page zero.
+
+The main path starts fetching at `$0882`. Zero takes termination/repeat
+handling. A positive first byte becomes the field at `$0200+X`; optional
+following prefix metadata uses `$6F80/$6F88` to populate `$0201+X/$0210+X`.
+Bytes `$80..DF` reach the event path at `$08C9`; `$E0..FF` enter `$0943`.
+Thus the older hypothesis that bytes below `$80` directly encode note pitch is
+inconsistent with this execution path. Exact musical meanings still require
+following the prefix and event consumers.
+
+The command dispatcher doubles the byte with eight-bit wrap, reads a target
+word using bases `$0B23/$0B24`, and pushes it for RET-based dispatch. Metadata
+at `$0BC1 + (command & $7F)` determines whether it fetches the first operand.
+If it does, A/Y carry that operand and the channel cursor advances once;
+otherwise A/Y are zero and the cursor stays put. Individual handlers may read
+more operands. Testing dispatch does not establish total command widths or
+that every byte in `$E0..FF` denotes a valid command.
+
+`nim r tests/integration_spc_sequence_fetch.nim` loads the original driver code
+from the user's ROM and executes it with synthetic streams: 40,960 advancing
+fetch cases (all byte values, eight channel offsets, both direct pages, carry,
+and pointer boundaries), plus 2,560 dispatch cases stopping at handler entry.
+The latter check target addresses, optional fetches, register results, and stack
+balance without claiming to execute the handlers.
+
+`nim r src/probes/probe_spc_sequence_fetch.nim` reproduces the two-second song-3
+investigation. It emits only read-site and dispatch metadata, not payload dumps.
+The trace observes `$0955` reading sequence addresses and dispatches to twelve
+command IDs, including `$E0->$095F`, `$E1->$09B8`, `$ED->$0A86`, and `$EF->$0AAC`.
+Instrument-area reads occur at `$0986/$099D/$09AC/$09B2` into `$6E30..6E4D`.
+The `$0D10/$0D19` path scans ahead and skips command operands using metadata;
+those reads do not themselves advance the channel pointer at `$30+X`.
+
 ## Uploaded data and the next research boundary
 
 Package 5 at file `$2B520C` contains blocks targeting APU `$6C00`, `$7000`, and
@@ -108,11 +157,10 @@ package payloads, with `$4800/$5000/$6000` overlays in some combinations. Exact
 instrument fields and driver consumers still need traced evidence. Package 4
 at file `$1FEC46`, targeting `$4800`, is an existing sequence-table candidate.
 
-Older opcode guesses based on byte frequency are unverified: note/duration
-splitting, instrument/volume/pan commands, calls, and loops require the actual
-SPC700 dispatch path. Next work should locate that dispatcher in the uploaded
-package-1 image, trace a known song's reads and DSP writes, and derive operand
-widths and state changes. Preserve source offsets and package-to-APU mappings.
+The dispatcher is now located and tested, but command meanings remain open.
+Next work should follow the observed `$095F` and `$09B8` handlers into their
+state and DSP writes, derive all operand widths, and explain prefix/event
+consumers. Preserve source offsets and package-to-APU mappings.
 
 All ROM payloads, extracted sequences, BRR samples, WAVs, and APU snapshots remain
 local and untracked. Commit our format descriptions, tools, annotated code, and
