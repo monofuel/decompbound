@@ -167,13 +167,13 @@ number, the record has these consumers:
 | 1 | Voice DSP register `voice * $10 + 5` (ADSR1) |
 | 2 | Voice DSP register `voice * $10 + 6` (ADSR2) |
 | 3 | Voice DSP register `voice * $10 + 7` (GAIN) |
-| 4 | Channel byte `$0221+X` |
-| 5 | Channel byte `$0220+X` |
+| 4 | Pitch multiplier high byte at `$0221+X` |
+| 5 | Pitch multiplier low byte at `$0220+X` |
 
 The write loop at `$099D..09A9` writes register select `$F2` then data `$F3`
 for each of the four registers. Their roles agree with the sample-directory
 and envelope consumers in our DSP implementation. The final two bytes are
-copied at `$09AC..09B6`; their musical interpretation remains unverified.
+copied at `$09AC..09B6`; their pitch consumer is verified below.
 
 When record byte 0 has bit 7 set, `$098A..0996` updates scratch/state
 `$48 = ($48 & $20) | (byte0 & $1F)` and `$49 |= $47`, and writes zero to
@@ -188,6 +188,31 @@ exact ordered eight port writes, final channel fields, index wraparound,
 cursor advancement and stack balance. The complete test file now runs 84,480
 cases. This proves the handler contract, not correctness of all uploaded
 instrument data or audible playback.
+
+### Instrument pitch multiplier
+
+APU `$070E..0732` (file `$260250..260274`) consumes the word at `$0220+X`
+as an unsigned 8.8 pitch multiplier. Consequently, record bytes 4/5 are stored
+high-byte first in the six-byte instrument record. Given input pitch P in
+scratch `$14/$15` and multiplier M, the four byte multiplications and additions
+produce scratch `$16/$17 = ((P * M) >> 8) & $FFFF`. A multiplier of `$0100`
+is unity. Intermediate overflow wraps; this routine does not clamp pitch.
+
+At `$0733..074F` (file `$260275..260291`), the driver selects voice registers
+`voice * $10 + 2` and `+3` and writes the low and high result bytes through
+`$F2/$F3`. The helper at `$0741` suppresses each write when `$47 & $1A` is
+nonzero, while the arithmetic still completes. Our DSP pitch consumer uses
+only the low 14 bits of these registers. Thus full 16-bit port output and the
+pitch subsequently consumed by the DSP are distinct values.
+
+`nim r tests/integration_spc_pitch_scale.nim` executes original instructions
+from `$070E` with synthetic pitch/multiplier words and a normal direct-page-zero
+contract. It verifies all 65,536 pitches against seven multipliers, plus twelve
+boundary values for both words across eight voices and both write-guard states:
+461,056 cases, checking the product, ordered port writes, X preservation, and
+stack balance. It does not verify the preceding pitch-table interpolation.
+The two-second song-3 probe independently checks 655 observed multiplications
+against the same mathematical formula during driver playback.
 
 ### Command E1: verified channel-state assignment
 

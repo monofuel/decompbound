@@ -52,6 +52,9 @@ proc main() =
     sites: Table[int, ReadSite]
     commands: Table[int, int]
     voices: set[uint8]
+    scaledPitch: uint32
+    pitchPending = false
+    pitchChecks = 0
   for sample in 0 ..< SampleRate * 2:
     let start = machine.spc.cycles
     while machine.spc.cycles - start < CyclesPerSample:
@@ -59,6 +62,19 @@ proc main() =
       let
         pc = machine.spc.pc.int
         opcode = machine.spc.ram[pc]
+      if pc == 0x070E:
+        let
+          channel = machine.spc.x.int
+          pitch = machine.spc.ram[0x14].uint32 or (machine.spc.ram[0x15].uint32 shl 8)
+          factor = machine.spc.ram[0x220 + channel].uint32 or
+            (machine.spc.ram[0x221 + channel].uint32 shl 8)
+        scaledPitch = ((pitch * factor) shr 8) and 65535
+        pitchPending = true
+      if pc == 0x0733:
+        doAssert pitchPending
+        doAssert (machine.spc.ram[0x16].uint32 or (machine.spc.ram[0x17].uint32 shl 8)) == scaledPitch
+        pitchPending = false
+        inc pitchChecks
       if pc == 0x0943:
         let command = machine.spc.a.int
         commands[command] = commands.getOrDefault(command) + 1
@@ -98,6 +114,8 @@ proc main() =
       handler = machine.spc.ram[entry].int or (machine.spc.ram[entry + 1].int shl 8)
     echo "command=$", command.toHex(2), " count=", commands[command], " handler=$", handler.toHex(4)
   echo "dispatch X offsets: ", voices
+  doAssert pitchChecks > 0
+  echo "verified pitch multiplications: ", pitchChecks
 
 when isMainModule:
   main()
