@@ -145,6 +145,50 @@ Instrument-area reads occur at `$0986/$099D/$09AC/$09B2` into `$6E30..6E4D`.
 The `$0D10/$0D19` path scans ahead and skips command operands using metadata;
 those reads do not themselves advance the channel pointer at `$30+X`.
 
+### Command E0: six-byte instrument records
+
+The handler at APU `$095F..09B7` (file `$2604A1..2604F9`) consumes one
+operand through dispatch and stores it at `$0211+X`. Operands below `$80`
+select a record directly. High-bit operands instead select
+`(operand - $CA + ram[$5F]) & $FF`. Multiplication at `$096D` and pointer
+construction at `$096E..0975` produce `$6E00 + 6 * index`; the driver does
+not validate whether that record is present in the uploaded package.
+This contract uses direct page zero, as observed during playback; the scratch
+addresses honor the SPC direct-page flag, while `$F2/$F3` writes are absolute.
+
+If `ram[$1A] & ram[$47]` is nonzero, the branch at `$097A` returns without
+reading the record or changing DSP/channel parameters. The operand store and
+record-pointer calculation still happen. Otherwise, for X = twice the voice
+number, the record has these consumers:
+
+| Byte | Consumer |
+|---|---|
+| 0 | Voice DSP register `voice * $10 + 4` (sample number), with special high-bit handling below |
+| 1 | Voice DSP register `voice * $10 + 5` (ADSR1) |
+| 2 | Voice DSP register `voice * $10 + 6` (ADSR2) |
+| 3 | Voice DSP register `voice * $10 + 7` (GAIN) |
+| 4 | Channel byte `$0221+X` |
+| 5 | Channel byte `$0220+X` |
+
+The write loop at `$099D..09A9` writes register select `$F2` then data `$F3`
+for each of the four registers. Their roles agree with the sample-directory
+and envelope consumers in our DSP implementation. The final two bytes are
+copied at `$09AC..09B6`; their musical interpretation remains unverified.
+
+When record byte 0 has bit 7 set, `$098A..0996` updates scratch/state
+`$48 = ($48 & $20) | (byte0 & $1F)` and `$49 |= $47`, and writes zero to
+the sample-number register. Otherwise `$0999` clears the `$47` bits in `$49`
+and preserves `$48`. The later consumers of these global fields still need
+tracing before assigning them stronger semantic names.
+
+The integration test executes 24,576 E0 cases through original dispatch and
+handler code: every operand, eight voices, three remapping bases, both guard
+outcomes, and both high-bit record branches. Synthetic records exercise the
+exact ordered eight port writes, final channel fields, index wraparound,
+cursor advancement and stack balance. The complete test file now runs 84,480
+cases. This proves the handler contract, not correctness of all uploaded
+instrument data or audible playback.
+
 ### Command E1: verified channel-state assignment
 
 The handler at APU `$09B8..09D5` (file `$2604FA..260517`) consumes exactly
@@ -170,7 +214,7 @@ dispatch: eight channel offsets, all 256 operands, four override values
 (`0`, `1`, `128`, `255`), and two cursor boundaries. It checks return-stack
 balance, one-byte cursor advancement, scratch preservation, all three fields,
 and unchanged neighboring channel fields. Together with the fetch/dispatch
-sweeps, the file executes 59,904 cases.
+sweeps, these sweeps execute 59,904 cases before the E0 checks.
 
 ## Uploaded data and the next research boundary
 
