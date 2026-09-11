@@ -74,8 +74,9 @@ ranges are resource 0–463, direction 0–7, and phase 0–1. Output is
 `extracted/view/sprites/437-0-0.png`, always under the ignored extraction tree.
 These images contain game graphics and must remain local.
 
-The preview executes the original allocation/header reader, definition builder,
-frame upload, baseline palette copy, priority callback, OAM publication, and
+The preview executes the original full spawn wrapper (including both allocators,
+the definition builder and entity/script-state creation), frame upload,
+baseline palette copy, priority callback, OAM publication, and
 interrupt DMA fragments in an isolated emulator. It uses OBSEL `$62`, full
 brightness, no scene effects, and origin (128,112). This produces a normal
 overworld-resource preview, not a captured scene or a battle-enemy browser.
@@ -709,6 +710,45 @@ Screen rendering remains open. Next: combine the allocation clearing verified
 below with the baseline
 OBJ palette verified below with this upload and the verified definitions to
 render a representative sprite faithfully.
+
+### Complete sprite spawn wrapper
+
+`$C01E49..20F0` joins the resource and entity paths. Native entry requires
+M16/X16, decimal clear, DBR `$7E`, resource ID in A, script selector in X,
+owner request in Y, and X/Y coordinates at caller DP+$0E/+$10. It moves D
+down `$31` for private scratch, with nested calls using additional space below
+that. On the tested success paths it preserves caller D/DBR/stack and returns
+the entity ID in A. Scratch must be separate from the entity arrays.
+
+Owner `$FFFF` reserves temporary tile tags and asks the entity constructor for
+an available ID in 0–21, then retags the tiles with the selected ID. A specific
+owner requests that exact entity ID. The wrapper allocates tile slots, locates
+definition storage, builds both variants, creates the entity and attaches the
+separate action script, then initializes its resource fields. It sets queue
+group 1 and inherits the other constructor template words.
+
+The resulting fields include definition pointer/bank `$112E/$116A`, variant
+stride `$2916`, tile slot `$2952`, upload destination `$298E`, entry-list pointer
+`$29CA/$2A06`, graphics bank `$2A42`, chunk size/count `$2A7E/$2ABA`, resource ID
+`$2CD6`, layout ID `$2B6E`, and the two priority-group counts `$2BE6/$2BE7`.
+Resource bytes 4–7 populate `$3366/$33A2/$33DE/$1A4A`; their meanings remain
+open. `$332A` receives the layout-indexed word from `$C42AEB`.
+
+`nim r tests/integration_sprite_spawn.nim` runs the entire wrapper in 2,784
+cases: all 464 resources, automatic/explicit owners (`$FFFF`,5,29), and script
+selectors 0/7. Original initialization establishes fresh entity/state lists,
+definition storage, and tile tags. The tests check both built variants, all tile
+tags, allocation clearing across the entire VRAM array, entity/script linkage,
+coordinates, resource-derived fields, and reset fields. DMA is immediate under
+the forced-blank shadow; queued allocation is covered by the allocator tests.
+
+This is a success-path contract with sufficient resources. Disassembly shows
+tile/definition failures spinning at `$C01EB5/$C01EEF`; the constructor's
+failure carry is not checked before later entity fields are written. Do not
+interpret the wrapper as returning a safe failure result. It does not upload a
+graphics frame or execute the attached script. It also leaves fields such as
+`$341A` for later upload/update routines. The local preview uses this whole
+wrapper on fresh state, then explicitly selects its frame and publishes graphics.
 
 ### Sprite allocation and clearing
 

@@ -168,8 +168,8 @@ empty/existing active lists. It verifies free-list removal, active-list append,
 template/coordinate/default fields, and the pointer read from the user's ROM.
 Three failure cases cover exhausted entity/state lists and no eligible ID,
 checking preservation of list/record memory. This does not inventory all script
-selectors, execute scripts, or yet cover the complete graphics spawn wrapper
-`$C01E49`; sprite resource setup is detailed in [graphics.md](graphics.md).
+selectors or execute scripts. The complete graphics spawn wrapper `$C01E49`
+has a separate integration check described in [graphics.md](graphics.md).
 
 ### Entity action-script VM — opcode mapping (dig 2026-07-21)
 
