@@ -66,6 +66,32 @@ proc checkFrame(snes: SnesBus, entity, state, frame, delay: int) =
   doAssert snes.word(0x13FE + state * 2) == 0x4006
   doAssert snes.word(0x1372 + state * 2) == 0
 
+proc checkWait(snes: SnesBus, state, delay: int) =
+  ## Verify every unsigned wait operand through countdown and the following command.
+  let stream = [WaitOpcode, delay.uint8, (FrameWithWait or 1).uint8, 7'u8]
+  for index, value in stream:
+    snes.bus.write8(Script + index.uint32, value)
+  snes.putWord(0x280, 0)
+  snes.putWord(0x288, 0)
+  snes.putWord(0x28A, state * 2)
+  snes.putWord(0x13FE + state * 2, 0x4000)
+  snes.putWord(0x148A + state * 2, 0x7F)
+  snes.putWord(0x1372 + state * 2, 0)
+  snes.putWord(0x10F2, 0x1234)
+  snes.tick()
+  if delay != 0:
+    doAssert snes.word(0x13FE + state * 2) == 0x4002
+    doAssert snes.word(0x1372 + state * 2) == delay - 1
+    doAssert snes.word(0x10F2) == 0x1234
+    for remaining in countdown(delay - 2, 0):
+      snes.tick()
+      doAssert snes.word(0x1372 + state * 2) == remaining
+      doAssert snes.word(0x13FE + state * 2) == 0x4002
+    snes.tick()
+  doAssert snes.word(0x10F2) == 7
+  doAssert snes.word(0x13FE + state * 2) == 0x4004
+  doAssert snes.word(0x1372 + state * 2) == 0
+
 proc checkPublishedFrame(snes: SnesBus, gold: seq[uint8], entity: int) =
   ## Follow script-installed callbacks through original OAM publication.
   let
@@ -156,8 +182,14 @@ proc main() =
     code = assembleAsm(".a16\n.i16\nJSR $9506\n", Caller)
   doAssert actionScriptFetch().len == 82
   doAssert actionScriptFetch() == gold[ActionScriptFetchOffset ..< ActionScriptFetchOffset + 82]
+  for entry in [("actionScriptWait", 0x96C3, 0x96CF),
+      ("actionScriptSetFrame", 0x96CF, 0x96E3)]:
+    doAssert assembleAdoptedFile(entry[0], entry[1]) == gold[entry[1] ..< entry[2]]
   for index, value in code:
     snes.bus.write8(Caller + index.uint32, value)
+  for state in [0, 3, 69]:
+    for delay in 0 .. 255:
+      snes.checkWait(state, delay)
   for entity in [0, 5, 29]:
     for state in [0, 3, 69]:
       snes.checkOriginalLoop(gold, entity, state)

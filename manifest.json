@@ -345,9 +345,39 @@
     {
       "name": "blob_0095F2",
       "offset": 38386,
-      "length": 2858,
+      "length": 209,
       "kind": "blob",
       "source": "blobs/blob_0095F2.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "actionScriptWait",
+      "offset": 38595,
+      "length": 12,
+      "kind": "code",
+      "source": "asm/actionScriptWait.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md Verified frame selection and tick timing; tests/integration_action_script_fetch.nim checks original bytes and interpreter execution"
+    },
+    {
+      "name": "actionScriptSetFrame",
+      "offset": 38607,
+      "length": 20,
+      "kind": "code",
+      "source": "asm/actionScriptSetFrame.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md Verified frame selection and tick timing; tests/integration_action_script_fetch.nim checks original bytes and interpreter execution"
+    },
+    {
+      "name": "blob_0096E3",
+      "offset": 38627,
+      "length": 2617,
+      "kind": "blob",
+      "source": "blobs/blob_0096E3.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"

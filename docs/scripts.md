@@ -308,6 +308,11 @@ chosen state slots including slot 69. It runs through countdown and the next
 frame change, checking unrelated entities stay untouched. DP `$84` is verified
 as `$15A2 + stateId * 16`, not an eight-byte row per entity. This establishes
 frame-selection timing, not movement, scene scheduling, or rendered animation.
+An additional 768 cases exercise every unsigned `$06` wait operand across three
+state slots, including zero continuing immediately and 255 counting down fully.
+The wait and frame operand handlers are reproduced from
+`asm/actionScriptWait.asm` (12 bytes) and `asm/actionScriptSetFrame.asm` (20 bytes),
+with direct byte comparisons in the same test and whole-ROM rebuild gating.
 
 #### Original selector-zero graphics loop
 

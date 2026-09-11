@@ -17,20 +17,20 @@ research stays in the existing topic docs; no separate ideas notebook is needed.
 
 ## Goals and current baseline
 
-Baseline checked on 2026-09-10, after adopting the service-suppression setters and verified OAM routines on
+Baseline checked on 2026-09-10, after adopting the verified sprite-storage and action-script handlers on
 `decomp/rng-contract-2026-09-10`. Earlier unfinished work remains preserved on
 `review/pending-2026-09-10`.
 
 | Goal | Outcome | Current state |
 |---|---|---|
 | **1. Rebuild identically** | Reconstruct every original byte from our source and the user's local extraction. | **Met; maintain.** `make compare` printed `BYTE-IDENTICAL`. |
-| **2. Understand all code** | Explain every game routine, its contracts, and its role in the larger system. | **Early.** 47 assembly regions, 3,573 bytes, formally marked explained and reproduced. Additional research lives outside that inventory. |
+| **2. Understand all code** | Explain every game routine, its contracts, and its role in the larger system. | **Early.** 49 assembly regions, 3,605 bytes, formally marked explained and reproduced. Additional research lives outside that inventory. |
 | **3. Understand scripting** | Explain the script languages, their interpreters, and how scripts cause game behavior. | **Partial.** Text decoding and entity action-script machinery exist; complete semantics and a whole-ROM script inventory remain open. |
 | **4. Understand graphics** | Explain and browse the game's graphics, including the assembled world map. | **Partial.** Rendering/compression tools exist; a complete asset catalog and faithful browse-all viewer do not. |
 | **5. Understand audio** | Explain the sound driver, music, effects, instruments, and playback behavior. | **Partial.** Emulator playback and annotated upload/song-selection routines exist; full driver and content interpretation remain open. |
 
-The manifest currently covers 3,145,728 bytes in 70 regions. Of those bytes,
-3,573 (0.1136%) are `reproduce` / `explained`; 3,142,155 are `copy` / `unknown`.
+The manifest currently covers 3,145,728 bytes in 73 regions. Of those bytes,
+3,605 (0.1146%) are `reproduce` / `explained`; 3,142,123 are `copy` / `unknown`.
 This denominator is the **whole ROM**, including data and assets, not executable
 code alone. It is not a percentage of functions understood. Recompute from
 [manifest.json](manifest.json) when updating this baseline.
