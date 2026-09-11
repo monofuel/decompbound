@@ -115,6 +115,62 @@ action-script table. Pinning meanings wants the live interpreter hook
   blocks at `0x45B67`, `0x63040`, and the `~0x8BCxx` cluster). A top-level master
   dialogue-ID table wasn't isolated — that needs the dynamic hook.
 
+### Creating an entity and attaching an action script
+
+The complete constructor at `$C09321` takes a script selector in A and initial
+X/Y coordinates in X/Y, with native M16/X16, decimal clear, and DBR `$7E`.
+`$0A4C` is an inclusive lower entity-ID bound and `$0A4E` an exclusive upper
+bound. The constructor doubles both bounds **in place** before searching;
+callers must re-establish ID units before another call.
+
+There are separate entity and script-state free lists. Initialization at
+`$C09282..92BD` establishes 30 entity slots and 70 script-state slots.
+List values are byte offsets (twice the slot index), with `$FFFF` terminators:
+
+| Field | Role |
+|---|---|
+| `$0A50` | Active entity-list head |
+| `$0A52` | Free entity-list head |
+| `$0A9E + entityOffset` | Next entity link, shared by active/free lists |
+| `$0A54` | Free script-state-list head |
+| `$125A + stateOffset` | Next script-state link |
+| `$0ADA + entityOffset` | Entity's attached script-state offset |
+
+`$C09C02` removes the first free entity within the requested bounds, after
+checking that a script-state slot is available. `$C09D03` removes that state
+slot; `$C09C57` appends the entity to the active list. Existing list links must
+be valid and terminate; this is not a corruption-resistant allocator.
+
+The constructor copies eight template words `$0A38..0A46` into the entity's
+`$0E5E..1002` arrays, plus `$0A48` into `$0C06` and `$0A4A` into the queue-group
+field `$103E`. Coordinates populate both `$0B8E/$0BCA` and `$0B16/$0B52`.
+It installs default callbacks `$9FC8`, `$A023`, and `$A3A4` at `$121E`, `$11A6`,
+and `$11E2`, initializes three `$0C42/$0C7E/$0CBA` words to `$8000`, and resets
+the action/animation fields checked by the integration test. Detailed meanings
+of the eight template words remain open.
+
+At `$C093CB`, the selector is saved in `$0A62 + entityOffset` and indexes the
+three-byte pointer table at `$C400D4`. The attached state receives its pointer
+word at `$13FE + stateOffset` and bank word at `$148A + stateOffset`, with the
+bank's high byte zero. `$1372` and `$12E6` for that state are cleared. The entity
+frame field `$10F2` starts at `$FFFF`; the graphics dispatcher rejects that
+negative value until the frame field is updated.
+
+Success returns the raw entity ID with carry clear. Failure returns A=0 with
+carry set, without consuming either list. **Entity ID 0 is also a valid success**;
+testing A alone loses that distinction. The range globals are doubled even on
+failure. The constructor installs a script; it does not execute its bytecode.
+
+`nim r tests/integration_entity_create.nim` executes the whole constructor in
+2,880 success cases: all 30 entity IDs, three script-state positions including
+the last, eight script selectors (0,1,2,3,7,15,23,31), two coordinate pairs, and
+empty/existing active lists. It verifies free-list removal, active-list append,
+template/coordinate/default fields, and the pointer read from the user's ROM.
+Three failure cases cover exhausted entity/state lists and no eligible ID,
+checking preservation of list/record memory. This does not inventory all script
+selectors, execute scripts, or yet cover the complete graphics spawn wrapper
+`$C01E49`; sprite resource setup is detailed in [graphics.md](graphics.md).
+
 ### Entity action-script VM — opcode mapping (dig 2026-07-21)
 
 There are **two** interpreters, and they are NOT the same VM:
