@@ -33,11 +33,21 @@
       "evidence": "docs/graphics.md Sprite allocation and clearing; tests/integration_sprite_allocation.nim verifies original bytes, all supported counts, occupancy boundaries, and original callers"
     },
     {
-      "name": "blob_001C11",
+      "name": "replaceSpriteSlotTags",
       "offset": 7185,
-      "length": 295,
+      "length": 65,
+      "kind": "code",
+      "source": "asm/replaceSpriteSlotTags.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md Slot release and ownership transfer; tests/integration_sprite_slot_tags.nim checks original bytes, tag selection, allocation reuse, and the spawn retag fragment"
+    },
+    {
+      "name": "blob_001C52",
+      "offset": 7250,
+      "length": 230,
       "kind": "blob",
-      "source": "blobs/blob_001C11.bin",
+      "source": "blobs/blob_001C52.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"

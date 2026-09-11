@@ -759,6 +759,32 @@ them before its three-row graphics upload. At slot 0, the upload starts at
 `$4100`, leaving the unused top row zero. This explains the transparent padding
 needed when combining its two sprite elements with the actual graphics.
 
+### Slot release and ownership transfer
+
+[`replaceSpriteSlotTags.asm`](../asm/replaceSpriteSlotTags.asm) reproduces the
+65-byte routine at `$C01C11..1C51`. It visits all 88 occupancy bytes. A selects
+the tag `(A.lowByte | $80)`, except exactly `$8000` selects every slot, including
+already-free slots. X supplies the replacement low byte verbatim. Zero frees
+the selected slots; nonzero replacements need not have bit 7 set. This updates
+ownership only and does not erase the graphics in VRAM.
+
+The spawn fragment `$C01F61..1F6B` takes a newly allocated entity ID in A,
+forms `ID | $80` as the replacement, and selects `$FFFF` to retag temporary
+`$FF` reservations. The free path at `$C02109..210E` passes X=0 and the entity
+ID saved from `$1A42`; it follows a separate runtime-definition-buffer release.
+The reset at `$C0B541..B54A` passes A=`$8000`, X=0. These callers establish why
+one routine supports retagging, freeing, and resetting rather than just release.
+
+`nim r tests/integration_sprite_slot_tags.nim` checks the assembled bytes and
+23,040 replacement cases: all selector low bytes with five high bytes (including
+the exact wildcard), six replacement words, and three patterns covering every
+possible input occupancy byte. It checks all output bytes, boundary guards,
+M/X16, X=88, Y=entry X, and preserved D/DBR/stack. Another 128 cases allocate,
+free one owner, reuse its hole, reset, and reserve the whole pool; 128 more
+execute the original spawn retag fragment against separated temporary runs and
+an unrelated owner. This does not yet verify full entity creation/destruction
+or the separate definition-buffer allocator.
+
 ### Baseline OBJ palette and interrupt upload
 
 The original fragment `$C0B55B..B56E` sets the caller's long source pointer
