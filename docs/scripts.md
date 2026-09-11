@@ -195,6 +195,30 @@ script cursor/wait, freed pools, and respawn. The 1,392 scripted cases cover all
 464 resources with automatic/entity5/entity29 allocation. Scene execution and
 multi-node script-state chains remain unverified by this sequence.
 
+### Entity removal and script-state chain return
+
+`$C09C35` takes an entity ID; `$C09C3B` takes its doubled offset in X.
+With native 16-bit registers, decimal clear, and WRAM DBR, an active entity
+is marked inactive and its callback becomes `$C0943B`. The routine unlinks
+it from the active list and prepends it to the free-entity list. `$0A56`
+holds the saved next entity during traversal: removing that entity replaces
+it with its original successor; removing another entity leaves it unchanged.
+
+`$C09C99..9CB4` returns the entire chain rooted at `$0ADA + entityOffset`.
+It preserves internal links and connects the last node to the old free-state
+head, then installs the returned chain as the new free head. A negative chain
+head does nothing. The entity's old chain pointer remains stale until reuse.
+A negative script ID at `$0A62 + entityOffset` makes repeated removal a no-op.
+An active entity must occur in the active list, and both lists must be acyclic;
+these routines do not validate malformed links or impose traversal bounds.
+
+Run `nim r tests/integration_entity_remove.nim` with the local ROM. Its 17,040
+synthetic cases cover all 30 entity IDs, singleton/head/middle/tail removal,
+chain lengths 0–70, and matching/unrelated saved-next offsets. It checks the
+remaining active and free links, returned state-chain order, callback reset,
+and unchanged list/record memory on a second removal. This verifies the removal
+helper directly; it does not prove how script calls construct nested chains.
+
 ### Entity action-script VM — opcode mapping (dig 2026-07-21)
 
 There are **two** interpreters, and they are NOT the same VM:
