@@ -1,7 +1,9 @@
 # Graphics data format (decomp track)
 
-**Status:** NOT STARTED (was a stub). A data-decompilation track — see the hub,
-`docs/decompilation.md`.
+**Status:** Partial. Overworld sprite allocation, definitions, uploads, and the
+baseline palette have executable evidence and a local preview. Complete asset
+identification, scene-dependent palettes, maps, and other graphics classes
+remain open. See [GOAL.md](../GOAL.md) for completion criteria.
 
 Reverse-engineer how EarthBound stores its **visual assets** in the ROM: the
 tiles, palettes, sprites, backgrounds, font, and window graphics — including
@@ -51,8 +53,7 @@ output can also be pixel-compared against an emulator frame as a secondary check
 
 ## Findings so far (verified)
 
-The sprite *output path* is mapped (the actual OBJ CHR + definition tables are
-still open):
+The sprite output path and normal overworld resource path are mapped below:
 - **OAM DMA:** the NMI handler at SNES `$C08196` (file `0x8196`) DMAs the 544-byte
   OAM table (128 sprites × 4 + the 32-byte high table) from a WRAM buffer at
   `$000500` / `$000800` (double-buffered, selected by `$2C`) to the OAM data port
@@ -60,10 +61,35 @@ still open):
 - **Entity/sprite update loop:** `$C09470` walks the entity linked list (`$0A50`
   head) and drives each entity via the `$C09558` action-script engine — the same
   script dispatch as events/doors (`docs/scripts.md`). Animation is script-driven.
-- **Still open (the graphics themselves):** the sprite-definition table (ID → CHR
-  + palette + size + frame layout) and OBJ CHR locations. The entity-to-OAM
-  table callback, queue/emitter, and publication path are explained below;
-  linking their definitions to the complete asset inventory remains open.
+- **Resource coverage:** 464 resource-table entries link to layout definitions
+  and CHR sources. Normal frame selection and baseline palette publication are
+  verified below. Identity labels, scene overrides, and a complete inventory of
+  other graphics classes remain open.
+
+### Local overworld sprite preview
+
+Run `nim r src/tools/sprite_preview.nim 437 0 0` for resource ID 437,
+direction selector 0, phase 0. The arguments default to those values; accepted
+ranges are resource 0–463, direction 0–7, and phase 0–1. Output is
+`extracted/view/sprites/437-0-0.png`, always under the ignored extraction tree.
+These images contain game graphics and must remain local.
+
+The preview executes the original allocation/header reader, definition builder,
+frame upload, baseline palette copy, priority callback, OAM publication, and
+interrupt DMA fragments in an isolated emulator. It uses OBSEL `$62`, full
+brightness, no scene effects, and origin (128,112). This produces a normal
+overworld-resource preview, not a captured scene or a battle-enemy browser.
+The palette is the baseline at `$C30000`; scene overrides remain outside its
+contract. No game assets are embedded in the tool.
+
+`tests/integration_sprite_preview.nim` compares OAM attributes/positions and
+rendered pixels against a separate model reading the ROM's selected layout,
+decoding uploaded planar tiles, and reading baseline palette colors. It covers
+all 464 resources at selector/phase 0 plus the other 15 combinations for 19
+representative resources (749 cases). This composition check complements the
+independent allocation, upload, and palette tests; both pixel paths still share
+our emulator's VRAM. Visual comparison against game execution remains in
+[human verification](human-verify.md).
 
 ### Compression — CRACKED (verified byte-exact)
 

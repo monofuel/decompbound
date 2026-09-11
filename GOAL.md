@@ -146,9 +146,10 @@ tilesets, palettes, and the world map with its rooms and arrangements.
 - [ ] Document the encoding of every class. Claim byte-exact re-encoding only
   where comparison with the original compressed representation proves it.
 
-The current sprite and map tools export PNGs from manually selected offsets and
-use synthetic palettes. Those are investigation tools, not complete asset
-browsers. Likewise, `decode(encode(raw)) == raw` proves decoded-content fidelity;
+The overworld `sprite_preview` tool renders resource IDs using verified layouts,
+uploads, and the baseline ROM palette. Scene palettes and identity labels remain
+open. Older sprite/map exporters use selected offsets and synthetic palettes;
+none is a complete asset browser. Likewise, `decode(encode(raw)) == raw` proves decoded-content fidelity;
 it does not establish that an encoder recreates the original compressed bytes.
 Keep the original-byte rebuild path until that stronger claim is verified.
 

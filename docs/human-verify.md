@@ -37,6 +37,14 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 ## OPEN — please check
 
+- [ ] **Baseline overworld sprite preview**
+  - **Run:** `nim r src/tools/sprite_preview.nim 437 0 0`; open
+    `extracted/view/sprites/437-0-0.png`. Repeat with phase 1 and direction 2.
+  - **Pass if:** Compare with Ness in ordinary overworld play: colors, tile
+    assembly, facing, and walking-frame shape match without stray tile rows.
+    This uses the baseline palette; scene lighting and special effects are
+    outside the check. Keep generated images local.
+
 - [ ] **Lilliput cave mouth: black column** · 2026-08-18 · `master`
   - **Run:** drag-drop `earthbound_20260818-005541.png` (or `005543` /
     `005556`, or July `20260707-014807` / `014825` / `014835`) onto
