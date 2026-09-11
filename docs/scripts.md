@@ -330,6 +330,33 @@ coordinates, tile/attribute bytes, packed size bits, and the next hidden slot.
 Scene scheduling, rendered pixels, and deferred DMA remain outside this example.
 The temporary trace probe was replaced by this reproducible integration check.
 
+#### Original alternating sprite loop
+
+Selectors 10 and 11 point to `$C3A2D3`. With a fully constructed sprite,
+this path alternates frame and upload phase zero/one at sixteen-tick intervals.
+The transition to frame one is a script frame assignment followed by the
+phase-one native uploader `$C0A4B2`. The transition back is partly native:
+`$C40015..40022` clears the entity frame, calls phase-zero uploader `$C0A4A8`,
+and returns `$C0C6B6`'s result to the script-state work register for the loop
+condition. Ignoring native frame writes gives the wrong animation semantics.
+
+The upload wrappers use `$C0C711`, a layout/coordinate bounds predicate, before
+transferring graphics. The repeat predicate `$C0C6B6` separately reads `$9F47`,
+`$9877/$987B`, and entity target coordinates. Initial setup also runs `$C0C7DB`,
+which derives `$2BAA` through `$C05F33`. Those dependencies are not bypassed in
+the integration check; their complete scene semantics remain open.
+
+Run `nim r tests/integration_sprite_animation.nim`. It constructs resource 437
+at `(128,112)` using the original full-spawn wrapper, attaches selector 10 or 11,
+and executes 66 original interpreter ticks. All eight directions and entity
+IDs 0/5/29 are covered: 48 cases, 3,168 ticks. Tests verify frame/phase timing,
+wait/cursor state, selected source entries, DMA counts, and the entire VRAM image
+against source bytes read from the user's ROM. The fixture uses fresh synthetic
+machine state and immediate DMA; it does not execute the full scene scheduler,
+position callbacks, or rendering. Both phases upload three 64-byte rows into
+the sprite's allocated storage. No original script or graphics bytes are stored
+in the test. The exploratory probe was replaced by this integration check.
+
 #### Operand widths (handler disasm, ✅ static)
 
 Verified from gold-gated `code_bank00` disasm of the dispatch targets (M/X=16).
