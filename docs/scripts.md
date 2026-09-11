@@ -213,7 +213,9 @@ and wait effects. Three further cases remove the current, next, or last entity
 from a first-pass native callback and verify resumed traversal and returned
 storage. Empty-list and two locked-entry cases are also checked (518 total).
 These tests establish scheduling mechanics, not the gameplay effects of the
-installed production callbacks or safety of second-pass mutation.
+installed production callbacks or safety of second-pass mutation. The 160-byte
+scheduler region is reproduced from `asm/scheduleEntities.asm` and directly
+byte-checked in the scheduler test.
 
 ### A verified script-driven removal sequence
 
@@ -402,11 +404,14 @@ the integration check; their complete scene semantics remain open.
 Run `nim r tests/integration_sprite_animation.nim`. It constructs resource 437
 at `(128,112)` using the original full-spawn wrapper, attaches selector 10 or 11,
 and executes 66 original interpreter ticks. All eight directions and entity
-IDs 0/5/29 are covered: 48 cases, 3,168 ticks. Tests verify frame/phase timing,
+IDs 0/5/29 are covered, both directly and through the full scheduler: 96 cases,
+6,336 ticks. Tests verify frame/phase timing,
 wait/cursor state, selected source entries, DMA counts, and the entire VRAM image
 against source bytes read from the user's ROM. The fixture uses fresh synthetic
-machine state and immediate DMA; it does not execute the full scene scheduler,
-position callbacks, or rendering. Both phases upload three 64-byte rows into
+machine state and immediate DMA. Scheduled cases invoke the actual installed
+entity callbacks, verify position results and lock/stack/D restoration, and use
+`$C0927F` to initialize the global post-pass callback to the original `$9FF0`
+return entry. They do not execute the surrounding scene loop or rendering. Both phases upload three 64-byte rows into
 the sprite's allocated storage. No original script or graphics bytes are stored
 in the test. The exploratory probe was replaced by this integration check.
 

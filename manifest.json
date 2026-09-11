@@ -315,12 +315,22 @@
     {
       "name": "blob_009086",
       "offset": 36998,
-      "length": 1152,
+      "length": 992,
       "kind": "blob",
       "source": "blobs/blob_009086.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
+    },
+    {
+      "name": "scheduleEntities",
+      "offset": 37990,
+      "length": 160,
+      "kind": "code",
+      "source": "asm/scheduleEntities.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md Entity scheduler order and pause flags; tests/integration_entity_scheduler.nim and tests/integration_sprite_animation.nim verify original traversal and scheduled animation"
     },
     {
       "name": "actionScriptFetch",

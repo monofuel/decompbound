@@ -30,12 +30,12 @@ proc call(snes: SnesBus, address: string, a = 0, x = 0, y = 0): Cpu =
   doAssert result.s == 0x1FFF and result.d == 0x200 and result.dbr == 0x7E
   doAssert (result.p and (FlagM or FlagX)) == 0
 
-proc checkAnimation(gold: seq[uint8], owner, scriptId, direction: int) =
+proc checkAnimation(gold: seq[uint8], owner, scriptId, direction: int, scheduled: bool) =
   ## Verify original script timing and alternating uploaded graphics on a fully spawned sprite.
   let
     snes = newSnesBus(gold)
     entityOffset = owner * 2
-  discard snes.call("$C09282")
+  discard snes.call("$C0927F", 0x9FF0)
   discard snes.call("$C01A86")
   discard snes.call("$C01C11", 0x8000)
   snes.bus.write8(Wram + 0x0D, 0x80)
@@ -54,15 +54,16 @@ proc checkAnimation(gold: seq[uint8], owner, scriptId, direction: int) =
     directionOffset = 0xA60B + direction * 2
     entryIndex = gold[directionOffset].int + (gold[directionOffset + 1].int shl 8)
   var expectedVram = snes.vram
-  let code = assembleAsm(".a16\n.i16\nJSR $9506\n", Caller)
+  let code = assembleAsm(".a16\n.i16\n" &
+    (if scheduled: "JSL $C09466\n" else: "JSR $9506\n"), Caller)
   for index, value in code:
     snes.bus.write8(Caller + index.uint32, value)
   for iteration in 0 ..< 66:
     snes.initHdma()
     var
-      cpu = Cpu(pc: Caller.uint16, s: 0x1FFF, d: 0x200, dbr: 0x7E)
+      cpu = Cpu(pc: Caller.uint16, s: 0x1FFF, d: (if scheduled: 0x300'u16 else: 0x200'u16), dbr: 0x7E)
       steps = 0
-    while cpu.pbr != 0 or cpu.pc != (Caller + 3).uint16:
+    while cpu.pbr != 0 or cpu.pc != (Caller + code.len.uint32).uint16:
       doAssert steps < 30000
       cpu.step(snes.bus)
       inc steps
@@ -84,6 +85,11 @@ proc checkAnimation(gold: seq[uint8], owner, scriptId, direction: int) =
         expectedVram[destination + word] = gold[offset].uint16 or (gold[offset + 1].uint16 shl 8)
     doAssert snes.vram == expectedVram
     doAssert not snes.dmaStorm
+    doAssert snes.getWord(0x0B16 + entityOffset) == 128
+    doAssert snes.getWord(0x0B52 + entityOffset) == 112
+    if scheduled:
+      doAssert snes.getWord(0x0A60) == 0
+      doAssert cpu.d == 0x300 and cpu.s == 0x1FFF
 
 proc main() =
   ## Sweep both original selector aliases, entity slots, and all eight directions.
@@ -91,7 +97,8 @@ proc main() =
   for owner in [0, 5, 29]:
     for scriptId in [10, 11]:
       for direction in 0 .. 7:
-        checkAnimation(gold, owner, scriptId, direction)
+        for scheduled in [false, true]:
+          checkAnimation(gold, owner, scriptId, direction, scheduled)
 
 when isMainModule:
   main()

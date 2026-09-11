@@ -1,5 +1,5 @@
 import
-  decompbound/[asm_parse, cpu, rom_pipeline, snesbus]
+  decompbound/[adopted, asm_parse, cpu, rom_pipeline, snesbus]
 
 const
   Wram = 0x7E0000'u32
@@ -134,7 +134,10 @@ proc checkRemovalDuringPass(snes: SnesBus, victimIndex: int) =
 
 proc main() =
   ## Sweep callback flags and attached-state chains, then verify empty and locked entry.
-  let snes = newSnesBus(readGoldBaserom())
+  let
+    gold = readGoldBaserom()
+    snes = newSnesBus(gold)
+  doAssert assembleAdoptedFile("scheduleEntities", 0x9466) == gold[0x9466 ..< 0x9506]
   for entry in [(Caller.int, "JSL $C09466"), (NativeCallback, "RTL"),
       (SecondaryCallback, "RTS"), (PositionCallback, "RTS"), (FinalCallback, "RTS")]:
     let code = assembleAsm(".a16\n.i16\n" & entry[1] & "\n", entry[0].uint32)
