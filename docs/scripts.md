@@ -309,6 +309,24 @@ frame change, checking unrelated entities stay untouched. DP `$84` is verified
 as `$15A2 + stateId * 16`, not an eight-byte row per entity. This establishes
 frame-selection timing, not movement, scene scheduling, or rendered animation.
 
+#### Original selector-zero graphics loop
+
+The selector-zero pointer at file `$0400D4` leads to `$C2FFB7`. Execution
+installs a definition table and position/render callbacks, selects frame zero,
+and enters the wait/native-call/jump loop at `$C2FFC3`. The native target
+`$EFE556..E577` requests 512 bytes from `$EFEFB7` into VRAM word `$4000`
+through DMA profile zero. It does not advance the frame. This is a fixed-frame
+upload loop, not evidence of animated frame progression.
+
+The fetch integration test reads that script directly from the user's ROM,
+executes 26 ticks for each of nine entity/state combinations, and checks setup
+fields, cursor, countdown, exact DMA count, and all VRAM words. The first
+upload occurs on tick 5 (entry tick numbered zero), then every five ticks.
+The test uses the forced-blank shadow for immediate DMA and resets the DMA
+budget for each case. Installed callbacks are checked but not invoked; scene
+scheduling, visible output, and deferred DMA remain outside this example.
+The temporary trace probe was replaced by this reproducible integration check.
+
 #### Operand widths (handler disasm, ✅ static)
 
 Verified from gold-gated `code_bank00` disasm of the dispatch targets (M/X=16).
