@@ -785,15 +785,21 @@ the initialized pool, and does not check alignment or bound the later walk.
 Use only a valid built allocation with intact terminators; this is not a safe
 general-purpose free operation on arbitrary pointers.
 
-`nim r tests/integration_sprite_definition_pool.nim` checks 160 synthetic
-search cases with 1–20 records per variant, occupied prefixes, fragmentation,
+`nim r tests/integration_sprite_definition_pool.nim` checks 1,424 synthetic
+search cases with every five-byte request size from 5 through 890, occupied prefixes, fragmentation,
 exhaustion, and the adjacent-byte dependency. It verifies that searches leave
 the pool unchanged. Another 464 cases initialize, find space, build an actual
 resource's two variants, find the next free run, release the original allocation,
 and find that same space again, checking the entire pool and boundary guards.
-The local sprite preview uses this initializer/finder before building its
-definitions. These routines are researched and tested but not yet adopted as
-explained assembly in the manifest.
+Five further cases check rejected release pointers and reproduce the inclusive
+upper-bound write using synthetic records beyond the initialized pool. The local
+sprite preview uses this initializer/finder before building its definitions.
+The three routines are reproduced in
+[`initializeSpriteDefinitionPool.asm`](../asm/initializeSpriteDefinitionPool.asm),
+[`findSpriteDefinitionSpace.asm`](../asm/findSpriteDefinitionSpace.asm), and
+[`releaseSpriteDefinitions.asm`](../asm/releaseSpriteDefinitions.asm), totaling
+272 bytes marked explained in the manifest. The same test compares their
+assembled bytes with the original ROM.
 
 ### Slot release and ownership transfer
 

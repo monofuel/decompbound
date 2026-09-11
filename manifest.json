@@ -15,12 +15,42 @@
     {
       "name": "blob_000013",
       "offset": 19,
-      "length": 7043,
+      "length": 6771,
       "kind": "blob",
       "source": "blobs/blob_000013.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
+    },
+    {
+      "name": "initializeSpriteDefinitionPool",
+      "offset": 6790,
+      "length": 23,
+      "kind": "code",
+      "source": "asm/initializeSpriteDefinitionPool.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md Runtime definition storage; tests/integration_sprite_definition_pool.nim checks original bytes, search boundaries, and real-resource build/release/reuse"
+    },
+    {
+      "name": "findSpriteDefinitionSpace",
+      "offset": 6813,
+      "length": 120,
+      "kind": "code",
+      "source": "asm/findSpriteDefinitionSpace.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md Runtime definition storage; tests/integration_sprite_definition_pool.nim checks original bytes, search boundaries, and real-resource build/release/reuse"
+    },
+    {
+      "name": "releaseSpriteDefinitions",
+      "offset": 6933,
+      "length": 129,
+      "kind": "code",
+      "source": "asm/releaseSpriteDefinitions.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md Runtime definition storage; tests/integration_sprite_definition_pool.nim checks original bytes, search boundaries, and real-resource build/release/reuse"
     },
     {
       "name": "allocateSpriteSlots",

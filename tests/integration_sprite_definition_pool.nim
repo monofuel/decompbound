@@ -1,5 +1,5 @@
 import
-  decompbound/[asm_parse, cpu, memmap, rom_pipeline, snesbus]
+  decompbound/[adopted, asm_parse, cpu, memmap, rom_pipeline, snesbus]
 
 const
   Wram = 0x7E0000'u32
@@ -33,9 +33,8 @@ proc call(snes: SnesBus, address: string, a = 0): uint16 =
   snes.runUntil(cpu, 0, (Caller + 4).uint16)
   cpu.a
 
-proc checkSearch(snes: SnesBus, count, pattern: int) =
+proc checkSearch(snes: SnesBus, size, pattern: int) =
   ## Compare unmarked free-run discovery against record flags and the strict limit.
-  let size = count * 10
   var before: array[PoolSize + 5, uint8]
   for index in 0 ..< before.len:
     before[index] = 0x39
@@ -101,14 +100,35 @@ proc checkResource(snes: SnesBus, gold: seq[uint8], resourceId: int) =
   doAssert snes.bus.read8(Wram + Pool - 1) == 0x69
   doAssert snes.bus.read8(Wram + Pool + PoolSize.uint32) == 0x96
 
+proc checkReleaseBounds(snes: SnesBus) =
+  ## Verify rejected pointers and the original inclusive upper-bound behavior.
+  for pointer in [0, Pool.int - 1, Pool.int + PoolSize + 1, 0xFFFF]:
+    for offset in -1 .. PoolSize + 11:
+      snes.bus.write8(Wram + (Pool.int + offset).uint32, 0x39)
+    discard snes.call("$C01B15", pointer)
+    for offset in -1 .. PoolSize + 11:
+      doAssert snes.bus.read8(Wram + (Pool.int + offset).uint32) == 0x39
+  let endPointer = Pool.int + PoolSize
+  for record in 0 .. 1:
+    snes.bus.write8(Wram + (endPointer + record * 5 + 4).uint32, 0x80)
+  discard snes.call("$C01B15", endPointer)
+  for offset in -1 .. PoolSize + 11:
+    let expected = if offset in PoolSize ..< PoolSize + 10: 0xFF'u8 else: 0x39'u8
+    doAssert snes.bus.read8(Wram + (Pool.int + offset).uint32) == expected
+
 proc main() =
   ## Verify definition storage separately from the VRAM tile-slot pool.
   let
     gold = readGoldBaserom()
     snes = newSnesBus(gold)
-  for count in 1 .. 20:
+  for entry in [("initializeSpriteDefinitionPool", 0x001A86, 0x001A9D),
+      ("findSpriteDefinitionSpace", 0x001A9D, 0x001B15),
+      ("releaseSpriteDefinitions", 0x001B15, 0x001B96)]:
+    doAssert assembleAdoptedFile(entry[0], entry[1]) == gold[entry[1] ..< entry[2]]
+  for count in 1 .. 178:
     for pattern in 0 .. 7:
-      snes.checkSearch(count, pattern)
+      snes.checkSearch(count * 5, pattern)
+  snes.checkReleaseBounds()
   for resource in 0 ..< 464:
     snes.checkResource(gold, resource)
 
