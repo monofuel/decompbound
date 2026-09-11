@@ -282,14 +282,32 @@ gold-gated like header/vectors.
 | `jmpTableA1AE` | `0xA1AE` | 32 | `$C0A1AE` | Stride-4 word+pad table |
 | `jmpTableA350` | `0xA350` | 16 (8×u16) | `$C0A350` | Eight code pointers |
 
-**Fetch loop** (file `0x9506`–`0x9557`, adopted): entry loads entity slot from DP
-`$8A`. If `$1372,X` (wait counter) ≠ 0 → `DEC` + `RTS`. Else load script PC
+**Fetch loop** (file `0x9506`–`0x9557`, adopted): entry loads the script-state byte offset from DP
+`$8A`; the entity byte offset is separately held in DP `$88`. If `$1372,X` (wait counter) ≠ 0 → `DEC` + `RTS`. Else load script PC
 (`$13FE,X` → Y) and bank (`$148A,X` → DP `$82`), then loop
 `LDA [$80],Y / INY / AND #$00FF`. Opcode `< $70`: `ASL / TAX / JSR ($9558,X)`.
 Opcode `≥ $70`: low nibble → `$1372,X`, high nibble `AND #$70 / LSR×3 / TAX /
 JSR ($95E2,X)`. After dispatch, zero wait → fetch next opcode; else save Y/`$82`
 and fall into the wait DEC. The opcode byte is consumed **before** the handler
 runs; handlers see only operands at `[$80],Y`.
+
+#### Verified frame selection and tick timing
+
+High opcodes `$80..8F` dispatch to `$C096CF`: one operand byte selects the
+entity frame at `$10F2 + entityOffset`; `$FF` becomes `$FFFF`, the negative
+frame value rejected by the graphics dispatcher. The opcode's low nibble
+sets the script-state wait. A nonzero wait is decremented on the same tick
+that selects the frame. Thus delay 1 resumes on the next interpreter tick;
+delay 0 continues fetching immediately. Opcode `$06` similarly schedules its
+one-byte wait; subsequent countdown ticks leave the saved cursor unchanged.
+
+`nim r tests/integration_action_script_fetch.nim` requires the local ROM and
+checks the adopted fetch bytes plus 36,864 synthetic execution cases: every
+frame operand, every inline delay, three entity IDs, and three independently
+chosen state slots including slot 69. It runs through countdown and the next
+frame change, checking unrelated entities stay untouched. DP `$84` is verified
+as `$15A2 + stateId * 16`, not an eight-byte row per entity. This establishes
+frame-selection timing, not movement, scene scheduling, or rendered animation.
 
 #### Operand widths (handler disasm, ✅ static)
 
@@ -319,14 +337,14 @@ reject the walk. Gold-gated in `tests/test_baserom_extract.nim`.
 **Tentative (🟡 — from a PARTIAL live trace; only ~12 of 77 ops fired in idle
 Onett):** rough semantics clusters seen so far — `0x06` wait, `0x19` goto,
 `0x42` far-call (`$C09D9E` anim/interaction kernel), conditionals sourced from
-`$1516,X` (per-entity work register), frame/animation values from `$10F2,X`. Movement (`0x28–
+`$1516,X` (per-script-state work register), frame/animation values from `$10F2,X`. Movement (`0x28–
 0x30`), far-call (`0x03–0x05`), bitop-to-flags (`0x0D`), and halt (`0x00`) did
 **not** fire idle — they need door/talk/cutscene states to observe. Treat the
 per-opcode meaning table as unproven until each opcode is traced live. The story
 event ops (item/battle/teleport/party) are the OTHER VM and remain unmapped.
 
 **Script-engine WRAM (🟡, from the same trace — verify before relying):** entity
-work/condition `$1516,X`; frame/animation value `$10F2,X`; story/event flags `$988B…`
+work/condition `$1516 + stateOffset`; frame/animation value `$10F2 + entityOffset`; story/event flags `$988B…`
 (hit via absolute WRAM bitops, not a dedicated opcode). Candidates needing a
 clean trace: `$1372` wait, `$13FE`/`$148A` script PC, `$12E6` stack depth.
 
