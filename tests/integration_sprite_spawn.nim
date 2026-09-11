@@ -6,6 +6,10 @@ const
   Caller = 0x1E00'u32
   Sentinel = 0x5A5A'u16
   StepLimit = 30000
+  NativeCallOpcode = 0x42'u8
+  RemoveEntityOpcode = 0'u8
+  CleanupTarget = 0xC020F1'u32
+  SyntheticScript = 0x7F4000'u32
 
 proc putWord(snes: SnesBus, address, value: int) =
   ## Seed a synthetic spawn input or hardware shadow.
@@ -35,6 +39,44 @@ proc pointer(gold: seq[uint8], offset: int): int =
   ## Resolve a real metadata pointer without embedding extracted bytes.
   snesToFile(gold[offset].uint32 or (gold[offset + 1].uint32 shl 8) or
     (gold[offset + 2].uint32 shl 16))
+
+proc runCleanupScript(snes: SnesBus, entity: int) =
+  ## Execute a synthetic native-cleanup call followed by entity removal through the VM.
+  let
+    stream = [NativeCallOpcode, (CleanupTarget and 255).uint8,
+      ((CleanupTarget shr 8) and 255).uint8, (CleanupTarget shr 16).uint8, RemoveEntityOpcode]
+    code = assembleAsm(".a16\n.i16\nJSR $9506\n", Caller)
+  for index, value in stream:
+    snes.bus.write8(SyntheticScript + index.uint32, value)
+  for index, value in code:
+    snes.bus.write8(Caller + index.uint32, value)
+  snes.putWord(0x280, 0)
+  snes.putWord(0x288, entity * 2)
+  snes.putWord(0x28A, 0)
+  snes.putWord(0x13FE, (SyntheticScript and 0xFFFF).int)
+  snes.putWord(0x148A, (SyntheticScript shr 16).int)
+  snes.putWord(0x1372, 0)
+  snes.putWord(0x1516, 0)
+  snes.putWord(0x1A42, entity)
+  var
+    cpu = Cpu(pc: Caller.uint16, s: 0x1FFF, d: 0x200, dbr: 0x7E)
+    steps = 0
+    dispatches = 0
+  while cpu.pbr != 0 or cpu.pc != (Caller + 3).uint16:
+    doAssert steps < StepLimit
+    if cpu.pbr == 0 and cpu.pc == 0x952E:
+      inc dispatches
+      if dispatches == 1:
+        doAssert snes.getWord(0x0A50) == entity * 2
+        doAssert snes.getWord(0x0A62 + entity * 2) == 0
+        doAssert snes.getWord(0x2CD6 + entity * 2) == 0xFFFF
+    cpu.step(snes.bus)
+    inc steps
+  doAssert dispatches == 2
+  doAssert cpu.s == 0x1FFF and cpu.d == 0x200 and cpu.dbr == 0x7E
+  doAssert snes.getWord(0x13FE) == (SyntheticScript and 0xFFFF).int + stream.len
+  doAssert snes.getWord(0x1372) == 0xFFFE
+  doAssert snes.getWord(0x0A58) == 0xFFFF
 
 proc checkSpawn(snes: SnesBus, gold: seq[uint8], resourceId, scriptId, owner: int) =
   ## Verify full spawning against independent resource and allocation formulas.
@@ -111,6 +153,41 @@ proc checkSpawn(snes: SnesBus, gold: seq[uint8], resourceId, scriptId, owner: in
       cleared = clears and relative >= 0 and slot < slots
     doAssert snes.vram[address] == (if cleared: 0'u16 else: Sentinel)
   doAssert not snes.dmaStorm
+  let
+    cleanupTag = ((resourceId mod 16) shl 12) or resourceId
+    effectId = if (resourceId div 16) mod 2 == 0: 0xE1 else: 0xE0
+    counter = resourceId mod 3
+    beforeVram = snes.vram
+    transfers = snes.dmaTransfers
+  snes.putWord(0x2C9A + entityOffset, cleanupTag)
+  snes.putWord(0x2D12 + entityOffset, effectId)
+  snes.putWord(0x4A5C, counter)
+  snes.putWord(0x4A60, Sentinel.int)
+  if scriptId == 0:
+    snes.runCleanupScript(entity)
+  else:
+    discard snes.call("$C02140", entity)
+  doAssert snes.getWord(0x4A5C) ==
+    (if (cleanupTag and 0xF000) == 0x8000: (counter - 1) and 0xFFFF else: counter)
+  doAssert snes.getWord(0x4A60) == (if effectId == 0xE1: 0 else: Sentinel.int)
+  doAssert snes.getWord(0x2CD6 + entityOffset) == 0xFFFF
+  doAssert snes.getWord(0x2C9A + entityOffset) == 0xFFFF
+  for offset in 0 ..< 0x380:
+    doAssert snes.bus.read8(Wram + 0x467E + offset.uint32) == 0xFF
+  for slot in 0 ..< 88:
+    doAssert snes.bus.read8(Wram + 0x4A00 + slot.uint32) == 0
+  doAssert snes.vram == beforeVram and snes.dmaTransfers == transfers
+  doAssert snes.getWord(0x0A50) == 0xFFFF
+  doAssert snes.getWord(0x0A52) == entityOffset
+  doAssert snes.getWord(0x0A54) == 0
+  doAssert snes.getWord(0x0A62 + entityOffset) == 0xFFFF
+  let respawn = snes.call("$C01E49", resourceId, scriptId, owner)
+  doAssert respawn.a == entity.uint16
+  doAssert snes.getWord(0x0A50) == entityOffset
+  doAssert snes.getWord(0x0ADA + entityOffset) == 0
+  doAssert snes.getWord(0x112E + entityOffset) == 0x467E
+  doAssert snes.getWord(0x2952 + entityOffset) == 0
+  doAssert snes.getWord(0x2CD6 + entityOffset) == resourceId
 
 proc main() =
   ## Cover every resource, automatic/specific entity allocation, and separate script IDs.

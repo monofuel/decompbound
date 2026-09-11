@@ -171,6 +171,30 @@ checking preservation of list/record memory. This does not inventory all script
 selectors or execute scripts. The complete graphics spawn wrapper `$C01E49`
 has a separate integration check described in [graphics.md](graphics.md).
 
+### A verified script-driven removal sequence
+
+The action VM distinguishes graphics cleanup from entity removal. Opcode `$42`
+dispatches to `$C0993D`, reads a three-byte native-call target, and calls through
+`$C09D9E`. Its argument/result word is `$1516 + stateOffset`. Opcode `$00`
+dispatches to `$C095F2`, which calls `$C09C3B` using the entity offset in DP+$88.
+That removes the entity and returns its state storage. The handler then sets
+the state wait word and `$0A58` to `$FFFF`; the enclosing fetch loop saves its
+cursor, decrements the wait to `$FFFE`, and returns.
+
+Original scripts at file offsets `$036D13`, `$03A204`, and `$040F45` call the
+current-entity graphics cleanup and immediately remove the entity. The scripted
+native call alone does not free the entity slot. The explicit-ID graphics
+cleanup entry, in contrast, already includes entity removal; see
+[graphics cleanup](graphics.md#sprite-cleanup-and-reuse).
+
+`tests/integration_sprite_spawn.nim` exercises that behavior using a tiny
+synthetic script assembled from its two intended operations, not an extracted
+game-script fixture. It starts with a fully spawned sprite and runs the original
+fetch loop and dispatch handlers, checking the intermediate live entity, final
+script cursor/wait, freed pools, and respawn. The 1,392 scripted cases cover all
+464 resources with automatic/entity5/entity29 allocation. Scene execution and
+multi-node script-state chains remain unverified by this sequence.
+
 ### Entity action-script VM — opcode mapping (dig 2026-07-21)
 
 There are **two** interpreters, and they are NOT the same VM:

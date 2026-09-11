@@ -750,6 +750,31 @@ graphics frame or execute the attached script. It also leaves fields such as
 `$341A` for later upload/update routines. The local preview uses this whole
 wrapper on fresh state, then explicitly selects its frame and publishes graphics.
 
+### Sprite cleanup and reuse
+
+The two cleanup entries have different lifetimes. `$C020F1..213F` reads the
+current entity ID from `$1A42`, releases its definition records and tile tags,
+and invalidates `$2CD6/$2C9A`. It leaves the entity and action-script state
+allocated. `$C02140..2193` takes an explicit entity ID in A, performs the same
+graphics cleanup, then calls `$C09C35` at `$C0218E` to remove the entity and
+return its script-state storage to the free list.
+
+Both paths decrement `$4A5C` when the original `$2C9A` top nibble is `$8`, and
+clear `$4A60` when `$2D12 == $00E1`. The decrement wraps as a 16-bit operation,
+including zero to `$FFFF`; the meanings of these categories remain open.
+Neither cleanup clears VRAM: freeing the pools changes ownership and definition
+bytes, leaving the old tile pixels until overwritten.
+
+The full-spawn test also covers removal and reuse in all 2,784 cases. For 1,392
+cases, it executes a synthetic action script through the original fetch loop:
+native call to current-entity graphics cleanup, followed by entity-removal
+opcode `$00`. It pauses after the native call to verify the entity still exists.
+The other 1,392 cases call the explicit-ID cleanup entry. Tests check both pools,
+conditional bookkeeping, absence of DMA/VRAM changes, returned entity/state
+slots, and successful respawn reusing the same storage. These cases have one
+active entity and one attached script-state node; removing middle-list entities
+or multi-node script stacks remains outside this check.
+
 ### Sprite allocation and clearing
 
 The resource-header reader `$C01DED` derives width in 8-pixel tiles as resource
