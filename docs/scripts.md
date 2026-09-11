@@ -171,6 +171,50 @@ checking preservation of list/record memory. This does not inventory all script
 selectors or execute scripts. The complete graphics spawn wrapper `$C01E49`
 has a separate integration check described in [graphics.md](graphics.md).
 
+### Entity scheduler order and pause flags
+
+`$C09466..9505` schedules two passes over the active entity list. Entry first
+checks the word `$0A60`: nonzero returns immediately; otherwise execution jumps
+to bank `$80`, sets 16-bit register widths, chooses scratch D as
+`(callerD - $A0) & $FF00`, and sets the lock. Normal exit restores D and clears
+the lock. Entry requires M16, decimal clear, and a WRAM-compatible DBR.
+
+1. The first pass saves the next entity at `$0A56`, then walks its attached
+   script states, saving each next state at `$0A58` before calling the fetch
+   loop. It then invokes the far callback at `$107A/$10B6` when enabled.
+2. The second pass starts again at the active head. It invokes the `$121E`
+   callback when enabled, then always invokes `$11A6`. A nonempty completed
+   second pass ends with the global callback at `$0A5E`.
+
+The high two bits of `$10B6` are controls independent of its low bank byte:
+
+| Control | Suppressed work |
+|---|---|
+| Bit 14 | Script-state ticks and second-pass `$121E` callback |
+| Bit 15 | First-pass far callback `$107A` |
+| Both set | Both groups above; `$11A6` still runs |
+
+`$C0943C/$C09451` set/clear both bits across the active list. An unpaused
+entity must have a valid initial script-state node: the scheduler does not
+check for a negative head before the first state access. Callbacks must preserve
+scheduler scratch, widths, DBR, and DP+$88. The `$121E` callback must also leave
+X as the entity offset for the immediately following `$11A6` dispatch.
+
+First-pass removal can repair the saved-next pointer through the removal
+helpers. The second pass instead reads the live next link after callbacks;
+removing its current entity can send traversal into the free list. Do not
+assume the same mutation guarantees apply to both passes.
+
+`nim r tests/integration_entity_scheduler.nim` executes the original scheduler
+with synthetic return callbacks and real wait-countdown processing. Its 512
+flag/chain combinations check exact pass order, independent flags on three
+entities, one/two-node state chains, callback bank, scratch D, lock lifetime,
+and wait effects. Three further cases remove the current, next, or last entity
+from a first-pass native callback and verify resumed traversal and returned
+storage. Empty-list and two locked-entry cases are also checked (518 total).
+These tests establish scheduling mechanics, not the gameplay effects of the
+installed production callbacks or safety of second-pass mutation.
+
 ### A verified script-driven removal sequence
 
 The action VM distinguishes graphics cleanup from entity removal. Opcode `$42`
