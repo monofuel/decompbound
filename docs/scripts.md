@@ -323,8 +323,11 @@ executes 26 ticks for each of nine entity/state combinations, and checks setup
 fields, cursor, countdown, exact DMA count, and all VRAM words. The first
 upload occurs on tick 5 (entry tick numbered zero), then every five ticks.
 The test uses the forced-blank shadow for immediate DMA and resets the DMA
-budget for each case. Installed callbacks are checked but not invoked; scene
-scheduling, visible output, and deferred DMA remain outside this example.
+budget for each case. It then invokes the installed position callback and the
+original frame-table dispatcher, queues the real frame definitions, and publishes
+OAM. All nine elements are compared against the local ROM definitions, including
+coordinates, tile/attribute bytes, packed size bits, and the next hidden slot.
+Scene scheduling, rendered pixels, and deferred DMA remain outside this example.
 The temporary trace probe was replaced by this reproducible integration check.
 
 #### Operand widths (handler disasm, ✅ static)

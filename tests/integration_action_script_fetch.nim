@@ -66,6 +66,52 @@ proc checkFrame(snes: SnesBus, entity, state, frame, delay: int) =
   doAssert snes.word(0x13FE + state * 2) == 0x4006
   doAssert snes.word(0x1372 + state * 2) == 0
 
+proc checkPublishedFrame(snes: SnesBus, gold: seq[uint8], entity: int) =
+  ## Follow script-installed callbacks through original OAM publication.
+  let
+    caller = Caller + 16
+    code = assembleAsm(".a16\n.i16\nJSL $C088B1\nLDX $88\nJSR ($11A6,X)\nJSR $A0E3\nJSL $C08B26\n", caller)
+    entityOffset = entity * 2
+    table = 0x2FF5BB
+    definition = 0x2F0000 + gold[table].int + (gold[table + 1].int shl 8)
+  for index, value in code:
+    snes.bus.write8(caller + index.uint32, value)
+  snes.putWord(0x2E, 1)
+  snes.putWord(0x103E + entityOffset, 0)
+  snes.putWord(0x0B8E + entityOffset, 128)
+  snes.putWord(0x0BCA + entityOffset, 112)
+  var
+    cpu = Cpu(pc: caller.uint16, s: 0x1FFF, d: 0x200, dbr: 0x7E)
+    steps = 0
+  while cpu.pbr != 0 or cpu.pc != (caller + code.len.uint32).uint16:
+    doAssert steps < 5000
+    cpu.step(snes.bus)
+    inc steps
+  doAssert snes.word(0x0B16 + entityOffset) == 128
+  doAssert snes.word(0x0B52 + entityOffset) == 112
+  var
+    record = 0
+    expectedHigh: array[32, uint8]
+  while true:
+    let
+      source = definition + record * 5
+      x = 128 + cast[int8](gold[source + 3]).int
+      y = 111 + cast[int8](gold[source]).int
+      flags = gold[source + 4]
+    doAssert record < 128 and gold[source] != 0x80
+    doAssert x in 0 .. 255 and y in 0 .. 223
+    for component, expected in [(x and 255).uint8, y.uint8, gold[source + 1], gold[source + 2]]:
+      doAssert snes.bus.read8(Wram + (0x500 + record * 4 + component).uint32) == expected
+    expectedHigh[record div 4] = expectedHigh[record div 4] or
+      ((flags and 1) shl ((record mod 4) * 2 + 1))
+    inc record
+    if (flags and 0x80) != 0:
+      break
+  for index in 0 .. (record - 1) div 4:
+    doAssert snes.bus.read8(Wram + 0x700 + index.uint32) == expectedHigh[index]
+  doAssert snes.bus.read8(Wram + (0x501 + record * 4).uint32) == 0xE0
+  doAssert snes.word(0x2C) == 1
+
 proc checkOriginalLoop(snes: SnesBus, gold: seq[uint8], entity, state: int) =
   ## Execute selector zero directly from the ROM and verify its periodic graphics upload.
   let
@@ -100,6 +146,7 @@ proc checkOriginalLoop(snes: SnesBus, gold: seq[uint8], entity, state: int) =
         else: 0x5A5A'u16
       doAssert snes.vram[address] == expected
   doAssert not snes.dmaStorm
+  snes.checkPublishedFrame(gold, entity)
 
 proc main() =
   ## Require the local ROM and verify original bytes plus frame/wait execution.
