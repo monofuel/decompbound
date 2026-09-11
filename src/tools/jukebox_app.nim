@@ -20,15 +20,6 @@ const
   SampleRate = 32000
   SongTableFile = 0x04F70A
   PackTableFile = 0x04F947
-  # Stub deposited at $0500 by IPL side of the upload protocol (when streamer forces
-  # exec target $0500 on len=0). Captured from live APU+IPL during real package upload.
-  # TODO: magic bytes from protocol side effect; reverse the small IPL bootstrap if needed.
-  Ipl0500Stub: array[32, uint8] = [
-    0x20'u8, 0xCD, 0xCF, 0xBD, 0xE8, 0x00, 0x5D, 0xAF,
-    0xC8, 0xE0, 0xD0, 0xFB, 0x3F, 0xA5, 0x16, 0xE8,
-    0x55, 0xC4, 0x18, 0xC4, 0x19, 0xE8, 0x00, 0xBC,
-    0x3F, 0x2C, 0x0B, 0xA2, 0x48, 0xE8, 0x70, 0x8D
-  ]
 
 proc readRomFile(filepath: string): seq[uint8] =
   ## Read ROM, strip optional 512-byte copier header.
@@ -110,7 +101,7 @@ for id in 1 .. songCount:
   songLabels.add(&"Song {id:03d}")
 
 proc startSong(song: int) =
-  ## Build a fresh APU image for the song (packs + IPL stub), boot driver,
+  ## Build a fresh APU image for the song (ROM-backed packages), boot driver,
   ## kick via ports, store as activeApu. Mirrors sound_explore main setup.
   if song < 1:
     return
@@ -122,9 +113,6 @@ proc startSong(song: int) =
   for p in packs:
     let foff = packFileOffset(r, p)
     loadPackageToRam(apuRam, r, foff)
-  if apuRam[0x0500] == 0:
-    for i in 0..<Ipl0500Stub.len:
-      apuRam[0x0500 + i] = Ipl0500Stub[i]
   let apu = newApu()
   for i in 0..<0x10000:
     apu.spc.ram[i] = apuRam[i]

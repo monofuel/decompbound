@@ -1,171 +1,120 @@
 # Audio
 
-How Earthbound audio works, and how we get to *hearing it* long before the
-emulator exists. This is a standalone track (call it Goal 2a): it shares no
-code with the 65816 asm/disasm work, so it can proceed in parallel without
-blocking or being blocked.
+Goal 5 in [GOAL.md](../GOAL.md) is to explain the path from game commands to
+SPC700 driver execution, sequences, instruments, samples, and DSP output.
+The emulator already has SPC700/APU/DSP playback. Working audio is evidence
+about playback, not proof that the uploaded driver or sequence language is
+understood.
 
-## The key fact
+## Existing tools and evidence
 
-The SNES audio subsystem (APU) is a fully self-contained computer:
+- `src/decompbound/spc700.nim`, `apu.nim`, and `dsp.nim` implement the audio
+  machine. `tests/integration_spc700.nim` exercises CPU vectors;
+  `tests/integration_apu_upload_starvation.nim` exercises full-game boot/upload.
+- `src/tools/sound_explore.nim` loads packages directly into a fresh APU and
+  renders a WAV under ignored `bin/` or another explicitly selected local path.
+- `src/tools/jukebox_app.nim` provides a GUI for that standalone loading path.
+  Its numeric song list is not a verified soundtrack identity catalog.
+- `src/probes/songstart_dig.nim` compares package targets and driver state for
+  two songs, including the deliberately incomplete case without package 1.
+  Run `nim r src/probes/songstart_dig.nim --a:1 --b:3`.
+- [Music](music.md) tracks standalone playback gaps; [DSP research](sfx.md)
+  covers synthesis behavior. Human listening checks belong in
+  [human-verify.md](human-verify.md).
 
-- **SPC700** — an 8-bit CPU with its own 64KB of RAM,
-- **S-DSP** — the mixer/synth chip (8 voices, BRR samples, ADSR, echo),
-- connected to the main SNES by just **four I/O ports**.
+Direct package loading does not execute the S-CPU/IPL handshake or reproduce
+all resident-state/cache behavior of a song change during play. The standalone
+tools currently duplicate parsers and have permissive truncated-input handling;
+consolidating and validating those parsers remains open.
 
-The music driver, sequence data, and all samples get uploaded into APU RAM by
-the game, and then the APU runs independently. This is why the `.spc` file
-format exists: snapshot the 64KB RAM + register state mid-song, and a
-standalone player reproduces the music with **zero** 65816/PPU/cartridge
-emulation.
+## Song selection and resident packages
 
-So "hear Onett" = an SPC player in Nim. No SNES emulator required.
+The song table at file `$04F70A..04F946` has 191 three-byte rows, indexed
+`(songId - 1) * 3`. Each byte is a package index or `$FF` for an unused slot.
+The adjacent pointer table `$04F947..04FB41` has 169 entries, each three bytes
+in **bank, address-low, address-high** order. Local inspection finds all 169
+indices referenced by the song table, with maximum index 168. These are table
+extents, not runtime bounds checks: the loader does not validate IDs this way.
 
-## True SNES audio (the SPC player)
+`$C4FB58` initializes resident audio data using the first song's third package
+index, seeds caches `$B543/$B53F`, and uploads it at `$C4FBB1`. The checked ROM
+selects package 1 here.
 
-### Components
+`$C4FBBD` handles later song selection:
 
-1. **`.spc` snapshots** — dump from the gold ROM with a reference emulator
-   (e.g. Mesen2) for clean provenance. One 64KB+registers file per song.
-2. **SPC700 CPU core** — ~256 opcodes, pure 8-bit. Genuinely easier than the
-   65816 (no M/X flag-width madness). Plus timers and the 4 I/O ports, which
-   mostly idle in a standalone player.
-3. **S-DSP** — the real work:
-   - BRR sample decoding (4-bit ADPCM, 9-byte blocks),
-   - 8 voices with pitch scaling,
-   - ADSR envelopes,
-   - mix to 16-bit stereo at 32kHz.
-4. **Output** — 16-bit PCM. WAV file first, realtime later (see slappy below).
+- Matching current song `$B53B` returns without reloading.
+- The three package slots compare against caches `$B53D/$B53F/$B541`.
+- `$FF` entries and matching cached indices skip uploading. Slot 1 also skips
+  when its index matches alternate cache `$B543`.
+- Changed packages go through `$C0AB06`; the tail sends the song command to
+  APU port 0 through `$C0ABBD`.
 
-### Earthbound-specific honesty
+Thus a song change does **not** imply reuploading the driver or all three
+packages. Shared resident data is part of the playback contract. The exact
+roles of `$B4B6` and special song IDs `$A0..A7` remain open; the latter skip
+the ordinary stop handshake. See `asm/loadSong.asm` and the port helpers.
 
-A first-pass DSP gets you *recognizable* Earthbound. Two refinements that are
-usually deferred are **not optional here** for it to *sound like* Earthbound:
+## Package format and upload protocol
 
-- **Echo / FIR filter** — EB leans on the echo buffer hard (the Onett reverb,
-  battle theme spaciousness). Expect the first playback to sound dry; that is
-  expected, not failure.
-- **Gaussian interpolation** — the SNES's characteristic soft sample
-  interpolation (4-tap table). Without it, output sounds slightly crunchy.
+At `$C0AB06`, A supplies the package address and X its bank. The streamer uses
+the four S-CPU APU ports `$2140..2143`, disables NMI during transfer, and walks:
 
-Both are exhaustively documented (fullsnes; blargg's `snes_spc` is the
-reference implementation to check behavior against).
+```
+u16 length
+if length != 0:
+    u16 destination
+    length payload bytes
+    repeat
+else:
+    finish; execute at APU $0500
+```
 
-### Verification (keeping it ungameable)
+The terminator is **two bytes**, the zero length alone. At `$C0AB62..AB73`,
+the zero branch substitutes `$0500` without consuming a destination word.
+Bytes following that terminator must not be interpreted as an entrypoint.
+For nonempty blocks, destination and payload follow the length. `$C0AB78`
+tests `length >= 1` to form the transfer flag, not `length == 1`.
+The final path forces NMI enabled; it does not restore a saved enable bit.
+These are S-CPU disassembly findings, independently checked against the local
+ROM. They do not yet establish all package boundary/cross-bank corner cases.
 
-- **SPC700 core:** TomHarte SingleStepTests has per-instruction JSON test
-  vectors (initial state -> expected final state). Same crisp, parallelizable,
-  agent-friendly verification as the 65816 core. (Verify vector coverage
-  before relying on it.)
-- **DSP:** render to WAV and PCM-diff against a reference renderer
-  (`snes_spc`, Mesen2). Ears are the fun metric; PCM diff is the honest one.
-- WAV-first rendering means agents can produce and verify audio headlessly,
-  with no audio device.
+## Bootstrap provenance
 
-### Why this feeds the main project
+Package 1 starts at file `$260000`. Its block header at `$26003E` describes
+16,779 bytes destined for APU `$0500`; payload begins at `$260042`. The bootstrap
+is part of this ROM package, not something deposited by the IPL protocol.
 
-- The SPC700 + DSP cores slot directly into the Goal 2 emulator later (audio
-  was its "long tail" — this pulls it forward).
-- Once fluent in how the driver plays sequences from APU RAM, the ROM-side
-  music engine (how EB uploads songs to the APU) becomes a natural
-  decompilation target with a working test bed.
+Standalone players prepend package 1 when a song omits it, because a fresh APU
+has no resident driver. Inspection of all 191 song-table rows with that loading
+policy confirms that the first 32 entry bytes remain those from `$260042`.
+The tools therefore use the user's ROM directly; no captured bootstrap byte
+array is needed or retained in source.
 
-## ROM-side: the music DATA format (the decomp track)
+Verification of that cleanup included a one-second song-1 render whose WAV
+was byte-identical before and after removal, and the song-start probe for songs
+1 and 3. Both complete loading paths produced nonzero audio and a running SPC;
+the intentional song-3 case without package 1 still halted. This does not prove
+all 191 songs sound correct or that their sequences are fully decoded.
 
-Everything above is the **player** (SPC700 + DSP — how audio is *produced*).
-The complementary **decompilation track** is how the music is *stored in the
-ROM*: the data half of `docs/decompilation.md`.
+## Uploaded data and the next research boundary
 
-The APU is a blank computer at power-on; the game uploads **all** of it — the
-music driver, the **song sequences**, the **instrument set** (a directory of
-BRR samples), and **SFX**. So the ROM-side format is: how those sequences,
-sample directories, and instrument tables are laid out and packed before upload.
+Package 5 at file `$2B520C` contains blocks targeting APU `$6C00`, `$7000`, and
+`$6E00`. Package 1 supplies the large `$0500` driver block. A `$7000` upload
+alone is not evidence that its payload is driver code.
 
-- **The instrument:** hook the **APU upload path** (the `$2140-$2143` handshake
-  we already emulate) and capture exactly what the game sends for a given scene
-  — the driver, then each song's sequence + sample set. Correlate the uploaded
-  bytes back to their ROM source to map the format.
-- **Round-trip DoD** (per the hub): decode a song sequence / instrument table →
-  re-encode → **byte-exact** against the gold ROM.
-- **The browser:** `sound_explore.nim` (silky stub) + the **music jukebox**
-  (`docs/apps.md`) — once we know which song ID selects which sequence + sample
-  set, the jukebox plays any track coherently. This directly resolves issue #4's
-  audio-coherence problem (sequence + samples must come from a *matched* upload
-  state), which is really a symptom of not yet understanding this format.
+Existing research identifies a sample-directory area at `$6C00` (four-byte
+start/loop pairs), instrument parameters near `$6E00`, and song/sample data in
+package payloads, with `$4800/$5000/$6000` overlays in some combinations. Exact
+instrument fields and driver consumers still need traced evidence. Package 4
+at file `$1FEC46`, targeting `$4800`, is an existing sequence-table candidate.
 
-This track and the player track meet in the middle: the player proves we can
-*produce* the audio; the data track proves we can *read* how EB describes it.
+Older opcode guesses based on byte frequency are unverified: note/duration
+splitting, instrument/volume/pan commands, calls, and loops require the actual
+SPC700 dispatch path. Next work should locate that dispatcher in the uploaded
+package-1 image, trace a known song's reads and DSP writes, and derive operand
+widths and state changes. Preserve source offsets and package-to-APU mappings.
 
-### Findings (verified against the ROM)
-
-- **APU upload routine: SNES `$C0AB06`** (file `0x00AB06`) — the IPL handshake +
-  block streamer. Sets up a 24-bit far pointer in `$C6/$C8` to the package stream
-  and drives the `$2140-$2143` port protocol (addr → `$2142/3`, flag → `$2141`,
-  counter+data → `$2140`), wait loop at `$C0AB90`. Matches the HLE the emulator
-  already models in `snesbus.nim`.
-- **Music is streamed as data "packages"**, not a fixed driver blob + songs: a
-  song's driver + sequence + instrument set upload together via `$C0AB06`.
-- **Song loader/selector: `$C4FBBD`** (file `0x04FBBD`), called with a song ID.
-- **Song table (song ID → 3 pack indices): file `0x04F70A`** — 3 bytes/song,
-  indexed `(id-1)*3`.
-- **Pack table (pack index → far ptr): file `0x04F947`** — 3 bytes/pack
-  `[bank, addrL, addrH]`.
-- **SFX vs music:** a music change is a full package re-upload; SFX are
-  fire-and-forget port pokes to the resident driver (helpers `$C0AC01`, `$C0AC0C`,
-  `$C0ABE0`, `$C0ABBD`); `$FF` to a port reboots to the IPL between tracks.
-- **Package block format:** each uploaded package is a sequence of blocks
-  `[u16 len][u16 targetAPUaddr][len payload bytes]`, terminated by `len == 0000`
-  (which kicks execution at `$0500`). The `$C0AB06` streamer emits exactly these.
-  Example package: pack 5 (a common base driver+set) at file `0x2B520C`
-  (bank `$EB` addr `$520C`).
-- **BRR directory + instrument params (in the uploaded image):** the BRR sample
-  directory lands at APU `$6C00` (standard 4-byte entries: `u16 start`,
-  `u16 loop`), an instrument-params block (ADSR/GAIN-ish, ~6 bytes/inst) at APU
-  `$6E00`, and the driver + sequence + BRR samples at APU `$7000`+ (with
-  `$4800/$5000/$6000` overlays in multi-pack songs). The samples live in the
-  package payloads — no standalone ROM BRR table.
-- **Sequence bytecode (hypothesized — packs verified byte-exact, command
-  semantics tentative):** per-track byte streams the resident driver walks.
-  `< 0x80` = note pitch (often repeated / followed by a duration byte); `0x00` =
-  rest / track-end; **`0xE0 xx` = instrument select** (strong: 115 occurrences in
-  pack 5 with args matching the instrument count); `0xE1 xx` = volume/expression;
-  `0xED xx` = pan; `0xF4 xx` = duration/tempo; `0xEF …` = call/sub-pattern;
-  `0xF0`/`0xF7`/`0xFA` = loop markers. Multi-track songs use a u16-LE pointer
-  table (e.g. pack 4 at file `0x1FEC46`, block target APU `$4800`) into the leaf
-  streams. Example base pack: pack 5 at file `0x2B520C` (BRR dir block `$6C00`,
-  driver+seq+samples `$7000`). **Frontier:** the exact operand widths + the
-  note/duration split need the resident driver's dispatch loop (in the `$7000`
-  payload) traced, or a PCM-diff after upload.
-
-## Easy slappy example tools
-
-[slappy](https://github.com/treeform/slappy) (local checkout: `../slappy`) is
-monofuel + treeform's OpenAL sound library. Surveyed 2026-07-03:
-
-### What works today (zero slappy changes)
-
-- Loads `.wav` / `.ogg` into OpenAL buffers; plays with gain/pitch/3D/looping.
-- The WAV loader handles 16-bit PCM at arbitrary sample rates — exactly what
-  the DSP outputs (16-bit stereo @ 32kHz).
-- So the first milestone tool is: **SPC -> render offline -> write WAV ->
-  `newSound("onett.wav").play()`**. Works with slappy as it sits.
-
-### Tool ideas (in rough order)
-
-1. `spc_render` — SPC file in, WAV file out. The workhorse: listening,
-   PCM-diffing, CI artifacts. No audio device needed.
-2. `spc_play` — render a full song loop into one buffer up front, play with
-   `looping = true`. Realtime-feeling jukebox with zero streaming machinery.
-3. `spc_jukebox` — true realtime streaming (live channel muting, gapless
-   infinite loops). **Requires finishing slappy's queued-buffers feature**:
-   the `Source` type already has a `queuedBuffers: seq[ALuint]` field and the
-   README lists queueing as "(in progress)", but the
-   `alSourceQueueBuffers`/`alSourceUnqueueBuffers` loop never landed (~50
-   lines). That's an upstream slappy contribution, not a workaround.
-
-### Non-goals for the audio track
-
-- Cycle-accurate APU timing beyond what makes EB songs sound right.
-- General-purpose SPC player features (other games' quirks).
-- Blocking Goal 1 (asm/disasm) work — this track is parallel, morale-driven,
-  and proud of it.
+All ROM payloads, extracted sequences, BRR samples, WAVs, and APU snapshots remain
+local and untracked. Commit our format descriptions, tools, annotated code, and
+synthetic tests. Byte-preserving package reconstruction and musical correctness
+are separate claims; neither follows merely from producing a WAV.

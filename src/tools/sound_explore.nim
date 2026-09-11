@@ -17,15 +17,6 @@ const
   SampleRate = 32000
   SongTableFile = 0x04F70A
   PackTableFile = 0x04F947
-  # Stub deposited at $0500 by IPL side of the upload protocol (when streamer forces
-  # exec target $0500 on len=0). Captured from live APU+IPL during real package upload.
-  # TODO: magic bytes from protocol side effect; reverse the small IPL bootstrap if needed.
-  Ipl0500Stub: array[32, uint8] = [
-    0x20'u8, 0xCD, 0xCF, 0xBD, 0xE8, 0x00, 0x5D, 0xAF,
-    0xC8, 0xE0, 0xD0, 0xFB, 0x3F, 0xA5, 0x16, 0xE8,
-    0x55, 0xC4, 0x18, 0xC4, 0x19, 0xE8, 0x00, 0xBC,
-    0x3F, 0x2C, 0x0B, 0xA2, 0x48, 0xE8, 0x70, 0x8D
-  ]
 
 proc readRomFile(filepath: string): seq[uint8] =
   ## Read ROM, strip optional 512-byte copier header.
@@ -183,11 +174,6 @@ proc main() =
     let foff = packFileOffset(rom, p)
     echo &"  loading pack {p} from file 0x{foff:06X}"
     loadPackageToRam(apuRam, rom, foff)
-  # Only overlay the IPL-deposited stub if no pack wrote to $0500 (pack 1 does).
-  # Packs targeting $0500 (pack 1) contain the bootstrap+init; others rely on it.
-  if apuRam[0x0500] == 0:
-    for i in 0..<Ipl0500Stub.len:
-      apuRam[0x0500 + i] = Ipl0500Stub[i]
 
   let apu = newApu()
   for i in 0..<0x10000:
@@ -199,7 +185,7 @@ proc main() =
   apu.spc.y = 0
   apu.spc.psw = 0
 
-  # Let driver/stub initialize (longer for some pack combos to be ready).
+  # Let driver initialize (longer for some pack combos to be ready).
   for _ in 0..< (SampleRate div 5):
     discard apu.runSample()
 

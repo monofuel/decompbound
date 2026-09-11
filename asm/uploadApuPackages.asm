@@ -21,12 +21,12 @@
 ; Handshake: wait for IPL ready ($BBAA on $2140), or JSR the local reboot
 ; helper that writes $FF until $BBAA reappears. Disables NMI for the transfer
 ; (clears bit 7 of $001E / $4200), then for each block reads
-; `[u16 len][u16 apuAddr]` from the stream (len == 0 → entry $0500 and no
-; payload), writes addr to $2142, a flag derived from (len == 1) to $2141,
+; a length word, then address/payload only when nonzero. Zero length alone
+; selects entry $0500. Writes addr to $2142, a flag from (len >= 1) to $2141,
 ; and streams payload bytes as 16-bit counter+data stores to $2140.
 ;
-; Wait loop at $C0AB90 polls $2140 until 0 after the final block, restores
-; NMI enable, PLD/PLB, RTL. The IPL reboot helper at $C0ABA8 is only reached
+; Wait loop at $C0AB90 polls $2140 until 0 after the final block, forces
+; NMI enabled, PLD/PLB, RTL. The IPL reboot helper at $C0ABA8 is only reached
 ; via the internal JSR (no external callers).
 ;
 ; Call sites: song loader $C4FBBD path (JSL $C0AB06 at $C4FBB1 and siblings).
@@ -46,7 +46,7 @@
 ;   ApuPort2 = $2142
 ;   NmiEnableShadow = $1E
 ;     NMITIMEN shadow in WRAM; bit 7 = NMI enable. Cleared for the transfer,
-;     restored after, and mirrored to the hardware register.
+;     set after, and mirrored to the hardware register.
 ;   NmiEnableMask = $80
 ;   NmiTimenAddr = $4200
 ;   IplReadySignature = $BBAA

@@ -272,6 +272,7 @@ Only when an agent points you here for a **tool** check:
 | Save report | `nim r src/tools/sram_info.nim "bin/Earthbound (U) [!].srm"` | Your party/money look sane |
 | Script dump smoke | `nim r src/tools/script_dump.nim "bin/Earthbound (U) [!].smc" --offset 0x63040` | Prints something like `@INPUT YOUR COMMAND.` |
 | Jukebox song | `nim r src/tools/sound_explore.nim --song 3 --seconds 2` (or jukebox app) | Audible music, not silence/halt |
+| ROM-backed audio bootstrap | Render songs 1 and 3 with `nim r src/tools/sound_explore.nim --song N --seconds 2`, then listen to the resulting local WAVs; also select both in the jukebox app. | Both produce music without a halt after removing the captured bootstrap fallback; confirm by ear, not merely nonzero sample counts. |
 
 ---
 

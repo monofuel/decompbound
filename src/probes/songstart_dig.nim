@@ -11,13 +11,6 @@ const
   SampleRate = 32000
   SongTableFile = 0x04F70A
   PackTableFile = 0x04F947
-  # TODO: magic bytes from IPL side effect; reverse bootstrap if needed.
-  Ipl0500Stub: array[32, uint8] = [
-    0x20'u8, 0xCD, 0xCF, 0xBD, 0xE8, 0x00, 0x5D, 0xAF,
-    0xC8, 0xE0, 0xD0, 0xFB, 0x3F, 0xA5, 0x16, 0xE8,
-    0x55, 0xC4, 0x18, 0xC4, 0x19, 0xE8, 0x00, 0xBC,
-    0x3F, 0x2C, 0x0B, 0xA2, 0x48, 0xE8, 0x70, 0x8D
-  ]
 
 type
   BlockInfo = object
@@ -122,7 +115,7 @@ proc snapState(apu: Apu, tag: string) =
     &"mvol=${d.regs[0x0C]:02X}/${d.regs[0x1C]:02X} dir=${d.regs[0x5D]:02X} flg=${d.regs[0x6C]:02X} " &
     &"esa=${d.regs[0x6D]:02X} edl=${d.regs[0x7D]:02X} kon=${d.regs[0x4C]:02X}"
 
-proc runSongPath(rom: seq[uint8], song: int, prependEngine: bool, useStubIfMissing: bool): Apu =
+proc runSongPath(rom: seq[uint8], song: int, prependEngine: bool): Apu =
   ## Same upload+kick path as sound_explore; returns live Apu after kick+short play.
   var packs = getSongPackIndices(rom, song)
   let tablePacks = packs
@@ -148,10 +141,6 @@ proc runSongPath(rom: seq[uint8], song: int, prependEngine: bool, useStubIfMissi
         s.add(&"{apuRam[0x0500 + i]:02X} ")
       s) &
     &" last0500Writer={last0500Writer}"
-  if useStubIfMissing and apuRam[0x0500] == 0:
-    for i in 0..<Ipl0500Stub.len:
-      apuRam[0x0500 + i] = Ipl0500Stub[i]
-    echo "  applied Ipl0500Stub (byte@0500 was 0)"
 
   let apu = newApu()
   for i in 0..<0x10000:
@@ -227,7 +216,7 @@ proc main() =
     of "b": songB = parseInt(v)
     of "no-prepend": noPrepend = true
     of "help", "h":
-      echo "Usage: nim r src/tools/songstart_dig.nim [--a 1] [--b 3] [--rom path] [--no-prepend]"
+      echo "Usage: nim r src/probes/songstart_dig.nim [--a 1] [--b 3] [--rom path] [--no-prepend]"
       quit(0)
     else: discard
 
@@ -256,15 +245,15 @@ proc main() =
   echo &"ROM {romPath} len={rom.len}"
   echo ""
   echo "==== WITH engine prepend (sound_explore default) ===="
-  discard runSongPath(rom, songA, prependEngine = not noPrepend, useStubIfMissing = true)
+  discard runSongPath(rom, songA, prependEngine = not noPrepend)
   echo ""
-  discard runSongPath(rom, songB, prependEngine = not noPrepend, useStubIfMissing = true)
+  discard runSongPath(rom, songB, prependEngine = not noPrepend)
 
   # Extra: song B without prepend, to see if pack set already includes engine-like code.
   if not noPrepend:
     echo ""
     echo "==== song B WITHOUT pack-1 prepend (table packs only) ===="
-    discard runSongPath(rom, songB, prependEngine = false, useStubIfMissing = true)
+    discard runSongPath(rom, songB, prependEngine = false)
 
   # Pack 1 alone as baseline engine health.
   echo ""
