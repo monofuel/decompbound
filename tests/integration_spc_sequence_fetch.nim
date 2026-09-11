@@ -68,6 +68,41 @@ proc checkDispatch(spc: var Spc, rom: seq[uint8], voice, command, target, operan
   doAssert spc.a.int == (if hasOperand: operand else: 0)
   doAssert spc.y.int == (if hasOperand: operand else: 0)
 
+proc checkCommandE1(spc: var Spc, voice, operand, overrideFlag, target: int) =
+  ## Execute command E1 through dispatch and verify its channel fields and single operand.
+  let
+    channel = voice * 2
+    pointer = 0x30 + channel
+    effective = (if overrideFlag == 0: operand else: 10)
+  for index in 0 ..< 16:
+    spc.ram[0x330 + index] = 0xA5
+    spc.ram[0x350 + index] = 0x5A
+  spc.ram[0x431] = overrideFlag.uint8
+  spc.ram[pointer] = (target and 255).uint8
+  spc.ram[pointer + 1] = (target shr 8).uint8
+  spc.ram[target] = operand.uint8
+  spc.ram[0x1F0] = (ReturnAddress and 255).uint8
+  spc.ram[0x1F1] = (ReturnAddress shr 8).uint8
+  spc.pc = 0x0943
+  spc.sp = 0xEF
+  spc.x = channel.uint8
+  spc.a = 0xE1
+  spc.psw = 0
+  var steps = 0
+  while spc.pc != ReturnAddress:
+    doAssert steps < 40
+    spc.step()
+    inc steps
+  doAssert spc.sp == 0xF1 and spc.x.int == channel
+  doAssert spc.ram[pointer].int + (spc.ram[pointer + 1].int shl 8) == ((target + 1) and 65535)
+  doAssert spc.ram[0x20].int == operand
+  doAssert spc.ram[0x431].int == overrideFlag
+  for index in 0 ..< 16:
+    doAssert spc.ram[0x330 + index].int ==
+      (if index == channel: 0 elif index == channel + 1: effective and 31 else: 0xA5)
+    doAssert spc.ram[0x350 + index].int ==
+      (if index == channel + 1: effective else: 0x5A)
+
 proc main() =
   ## Sweep stream bytes, voice offsets, both direct pages, carry, and pointer boundaries.
   let rom = readGoldBaserom()
@@ -87,6 +122,11 @@ proc main() =
       for target in [0x48FF, 0xFFFF]:
         for operand in [0, 1, 127, 128, 255]:
           spc.checkDispatch(rom, voice, command, target, operand)
+  for voice in 0 ..< 8:
+    for operand in 0 .. 255:
+      for overrideFlag in [0, 1, 128, 255]:
+        for target in [0x48FF, 0xFFFF]:
+          spc.checkCommandE1(voice, operand, overrideFlag, target)
 
 when isMainModule:
   main()

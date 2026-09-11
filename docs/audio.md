@@ -145,6 +145,33 @@ Instrument-area reads occur at `$0986/$099D/$09AC/$09B2` into `$6E30..6E4D`.
 The `$0D10/$0D19` path scans ahead and skips command operands using metadata;
 those reads do not themselves advance the channel pointer at `$30+X`.
 
+### Command E1: verified channel-state assignment
+
+The handler at APU `$09B8..09D5` (file `$2604FA..260517`) consumes exactly
+one operand, fetched by the dispatcher. It stores the original operand in
+scratch `$20`, then tests global byte `$0431`. If that byte is nonzero, the
+effective value is decimal 10; otherwise it is the operand. With X equal to
+the even channel offset, it writes:
+
+| Destination | Value |
+|---|---|
+| `$0351+X` | Full effective value |
+| `$0331+X` | Effective value masked to five bits |
+| `$0330+X` | Zero |
+
+The branch at `$09C0` selects the original operand when `$0431` is zero;
+the stores at `$09C8/$09CD/$09D2` establish the three fields. This path makes
+no DSP-register writes and fetches no additional operands. The meaning of
+the global override and the musical interpretation of these fields remain
+open until their consumers are traced.
+
+The sequence-fetch integration test adds 16,384 full E1 executions through
+dispatch: eight channel offsets, all 256 operands, four override values
+(`0`, `1`, `128`, `255`), and two cursor boundaries. It checks return-stack
+balance, one-byte cursor advancement, scratch preservation, all three fields,
+and unchanged neighboring channel fields. Together with the fetch/dispatch
+sweeps, the file executes 59,904 cases.
+
 ## Uploaded data and the next research boundary
 
 Package 5 at file `$2B520C` contains blocks targeting APU `$6C00`, `$7000`, and
