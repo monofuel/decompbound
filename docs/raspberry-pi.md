@@ -113,7 +113,8 @@ exec ./decompbound-play --kiosk "bin/Earthbound (U) [!].smc" >> play_stdout.log 
 and a `ports` system in `~/.emulationstation/es_systems.cfg` with
 `<command>bash %ROM%</command>` (no runcommand, no tty needed).
 
-gammapi prerequisites: nimby + Nim 2.2.4 as on ember, `nimby sync -g nimby.lock`,
+`scripts/gammapi_setup.sh` does all of the above on the device (idempotent).
+By hand, the prerequisites are: nimby + Nim 2.2.4 as on ember, `nimby sync -g nimby.lock`,
 and `libopenal-dev libevdev-dev libudev-dev libgl-dev libx11-dev libxext-dev
 libxcursor-dev` (runtime: `libopenal1 libevdev2 libudev1 libgl1 libx11-6
 libxext6 libxcursor1`; RetroArch already pulled most of them).
