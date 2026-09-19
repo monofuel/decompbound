@@ -254,6 +254,31 @@ proc composeDebugHud(
     drawHudText(image, HudOriginX + HudPadX, ty, line, HudFg)
     ty += HudLineH
 
+proc composeToast(image: Image; text: string; progress = -1.0) =
+  ## Bottom-left message at 2x glyph scale so it reads on a 320x240 panel.
+  ## `progress` in 0..1 draws a bar under the text (hold-to-quit).
+  const scale = 2
+  let textW = hudTextWidth(text) * scale
+  let textH = HudFontH * scale
+  let barH = if progress >= 0: 3 else: 0
+  let boxW = textW + HudPadX * 2 * scale
+  let boxH = textH + barH + HudPadY * 2 * scale
+  let x0 = HudOriginX
+  let y0 = image.height - boxH - HudOriginY
+  fillRect(image, x0, y0, boxW, boxH, HudBg)
+  var cx = x0 + HudPadX * scale
+  let cy = y0 + HudPadY * scale
+  for ch in text:
+    let g = glyphFor(ch)
+    for row in 0 ..< HudFontH:
+      for col in 0 ..< HudFontW:
+        if (g[row] and (1'u8 shl (HudFontW - 1 - col))) != 0:
+          fillRect(image, cx + col * scale, cy + row * scale, scale, scale, HudFg)
+    cx += HudFontAdvance * scale
+  if progress >= 0:
+    let barW = int(float(textW) * min(progress, 1.0))
+    fillRect(image, x0 + HudPadX * scale, cy + textH + 1, barW, barH - 1, HudFg)
+
 proc saveScreenshot(frameImage: Image, dir: string, state: seq[byte], romHash: uint32): string =
   ## Save the raw game frame (256x224) as a timestamped PNG under the given dir,
   ## embedding the current state via ebSt chunk (for drag-drop restore).
@@ -520,7 +545,7 @@ Controls:
   Space       Toggle pause
   F1          Screenstate (same as F12)
   F2 / F4     Save / load state slot 1
-  Esc (hold 1s) Quit cleanly
+  Esc (hold 1s) Quit cleanly (a HOLD TO QUIT bar fills on screen)
   N           Advance one frame (when paused)
   -           Decrease speed
   =           Increase speed
@@ -949,6 +974,17 @@ Controls:
   const SamplesPerFrame = 32000 div 60
   var pcm = newSeq[uint8](SamplesPerFrame * 4)
   var escHeld = 0
+  var toastText = ""
+  var toastFrames = 0
+  var heldLastFrame: set[Button]
+  const ToastFrames = 90
+  template toast(text: string) =
+    toastText = text
+    toastFrames = ToastFrames
+  template tapped(key: Button): bool =
+    ## A press that was not already down last frame: X autorepeat re-fires
+    ## KeyPress while a key is held, and one held edge button must not spam.
+    window.buttonPressed[key] and key notin heldLastFrame
   while not window.closeRequested:
     let iterStart = getMonoTime()
     # Phase timers for HITCH diagnosis (Bug A): plain floats, no seqs.
@@ -1146,9 +1182,11 @@ Controls:
               echo "  ", btn
 
     # One-shot controls.
-    if window.buttonPressed[KeySpace]:
+    if tapped(KeySpace):
       paused = not paused
       writeLog(&"pause: {(if paused: \"ON\" else: \"OFF\")}")
+      if not paused:
+        toastFrames = 0
     if window.buttonPressed[KeyN] and paused:
       frameAdvance = true
       writeLog("frame advance")
@@ -1178,8 +1216,6 @@ Controls:
       autoShot = not autoShot
       echo "auto-screenshots: ", (if autoShot: &"ON ({autoshotsDir}/ every 5s)" else: "OFF")
       writeLog(&"F11: auto-screenshots {(if autoShot: \"ON\" else: \"OFF\")}")
-    if window.buttonPressed[KeyEscape]:
-      escHeld = 0
     if window.buttonDown[KeyEscape]:
       inc escHeld
       if escHeld == EscHoldFrames:
@@ -1188,8 +1224,7 @@ Controls:
         break
     else:
       escHeld = 0
-    if window.buttonPressed[KeyF12] or window.buttonPressed[KeyF5] or
-        window.buttonPressed[KeyF1]:
+    if tapped(KeyF12) or tapped(KeyF5) or tapped(KeyF1):
       # F12 = screenshot, matching Steam's screenshot-key convention. Steam
       # intercepts F12 and can RE-GRAB it mid-session (overlay activation) —
       # monofuel has seen F12 "just stop working" live — so F5 is a fallback
@@ -1219,11 +1254,13 @@ Controls:
           discard
         echo "  build=", buildLabel(), " (session.txt in ", sessionDir, ")"
         writeLog("screenshot (" & viaKey & ") build=" & buildLabel())
+        toast("SCREENSHOT " & shotPath.extractFilename)
       except CatchableError as e:
         # A capture failure must never kill the game — and must never be
         # silent again (the "F12 stopped working" mystery).
         echo "SCREENSTATE FAILED: ", e.msg
         writeLog("SCREENSTATE FAILED (" & viaKey & "): " & e.msg)
+        toast("SCREENSHOT FAILED")
       echo &"  BGMODE={snes.ppuRegs[0x05] and 7} bg3prio={(snes.ppuRegs[0x05] and 8) != 0} " &
         &"TM(main)={snes.ppuRegs[0x2C]:02X} TS(sub)={snes.ppuRegs[0x2D]:02X} INIDISP={snes.ppuRegs[0x00]:02X}"
       echo &"  CGADSUB={snes.ppuRegs[0x31]:02X} CGWSEL={snes.ppuRegs[0x30]:02X} HDMAEN={snes.hdmaen:02X}"
@@ -1293,9 +1330,9 @@ Controls:
         of 3: Key3
         of 4: Key4
         else: Key1
-      let slotSave = slot == 1 and window.buttonPressed[KeyF2]
-      let slotLoad = slot == 1 and window.buttonPressed[KeyF4]
-      if window.buttonPressed[keyNum] or slotSave or slotLoad:
+      let slotSave = slot == 1 and tapped(KeyF2)
+      let slotLoad = slot == 1 and tapped(KeyF4)
+      if tapped(keyNum) or slotSave or slotLoad:
         let isCtrl = slotSave or (not slotLoad and
           (window.buttonDown[KeyLeftControl] or window.buttonDown[KeyRightControl]))
         let p = statePathForSlot(slot)
@@ -1303,15 +1340,23 @@ Controls:
           saveState(snes, cpu, slot)
           echo &"saved slot {slot} -> {p}"
           writeLog(&"saved slot {slot}")
+          toast(&"SAVED SLOT {slot}")
         else:
           if fileExists(p):
             loadState(snes, cpu, slot)
             echo &"loaded slot {slot} <- {p}"
             writeLog(&"loaded slot {slot}")
             startRecording("slot" & $slot)
+            toast(&"LOADED SLOT {slot}")
           else:
             echo &"no state for slot {slot}"
             writeLog(&"load failed for slot {slot} (no file)")
+            toast(&"NO SAVE IN SLOT {slot}")
+    heldLastFrame = {}
+    for key in [KeySpace, KeyEscape, KeyF1, KeyF2, KeyF4, KeyF5, KeyF12,
+                Key1, Key2, Key3, Key4]:
+      if window.buttonDown[key]:
+        heldLastFrame.incl key
     # Hardware RESET (Ctrl+R only — bare R is too easy to fat-finger mid-game,
     # same reasoning as no Esc-to-quit). Preserves WRAM/VRAM/OAM/CGRAM/SRAM;
     # reboots CPU + MMIO + APU. Window/audio/MCP stay up.
@@ -1796,6 +1841,14 @@ Controls:
         frameImage, snes, debugHudLastSeed,
         debugHudAdvFrame, debugHudAdvTotal, debugHudFormLine
       )
+
+    if escHeld > 0:
+      composeToast(frameImage, "HOLD TO QUIT", escHeld / EscHoldFrames)
+    elif paused:
+      composeToast(frameImage, "PAUSED")
+    elif toastFrames > 0:
+      composeToast(frameImage, toastText)
+      dec toastFrames
 
     # Display the frame built during emulation. Without vsync the swap does
     # not block, so only draw when a frame was emulated and yield otherwise.
