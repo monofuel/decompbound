@@ -438,7 +438,7 @@ bench-ref: nim.cfg
 # Shipping build of the player for a handheld / kiosk box (docs/raspberry-pi.md).
 # Built on the target itself: the binary links against that box's libc, GL,
 # X11, OpenAL, libevdev and libudev.
-release-play: nim.cfg
+release-play: nim.cfg $(LUA_LIB)
 	@mkdir -p bin
 	nim c $(NIM_TEST_FLAGS) -d:release -d:fast -o:bin/decompbound-play src/tools/play.nim
 

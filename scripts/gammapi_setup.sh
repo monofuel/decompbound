@@ -39,7 +39,8 @@ nim -v | head -1
 nimby sync -g nimby.lock | tail -1
 
 echo "== build"
-make release-play
+git submodule update --init vendor/lua
+nice -n 10 make release-play NIM_TEST_FLAGS="--hints:off --warnings:off --parallelBuild:2"
 ldd bin/decompbound-play | grep -E "not found" && { echo "missing runtime libraries"; exit 1; }
 
 echo "== install to $INSTALL"
