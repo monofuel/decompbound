@@ -7,7 +7,9 @@
 # toolchain via nimby (prebuilt arm64), the build/runtime libraries, builds
 # the shipping player, lays out ~/decompbound, writes the launcher into the
 # EmulationStation "Custom" menu (any .sh dropped in that folder shows up
-# there) and registers that system if the menu lacks it. The ROM
+# there), one launcher per screenstate PNG in ~/decompbound/screenstates/
+# (copy test states there by hand; they come from the secret repo), and
+# registers that system if the menu lacks it. The ROM
 # defaults to the RetroArch working copy already on the box. See
 # docs/raspberry-pi.md.
 set -euo pipefail
@@ -65,6 +67,19 @@ cd "$HOME/decompbound" || exit 1
 exec ./decompbound-play --kiosk "bin/Earthbound (U) [!].smc" >> play_stdout.log 2>&1
 EOF
 chmod +x "$CUSTOM_DIR/decompbound.sh"
+mkdir -p "$INSTALL/screenstates"
+for png in "$INSTALL"/screenstates/*.png; do
+  [ -f "$png" ] || continue
+  name=$(basename "$png" .png)
+  cat > "$CUSTOM_DIR/decompbound-$name.sh" <<LAUNCHER
+#!/bin/bash
+export DISPLAY=:0
+export XDG_RUNTIME_DIR=/run/user/\$(id -u)
+cd "\$HOME/decompbound" || exit 1
+exec ./decompbound-play --kiosk --load-state-path "screenstates/$(basename "$png")" "bin/Earthbound (U) [!].smc" >> play_stdout.log 2>&1
+LAUNCHER
+  chmod +x "$CUSTOM_DIR/decompbound-$name.sh"
+done
 if [ ! -f "$ES_USER_CFG" ]; then
   mkdir -p "$(dirname "$ES_USER_CFG")"
   cp "$ES_SYS_CFG" "$ES_USER_CFG"

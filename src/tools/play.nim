@@ -1444,8 +1444,13 @@ Controls:
         # once-per-frame NMI, so it can't run logic faster), and the APU tick rate is
         # unchanged — so gameplay pacing + audio tempo are preserved. Tune if needed.
         const InstrPerLine = 150
+        # Catch-up frames (more than one tick this iteration) are emulated
+        # without rendering: only the last one reaches the screen, and the
+        # PPU is over half the frame cost. Rendering has no emulation side
+        # effects (the bench referee proves it), so the game is unchanged.
+        let renderThis = t == ticks - 1 or traceScanlines
         let forceBlank = (snes.ppuRegs[0x00] and 0x80) != 0
-        if not forceBlank:
+        if renderThis and not forceBlank:
           let backdrop = ppu.bgr555ToColor(snes.cgram[0])
           frameImage.fill(backdrop)
         # Audio: pull one frame of samples from the LIVE APU, ticked per scanline
@@ -1468,8 +1473,9 @@ Controls:
             # frame, BEFORE the NMI handler DMAs next frame's positions in —
             # else sprites lead the BG by one frame (1px ghosting when moving,
             # 1px seams sliding behind foreground tiles).
-            ppu.renderSprites(snes, frameImage)
-            ppu.overlayForegroundBg(snes, frameImage)
+            if renderThis:
+              ppu.renderSprites(snes, frameImage)
+              ppu.overlayForegroundBg(snes, frameImage)
             if (snes.nmitimen and 0x80) != 0:
               cpu.nmiPending = true
           for i in 0 ..< InstrPerLine:
@@ -1483,7 +1489,7 @@ Controls:
               traceTS[l] = snes.ppuRegs[0x2D]
               traceCG[l] = snes.ppuRegs[0x31]
               traceCW[l] = snes.ppuRegs[0x30]
-            if (snes.ppuRegs[0x00] and 0x80) == 0:
+            if renderThis and (snes.ppuRegs[0x00] and 0x80) == 0:
               ppu.renderScanline(snes, frameImage, l)
           for k in 0 ..< 2:
             let (lft, rgt) = snes.tickApu()
