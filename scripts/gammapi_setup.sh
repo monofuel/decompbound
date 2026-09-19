@@ -56,14 +56,14 @@ fi
 
 echo "== EmulationStation custom entry"
 mkdir -p "$CUSTOM_DIR"
-cat > "$PORTS_DIR/decompbound.sh" <<'EOF'
+cat > "$CUSTOM_DIR/decompbound.sh" <<'EOF'
 #!/bin/bash
 export DISPLAY=:0
 export XDG_RUNTIME_DIR=/run/user/$(id -u)
 cd "$HOME/decompbound" || exit 1
 exec ./decompbound-play --kiosk "bin/Earthbound (U) [!].smc" >> play_stdout.log 2>&1
 EOF
-chmod +x "$PORTS_DIR/decompbound.sh"
+chmod +x "$CUSTOM_DIR/decompbound.sh"
 if [ ! -f "$ES_USER_CFG" ]; then
   mkdir -p "$(dirname "$ES_USER_CFG")"
   cp "$ES_SYS_CFG" "$ES_USER_CFG"
