@@ -40,7 +40,7 @@ proc skillsSrc(): string =
 proc ensureLeaveNoParty() =
   if fileExists(LeaveNoParty):
     return
-  let (o, code) = execCmdEx("nim r -d:release src/tools/synth_leave_day1_noparty.nim")
+  let (o, code) = execCmdEx("nim r -d:release src/probes/synth_leave_day1_noparty.nim")
   echo o
   doAssert code == 0 and fileExists(LeaveNoParty)
 
