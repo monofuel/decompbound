@@ -37,7 +37,7 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 ## OPEN — please check
 
-- [ ] **Desktop: `make play` after the GL 2.1 blit** · 2026-09-19 · `pi3-perf`
+- [x] **Desktop: `make play` after the GL 2.1 blit** · 2026-09-19 · `pi3-perf` · verified 2026-09-19: Skyrunner segment, audio, graphics and framerate good
   - **Run:** `make play`, then drag the window to a non-multiple size
   - **Pass if:** identical picture at the default 768x672 (3x); at odd sizes the game stays pixel-exact with bigger black bars instead of a fractional stretch; F2 saves slot 1, F4 loads it; holding Esc for a second quits and the terminal prints "Esc held: quitting"
   - **Fail if:** shader error at startup, blurry or stretched picture, Esc tap quits
