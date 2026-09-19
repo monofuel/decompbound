@@ -83,6 +83,9 @@ Blockers from the original plan and what happened to them:
    Space, F4, F2, Esc, F1). play.nim already keyed the pad this way; R now
    accepts W or E. F1 = screenstate, F2 / F4 = save / load slot 1, Space =
    pause, **Esc held for a second = clean exit** (SRAM flush, end.state).
+   Every edge button acts once per press (X autorepeat re-fires KeyPress
+   while a key is held) and shows a bottom-left message; Esc draws a HOLD
+   TO QUIT bar that fills over the second.
 3. **Audio.** slappy → OpenAL → ALSA default → pipewire-pulse on Bookworm.
    `--no-audio` is the fallback; `ALSOFT_DRIVERS=pulse` in the launcher if
    silent.
