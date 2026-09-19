@@ -91,6 +91,16 @@ hang, Saturn Valley corruption, half-speed music) are tracked together in
 
 Prior detailed sections for now-resolved items (old milestones, input latch, APU snapshot replay, menu hangs, logo fade, etc.) removed; still-relevant mechanics (HDMA per-line TM/TS splits for battle bands, top-scanline vblank timing, CPU budget vs. cycle accuracy) are summarized in the items above.
 
+## Known-failing e2e tests (2026-09-19)
+
+Eight `tests/e2e_*.nim` fail on master with milestone assertions from the
+LLM-play bot harness, unrelated to emulator accuracy (the same fixtures replay
+byte-identically through the bench referee): `e2e_agent_giant_day_gs80`,
+`e2e_agent_knock_bed`, `e2e_agent_multileg`, `e2e_agent_product_gs70_to_gs80`,
+`e2e_campaign_full_product_spine`, `e2e_campaign_segment`, `e2e_late_game_spine`,
+`e2e_stuck_recovery`. Verified failing identically at `ec60278` (before the Pi
+optimization series) and after it. Bot-policy work, not a regression gate.
+
 ## Perf / investigations
 
 - **Rare `make play` frame stutter (INVESTIGATING 2026-07-19).** A very rare,
