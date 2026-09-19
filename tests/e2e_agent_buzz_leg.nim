@@ -33,7 +33,7 @@ proc landmarkLua(L: lua53.PState): cint {.cdecl.} =
 proc ensureOutdoorFixture() =
   ## Build post_knock_outdoor if missing (synth tool).
   if fileExists(OutdoorPk): return
-  let (o, code) = execCmdEx("nim r -d:release src/tools/synth_post_knock_outdoor.nim")
+  let (o, code) = execCmdEx("nim r -d:release src/probes/synth_post_knock_outdoor.nim")
   echo o
   doAssert code == 0 and fileExists(OutdoorPk), "synth outdoor fixture failed"
 

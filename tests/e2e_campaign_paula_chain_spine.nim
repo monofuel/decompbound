@@ -79,15 +79,15 @@ proc runPol(snes: SnesBus; cpu: var Cpu; pol: string; maxFrames: int):
 proc ensureChain() =
   ## Ensure Paula-chain fixtures exist (synth if missing).
   if not fileExists(Fo60):
-    let (o, c) = execCmdEx("nim r -d:release src/tools/synth_fourside60_from_paula.nim")
+    let (o, c) = execCmdEx("nim r -d:release src/probes/synth_fourside60_from_paula.nim")
     echo o
     doAssert c == 0
   if not fileExists(Fo80):
-    let (o, c) = execCmdEx("nim r -d:release src/tools/synth_fourside80_from_paula.nim")
+    let (o, c) = execCmdEx("nim r -d:release src/probes/synth_fourside80_from_paula.nim")
     echo o
     doAssert c == 0
   if not fileExists(Soft98):
-    let (o, c) = execCmdEx("nim r -d:release src/tools/synth_soft98_from_fo80.nim")
+    let (o, c) = execCmdEx("nim r -d:release src/probes/synth_soft98_from_fo80.nim")
     echo o
     doAssert c == 0
 

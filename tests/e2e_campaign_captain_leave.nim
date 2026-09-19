@@ -41,7 +41,7 @@ proc skillsSrc(): string =
 proc ensureLeave() =
   if fileExists(LeavePk):
     return
-  let (o, code) = execCmdEx("nim r -d:release src/tools/synth_leave_onett.nim")
+  let (o, code) = execCmdEx("nim r -d:release src/probes/synth_leave_onett.nim")
   echo o
   doAssert code == 0 and fileExists(LeavePk)
 
