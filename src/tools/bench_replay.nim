@@ -17,6 +17,8 @@
 ##     --label NAME      label for the results row
 ##     --out FILE        append a TSV results row to FILE
 ##     --frame-times FILE  write "frame\tms" per emulated frame (find slow scenes)
+##     --state-at N FILE   write the machine state after frame N to FILE (.state),
+##                       so a scene found by --frame-times can be benchmarked alone
 ##
 ## The tape's `chk` checkpoints are verified during the run as well (applyTas).
 
@@ -29,9 +31,9 @@ import
 
 const
   RowEvery = ReplayChkInterval
-  Usage = "Usage: nim r src/tools/bench_replay.nim <rom> <session-dir|tape.tas|start.png> " &
+  Usage = "Usage: nim r src/tools/bench_replay.nim <rom> <session-dir|tape.tas|start.png|start.state> " &
     "[--frames N] [--ref PATH] [--write-ref] [--accept-image] [--no-ref] " &
-    "[--no-render] [--hash-every N] [--label NAME] [--out FILE] [--frame-times FILE]"
+    "[--no-render] [--hash-every N] [--label NAME] [--out FILE] [--frame-times FILE] [--state-at N FILE]"
 
 type
   Options = object
@@ -47,6 +49,8 @@ type
     label: string
     outPath: string
     frameTimesPath: string
+    stateAtFrame: int
+    stateAtPath: string
 
 proc parseOptions(): Options =
   ## Parse the command line; exits with usage on error.
@@ -60,6 +64,7 @@ proc parseOptions(): Options =
   result.target = paramStr(argBase + 1)
   result.frames = -1
   result.hashEvery = 1
+  result.stateAtFrame = -1
   var i = argBase + 2
   while i <= paramCount():
     let arg = paramStr(i)
@@ -83,6 +88,11 @@ proc parseOptions(): Options =
     elif arg == "--label" and i < paramCount():
       inc i
       result.label = paramStr(i)
+    elif arg == "--state-at" and i + 1 < paramCount():
+      inc i
+      result.stateAtFrame = parseInt(paramStr(i))
+      inc i
+      result.stateAtPath = paramStr(i)
     elif arg == "--frame-times" and i < paramCount():
       inc i
       result.frameTimesPath = paramStr(i)
@@ -171,7 +181,7 @@ proc main() =
   if dirExists(opts.target):
     tapePath = pickSessionTape(opts.target)
   var startPath = ""
-  if tapePath.endsWith(".png"):
+  if tapePath.endsWith(".png") or tapePath.endsWith(".state"):
     startPath = tapePath
     tapePath = ""
   var header: ReplayHeader
@@ -250,6 +260,9 @@ proc main() =
       let now = getMonoTime()
       frameTimes.writeLine($tf & "\t" & formatFloat((now - frameStart).inNanoseconds.float / 1e6, ffDecimal, 3))
       frameStart = now
+    if tf == opts.stateAtFrame:
+      writeFile(opts.stateAtPath, cast[string](serializeState(snes, cpu)))
+      echo "state after frame ", tf, " -> ", opts.stateAtPath
     if tf mod opts.hashEvery == 0:
       let t0 = getMonoTime()
       if image != nil:
