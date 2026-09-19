@@ -7,12 +7,11 @@
 import
   std/[strutils, math],
   pixie,
-  ./[cpu, ppu, snesbus, lua53, text_decode]
+  ./[cpu, frame_step, ppu, snesbus, lua53, text_decode]
+
+export frame_step
 
 const
-  InstrPerLine* = 150  # match play.nim's frame budget; at 40 the game is CPU-starved
-                       # and never boots past force-blank (black frames in llm_ai/play).
-
   # A* re-plan over a 64×64 collision page needs headroom; still bounded against runaway policies.
   PolicyInstrBudget* = 200_000
 
@@ -116,16 +115,6 @@ const
 # lua_seti is not wrapped in lua53.nim; bind locally so snes.readRange can fill
 # 1-based integer keys without touching the shared binding module.
 proc luaSeti(L: lua53.PState, idx: cint, n: lua53.Integer) {.cdecl, importc: "lua_seti".}
-
-proc readRomFile*(filepath: string): seq[uint8] =
-  ## Read ROM file and return bytes, stripping a 512-byte copier header if present.
-  let data = readFile(filepath)
-  var start = 0
-  if data.len mod 1024 == 512:
-    start = 512
-  result = newSeq[uint8](data.len - start)
-  for i in 0..<result.len:
-    result[i] = data[start + i].uint8
 
 proc nameToMask*(name: string): uint16 =
   ## Map button name (case-insensitive) to the joy1 bit. Unknown names are 0 (no-op).
@@ -1004,41 +993,6 @@ proc setupPolicyApi*(L: lua53.PState, ctx: PolicyContext) =
   L.pushcfunction(simNormal)
   L.setfield(-2, "normal".cstring)
   L.setglobal("sim".cstring)
-
-proc stepOneFrame*(snes: SnesBus, cpu: var Cpu, image: Image, render = true) =
-  ## Advance the emulator by exactly one frame (262 scanlines).
-  ## Mirrors play.nim (NMI at line 224, InstrPerLine=150). Pass render=false
-  ## to skip PPU draws (headless TAS reports).
-  let forceBlank = (snes.ppuRegs[0x00] and 0x80) != 0
-  if render and not forceBlank:
-    let backdrop = ppu.bgr555ToColor(snes.cgram[0])
-    image.fill(backdrop)
-  var l = 0
-  while l < 262:
-    snes.tickScanline(l)
-    if l == 224:
-      # Sprites must render from OAM as it stands at the END of the visible
-      # frame, BEFORE the game's NMI handler DMAs next frame's positions in —
-      # else sprites lead the background by one frame (1px ghost when moving).
-      if render:
-        ppu.renderSprites(snes, image)
-        ppu.overlayForegroundBg(snes, image)
-      if (snes.nmitimen and 0x80) != 0:
-        cpu.nmiPending = true
-    for i in 0 ..< InstrPerLine:
-      cpu.step(snes.bus)
-      if cpu.stopped:
-        break
-    if l < 224:
-      snes.runHdma()
-      if render and (snes.ppuRegs[0x00] and 0x80) == 0:
-        ppu.renderScanline(snes, image, l)
-    for k in 0 ..< 2:
-      discard snes.tickApu()
-    inc l
-    if l >= 262:
-      snes.initHdma()
-      break
 
 proc runPolicyFrame*(L: lua53.PState, ctx: PolicyContext): string =
   ## Execute one tick of the policy: reset joy1, invoke global update() under
