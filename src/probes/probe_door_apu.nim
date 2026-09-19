@@ -58,10 +58,9 @@ proc runNav(snes: SnesBus, cpu: var Cpu, extraApuPerLine: int, killApu: bool,
     var apuTicks = 0
     while l < 262:
       snes.tickScanline(l)
-      snes.setScanline(l)
+      snes.tickScanline(l)
       if l == 224 and (snes.nmitimen and 0x80) != 0:
         cpu.nmiPending = true
-        snes.raiseNmi()
       for i in 0 ..< policy.InstrPerLine:
         cpu.step(snes.bus)
         if cpu.stopped: break

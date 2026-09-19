@@ -57,10 +57,9 @@ proc main() =
   image.fill(backdrop)
   snes.initHdma()
   while executed < maxInstructions and not cpu.stopped:
-    snes.setScanline(line)
+    snes.tickScanline(line)
     if (snes.nmitimen and 0x80) != 0 and line == 224:
       cpu.nmiPending = true
-      snes.raiseNmi()
       if not noInput:
         # Press Start as an EDGE: held ~8 frames, released ~112. A permanently
         # held button never re-triggers a "press Start" advance, so we must
