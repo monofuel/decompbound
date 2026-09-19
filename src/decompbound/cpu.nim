@@ -27,6 +27,9 @@ type
     ## readHook returns -1 to fall through to flat memory; writeHook
     ## returns true when it fully handled the write.
     mem*: seq[uint8]
+    memBase: ptr UncheckedArray[uint8]
+      ## Data pointer of `mem`, valid because `mem` is allocated once and
+      ## never resized: saves a dependent load per byte on the hot path.
     dirty*: seq[int]
     recordDirty*: bool  ## OFF by default. Only the vector-test harness needs the
                         ## dirty list (to reset touched RAM between tests); in normal
@@ -155,6 +158,13 @@ type
     mnXCE
 
 const
+  ModeOf: array[256, AddressingMode] = block:
+    ## Addressing mode per opcode as a compact byte table; OpcodeTable entries
+    ## also carry the mnemonic string, which is dead weight on the hot path.
+    var t: array[256, AddressingMode]
+    for i in 0 ..< 256:
+      t[i] = OpcodeTable[i].mode
+    t
   MnemonicOf: array[256, Mnemonic] = block:
     var t: array[256, Mnemonic]
     for i in 0 .. 255:
@@ -163,7 +173,8 @@ const
 
 proc newBus*(): Bus =
   ## Allocate the flat memory bus.
-  Bus(mem: newSeq[uint8](MemSize))
+  result = Bus(mem: newSeq[uint8](MemSize))
+  result.memBase = cast[ptr UncheckedArray[uint8]](result.mem[0].addr)
 
 proc read8*(bus: Bus, address: uint32): uint8 {.inline.} =
   ## Read one byte from the 24-bit address space. Banks $40-$7F and $C0-$FF,
@@ -171,12 +182,12 @@ proc read8*(bus: Bus, address: uint32): uint8 {.inline.} =
   ## bus (the hook would return -1), so they bypass the hook call.
   let a = address and 0xFFFFFF
   if (a and 0x400000) != 0 or (a and 0x8000) != 0:
-    return bus.mem[a]
+    return bus.memBase[a]
   if bus.readHook != nil:
     let hooked = bus.readHook(a)
     if hooked >= 0:
       return hooked.uint8
-  bus.mem[a]
+  bus.memBase[a]
 
 proc write8*(bus: Bus, address: uint32, value: uint8) =
   ## Write one byte and remember it for harness cleanup. Mirrors the SNES
@@ -192,7 +203,7 @@ proc write8*(bus: Bus, address: uint32, value: uint8) =
       return
     elif bus.writeHook(a, value):
       return
-  bus.mem[a.int] = value
+  bus.memBase[a] = value
   if bus.recordDirty:
     bus.dirty.add a.int
 
@@ -584,7 +595,7 @@ proc step*(cpu: var Cpu, bus: Bus) =
       (cpu.pc >= 0xABC6'u16 and cpu.pc <= 0xABDF'u16) or
       (cpu.pc >= 0xAC20'u16 and cpu.pc <= 0xAC2F'u16))
   let opcode = cpu.fetch8(bus)
-  let mode = OpcodeTable[opcode].mode
+  let mode = ModeOf[opcode]
   let mn = MnemonicOf[opcode]
 
   template dataOp(): Operand =
