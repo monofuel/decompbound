@@ -385,10 +385,21 @@ proc bgWindowParams(bg: int): tuple[selIdx, shift, logicShift, screenBit: int] =
   of 2: (0x24, 0, 4, 2)   # BG3: W34SEL low nibble.
   else: (0x24, 4, 6, 3)   # BG4: W34SEL high nibble.
 
+type
+  BgDecode = object
+    ## One scanline's decoded BG layers, shared by the main and sub screen
+    ## composites (the layers are identical for both; only the enable and
+    ## window masks differ).
+    lines: array[4, array[ScreenWidth, ColorRGBA]]
+    lineDrawn: array[4, array[ScreenWidth, bool]]
+    linePrio: array[4, array[ScreenWidth, uint8]]
+    decoded: array[4, bool]
+
 proc compositeScreen(snes: SnesBus, py: int, mask: uint8, winReg: uint8,
                      backdrop: ColorRGBA, buf: var array[ScreenWidth, ColorRGBA],
                      drawn: var array[ScreenWidth, bool],
-                     srcBit: var array[ScreenWidth, uint8]) =
+                     srcBit: var array[ScreenWidth, uint8],
+                     dec: var BgDecode) =
   ## Composite one screen (main or sub) for scanline py: backdrop, then the
   ## mask-enabled BG layers of the current mode, back to front. `winReg` is the
   ## screen's window-disable register (TMW $212E for main, TSW $212F for sub):
@@ -412,58 +423,57 @@ proc compositeScreen(snes: SnesBus, py: int, mask: uint8, winReg: uint8,
     buf[px] = backdrop
     drawn[px] = false
     srcBit[px] = BackdropMathBit
-  var lines {.noinit.}: array[4, array[ScreenWidth, ColorRGBA]]
-  var lineDrawn {.noinit.}: array[4, array[ScreenWidth, bool]]
-  var linePrio {.noinit.}: array[4, array[ScreenWidth, uint8]]
-  var decoded: array[4, bool]
   var winHidden {.noinit.}: array[4, WindowLine]
   var windowed: array[4, bool]
+  var winDone: array[4, bool]
   for layer in modeLayers(mode, bg3prio):
     let bg = layer.bg
     if (mask.int and (1 shl bg)) == 0:
       continue
-    if not decoded[bg]:
-      decoded[bg] = true
+    if not dec.decoded[bg]:
+      dec.decoded[bg] = true
+      for px in 0 ..< ScreenWidth: dec.lineDrawn[bg][px] = false
+      snes.bgScanlineInto(dec.lines[bg], dec.lineDrawn[bg], py, bg, layer.bpp,
+                          layer.pal, -1, addr dec.linePrio[bg])
+    if not winDone[bg]:
+      winDone[bg] = true
       let wp = bgWindowParams(bg)
       windowed[bg] = (winReg and (1'u8 shl wp.screenBit)) != 0
       if windowed[bg]:
         let combine = (snes.ppuRegs[0x2A].int shr wp.logicShift) and 0x03
         snes.windowAreaLine(snes.ppuRegs[wp.selIdx], wp.shift, combine, winHidden[bg])
-      for px in 0 ..< ScreenWidth: lineDrawn[bg][px] = false
-      snes.bgScanlineInto(lines[bg], lineDrawn[bg], py, bg, layer.bpp, layer.pal,
-                          -1, addr linePrio[bg])
     let layerBit = (1'u8 shl bg)
     let wantPrio = layer.prio
     if windowed[bg]:
       for px in 0..<ScreenWidth:
-        if lineDrawn[bg][px] and (wantPrio < 0 or linePrio[bg][px].int == wantPrio) and
+        if dec.lineDrawn[bg][px] and (wantPrio < 0 or dec.linePrio[bg][px].int == wantPrio) and
             not winHidden[bg][px]:
-          buf[px] = lines[bg][px]
+          buf[px] = dec.lines[bg][px]
           drawn[px] = true
           srcBit[px] = layerBit
     elif wantPrio < 0:
       for px in 0..<ScreenWidth:
-        if lineDrawn[bg][px]:
-          buf[px] = lines[bg][px]
+        if dec.lineDrawn[bg][px]:
+          buf[px] = dec.lines[bg][px]
           drawn[px] = true
           srcBit[px] = layerBit
     else:
       let want = wantPrio.uint8
       for px in 0..<ScreenWidth:
-        if lineDrawn[bg][px] and linePrio[bg][px] == want:
-          buf[px] = lines[bg][px]
+        if dec.lineDrawn[bg][px] and dec.linePrio[bg][px] == want:
+          buf[px] = dec.lines[bg][px]
           drawn[px] = true
           srcBit[px] = layerBit
 
-proc clamp5(v: int): int =
+proc clamp5(v: int): int {.inline.} =
   ## Clamp to a SNES 5-bit color channel (0..31).
   if v < 0: 0 elif v > 31: 31 else: v
 
-proc expand5to8(v: int): uint8 =
+proc expand5to8(v: int): uint8 {.inline.} =
   ## Expand a 5-bit SNES channel to 8-bit display (same as bgr555ToColor).
   uint8((v shl 3) or (v shr 2))
 
-proc colorMathBlend*(main, sub: ColorRGBA; doSub, doHalf: bool): ColorRGBA =
+proc colorMathBlend*(main, sub: ColorRGBA; doSub, doHalf: bool): ColorRGBA {.inline.} =
   ## Apply SNES color math in the true 5-bit domain, then expand to 8-bit.
   ## Doing the add/sub in 8-bit after expansion (old path) oversaturates —
   ## mid-gray static + war card becomes a yellow/green mess during the Giygas
@@ -513,8 +523,10 @@ proc renderScanline*(snes: SnesBus, image: Image, py: int) =
   var mainBuf {.noinit.}: array[ScreenWidth, ColorRGBA]
   var mainDrawn {.noinit.}: array[ScreenWidth, bool]
   var mainSrc {.noinit.}: array[ScreenWidth, uint8]
+  var dec {.noinit.}: BgDecode
+  dec.decoded = [false, false, false, false]
   snes.compositeScreen(py, mainMask, snes.ppuRegs[0x2E], backdrop, mainBuf,
-                       mainDrawn, mainSrc)  # TMW.
+                       mainDrawn, mainSrc, dec)  # TMW.
   # SNES CGRAM/COLDATA pack is R in bits 0-4, G in 5-9, B in 10-14.
   let fixedColor = bgr555ToColor(snes.fixedColorR.uint16 or
     (snes.fixedColorG.uint16 shl 5) or (snes.fixedColorB.uint16 shl 10))
@@ -528,7 +540,7 @@ proc renderScanline*(snes: SnesBus, image: Image, py: int) =
       # noise layer add cgram0 (often a non-black thrash color like $32AD) and
       # turn the "almost faded" static into a yellow/green mess.
       snes.compositeScreen(py, snes.ppuRegs[0x2D], snes.ppuRegs[0x2F], fixedColor,
-                           mathBuf, subDrawn, subSrc)  # TSW + fixed as sub backdrop.
+                           mathBuf, subDrawn, subSrc, dec)  # TSW + fixed as sub backdrop.
     else:
       for px in 0..<ScreenWidth:
         mathBuf[px] = fixedColor
