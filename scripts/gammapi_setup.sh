@@ -5,8 +5,9 @@
 #
 # Run on gammapi from the repo checkout. Idempotent: installs the Nim
 # toolchain via nimby (prebuilt arm64), the build/runtime libraries, builds
-# the shipping player, lays out ~/decompbound, writes the EmulationStation
-# ports launcher and registers a ports system if the menu lacks one. The ROM
+# the shipping player, lays out ~/decompbound, writes the launcher into the
+# EmulationStation "Custom" menu (any .sh dropped in that folder shows up
+# there) and registers that system if the menu lacks it. The ROM
 # defaults to the RetroArch working copy already on the box. See
 # docs/raspberry-pi.md.
 set -euo pipefail
@@ -17,7 +18,7 @@ NIM_VERSION=2.2.4
 NIMBY_URL=https://github.com/treeform/nimby/releases/download/0.2.3/nimby-Linux-ARM64
 ES_USER_CFG=$HOME/.emulationstation/es_systems.cfg
 ES_SYS_CFG=/etc/emulationstation/es_systems.cfg
-PORTS_DIR=$HOME/RetroPie/roms/ports
+CUSTOM_DIR=$HOME/RetroPie/roms/custom
 
 echo "== libraries"
 sudo apt-get install -y --no-install-recommends \
@@ -53,8 +54,8 @@ if [ -f "$SRM_SRC" ] && [ ! -f "$INSTALL/bin/Earthbound (U) [!].srm" ]; then
   echo "copied existing RetroArch battery save"
 fi
 
-echo "== EmulationStation ports entry"
-mkdir -p "$PORTS_DIR"
+echo "== EmulationStation custom entry"
+mkdir -p "$CUSTOM_DIR"
 cat > "$PORTS_DIR/decompbound.sh" <<'EOF'
 #!/bin/bash
 export DISPLAY=:0
@@ -67,15 +68,15 @@ if [ ! -f "$ES_USER_CFG" ]; then
   mkdir -p "$(dirname "$ES_USER_CFG")"
   cp "$ES_SYS_CFG" "$ES_USER_CFG"
 fi
-if ! grep -q "<name>ports</name>" "$ES_USER_CFG"; then
-  python3 - "$ES_USER_CFG" "$PORTS_DIR" <<'EOF'
+if ! grep -q "<name>custom</name>" "$ES_USER_CFG"; then
+  python3 - "$ES_USER_CFG" "$CUSTOM_DIR" <<'EOF'
 import sys
-path, ports = sys.argv[1], sys.argv[2]
+path, custom = sys.argv[1], sys.argv[2]
 s = open(path).read()
 entry = f"""  <system>
-    <name>ports</name>
-    <fullname>Ports</fullname>
-    <path>{ports}</path>
+    <name>custom</name>
+    <fullname>Custom</fullname>
+    <path>{custom}</path>
     <extension>.sh .SH</extension>
     <command>bash %ROM%</command>
     <platform>pc</platform>
@@ -85,6 +86,6 @@ entry = f"""  <system>
 s = s.replace("</systemList>", entry, 1)
 open(path, "w").write(s)
 EOF
-  echo "added ports system to $ES_USER_CFG"
+  echo "added custom system to $ES_USER_CFG"
 fi
-echo "== done: restart EmulationStation, then Ports -> decompbound"
+echo "== done: restart EmulationStation, then Custom -> decompbound"

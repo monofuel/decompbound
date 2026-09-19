@@ -100,7 +100,7 @@ Blockers from the original plan and what happened to them:
   captures/sessions/<stamp>/      # --kiosk replays + F12s (never into a repo)
 ```
 
-Launcher `~/RetroPie/roms/ports/decompbound.sh`:
+Launcher `~/RetroPie/roms/custom/decompbound.sh`:
 
 ```bash
 #!/bin/bash
@@ -110,8 +110,10 @@ cd "$HOME/decompbound" || exit 1
 exec ./decompbound-play --kiosk "bin/Earthbound (U) [!].smc" >> play_stdout.log 2>&1
 ```
 
-and a `ports` system in `~/.emulationstation/es_systems.cfg` with
-`<command>bash %ROM%</command>` (no runcommand, no tty needed).
+and a `custom` system ("Custom" in the menu, `ports` theme art) in
+`~/.emulationstation/es_systems.cfg` with `<command>bash %ROM%</command>` (no
+runcommand, no tty needed). Any executable `.sh` dropped in that folder shows
+up in the Custom menu, so device test scripts go there too.
 
 `scripts/gammapi_setup.sh` does all of the above on the device (idempotent).
 By hand, the prerequisites are: nimby + Nim 2.2.4 as on ember, `nimby sync -g nimby.lock`,
