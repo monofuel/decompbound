@@ -16,6 +16,7 @@
 ##     --hash-every N    fold image/audio into the running hash every N frames (default 1)
 ##     --label NAME      label for the results row
 ##     --out FILE        append a TSV results row to FILE
+##     --frame-times FILE  write "frame\tms" per emulated frame (find slow scenes)
 ##
 ## The tape's `chk` checkpoints are verified during the run as well (applyTas).
 
@@ -30,7 +31,7 @@ const
   RowEvery = ReplayChkInterval
   Usage = "Usage: nim r src/tools/bench_replay.nim <rom> <session-dir|tape.tas|start.png> " &
     "[--frames N] [--ref PATH] [--write-ref] [--accept-image] [--no-ref] " &
-    "[--no-render] [--hash-every N] [--label NAME] [--out FILE]"
+    "[--no-render] [--hash-every N] [--label NAME] [--out FILE] [--frame-times FILE]"
 
 type
   Options = object
@@ -45,6 +46,7 @@ type
     hashEvery: int
     label: string
     outPath: string
+    frameTimesPath: string
 
 proc parseOptions(): Options =
   ## Parse the command line; exits with usage on error.
@@ -81,6 +83,9 @@ proc parseOptions(): Options =
     elif arg == "--label" and i < paramCount():
       inc i
       result.label = paramStr(i)
+    elif arg == "--frame-times" and i < paramCount():
+      inc i
+      result.frameTimesPath = paramStr(i)
     elif arg == "--out" and i < paramCount():
       inc i
       result.outPath = paramStr(i)
@@ -233,8 +238,18 @@ proc main() =
   var imageDrift = false
   var mismatch: Option[RefMismatch]
 
+  var frameTimes: File
+  var frameStart = getMonoTime()
+  if opts.frameTimesPath.len > 0:
+    frameTimes = open(opts.frameTimesPath, fmWrite)
+    frameTimes.writeLine("frame\tms")
+
   proc onFrame(snes: SnesBus, tf: int) =
     ## Fold this frame's hashes and compare a row at every checkpoint interval.
+    if frameTimes != nil:
+      let now = getMonoTime()
+      frameTimes.writeLine($tf & "\t" & formatFloat((now - frameStart).inNanoseconds.float / 1e6, ffDecimal, 3))
+      frameStart = now
     if tf mod opts.hashEvery == 0:
       let t0 = getMonoTime()
       if image != nil:
