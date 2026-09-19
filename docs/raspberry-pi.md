@@ -16,7 +16,9 @@ Ember runs glibc 2.42 and has no GL/X11/OpenAL, so it does headless work only;
 
 Fixed workload = `bench_replay` on the human-verified sunrise tape
 `20260816-223148`, first 3600 frames (60 s of game), rendering on, hashes
-compared to the x86 goldens (`ref OK` on every row).
+compared to the x86 goldens (`ref OK` on every row). `--frame-times FILE`
+dumps per-frame cost to find heavy scenes; `--state-at N FILE` cuts a
+`.state` out of a tape so a scene can be benchmarked on its own.
 
 | build | ember-1/2 (A53 @ 1.2 GHz) | 7950X |
 |---|---|---|
@@ -25,11 +27,28 @@ compared to the x86 goldens (`ref OK` on every row).
 | + PPU tile-run decode, static layer tables, direct pixel writes, sprite clipping | | 6.4 s |
 | + CPU enum jump-table dispatch, inline flat-memory bus fast paths, const DMA patterns | 61 s (0.98×) | 5.0 s |
 | + each BG decoded once per scanline, ladder split from the recorded priority bit | 59 s (1.02×) | 4.6 s |
-| + CGRAM palette cache | **56.7 s (1.06×)** | 4.5 s |
+| + CGRAM palette cache | 56.7 s (1.06×) | 4.5 s |
+| + span window masks, no zero-fill of scanline scratch, math-free line fast path, inline CPU helpers | 49.8 s (1.20×) | 4.1 s |
+| + cached flat-memory pointer, compact opcode mode table | 48.5 s (1.24×) | |
+| + one BG decode per scanline shared by main and sub screens | **48.6 s (1.24×)** | 4.0 s |
+| same build, **on gammapi** with EmulationStation in the background | **42.3 s (1.42×)** | |
 
-gammapi's 1.4 GHz clock should land near 49 s (1.2×). Peak RSS headless is
-30 MB; RAM is not a constraint. CPU-only cost (`--no-render`) is ~40 % of the
-frame; the PPU scanline compositor is the rest, DSP mixing under 5 %.
+Scene workloads cut from the sunrise tape with `bench_replay --state-at`
+(600 frames idle, no input), ember / gammapi:
+
+| scene | ember | gammapi |
+|---|---|---|
+| Starman Junior battle (two-layer animated background + colour math) | 0.97× | 1.10× |
+| night dialogue outside Ness's house (three BG layers) | 1.20× | 1.33× |
+
+**gammapi throttles to 1.2 GHz at 60 °C** (`vcgencmd get_throttled` =
+`0x80008`, the Pi 3A+ soft temperature limit) and sits at 57–60 °C in its
+case under load, so it is effectively an ember node; `temp_soft_limit=70`
+in `config.txt` would keep 1.4 GHz. Peak RSS headless is 30 MB; RAM is not a
+constraint. On the A53 the CPU core is ~45 % of a frame (a fixed 39.3 k
+instructions per frame, most of it the game's idle poll loop), the PPU the
+rest; gcc PGO (`-fprofile-generate` trained on a session, then
+`-fprofile-use`) gave a further 6 % on ember and is not yet in the build.
 
 ## How the referee works
 
@@ -131,7 +150,8 @@ libxext6 libxcursor1`; RetroArch already pulled most of them).
 - [ ] `decompbound-play --kiosk` runs fullscreen at 1× on gammapi from
       EmulationStation ([human-verify.md](human-verify.md) rows dated 2026-09-19).
 - [ ] Every case button drives it; audio plays through PipeWire.
-- [ ] The fixed workload timed on gammapi itself.
+- [x] The fixed workload timed on gammapi itself (42.3 s, 1.42×, hashes
+      equal to the goldens).
 
 ## Non-goals
 
