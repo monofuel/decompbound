@@ -15,7 +15,7 @@ import
     apu, battle_formation, build_info, cpu, party_sram, party_wram, ppu,
     policy, replay, replay_run, rng_oracle, save_state, snesbus, png_state, sword_dial
   ],
-  ./[play_mcp, hud_font]
+  ./[glblit, play_mcp, hud_font]
 
 proc readRomFile(filepath: string): seq[uint8] =
   ## Read ROM file and return bytes, stripping a 512-byte copier header.
@@ -254,36 +254,6 @@ proc composeDebugHud(
     drawHudText(image, HudOriginX + HudPadX, ty, line, HudFg)
     ty += HudLineH
 
-proc compileShader(kind: GLenum, source: string): GLuint =
-  ## Compile one shader and return its id, or quit on error.
-  let shader = glCreateShader(kind)
-  let sourceArr = allocCStringArray([source])
-  glShaderSource(shader, 1, sourceArr, nil)
-  glCompileShader(shader)
-  var status: GLint
-  glGetShaderiv(shader, GL_COMPILE_STATUS, addr status)
-  if status.GLboolean == GL_FALSE:
-    var logLen: GLint
-    glGetShaderiv(shader, GL_INFO_LOG_LENGTH, addr logLen)
-    var log = newString(logLen)
-    glGetShaderInfoLog(shader, logLen, nil, log.cstring)
-    echo "Shader compile error: ", log
-    quit(1)
-  deallocCStringArray(sourceArr)
-  result = shader
-
-proc checkLink(program: GLuint) =
-  ## Check program link status, quit on error.
-  var status: GLint
-  glGetProgramiv(program, GL_LINK_STATUS, addr status)
-  if status.GLboolean == GL_FALSE:
-    var logLen: GLint
-    glGetProgramiv(program, GL_INFO_LOG_LENGTH, addr logLen)
-    var log = newString(logLen)
-    glGetProgramInfoLog(program, logLen, nil, log.cstring)
-    echo "Program link error: ", log
-    quit(1)
-
 proc saveScreenshot(frameImage: Image, dir: string, state: seq[byte], romHash: uint32): string =
   ## Save the raw game frame (256x224) as a timestamped PNG under the given dir,
   ## embedding the current state via ebSt chunk (for drag-drop restore).
@@ -464,6 +434,11 @@ proc main() =
   # which one flattens the leak. Emulation still runs; only that live path is cut.
   var noAudio = false
   var noTex = false
+  # --kiosk: handheld mode (gammapi). Fullscreen undecorated window, captures
+  # under ./captures instead of the secret repo, no autoshots, no title
+  # updates, no MCP. --no-vsync: pace by the wall clock instead of the swap.
+  var kiosk = false
+  var vsyncOn = true
   for i in 1..paramCount():
     let arg = paramStr(i)
     if arg == "--verbose" or arg == "-v":
@@ -472,6 +447,10 @@ proc main() =
       noAudio = true
     elif arg == "--no-tex":
       noTex = true
+    elif arg == "--kiosk":
+      kiosk = true
+    elif arg == "--no-vsync":
+      vsyncOn = false
     elif arg == "--load-state-path" and i < paramCount():
       discard  # value consumed next iteration via startStatePath check below
     elif arg.startsWith("--load-state-path="):
@@ -501,7 +480,7 @@ proc main() =
       quit(1)
 
   if romPath.len == 0:
-    echo "Usage: nim r src/tools/play.nim [--verbose|-v] [--continue] [--load-state-path PATH] [--tas MOVIE.tas] [--tas-latest] [--legacy-stretch N] <rom>"
+    echo "Usage: nim r src/tools/play.nim [--verbose|-v] [--continue] [--load-state-path PATH] [--tas MOVIE.tas] [--tas-latest] [--legacy-stretch N] [--kiosk] [--no-vsync] [--no-audio] <rom>"
     quit(1)
   if continueFromLast and (startStatePath.len > 0 or tasPath.len > 0 or tasLatest):
     echo "ERROR: --continue cannot be combined with --load-state-path or --tas"
@@ -526,6 +505,7 @@ proc main() =
     BtnL = 0x0020'u16
     BtnR = 0x0010'u16
     MouseIdleHideFrames = 180
+    EscHoldFrames = 60
     Controls = """
 Controls:
   Arrows      D-pad (Up/Down/Left/Right)
@@ -534,10 +514,13 @@ Controls:
   A           Y
   S           X
   Q           L
-  E           R
+  E or W      R
   Enter       Start
   RightShift  Select
   Space       Toggle pause
+  F1          Screenstate (same as F12)
+  F2 / F4     Save / load state slot 1
+  Esc (hold 1s) Quit cleanly
   N           Advance one frame (when paused)
   -           Decrease speed
   =           Increase speed
@@ -646,7 +629,7 @@ Controls:
   # (gitignored) so scenes can be reviewed/diagnosed after the fact. ON by
   # default. Tradeoff: the synchronous per-5s PNG write blocks one frame = a
   # ~5s-periodic stutter. Press F11 to toggle it OFF for a stutter-free session.
-  var autoShot = true
+  var autoShot = not kiosk
   var lastShotTime = getMonoTime()
   var shotCount = 0
   # Capture home: ALL human-browsable artifacts (session replays, F12
@@ -654,11 +637,11 @@ Controls:
   # bin fallback (monofuel 2026-07-27: bin is not browsed; captures there
   # rot invisibly). Machine/working files (ROM, play_log, sram backups,
   # save slots) stay in bin/.
-  if not dirExists(SecretArchiveRoot):
+  if not kiosk and not dirExists(SecretArchiveRoot):
     echo "ERROR: ", SecretArchiveRoot, " not found — captures live there."
     echo "Clone/create the secret repo next to this checkout, then re-run."
     quit(1)
-  let captureRoot = SecretArchiveRoot
+  let captureRoot = if kiosk: "captures" else: SecretArchiveRoot
   let autoshotsDir = captureRoot / "autoshots"
   createDir(autoshotsDir)
   createDir("bin/states")
@@ -706,7 +689,8 @@ Controls:
   # Goal 5 co-pilot MCP (in-process, live WRAM). Starts before the window /
   # audio path so a bind failure never touches render. Port busy → one warning,
   # game continues. Server dies with the process.
-  discard tryStartLiveMcp()
+  if not kiosk:
+    discard tryStartLiveMcp()
 
   var logOpened = false
   var logFile: File
@@ -778,10 +762,9 @@ Controls:
   # Audio is driven by the live APU in the bus (snes.tickApu) — no per-frame
   # snapshot/replay state is needed here anymore.
 
-  let windowSize = ivec2(ScreenWidth * Scale, ScreenHeight * Scale)
-  let window = newWindow("decompbound player - frame 0", windowSize)
-  window.makeContextCurrent()
-  loadExtensions()
+  let blit = initGlBlit("decompbound player - frame 0", ScreenWidth, ScreenHeight,
+    Scale, fullscreen = kiosk, vsync = vsyncOn)
+  let window = blit.window
 
   initGamepads()
 
@@ -791,87 +774,9 @@ Controls:
     for i, p in initialPads:
       echo &"  [{i}] id={p.id} name=\"{p.name}\""
 
-  # Fullscreen covering quad in NDC with UVs that map pixie top-left to screen top.
-  var posData = @[
-    vec2(-1f, -1f), vec2(1f, -1f), vec2(1f, 1f),
-    vec2(1f, 1f), vec2(-1f, 1f), vec2(-1f, -1f)
-  ]
-  var uvData = @[
-    vec2(0f, 1f), vec2(1f, 1f), vec2(1f, 0f),
-    vec2(1f, 0f), vec2(0f, 0f), vec2(0f, 1f)
-  ]
-
-  var vao: GLuint
-  glGenVertexArrays(1, addr vao)
-  glBindVertexArray(vao)
-
-  var posBuffer: GLuint
-  glGenBuffers(1, addr posBuffer)
-  glBindBuffer(GL_ARRAY_BUFFER, posBuffer)
-  glBufferData(GL_ARRAY_BUFFER, posData.len * 4 * 2, posData[0].addr, GL_STATIC_DRAW)
-  glVertexAttribPointer(0, 2, cGL_FLOAT, GL_FALSE, 2 * 4, nil)
-  glEnableVertexAttribArray(0)
-
-  var uvBuffer: GLuint
-  glGenBuffers(1, addr uvBuffer)
-  glBindBuffer(GL_ARRAY_BUFFER, uvBuffer)
-  glBufferData(GL_ARRAY_BUFFER, uvData.len * 4 * 2, uvData[0].addr, GL_STATIC_DRAW)
-  glVertexAttribPointer(1, 2, cGL_FLOAT, GL_FALSE, 2 * 4, nil)
-  glEnableVertexAttribArray(1)
-
-  const vertSrc = """
-#version 410
-in vec2 vertexPos;
-in vec2 vertexUv;
-out vec2 uv;
-void main() {
-  gl_Position = vec4(vertexPos, 0.0, 1.0);
-  uv = vertexUv;
-}
-"""
-  const fragSrc = """
-#version 410
-in vec2 uv;
-uniform sampler2D tex;
-out vec4 fragColor;
-void main() {
-  fragColor = texture(tex, uv);
-}
-"""
-  let vertShader = compileShader(GL_VERTEX_SHADER, vertSrc)
-  let fragShader = compileShader(GL_FRAGMENT_SHADER, fragSrc)
-  let program = glCreateProgram()
-  glAttachShader(program, vertShader)
-  glAttachShader(program, fragShader)
-  glLinkProgram(program)
-  checkLink(program)
-
-  let texLoc = glGetUniformLocation(program, "tex")
-
-  var textureId: GLuint
-  glGenTextures(1, addr textureId)
-  glBindTexture(GL_TEXTURE_2D, textureId)
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
-
   # Persistent frame buffer, built one scanline at a time each frame.
   var frameImage = newImage(ScreenWidth, ScreenHeight)
   frameImage.fill(rgbx(0, 0, 0, 255))
-
-  # Initial black texture of native size.
-  var initImage = newImage(ScreenWidth, ScreenHeight)
-  initImage.fill(rgbx(0, 0, 0, 255))
-  glTexImage2D(
-    GL_TEXTURE_2D, 0, GL_RGBA8.GLint,
-    initImage.width.GLsizei, initImage.height.GLsizei, 0,
-    GL_RGBA, GL_UNSIGNED_BYTE, cast[pointer](initImage.data[0].addr)
-  )
-
-  glActiveTexture(GL_TEXTURE0)
-  glUseProgram(program)
-  glUniform1i(texLoc, 0)
 
   # Audio streaming setup (real-time APU playback via slappy).
   # slappyInit once at startup; ss lives for the session.
@@ -1041,6 +946,9 @@ void main() {
   if not tasPlayback:
     startRecording("boot")
 
+  const SamplesPerFrame = 32000 div 60
+  var pcm = newSeq[uint8](SamplesPerFrame * 4)
+  var escHeld = 0
   while not window.closeRequested:
     let iterStart = getMonoTime()
     # Phase timers for HITCH diagnosis (Bug A): plain floats, no seqs.
@@ -1077,7 +985,7 @@ void main() {
     if window.buttonDown[KeyA]: kbdJoy = kbdJoy or BtnY
     if window.buttonDown[KeyS]: kbdJoy = kbdJoy or BtnX
     if window.buttonDown[KeyQ]: kbdJoy = kbdJoy or BtnL
-    if window.buttonDown[KeyE]: kbdJoy = kbdJoy or BtnR
+    if window.buttonDown[KeyE] or window.buttonDown[KeyW]: kbdJoy = kbdJoy or BtnR
     if window.buttonDown[KeyEnter]: kbdJoy = kbdJoy or BtnStart
     if window.buttonDown[KeyRightShift]: kbdJoy = kbdJoy or BtnSel
 
@@ -1270,7 +1178,18 @@ void main() {
       autoShot = not autoShot
       echo "auto-screenshots: ", (if autoShot: &"ON ({autoshotsDir}/ every 5s)" else: "OFF")
       writeLog(&"F11: auto-screenshots {(if autoShot: \"ON\" else: \"OFF\")}")
-    if window.buttonPressed[KeyF12] or window.buttonPressed[KeyF5]:
+    if window.buttonPressed[KeyEscape]:
+      escHeld = 0
+    if window.buttonDown[KeyEscape]:
+      inc escHeld
+      if escHeld == EscHoldFrames:
+        writeLog("Esc held: quitting")
+        echo "Esc held: quitting"
+        break
+    else:
+      escHeld = 0
+    if window.buttonPressed[KeyF12] or window.buttonPressed[KeyF5] or
+        window.buttonPressed[KeyF1]:
       # F12 = screenshot, matching Steam's screenshot-key convention. Steam
       # intercepts F12 and can RE-GRAB it mid-session (overlay activation) —
       # monofuel has seen F12 "just stop working" live — so F5 is a fallback
@@ -1278,7 +1197,7 @@ void main() {
       # dead keypress (never reaches us) is distinguishable from a failing
       # handler in bin/play_log.txt. Primary copy lives in the session dir; a
       # mirror goes to ~/Pictures/Screenshots for desktop browsing.
-      let viaKey = if window.buttonPressed[KeyF12]: "F12" else: "F5"
+      let viaKey = if window.buttonPressed[KeyF12]: "F12" elif window.buttonPressed[KeyF1]: "F1" else: "F5"
       writeLog("screenstate key pressed (" & viaKey & ")")
       try:
         let stateBytes = serializeState(snes, cpu)
@@ -1374,8 +1293,11 @@ void main() {
         of 3: Key3
         of 4: Key4
         else: Key1
-      if window.buttonPressed[keyNum]:
-        let isCtrl = window.buttonDown[KeyLeftControl] or window.buttonDown[KeyRightControl]
+      let slotSave = slot == 1 and window.buttonPressed[KeyF2]
+      let slotLoad = slot == 1 and window.buttonPressed[KeyF4]
+      if window.buttonPressed[keyNum] or slotSave or slotLoad:
+        let isCtrl = slotSave or (not slotLoad and
+          (window.buttonDown[KeyLeftControl] or window.buttonDown[KeyRightControl]))
         let p = statePathForSlot(slot)
         if isCtrl:
           saveState(snes, cpu, slot)
@@ -1415,11 +1337,10 @@ void main() {
       echo &"RESET (Ctrl+R) PC={cpu.pbr:02X}:{cpu.pc:04X} nmitimen={snes.nmitimen:02X}"
       writeLog(&"RESET (Ctrl+R) PC={cpu.pbr:02X}:{cpu.pc:04X} nmitimen={snes.nmitimen:02X}")
       startRecording("reset")
-    # (No Esc-to-quit: it was too easy to hit mid-game and lose your run. Close
-    # the window or Ctrl+C the terminal to exit.)
 
     # Emulation advance. Render each visible scanline right after its HDMA
     # updates so per-line color-math effects (the Giygas red static) appear.
+    var ticksThisIter = 0
     if not paused or frameAdvance:
       let ticks =
         if frameAdvance: 1
@@ -1442,6 +1363,7 @@ void main() {
             frameAcc -= dueNs
             inc n
           n
+      ticksThisIter = ticks
       for t in 0 ..< ticks:
         # TAS joy is per emu frame. Setting it only once per window used the
         # same pad for ticks=2..4 catch-up while advancing the movie — desync.
@@ -1488,9 +1410,7 @@ void main() {
         # snapshot-replay played the right melody with the wrong instruments).
         # Only queue at normal speed; during fast-forward we still tick the APU
         # (so the driver keeps running) but don't queue pitch-garbled audio.
-        const SamplesPerFrame = 32000 div 60
         let genAudio = framesPerTick == 1 and not frameAdvance and not noAudio
-        var pcm = newSeq[uint8](SamplesPerFrame * 4)
         var smp = 0
         var l = 0
         while l < 262:
@@ -1877,42 +1797,19 @@ void main() {
         debugHudAdvFrame, debugHudAdvTotal, debugHudFormLine
       )
 
-    # Display the frame built during emulation.
-    let image = frameImage
-    glBindTexture(GL_TEXTURE_2D, textureId)
-    if not noTex:
-      glTexImage2D(
-        GL_TEXTURE_2D, 0, GL_RGBA8.GLint,
-        image.width.GLsizei, image.height.GLsizei, 0,
-        GL_RGBA, GL_UNSIGNED_BYTE, cast[pointer](image.data[0].addr)
-      )
-
-    # Aspect-preserving viewport with black borders: fit the largest rect of the
-    # framebuffer's aspect (ScreenWidth:ScreenHeight) inside the window, centered,
-    # so resizing letter/pillar-boxes instead of stretching. glClear paints the
-    # whole window black first, so the uncovered margins become the bars.
-    const TargetAspect = ScreenWidth.float / ScreenHeight.float
-    let winW = window.size.x
-    let winH = window.size.y
-    var vpW, vpH: int32
-    if winW.float / winH.float > TargetAspect:
-      vpH = winH                                  # window wider than frame: pillarbox
-      vpW = (winH.float * TargetAspect).int32
+    # Display the frame built during emulation. Without vsync the swap does
+    # not block, so only draw when a frame was emulated and yield otherwise.
+    let drawNow = vsyncOn or ticksThisIter > 0
+    if drawNow:
+      if not noTex:
+        blit.upload(frameImage)
+      blit.draw()
     else:
-      vpW = winW                                  # window taller than frame: letterbox
-      vpH = (winW.float / TargetAspect).int32
-    let vpX = (winW - vpW) div 2
-    let vpY = (winH - vpH) div 2
-
-    glClearColor(0.0, 0.0, 0.0, 1.0)
-    glClear(GL_COLOR_BUFFER_BIT)
-    glViewport(vpX, vpY, vpW, vpH)
-
-    glBindVertexArray(vao)
-    glDrawArrays(GL_TRIANGLES, 0, 6)
+      sleep(1)
 
     let swapStart = getMonoTime()
-    window.swapBuffers()
+    if drawNow:
+      window.swapBuffers()
     phaseSwapMs = (getMonoTime() - swapStart).inMicroseconds.float / 1000.0
 
     # Perf/GC: heap snapshot here; HITCH line is emitted after the text phase so
@@ -1939,7 +1836,7 @@ void main() {
       else:
         ""
     let newTitle = &"decompbound player - {fpsShown:.0f} fps - frame {frameCount}{pausedStr} x{framesPerTick}{inputTitlePart}{tasTitle}"
-    if window.title != newTitle:
+    if not kiosk and window.title != newTitle:
       window.title = newTitle
 
     # In-game text echo (dialogue / menus / signs) — every 20 frames while a

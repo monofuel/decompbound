@@ -1,4 +1,4 @@
-.PHONY: help build compare test integration-test e2e-test test-all test-banks check clean regions boot screenshot intro title song vectors spc-vectors disasm play play-tas play-cont play-pokey archive archive-replays play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai llm-ai-prologue llm-ai-scripted llm-ai-scripted-campaign llm-ai-display llm-ai-display-loop mcp testrom script-dump gfx-roundtrip battle-bg trace inspect audio-check jukebox-app chunk-summary chunk-check chunk-check-all eval eval-pin-baseline run-report bench bench-check bench-ref
+.PHONY: help build compare test integration-test e2e-test test-all test-banks check clean regions boot screenshot intro title song vectors spc-vectors disasm play play-tas play-cont play-pokey archive archive-replays play-verbose gamepad-test sram serve frames lua-test llm-play llm-ai llm-ai-prologue llm-ai-scripted llm-ai-scripted-campaign llm-ai-display llm-ai-display-loop mcp testrom script-dump gfx-roundtrip battle-bg trace inspect audio-check jukebox-app chunk-summary chunk-check chunk-check-all eval eval-pin-baseline run-report bench bench-check bench-ref release-play
 
 # bash + pipefail: the test loop pipes nim through sed, and without
 # pipefail the pipeline's exit status is sed's (always 0), which turns
@@ -26,6 +26,7 @@ help:
 	@echo "  make bench        - time the fixed replay workload + ref compare (BENCH_TAPE, BENCH_FRAMES, NIMFLAGS, LABEL)"
 	@echo "  make bench-check  - replay all verified tapes in full against their .ref goldens"
 	@echo "  make bench-ref    - (re)write the .ref goldens from this build (deliberate)"
+	@echo "  make release-play - shipping build of the player (bin/decompbound-play, -d:fast)"
 	@echo "  make eval         - llm-play autoresearch gate: canary + scorecard (IDEA=name CONFIRM=1; docs/EVAL.md)"
 	@echo "  make chunk-summary - full-ROM typed chunk inventory (see docs/rom-chunks.md)"
 	@echo "  make chunk-check CHUNK=id - gold-check one chunk (sub-agent gate)"
@@ -433,6 +434,13 @@ bench-check: nim.cfg
 bench-ref: nim.cfg
 	@nim c $(NIM_TEST_FLAGS) -d:release -o:bin/bench_replay src/tools/bench_replay.nim
 	@for t in $(BENCH_TAPES); do bin/bench_replay "$(ROM)" "$$t" --write-ref | tail -2; done
+
+# Shipping build of the player for a handheld / kiosk box (docs/raspberry-pi.md).
+# Built on the target itself: the binary links against that box's libc, GL,
+# X11, OpenAL, libevdev and libudev.
+release-play: nim.cfg
+	@mkdir -p bin
+	nim c $(NIM_TEST_FLAGS) -d:release -d:fast -o:bin/decompbound-play src/tools/play.nim
 
 # Fast compile-only gate (same idea as racha/satisfactory_tools/coworld):
 # `nim check` entrypoints + unit tests without executing them.
