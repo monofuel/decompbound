@@ -10,8 +10,34 @@ import
 const
   ScreenWidth* = 256
   ScreenHeight* = 224
+  BrightLut = block:
+    var t: array[16, array[256, uint8]]
+    for level in 0 .. 15:
+      for c in 0 .. 255:
+        t[level][c] = uint8((c * level) div 15)
+    t
+  NoSpriteRow = block:
+    var r: array[ScreenWidth, int8]
+    for i in 0 ..< ScreenWidth:
+      r[i] = -1
+    r
 
-proc bgr555ToColor*(value: uint16): ColorRGBA =
+type
+  Layer = tuple[bg, bpp, pal, prio: int]
+    ## One BG compositing pass: layer, bits per pixel, palette base, priority
+    ## filter (-1 = all tiles, 0 = low-priority tiles, 1 = high-priority tiles).
+
+const
+  # Back-to-front BG passes per mode. Mode 0 always uses the standard ladder
+  # (BGMODE bit 3 is a mode 1 feature); mode 1 with bg3prio puts BG3-high last.
+  Mode0Layers: array[8, Layer] = [(3, 2, 96, 0), (2, 2, 64, 0), (3, 2, 96, 1), (2, 2, 64, 1),
+    (1, 2, 32, 0), (0, 2, 0, 0), (1, 2, 32, 1), (0, 2, 0, 1)]
+  Mode1PrioLayers: array[6, Layer] = [(2, 2, 0, 0), (1, 4, 0, 0), (0, 4, 0, 0),
+    (1, 4, 0, 1), (0, 4, 0, 1), (2, 2, 0, 1)]
+  Mode1Layers: array[3, Layer] = [(2, 2, 0, -1), (1, 4, 0, -1), (0, 4, 0, -1)]
+  Mode3Layers: array[2, Layer] = [(1, 4, 0, -1), (0, 8, 0, -1)]
+
+proc bgr555ToColor*(value: uint16): ColorRGBA {.inline.} =
   ## Convert a SNES BGR555 palette entry to RGBA.
   let r = (value and 0x1F).uint8
   let g = ((value shr 5) and 0x1F).uint8
@@ -19,7 +45,7 @@ proc bgr555ToColor*(value: uint16): ColorRGBA =
   ColorRGBA(r: (r shl 3) or (r shr 2), g: (g shl 3) or (g shr 2),
             b: (b shl 3) or (b shr 2), a: 255)
 
-proc applyMasterBrightness*(c: ColorRGBA, inidisp: uint8): ColorRGBA =
+proc applyMasterBrightness*(c: ColorRGBA, inidisp: uint8): ColorRGBA {.inline.} =
   ## Apply INIDISP master brightness (bits 0-3) as on hardware.
   ## Level 0 is true black; levels 1..15 scale each channel by n/15.
   ## (Bit 7 force-blank is handled by callers — this only covers the ramp.)
@@ -30,14 +56,15 @@ proc applyMasterBrightness*(c: ColorRGBA, inidisp: uint8): ColorRGBA =
     return ColorRGBA(r: 0, g: 0, b: 0, a: c.a)
   if level >= 15:
     return c
-  ColorRGBA(
-    r: ((c.r.int * level) div 15).uint8,
-    g: ((c.g.int * level) div 15).uint8,
-    b: ((c.b.int * level) div 15).uint8,
-    a: c.a)
+  ColorRGBA(r: BrightLut[level][c.r], g: BrightLut[level][c.g],
+            b: BrightLut[level][c.b], a: c.a)
+
+proc toRgbx(c: ColorRGBA): ColorRGBX {.inline.} =
+  ## Store an opaque colour in pixie's premultiplied layout (identity at a=255).
+  ColorRGBX(r: c.r, g: c.g, b: c.b, a: 255)
 
 proc tilePixel(snes: SnesBus, chrBase: int, tile: int, x: int, y: int,
-               bpp: int): int =
+               bpp: int): int {.inline.} =
   ## Decode one pixel (palette index within the tile's palette) from a
   ## 2bpp, 4bpp, or 8bpp tile in VRAM.
   let wordsPerTile = bpp * 4
@@ -59,6 +86,34 @@ proc tilePixel(snes: SnesBus, chrBase: int, tile: int, x: int, y: int,
     if ((plane67 shr (7 - x)) and 1) != 0: index = index or 0x40
     if ((plane67 shr (15 - x)) and 1) != 0: index = index or 0x80
   result = index
+
+proc tileRowIndices(snes: SnesBus, chrBase: int, tile: int, y: int, bpp: int,
+                    idx: var array[8, uint8]) {.inline.} =
+  ## Decode all eight palette indices of one tile row (x = 0..7), reading each
+  ## VRAM plane word once. Bit layout matches tilePixel exactly.
+  let base = chrBase + tile * (bpp * 4)
+  let plane01 = snes.vram[(base + y) and 0x7FFF]
+  var plane23 = 0'u16
+  var plane45 = 0'u16
+  var plane67 = 0'u16
+  if bpp >= 4:
+    plane23 = snes.vram[(base + 8 + y) and 0x7FFF]
+  if bpp == 8:
+    plane45 = snes.vram[(base + 16 + y) and 0x7FFF]
+    plane67 = snes.vram[(base + 24 + y) and 0x7FFF]
+  for x in 0 .. 7:
+    var index = 0
+    if ((plane01 shr (7 - x)) and 1) != 0: index = index or 1
+    if ((plane01 shr (15 - x)) and 1) != 0: index = index or 2
+    if bpp >= 4:
+      if ((plane23 shr (7 - x)) and 1) != 0: index = index or 4
+      if ((plane23 shr (15 - x)) and 1) != 0: index = index or 8
+    if bpp == 8:
+      if ((plane45 shr (7 - x)) and 1) != 0: index = index or 0x10
+      if ((plane45 shr (15 - x)) and 1) != 0: index = index or 0x20
+      if ((plane67 shr (7 - x)) and 1) != 0: index = index or 0x40
+      if ((plane67 shr (15 - x)) and 1) != 0: index = index or 0x80
+    idx[x] = uint8(index)
 
 proc renderBg(snes: SnesBus, image: Image, bg: int, bpp: int,
               paletteBase: int) =
@@ -100,6 +155,26 @@ proc renderBg(snes: SnesBus, image: Image, bg: int, bpp: int,
       let colorIndex = paletteBase + palette * (1 shl bpp) + index
       image[px, py] = bgr555ToColor(snes.cgram[colorIndex and 0xFF])
 
+proc bgLineSetup(snes: SnesBus, py: int, bg: int, sizeBits: var int,
+                 chrBase: var int, hofs: var int, rowBase: var int, subY: var int) {.inline.} =
+  ## Per-scanline constants of one BG layer: map size, char base, H scroll,
+  ## the tilemap word index of this line's row (screen-Y already folded in)
+  ## and the row within the tile.
+  let scReg = snes.ppuRegs[0x07 + bg]
+  let tilemapBase = ((scReg.int shr 2) shl 10) and 0x7FFF
+  sizeBits = scReg.int and 3
+  let chrReg = if bg < 2: snes.ppuRegs[0x0B] else: snes.ppuRegs[0x0C]
+  let chrShift = if bg mod 2 == 0: chrReg.int and 0x0F
+                 else: (chrReg.int shr 4) and 0x0F
+  chrBase = (chrShift shl 12) and 0x7FFF
+  hofs = snes.bgScroll[bg * 2].int
+  let vofs = snes.bgScroll[bg * 2 + 1].int
+  let wy = py + vofs
+  let ty = wy shr 3
+  subY = wy and 7
+  let screenY = if (sizeBits and 2) != 0: (ty shr 5) and 1 else: 0
+  rowBase = tilemapBase + screenY * (if sizeBits == 3: 0x800 else: 0x400) + (ty and 31) * 32
+
 proc bgScanlineInto(snes: SnesBus, buf: var openArray[ColorRGBA],
                     drawn: var openArray[bool], py: int, bg: int, bpp: int,
                     paletteBase: int, prio: int = -1) =
@@ -108,60 +183,79 @@ proc bgScanlineInto(snes: SnesBus, buf: var openArray[ColorRGBA],
   ## prio filters by the tilemap per-tile priority bit (0x2000): -1 = all
   ## tiles, 0 = low-priority tiles only, 1 = high-priority tiles only. Used to
   ## split a layer across the priority order (e.g. BG3-priority menus).
-  let scReg = snes.ppuRegs[0x07 + bg]
-  let tilemapBase = ((scReg.int shr 2) shl 10) and 0x7FFF
-  let sizeBits = scReg.int and 3
-  let chrReg = if bg < 2: snes.ppuRegs[0x0B] else: snes.ppuRegs[0x0C]
-  let chrShift = if bg mod 2 == 0: chrReg.int and 0x0F
-                 else: (chrReg.int shr 4) and 0x0F
-  let chrBase = (chrShift shl 12) and 0x7FFF
-  let hofs = snes.bgScroll[bg * 2].int
-  let vofs = snes.bgScroll[bg * 2 + 1].int
-
-  let wy = py + vofs
-  let ty = wy div 8
-  let subY = wy mod 8
-  for px in 0..<ScreenWidth:
+  ## Works one tile run (up to 8 pixels) at a time: the map entry and the
+  ## tile's plane words are read once per run.
+  var sizeBits, chrBase, hofs, rowBase, subY: int
+  snes.bgLineSetup(py, bg, sizeBits, chrBase, hofs, rowBase, subY)
+  let colorsPerPal = 1 shl bpp
+  var idx: array[8, uint8]
+  var px = 0
+  while px < ScreenWidth:
     let wx = px + hofs
-    let tx = wx div 8
-    let screenX = if (sizeBits and 1) != 0: (tx div 32) and 1 else: 0
-    let screenY = if (sizeBits and 2) != 0: (ty div 32) and 1 else: 0
-    var mapBase = tilemapBase + screenX * 0x400
-    mapBase += screenY * (if sizeBits == 3: 0x800 else: 0x400)
-    let entry = snes.vram[(mapBase + (ty mod 32) * 32 + (tx mod 32)) and 0x7FFF]
+    let tx = wx shr 3
+    let sub = wx and 7
+    let runLen = min(8 - sub, ScreenWidth - px)
+    let screenX = if (sizeBits and 1) != 0: (tx shr 5) and 1 else: 0
+    let entry = snes.vram[(rowBase + screenX * 0x400 + (tx and 31)) and 0x7FFF]
     if prio >= 0 and ((entry and 0x2000) != 0).int != prio:
+      px += runLen
       continue
     let tile = (entry and 0x3FF).int
-    let palette = ((entry shr 10) and 0x07).int
-    let sx = if (entry and 0x4000) != 0: 7 - (wx mod 8) else: wx mod 8
+    let palBase = paletteBase + ((entry shr 10) and 0x07).int * colorsPerPal
+    let flipX = (entry and 0x4000) != 0
     let sy = if (entry and 0x8000) != 0: 7 - subY else: subY
-    let index = snes.tilePixel(chrBase, tile, sx, sy, bpp)
-    if index == 0:
-      continue
-    let colorIndex = paletteBase + palette * (1 shl bpp) + index
-    buf[px] = bgr555ToColor(snes.cgram[colorIndex and 0xFF])
-    drawn[px] = true
+    snes.tileRowIndices(chrBase, tile, sy, bpp, idx)
+    for i in 0 ..< runLen:
+      let sx = if flipX: 7 - (sub + i) else: sub + i
+      let index = idx[sx].int
+      if index != 0:
+        buf[px + i] = bgr555ToColor(snes.cgram[(palBase + index) and 0xFF])
+        drawn[px + i] = true
+    px += runLen
 
-proc modeLayers(mode: int, bg3prio: bool): seq[tuple[bg, bpp, pal, prio: int]] =
-  ## Back-to-front BG passes for a mode: (layer, bpp, palette base, priority
-  ## filter). prio -1 = all tiles; 0 = low-priority tiles only; 1 = high only.
-  ## Splits layers by the per-tile priority bit (0x2000 in tilemap entry) using
-  ## prio arg to bgScanlineInto, to implement the real SNES ladder.
-  ##
-  ## Mode 0: always BG4.0, BG3.0, BG4.1, BG3.1, BG2.0, BG1.0, BG2.1, BG1.1
-  ## (BGMODE bit 3 / bg3prio is a Mode 1 only feature per hardware spec; ignore
-  ## in mode 0 so UI high-prio tiles on BG1 end up frontmost).
-  ## Mode 1: with bg3prio, BG3p0 < BG2p0 < BG1p0 < BG2p1 < BG1p1 < BG3p1 .
-  case mode:
+proc bgScanlineMask(snes: SnesBus, drawn: var openArray[bool], py: int, bg: int,
+                    bpp: int, prio: int = -1) =
+  ## Like bgScanlineInto but only records which pixels the layer would draw;
+  ## no palette lookups. Same run/priority/flip logic.
+  var sizeBits, chrBase, hofs, rowBase, subY: int
+  snes.bgLineSetup(py, bg, sizeBits, chrBase, hofs, rowBase, subY)
+  var idx: array[8, uint8]
+  var px = 0
+  while px < ScreenWidth:
+    let wx = px + hofs
+    let tx = wx shr 3
+    let sub = wx and 7
+    let runLen = min(8 - sub, ScreenWidth - px)
+    let screenX = if (sizeBits and 1) != 0: (tx shr 5) and 1 else: 0
+    let entry = snes.vram[(rowBase + screenX * 0x400 + (tx and 31)) and 0x7FFF]
+    if prio >= 0 and ((entry and 0x2000) != 0).int != prio:
+      px += runLen
+      continue
+    let tile = (entry and 0x3FF).int
+    let flipX = (entry and 0x4000) != 0
+    let sy = if (entry and 0x8000) != 0: 7 - subY else: subY
+    snes.tileRowIndices(chrBase, tile, sy, bpp, idx)
+    for i in 0 ..< runLen:
+      let sx = if flipX: 7 - (sub + i) else: sub + i
+      if idx[sx] != 0:
+        drawn[px + i] = true
+    px += runLen
+
+iterator modeLayers(mode: int, bg3prio: bool): Layer =
+  ## Back-to-front BG passes for a mode (see Mode*Layers). Modes other than
+  ## 0, 1 and 3 yield nothing (backdrop only).
+  case mode
   of 0:
-    # Mode 0 ignores bit 3; use standard ladder (BG1.1/UI front).
-    @[(3, 2, 96, 0), (2, 2, 64, 0), (3, 2, 96, 1), (2, 2, 64, 1),
-      (1, 2, 32, 0), (0, 2, 0, 0), (1, 2, 32, 1), (0, 2, 0, 1)]
+    for l in Mode0Layers: yield l
   of 1:
-    if bg3prio: @[(2, 2, 0, 0), (1, 4, 0, 0), (0, 4, 0, 0), (1, 4, 0, 1), (0, 4, 0, 1), (2, 2, 0, 1)]
-    else: @[(2, 2, 0, -1), (1, 4, 0, -1), (0, 4, 0, -1)]
-  of 3: @[(1, 4, 0, -1), (0, 8, 0, -1)]
-  else: @[]
+    if bg3prio:
+      for l in Mode1PrioLayers: yield l
+    else:
+      for l in Mode1Layers: yield l
+  of 3:
+    for l in Mode3Layers: yield l
+  else:
+    discard
 
 type
   WindowLine = array[ScreenWidth, bool]
@@ -200,6 +294,9 @@ var
   anySpriteDrawn: bool
     ## True if renderSprites drew any pixel this frame (lets the foreground-BG
     ## overlay skip its passes entirely when nothing needs interleaving).
+  anySpriteOnLine: array[ScreenHeight, bool]
+    ## Per-scanline: renderSprites drew at least one pixel on this line, so the
+    ## foreground-BG overlay only decodes tiles where an occlusion is possible.
   preSpriteComposite: array[ScreenHeight, array[ScreenWidth, ColorRGBA]]
     ## Snapshot of the fully color-math'd + brightness'd BG composite each pixel
     ## had *before* renderSprites clobbered it. Filled by renderScanline. When
@@ -261,9 +358,9 @@ proc bgWindowParams(bg: int): tuple[selIdx, shift, logicShift, screenBit: int] =
   else: (0x24, 4, 6, 3)   # BG4: W34SEL high nibble.
 
 proc compositeScreen(snes: SnesBus, py: int, mask: uint8, winReg: uint8,
-                     backdrop: ColorRGBA): tuple[buf: array[ScreenWidth, ColorRGBA],
-                                                 drawn: array[ScreenWidth, bool],
-                                                 srcBit: array[ScreenWidth, uint8]] =
+                     backdrop: ColorRGBA, buf: var array[ScreenWidth, ColorRGBA],
+                     drawn: var array[ScreenWidth, bool],
+                     srcBit: var array[ScreenWidth, uint8]) =
   ## Composite one screen (main or sub) for scanline py: backdrop, then the
   ## mask-enabled BG layers of the current mode, back to front. `winReg` is the
   ## screen's window-disable register (TMW $212E for main, TSW $212F for sub):
@@ -280,8 +377,9 @@ proc compositeScreen(snes: SnesBus, py: int, mask: uint8, winReg: uint8,
   let bg3prio = (snes.ppuRegs[0x05] and 0x08) != 0
   const BackdropMathBit = 0x20'u8  ## CGADSUB bit 5.
   for px in 0..<ScreenWidth:
-    result.buf[px] = backdrop
-    result.srcBit[px] = BackdropMathBit
+    buf[px] = backdrop
+    drawn[px] = false
+    srcBit[px] = BackdropMathBit
   var line: array[ScreenWidth, ColorRGBA]
   var lineDrawn: array[ScreenWidth, bool]
   var winHidden: WindowLine
@@ -300,9 +398,9 @@ proc compositeScreen(snes: SnesBus, py: int, mask: uint8, winReg: uint8,
     let layerBit = (1'u8 shl layer.bg)
     for px in 0..<ScreenWidth:
       if lineDrawn[px] and not (windowed and winHidden[px]):
-        result.buf[px] = line[px]
-        result.drawn[px] = true
-        result.srcBit[px] = layerBit
+        buf[px] = line[px]
+        drawn[px] = true
+        srcBit[px] = layerBit
 
 proc clamp5(v: int): int =
   ## Clamp to a SNES 5-bit color channel (0..31).
@@ -358,22 +456,25 @@ proc renderScanline*(snes: SnesBus, image: Image, py: int) =
   let doHalf = (cgadsub and 0x40) != 0   # CGADSUB bit 6: halve the math result.
   let useSubScreen = (cgwsel and 0x02) != 0
 
-  let main = snes.compositeScreen(py, mainMask, snes.ppuRegs[0x2E], backdrop)  # TMW.
+  var mainBuf: array[ScreenWidth, ColorRGBA]
+  var mainDrawn: array[ScreenWidth, bool]
+  var mainSrc: array[ScreenWidth, uint8]
+  snes.compositeScreen(py, mainMask, snes.ppuRegs[0x2E], backdrop, mainBuf,
+                       mainDrawn, mainSrc)  # TMW.
   # SNES CGRAM/COLDATA pack is R in bits 0-4, G in 5-9, B in 10-14.
   let fixedColor = bgr555ToColor(snes.fixedColorR.uint16 or
     (snes.fixedColorG.uint16 shl 5) or (snes.fixedColorB.uint16 shl 10))
   var mathBuf: array[ScreenWidth, ColorRGBA]
   var subDrawn: array[ScreenWidth, bool]
+  var subSrc: array[ScreenWidth, uint8]
   if mathLayers != 0:
     if useSubScreen:
       # Subscreen transparent pixels must math against the FIXED color (COLDATA),
       # not CGRAM $00. Using the main backdrop here made every hole in the Giygas
       # noise layer add cgram0 (often a non-black thrash color like $32AD) and
       # turn the "almost faded" static into a yellow/green mess.
-      let sub = snes.compositeScreen(py, snes.ppuRegs[0x2D], snes.ppuRegs[0x2F],
-                                     fixedColor)  # TSW + fixed as sub backdrop.
-      mathBuf = sub.buf
-      subDrawn = sub.drawn
+      snes.compositeScreen(py, snes.ppuRegs[0x2D], snes.ppuRegs[0x2F], fixedColor,
+                           mathBuf, subDrawn, subSrc)  # TSW + fixed as sub backdrop.
     else:
       for px in 0..<ScreenWidth:
         mathBuf[px] = fixedColor
@@ -405,6 +506,13 @@ proc renderScanline*(snes: SnesBus, image: Image, py: int) =
   objSuppressActive[py] = forceBlackMode != 0 or objWindowed
 
   let inidisp = snes.ppuRegs[0x00]
+  # TM=00 (main layers off via HDMA band) + subscreen (TS) layers + color math
+  # enabled with subscreen operand (CGWSEL bit 1) + mathLayers (CGADSUB): output
+  # the subscreen composite directly. This makes the bordered-battle HP/PP status
+  # window (a subscreen BG) visible instead of flat backdrop.
+  let showSubscreenDirect = (mainMask == 0'u8) and useSubScreen and
+    (mathLayers != 0) and (snes.ppuRegs[0x2D] != 0'u8)
+  let rowIdx = py * ScreenWidth
   for px in 0..<ScreenWidth:
     # CGWSEL bits 5-4 only (not layer enable): sprite pass reuses this so OBJ
     # fixed-color math is skipped inside spotlight windows (math-outside mode).
@@ -415,16 +523,11 @@ proc renderScanline*(snes: SnesBus, image: Image, py: int) =
       else: true
     objColorMathLine[py][px] = windowAllowsMath
     var m: ColorRGBA
-    let showSubscreenDirect = (mainMask == 0'u8) and useSubScreen and (mathLayers != 0) and (snes.ppuRegs[0x2D] != 0'u8)
     if showSubscreenDirect:
-      # TM=00 (main layers off via HDMA band) + subscreen (TS) layers + color math
-      # enabled with subscreen operand (CGWSEL bit 1) + mathLayers (CGADSUB): output
-      # the subscreen composite directly. This makes the bordered-battle HP/PP status
-      # window (a subscreen BG) visible instead of flat backdrop.
       m = mathBuf[px]
       objSuppressLine[py][px] = false
     else:
-      m = main.buf[px]
+      m = mainBuf[px]
       # Force main screen black: 0=never, 1=outside window, 2=inside, 3=always.
       let blackHere = case forceBlackMode
         of 1: not colorWin[px]
@@ -437,7 +540,7 @@ proc renderScanline*(snes: SnesBus, image: Image, py: int) =
       # Color-math enable window: 0=always, 1=inside, 2=outside, 3=never.
       # Also require the *topmost main layer* to be in CGADSUB (hardware): UI on
       # BG1 must stay opaque when only BG3 has math enabled (borderless battles).
-      let layerMath = (mathLayers and main.srcBit[px]) != 0
+      let layerMath = (mathLayers and mainSrc[px]) != 0
       let mathHere = layerMath and windowAllowsMath
       if mathHere:
         let s = mathBuf[px]
@@ -446,7 +549,7 @@ proc renderScanline*(snes: SnesBus, image: Image, py: int) =
         let half = doHalf and (useSubScreen and subDrawn[px] or not useSubScreen)
         m = colorMathBlend(m, s, doSub, half)
     let outPixel = applyMasterBrightness(m, inidisp)
-    image[px, py] = outPixel
+    image.data[rowIdx + px] = toRgbx(outPixel)
     preSpriteComposite[py][px] = outPixel
 
 proc renderBgScanline*(snes: SnesBus, image: Image, py: int, bg: int, bpp: int,
@@ -495,8 +598,8 @@ proc renderSprites*(snes: SnesBus, image: Image) =
   ## logo dissolve) dims the BG letters but leaves sprite glows full-bright, so
   ## the BG parts (like the "B") appear to vanish early.
   for py in 0..<ScreenHeight:
-    for px in 0..<ScreenWidth:
-      objSpritePrio[py][px] = -1
+    objSpritePrio[py] = NoSpriteRow
+    anySpriteOnLine[py] = false
   anySpriteDrawn = false
   if (snes.ppuRegs[0x00] and 0x80) != 0:
     return  # force blank: nothing is displayed
@@ -526,6 +629,7 @@ proc renderSprites*(snes: SnesBus, image: Image) =
     of 4: (16, 64)
     of 5: (32, 64)
     else: (16, 32)
+  let nameGap = (((obsel.int shr 3) and 3) + 1) shl 12
 
   # OBJ-vs-OBJ order is OAM index only: a lower index is frontmost. (The 2-bit
   # attribute priority does NOT order sprites against each other — it only picks
@@ -552,6 +656,10 @@ proc renderSprites*(snes: SnesBus, image: Image) =
     var x = snes.oam[base].int or (xHigh.int shl 8)
     if x >= 256:
       x -= 512
+    let pxStart = max(0, -x)
+    let pxEnd = min(size, ScreenWidth - x)
+    if pxStart >= pxEnd:
+      continue
     let tile = snes.oam[base + 2].int
     let attr = snes.oam[base + 3]
     let prio = int((attr shr 4) and 0x03)
@@ -559,8 +667,9 @@ proc renderSprites*(snes: SnesBus, image: Image) =
     let table = (attr and 1).int
     let flipX = (attr and 0x40) != 0
     let flipY = (attr and 0x80) != 0
-    let nameGap = (((snes.ppuRegs[0x01].int shr 3) and 3) + 1) shl 12
     let tileBase = (chrBase + table * nameGap) and 0x7FFF
+    let objMathHere = objMath and objUseFixed and paletteGroup >= 4
+    let palBase = 128 + paletteGroup * 16
 
     for py in 0..<size:
       let sy = if flipY: size - 1 - py else: py
@@ -570,29 +679,28 @@ proc renderSprites*(snes: SnesBus, image: Image) =
         continue
       if objLayerOffLine[screenY]:
         continue   # OBJ layer disabled on both screens for this line (TM/TS).
-      for px in 0..<size:
+      let tileRow = ((tile shr 4) + sy div 8) and 0x0F
+      let rowIdx = screenY * ScreenWidth
+      for px in pxStart ..< pxEnd:
         let sx = if flipX: size - 1 - px else: px
         let screenX = x + px
-        if screenX < 0 or screenX >= ScreenWidth:
-          continue
         if objSuppressActive[screenY] and objSuppressLine[screenY][screenX]:
           continue   # OBJ window / force-black hides sprites here (the iris).
         let tileCol = (tile + sx div 8) and 0x0F
-        let tileRow = ((tile shr 4) + sy div 8) and 0x0F
         let tileIndex = tileRow * 16 + tileCol
         let index = snes.tilePixel(tileBase, tileIndex, sx mod 8, sy mod 8, 4)
         if index == 0:
           continue
-        var color = bgr555ToColor(snes.cgram[128 + paletteGroup * 16 + index])
+        var color = bgr555ToColor(snes.cgram[palBase + index])
         # Gate on CGWSEL math window (objColorMathLine from renderScanline).
         # Without this, subtract-dim (swirl / stage lighting / advantage) applies
         # to every sprite pixel, including those inside a "math outside window"
         # spotlight — Runaway Five and similar look far too dark.
-        if objMath and objUseFixed and paletteGroup >= 4 and
-            objColorMathLine[screenY][screenX]:
+        if objMathHere and objColorMathLine[screenY][screenX]:
           color = colorMathBlend(color, objFixed, objSub, objHalf)
-        image[screenX, screenY] = applyMasterBrightness(color, inidisp)
+        image.data[rowIdx + screenX] = toRgbx(applyMasterBrightness(color, inidisp))
         objSpritePrio[screenY][screenX] = prio.int8
+        anySpriteOnLine[screenY] = true
         anySpriteDrawn = true
 
 proc overlayForegroundBg*(snes: SnesBus, image: Image) =
@@ -620,34 +728,44 @@ proc overlayForegroundBg*(snes: SnesBus, image: Image) =
   let mainMask = snes.ppuRegs[0x2C].int
   let bg3prio = (snes.ppuRegs[0x05] and 0x08) != 0
   # High-priority BG passes, back to front: (bg, bpp, paletteBase, maxSpritePrio).
-  var passes: seq[tuple[bg, bpp, pal, maxPrio: int]] = @[]
+  var passes: array[4, tuple[bg, bpp, pal, maxPrio: int]]
+  var passCount = 0
   case mode:
   of 0:
     # Mode 0: 2bpp layers, CGRAM sections 0/32/64/96 for BG1..BG4.
     if (mainMask and 0x02) != 0:
-      passes.add (1, 2, 32, 2)    # BG2-high over OBJ 0-2.
+      passes[passCount] = (1, 2, 32, 2)    # BG2-high over OBJ 0-2.
+      inc passCount
     if (mainMask and 0x01) != 0:
-      passes.add (0, 2, 0, 2)     # BG1-high over OBJ 0-2 (battle UI).
+      passes[passCount] = (0, 2, 0, 2)     # BG1-high over OBJ 0-2 (battle UI).
+      inc passCount
   of 1:
     if (mainMask and 0x04) != 0 and not bg3prio:
-      passes.add (2, 2, 0, 0)     # BG3-high (no prio bit).
+      passes[passCount] = (2, 2, 0, 0)     # BG3-high (no prio bit).
+      inc passCount
     if (mainMask and 0x02) != 0:
-      passes.add (1, 4, 0, 2)     # BG2-high.
+      passes[passCount] = (1, 4, 0, 2)     # BG2-high.
+      inc passCount
     if (mainMask and 0x01) != 0:
-      passes.add (0, 4, 0, 2)     # BG1-high.
+      passes[passCount] = (0, 4, 0, 2)     # BG1-high.
+      inc passCount
     if (mainMask and 0x04) != 0 and bg3prio:
-      passes.add (2, 2, 0, 3)     # BG3-high (prio bit): frontmost, over all OBJ.
+      passes[passCount] = (2, 2, 0, 3)     # BG3-high (prio bit): frontmost, over all OBJ.
+      inc passCount
   else:
     discard
-  var line: array[ScreenWidth, ColorRGBA]
   var drawn: array[ScreenWidth, bool]
-  for p in passes:
+  for i in 0 ..< passCount:
+    let p = passes[i]
     for py in 0..<ScreenHeight:
+      if not anySpriteOnLine[py]:
+        continue    # nothing to occlude on this line.
       for px in 0..<ScreenWidth:
         drawn[px] = false
-      # `drawn[px]` flags where this high-priority tile exists; `line` colors are
-      # unused — the correct color-math'd pixel comes from preSpriteComposite.
-      snes.bgScanlineInto(line, drawn, py, p.bg, p.bpp, p.pal, 1)  # high tiles.
+      # `drawn[px]` flags where this high-priority tile exists; the correct
+      # color-math'd pixel comes from preSpriteComposite.
+      snes.bgScanlineMask(drawn, py, p.bg, p.bpp, 1)  # high tiles.
+      let rowIdx = py * ScreenWidth
       for px in 0..<ScreenWidth:
         if not drawn[px]:
           continue
@@ -657,7 +775,7 @@ proc overlayForegroundBg*(snes: SnesBus, image: Image) =
         # Restore the pre-sprite composite (already color-math'd + brightness'd)
         # rather than re-decoding a raw tile — keeps swirl/dim tint over sprites
         # and removes the occlusion seam. See preSpriteComposite decl.
-        image[px, py] = preSpriteComposite[py][px]
+        image.data[rowIdx + px] = toRgbx(preSpriteComposite[py][px])
 
 proc renderFrame*(snes: SnesBus): Image =
   ## Render the current PPU state: backdrop, then BG layers back to front.
