@@ -7,7 +7,8 @@
 # and nimcache stay local so four nodes can build at once). Appends one row
 # per run to /mnt/ember/scratch/bench/results.<host>.tsv. A run that starts or
 # ends throttled is not a benchmark, so the CPU clock and SoC temperature are
-# recorded around each run.
+# recorded before each run and 15 s into it (the clock idles down as soon
+# as the run ends).
 set -euo pipefail
 
 VARIANT=${1:?variant name}
@@ -33,8 +34,9 @@ nim c --hints:off --warnings:off --parallelBuild:4 -d:release $FLAGS -o:"$BIN" s
 for run in 1 2; do
   T0=$(temp); F0=$(freq)
   echo "== $HOST run $run/2 temp=${T0}C freq=${F0}MHz"
-  "$BIN" "$ROM" "$TAPE" --frames "$FRAMES" --label "$VARIANT" --out "$OUT" | tail -3
-  T1=$(temp); F1=$(freq)
+  "$BIN" "$ROM" "$TAPE" --frames "$FRAMES" --label "$VARIANT" --out "$OUT" | tail -3 &
+  sleep 15; F1=$(freq); T1=$(temp)
+  wait
   echo "== $HOST done temp=${T1}C freq=${F1}MHz flags=[$FLAGS]"
   printf '%s\t%s\t%s\ttemp_start=%s\ttemp_end=%s\tfreq_start=%s\tfreq_end=%s\tflags=%s\n' \
     "$(date -u +%FT%TZ)" "$HOST" "$VARIANT" "$T0" "$T1" "$F0" "$F1" "$FLAGS" \
