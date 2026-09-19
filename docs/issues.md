@@ -106,6 +106,10 @@ Prior detailed sections for now-resolved items (old milestones, input latch, APU
     a `seq` **per scanline (~262×/frame)**; `overlayForegroundBg` builds a `passes`
     seq/frame; per-frame `&"…"` title/log strings. Preallocate/reuse; optionally
     `GC_fullCollect()` at an idle point (vblank/pause) so it never lands mid-frame.
+  - **2026-09-19:** the PPU garbage is gone (`modeLayers` iterates const tables,
+    `overlayForegroundBg` uses a fixed array, `runHdma`/`runDma` index a const
+    pattern table, the per-frame audio buffer is allocated once). Title strings
+    remain (off under `--kiosk`). Whether the hitch is gone is unverified.
   - Instrumentation ideas if not the GC: slow-frame detector (log frame + `seg`
     replay anchor when wall-time > budget), surface per-frame `apuPortCatchup`,
     per-phase timing breakdown.

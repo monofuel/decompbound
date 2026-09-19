@@ -120,6 +120,21 @@ Chain a new segment from the last F12 / window-close end snap:
 Each run writes `_start.state` plus `started_from.png` when you loaded an
 F12. Close the window (not Ctrl+C) to write an end screenstate.
 
+## Bench referee (`.ref` goldens)
+
+`chk` lines only cover WRAM and the player position. `src/tools/bench_replay.nim`
+replays a tape with rendering on and folds a crc32 of every frame image and of
+the 533 APU samples per frame into running hashes, writing a `DBREF1` golden
+(`<tape>.ref`, one `frame image audio wram` row per 60 frames, hashes only)
+beside the tape in `decompbound_secret`. Later runs compare and fail on the first
+divergent row, naming which of image/audio/wram moved, so an emulator
+optimization is proven behaviour-preserving on every host it runs on
+(the hot path is integer-only, so x86 and arm64 must agree). `make bench`
+times the fixed workload (`20260816-223148 --frames 3600`), `make bench-check`
+replays all five verified tapes in full, `make bench-ref` rewrites the goldens
+(deliberate, after an intended rendering fix; `--accept-image` rewrites only
+the image column). The Raspberry Pi workflow is in [raspberry-pi.md](raspberry-pi.md).
+
 Diagnose a session with [run-report.md](run-report.md):
 `make run-report SESSION=../decompbound_secret/sessions/<ts>`.
 

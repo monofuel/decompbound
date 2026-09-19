@@ -1,77 +1,135 @@
 # Goal: decompbound on a Raspberry Pi game system
 
-**Status:** NOT STARTED. Aspirational platform target.
+**Status (2026-09-19): headless emulator at full speed on a Pi 3; player port
+written, awaiting its first run on the handheld.**
 
-Run `make play` on a Raspberry Pi — ideally launched from an existing Pi game
-system (RetroPie / EmulationStation style box) so EarthBound-on-our-emulator
-sits in the same menu as everything else. The Pi is aarch64 and Nim compiles
-there fine, so this is a **porting + performance** goal, not a rewrite.
+Target: `gammapi`, monofuel's 2018 3D-printed Pi 3A+ portable (BCM2837,
+4× Cortex-A53 @ 1.4 GHz, 512 MB, 320x240 Adafruit PiTFT on the ili9341 DRM
+driver shown by the labwc compositor, X11 apps via Xwayland, 19 case buttons as
+a gpio-keys keyboard, EmulationStation menu). Dev/verify box: the `ember`
+cluster, four Pi 3B (same SoC @ 1.2 GHz, 1 GB, Gentoo, Nim 2.2.4 + nimby
+packages on each node, shared NFS checkout at `/mnt/ember/scratch/decompbound`).
+Ember runs glibc 2.42 and has no GL/X11/OpenAL, so it does headless work only;
+**the player binary is built on gammapi itself** (Bookworm, glibc 2.36).
 
-This target also shapes one earlier decision: it's why the LLM-plays harness
-links Lua **statically** (see `docs/llm-plays.md`) — a self-contained binary is
-what you want to drop onto a Pi without chasing system libraries.
+## Measured
 
-## What already helps
+Fixed workload = `bench_replay` on the human-verified sunrise tape
+`20260816-223148`, first 3600 frames (60 s of game), rendering on, hashes
+compared to the x86 goldens (`ref OK` on every row).
 
-- **Nim + aarch64** — the compiler and our pure-Nim cores (CPU, PPU, SPC700,
-  bus) build on ARM with no code changes; it's C under the hood.
-- **Input is a natural fit** — the player already uses **paddy** (evdev
-  gamepads), and Pi game systems are gamepad-first. Controllers should Just
-  Work, which is more than can be said for the graphics path.
-- **Audio** — slappy → openal-soft runs on the Pi over ALSA.
+| build | ember-1/2 (A53 @ 1.2 GHz) | 7950X |
+|---|---|---|
+| master before this work, `-d:release` | 232 s (0.26×) | 9.5 s |
+| `-d:danger` only (`--mm:arc`, `-d:lto` were noise) | 132 s (0.45×) | |
+| + PPU tile-run decode, static layer tables, direct pixel writes, sprite clipping | | 6.4 s |
+| + CPU enum jump-table dispatch, inline flat-memory bus fast paths, const DMA patterns | 61 s (0.98×) | 5.0 s |
+| + each BG decoded once per scanline, ladder split from the recorded priority bit | 59 s (1.02×) | 4.6 s |
+| + CGRAM palette cache | **56.7 s (1.06×)** | 4.5 s |
 
-## The real blockers (in rough order of pain)
+gammapi's 1.4 GHz clock should land near 49 s (1.2×). Peak RSS headless is
+30 MB; RAM is not a constraint. CPU-only cost (`--no-render`) is ~40 % of the
+frame; the PPU scanline compositor is the rest, DSP mixing under 5 %.
 
-### 1. Graphics: desktop GL → GLES
+## How the referee works
 
-The single biggest port issue. Our GL path targets **desktop OpenGL** — e.g.
-`music_explore.nim` compiles `#version 410` shaders, and the player blits its
-frame through a desktop-GL textured quad. A Raspberry Pi's Mesa stack is
-**OpenGL ES** (GLES 2/3) + limited desktop GL; `#version 410` shaders won't
-compile. Options:
+Every optimization above is proven behaviour-preserving by
+`src/tools/bench_replay.nim` (see [input-replay.md](input-replay.md)): replay a
+tape from its pinned start state, fold a crc32 of each rendered frame and of the
+533 APU samples per frame into running hashes, compare a row every 60 frames
+against the tape's `.ref` golden in `decompbound_secret`. The hot path is
+integer-only, so arm64 must reproduce the x86 hashes exactly; a `MISMATCH` on
+ember is a bug, not noise. Goldens were written by the pre-optimization tool
+commit (`ec60278`) and never regenerated during the work.
 
-- Port the blit to **GLES-compatible** shaders (`#version 300 es` / `100`) and
-  a GLES context — the frame output is just a full-screen textured quad, so the
-  shader surface area is tiny.
-- Or bypass GL for the final blit entirely (KMS/DRM framebuffer, or SDL) since
-  all we do is push one `frameImage` per frame — we don't need a 3D pipeline.
+## Ember workflow
 
-Whichever we pick, windy must be able to give us a GLES (or framebuffer)
-context on the Pi. Worth a spike to confirm windy's Pi story before committing.
+```
+scripts/ember_bench.sh <variant> "<extra nim flags>" [tape] [frames]
+```
 
-### 2. Performance: the interpreter budget
+Run from `/mnt/ember/scratch/decompbound` on a node. Builds to `~/bench/`
+(local nimcache, so four nodes build concurrently from the NFS checkout), runs
+the fixed workload twice, appends to `/mnt/ember/scratch/bench/results.<host>.tsv`
+and records SoC temperature and the CPU clock 15 s into each run (schedutil
+idles to 600-900 MHz between runs; a throttled run is not a benchmark).
+Fan out from a workstation with `ssh … scripts/ember_bench.sh … &` per node.
+`make bench` / `make bench-check` / `make bench-ref` are the same tool on any
+host. Nim on a node: `nimby` (`nimby-Linux-ARM64` release) + `nimby use 2.2.4`
+(prebuilt arm64 compiler) + `nimby sync -g nimby.lock` in the checkout.
 
-The emulator is a straightforward per-instruction 65816 interpreter + a
-software per-scanline PPU compositor + a live SPC700, none of it tuned for
-speed. A **Pi 4/5** has the headroom (real SNES emulation is well within its
-CPU budget), but our unoptimized interpreter may need help to hit full frame
-rate:
+## Build flags
 
-- Build with `-d:release` (and try `-d:danger` for the hot loops once correct).
-- Profile the CPU step + PPU scanline compositor; those dominate.
-- Older/tiny Pis (Zero, armv6) are likely out of scope — target Pi 4/5.
+`-d:fast` (root `config.nims`) implies `-d:danger`: bounds, range and overflow
+checks off. It is the shipping/benchmark profile; the referee build and the
+tests stay `-d:release` so a hidden out-of-range access still raises there.
+`--mm:arc` and `-d:lto` measured within noise on the A53 and are not used.
 
-### 3. Packaging & integration
+## Player port (`--kiosk`)
 
-- A reproducible aarch64 build (nix can target aarch64, or cross-compile).
-- An **EmulationStation "port" entry** so decompbound launches from the game
-  menu with a controller, no keyboard — the whole point of a Pi game box.
-- Bundle the assets/paths the player expects (ROM path, `.srm` location) in a
-  Pi-friendly layout.
+Blockers from the original plan and what happened to them:
+
+1. **Graphics.** `src/tools/glblit.nim` now targets OpenGL 2.1 (GLSL 1.20,
+   explicit attribute locations, no VAOs, unsized `GL_RGBA`, one
+   `glTexImage2D` then `glTexSubImage2D` per frame) and `play.nim` uses it
+   instead of its own copy. windy's X11 backend creates a legacy GLX context
+   (it ignores `openglVersion`), which on the Pi is Mesa's 2.1 compat context
+   over Xwayland, the same path RetroArch uses on the panel. The viewport is
+   integer-scaled and centred: 1× (256x224) on the 320x240 panel, 3× on the
+   desktop window.
+2. **Input.** gammapi's buttons are a keyboard: arrows, `x`=A, `z`=B, `s`=X,
+   `a`=Y, `q`=L1, `w`=R1, `e`=L2, `r`=R2, Enter=Start, RShift=Select, and the
+   five screen-edge buttons F1 / Esc / F2 / F4 / Space (left to right:
+   Space, F4, F2, Esc, F1). play.nim already keyed the pad this way; R now
+   accepts W or E. F1 = screenstate, F2 / F4 = save / load slot 1, Space =
+   pause, **Esc held for a second = clean exit** (SRAM flush, end.state).
+3. **Audio.** slappy → OpenAL → ALSA default → pipewire-pulse on Bookworm.
+   `--no-audio` is the fallback; `ALSOFT_DRIVERS=pulse` in the launcher if
+   silent.
+4. **Pacing.** `--no-vsync` paces by the wall clock and sleeps when no frame
+   was emulated; with vsync the swap blocks as before.
+5. **Packaging.** `make release-play` → `bin/decompbound-play` (`-d:fast`),
+   built on gammapi. All save/log paths in play.nim are cwd-relative, so the
+   install is a directory:
+
+```
+~/decompbound/
+  decompbound-play
+  bin/Earthbound (U) [!].smc     # .srm lands beside it
+  bin/states/                     # F2/F4 slot 1
+  captures/sessions/<stamp>/      # --kiosk replays + F12s (never into a repo)
+```
+
+Launcher `~/RetroPie/roms/ports/decompbound.sh`:
+
+```bash
+#!/bin/bash
+export DISPLAY=:0
+export XDG_RUNTIME_DIR=/run/user/$(id -u)
+cd "$HOME/decompbound" || exit 1
+exec ./decompbound-play --kiosk "bin/Earthbound (U) [!].smc" >> play_stdout.log 2>&1
+```
+
+and a `ports` system in `~/.emulationstation/es_systems.cfg` with
+`<command>bash %ROM%</command>` (no runcommand, no tty needed).
+
+gammapi prerequisites: nimby + Nim 2.2.4 as on ember, `nimby sync -g nimby.lock`,
+and `libopenal-dev libevdev-dev libudev-dev libgl-dev libx11-dev libxext-dev
+libxcursor-dev` (runtime: `libopenal1 libevdev2 libudev1 libgl1 libx11-6
+libxext6 libxcursor1`; RetroArch already pulled most of them).
 
 ## Definition of done
 
-- [ ] `make play` (or a packaged binary) runs EarthBound at playable frame rate
-      on a Pi 4/5, rendering via GLES or a framebuffer path.
-- [ ] A paddy gamepad drives it with no keyboard attached.
-- [ ] Audio plays through the Pi's ALSA/openal-soft.
-- [ ] Bonus: launchable as a "port" from EmulationStation on your Pi game box.
+- [x] Headless emulator ≥ 1.0× realtime on a Pi 3 (ember-2: 1.06×), hashes
+      equal to the x86 goldens.
+- [ ] `decompbound-play --kiosk` runs fullscreen at 1× on gammapi from
+      EmulationStation ([human-verify.md](human-verify.md) rows dated 2026-09-19).
+- [ ] Every case button drives it; audio plays through PipeWire.
+- [ ] The fixed workload timed on gammapi itself.
 
 ## Non-goals
 
-- Tiny/old Pis (Zero, armv6) — target Pi 4/5.
-- Bit-perfect timing beyond what stays playable on ARM.
-
-**Scope:** platform port — GLES/framebuffer render path + performance tuning +
-aarch64 packaging. Parallel-safe; off the `docs/goal.md` critical path.
-</content>
+- Pi Zero / armv6.
+- Threading the APU onto a second core: designed ("APU one scanline behind",
+  joins on every `$214x` access) but not needed once single-thread reached 1.06×.
+- Bit-perfect timing beyond what stays playable.
