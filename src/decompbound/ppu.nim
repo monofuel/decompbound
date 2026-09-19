@@ -59,6 +59,24 @@ proc applyMasterBrightness*(c: ColorRGBA, inidisp: uint8): ColorRGBA {.inline.} 
   ColorRGBA(r: BrightLut[level][c.r], g: BrightLut[level][c.g],
             b: BrightLut[level][c.b], a: c.a)
 
+var
+  palCache: array[256, ColorRGBA]
+    ## bgr555ToColor of every CGRAM entry, rebuilt by syncPalette when the
+    ## CGRAM bytes differ from palShadow (HDMA can rewrite CGRAM mid-frame,
+    ## so the check runs per scanline; a 512-byte compare is far cheaper than
+    ## converting per pixel).
+  palShadow: array[256, uint16]
+  palValid: bool
+
+proc syncPalette(snes: SnesBus) {.inline.} =
+  ## Refresh palCache if CGRAM changed since the last call.
+  if palValid and snes.cgram == palShadow:
+    return
+  palShadow = snes.cgram
+  for i in 0 .. 255:
+    palCache[i] = bgr555ToColor(snes.cgram[i])
+  palValid = true
+
 proc toRgbx(c: ColorRGBA): ColorRGBX {.inline.} =
   ## Store an opaque colour in pixie's premultiplied layout (identity at a=255).
   ColorRGBX(r: c.r, g: c.g, b: c.b, a: 255)
@@ -213,7 +231,7 @@ proc bgScanlineInto(snes: SnesBus, buf: var openArray[ColorRGBA],
       let sx = if flipX: 7 - (sub + i) else: sub + i
       let index = idx[sx].int
       if index != 0:
-        buf[px + i] = bgr555ToColor(snes.cgram[(palBase + index) and 0xFF])
+        buf[px + i] = palCache[(palBase + index) and 0xFF]
         drawn[px + i] = true
         if prioOut != nil:
           prioOut[px + i] = tilePrio.uint8
@@ -411,12 +429,26 @@ proc compositeScreen(snes: SnesBus, py: int, mask: uint8, winReg: uint8,
                           -1, addr linePrio[bg])
     let layerBit = (1'u8 shl bg)
     let wantPrio = layer.prio
-    for px in 0..<ScreenWidth:
-      if lineDrawn[bg][px] and (wantPrio < 0 or linePrio[bg][px].int == wantPrio) and
-          not (windowed[bg] and winHidden[bg][px]):
-        buf[px] = lines[bg][px]
-        drawn[px] = true
-        srcBit[px] = layerBit
+    if windowed[bg]:
+      for px in 0..<ScreenWidth:
+        if lineDrawn[bg][px] and (wantPrio < 0 or linePrio[bg][px].int == wantPrio) and
+            not winHidden[bg][px]:
+          buf[px] = lines[bg][px]
+          drawn[px] = true
+          srcBit[px] = layerBit
+    elif wantPrio < 0:
+      for px in 0..<ScreenWidth:
+        if lineDrawn[bg][px]:
+          buf[px] = lines[bg][px]
+          drawn[px] = true
+          srcBit[px] = layerBit
+    else:
+      let want = wantPrio.uint8
+      for px in 0..<ScreenWidth:
+        if lineDrawn[bg][px] and linePrio[bg][px] == want:
+          buf[px] = lines[bg][px]
+          drawn[px] = true
+          srcBit[px] = layerBit
 
 proc clamp5(v: int): int =
   ## Clamp to a SNES 5-bit color channel (0..31).
@@ -462,7 +494,8 @@ proc renderScanline*(snes: SnesBus, image: Image, py: int) =
   ## 7-4) forces the main screen black and gates where color math applies. This
   ## is the path that makes the scene-transition iris, the battle bands, and the
   ## Giygas red static (BG1 main + BG2 static subscreen, added) appear.
-  let backdrop = bgr555ToColor(snes.cgram[0])
+  snes.syncPalette()
+  let backdrop = palCache[0]
   let mainMask = snes.ppuRegs[0x2C]
   objLayerOffLine[py] = ((mainMask or snes.ppuRegs[0x2D]) and 0x10) == 0
   let cgadsub = snes.ppuRegs[0x31]
@@ -627,6 +660,7 @@ proc renderSprites*(snes: SnesBus, image: Image) =
   anySpriteDrawn = false
   if (snes.ppuRegs[0x00] and 0x80) != 0:
     return  # force blank: nothing is displayed
+  snes.syncPalette()
   let inidisp = snes.ppuRegs[0x00]
   # OBJ color math: when CGADSUB enables OBJ (bit 4), sprites in palettes 4-7
   # take the same fixed-color add/subtract (+ optional half) as the BG layers —
@@ -715,7 +749,7 @@ proc renderSprites*(snes: SnesBus, image: Image) =
         let index = snes.tilePixel(tileBase, tileIndex, sx mod 8, sy mod 8, 4)
         if index == 0:
           continue
-        var color = bgr555ToColor(snes.cgram[palBase + index])
+        var color = palCache[palBase + index]
         # Gate on CGWSEL math window (objColorMathLine from renderScanline).
         # Without this, subtract-dim (swirl / stage lighting / advantage) applies
         # to every sprite pixel, including those inside a "math outside window"
