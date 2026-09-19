@@ -329,6 +329,11 @@ var
     ## keeps the same color math (swirl/dim) as the rest of that object, and the
     ## seam between over-sprite and not-over-sprite pixels disappears.
 
+proc windowSpan(area: var WindowLine, l, r: int, invert: bool) {.inline.} =
+  ## One window: inside for l <= x <= r (empty when l > r), inverted if asked.
+  for x in 0 ..< ScreenWidth: area[x] = invert
+  for x in max(l, 0) .. min(r, ScreenWidth - 1): area[x] = not invert
+
 proc windowAreaLine(snes: SnesBus, sel: uint8, shift: int, combine: int,
                     area: var WindowLine) =
   ## Compute one layer's combined two-window "area" across the current scanline.
@@ -349,27 +354,26 @@ proc windowAreaLine(snes: SnesBus, sel: uint8, shift: int, combine: int,
   let r1 = snes.ppuRegs[0x27].int      # WH1: window 1 right edge.
   let l2 = snes.ppuRegs[0x28].int      # WH2: window 2 left edge.
   let r2 = snes.ppuRegs[0x29].int      # WH3: window 2 right edge.
-  for x in 0 ..< ScreenWidth:
-    var inside: bool
-    if w1on and w2on:
-      var one = x >= l1 and x <= r1
-      if w1out: one = not one
-      var two = x >= l2 and x <= r2
-      if w2out: two = not two
-      inside = case combine
-        of WinCombineAnd: one and two
-        of WinCombineXor: one != two
-        of WinCombineXnor: not (one != two)
-        else: one or two
-    elif w1on:
-      inside = x >= l1 and x <= r1
-      if w1out: inside = not inside
-    elif w2on:
-      inside = x >= l2 and x <= r2
-      if w2out: inside = not inside
+  if w1on and w2on:
+    var one {.noinit.}: WindowLine
+    var two {.noinit.}: WindowLine
+    windowSpan(one, l1, r1, w1out)
+    windowSpan(two, l2, r2, w2out)
+    case combine
+    of WinCombineAnd:
+      for x in 0 ..< ScreenWidth: area[x] = one[x] and two[x]
+    of WinCombineXor:
+      for x in 0 ..< ScreenWidth: area[x] = one[x] != two[x]
+    of WinCombineXnor:
+      for x in 0 ..< ScreenWidth: area[x] = one[x] == two[x]
     else:
-      inside = false
-    area[x] = inside
+      for x in 0 ..< ScreenWidth: area[x] = one[x] or two[x]
+  elif w1on:
+    windowSpan(area, l1, r1, w1out)
+  elif w2on:
+    windowSpan(area, l2, r2, w2out)
+  else:
+    for x in 0 ..< ScreenWidth: area[x] = false
 
 proc bgWindowParams(bg: int): tuple[selIdx, shift, logicShift, screenBit: int] =
   ## Window registers for a BG layer (0-3 = BG1-BG4): the select-register
@@ -408,11 +412,11 @@ proc compositeScreen(snes: SnesBus, py: int, mask: uint8, winReg: uint8,
     buf[px] = backdrop
     drawn[px] = false
     srcBit[px] = BackdropMathBit
-  var lines: array[4, array[ScreenWidth, ColorRGBA]]
-  var lineDrawn: array[4, array[ScreenWidth, bool]]
-  var linePrio: array[4, array[ScreenWidth, uint8]]
+  var lines {.noinit.}: array[4, array[ScreenWidth, ColorRGBA]]
+  var lineDrawn {.noinit.}: array[4, array[ScreenWidth, bool]]
+  var linePrio {.noinit.}: array[4, array[ScreenWidth, uint8]]
   var decoded: array[4, bool]
-  var winHidden: array[4, WindowLine]
+  var winHidden {.noinit.}: array[4, WindowLine]
   var windowed: array[4, bool]
   for layer in modeLayers(mode, bg3prio):
     let bg = layer.bg
@@ -425,6 +429,7 @@ proc compositeScreen(snes: SnesBus, py: int, mask: uint8, winReg: uint8,
       if windowed[bg]:
         let combine = (snes.ppuRegs[0x2A].int shr wp.logicShift) and 0x03
         snes.windowAreaLine(snes.ppuRegs[wp.selIdx], wp.shift, combine, winHidden[bg])
+      for px in 0 ..< ScreenWidth: lineDrawn[bg][px] = false
       snes.bgScanlineInto(lines[bg], lineDrawn[bg], py, bg, layer.bpp, layer.pal,
                           -1, addr linePrio[bg])
     let layerBit = (1'u8 shl bg)
@@ -505,17 +510,17 @@ proc renderScanline*(snes: SnesBus, image: Image, py: int) =
   let doHalf = (cgadsub and 0x40) != 0   # CGADSUB bit 6: halve the math result.
   let useSubScreen = (cgwsel and 0x02) != 0
 
-  var mainBuf: array[ScreenWidth, ColorRGBA]
-  var mainDrawn: array[ScreenWidth, bool]
-  var mainSrc: array[ScreenWidth, uint8]
+  var mainBuf {.noinit.}: array[ScreenWidth, ColorRGBA]
+  var mainDrawn {.noinit.}: array[ScreenWidth, bool]
+  var mainSrc {.noinit.}: array[ScreenWidth, uint8]
   snes.compositeScreen(py, mainMask, snes.ppuRegs[0x2E], backdrop, mainBuf,
                        mainDrawn, mainSrc)  # TMW.
   # SNES CGRAM/COLDATA pack is R in bits 0-4, G in 5-9, B in 10-14.
   let fixedColor = bgr555ToColor(snes.fixedColorR.uint16 or
     (snes.fixedColorG.uint16 shl 5) or (snes.fixedColorB.uint16 shl 10))
-  var mathBuf: array[ScreenWidth, ColorRGBA]
-  var subDrawn: array[ScreenWidth, bool]
-  var subSrc: array[ScreenWidth, uint8]
+  var mathBuf {.noinit.}: array[ScreenWidth, ColorRGBA]
+  var subDrawn {.noinit.}: array[ScreenWidth, bool]
+  var subSrc {.noinit.}: array[ScreenWidth, uint8]
   if mathLayers != 0:
     if useSubScreen:
       # Subscreen transparent pixels must math against the FIXED color (COLDATA),
@@ -536,7 +541,7 @@ proc renderScanline*(snes: SnesBus, image: Image, py: int) =
   # the region outside the shrinking circle goes solid black.
   let forceBlackMode = (cgwsel.int shr 6) and 0x03
   let mathEnableMode = (cgwsel.int shr 4) and 0x03
-  var colorWin: WindowLine
+  var colorWin {.noinit.}: WindowLine
   if forceBlackMode != 0 or mathEnableMode != 0:
     let combine = (snes.ppuRegs[0x2B].int shr 2) and 0x03   # WOBJLOG color bits.
     snes.windowAreaLine(snes.ppuRegs[0x25], 4, combine, colorWin)   # WOBJSEL hi.
@@ -548,7 +553,7 @@ proc renderScanline*(snes: SnesBus, image: Image, py: int) =
   # keeping them inside the iris. Both default off, so ordinary scenes record an
   # all-false line and nothing is suppressed.
   let objWindowed = (snes.ppuRegs[0x2E] and 0x10) != 0
-  var objWin: WindowLine
+  var objWin {.noinit.}: WindowLine
   if objWindowed:
     let objCombine = snes.ppuRegs[0x2B].int and 0x03
     snes.windowAreaLine(snes.ppuRegs[0x25], 0, objCombine, objWin)
@@ -582,6 +587,11 @@ proc renderScanline*(snes: SnesBus, image: Image, py: int) =
       objSuppressLine[py] = default(WindowLine)
     for px in 0..<ScreenWidth:
       let outPixel = applyMasterBrightness(mathBuf[px], inidisp)
+      image.data[rowIdx + px] = toRgbx(outPixel)
+      preSpriteComposite[py][px] = outPixel
+  elif not objSuppressActive[py] and mathLayers == 0:
+    for px in 0..<ScreenWidth:
+      let outPixel = applyMasterBrightness(mainBuf[px], inidisp)
       image.data[rowIdx + px] = toRgbx(outPixel)
       preSpriteComposite[py][px] = outPixel
   else:

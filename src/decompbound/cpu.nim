@@ -196,46 +196,46 @@ proc write8*(bus: Bus, address: uint32, value: uint8) =
   if bus.recordDirty:
     bus.dirty.add a.int
 
-proc read16*(bus: Bus, address: uint32): uint16 =
+proc read16*(bus: Bus, address: uint32): uint16 {.inline.} =
   ## Read a little-endian word, crossing banks linearly (data semantics).
   bus.read8(address).uint16 or (bus.read8(address + 1).uint16 shl 8)
 
-proc read16Wrap*(bus: Bus, bank: uint32, offset: uint16): uint16 =
+proc read16Wrap*(bus: Bus, bank: uint32, offset: uint16): uint16 {.inline.} =
   ## Read a word whose second byte wraps within a 64KB bank (pointer
   ## semantics for bank-0 indirection and program fetches).
   bus.read8(bank or offset).uint16 or
     (bus.read8(bank or ((offset + 1) and 0xFFFF).uint32).uint16 shl 8)
 
-proc m8*(cpu: Cpu): bool =
+proc m8*(cpu: Cpu): bool {.inline.} =
   ## Accumulator/memory operations are 8-bit.
   cpu.emulation or (cpu.p and FlagM) != 0
 
-proc x8*(cpu: Cpu): bool =
+proc x8*(cpu: Cpu): bool {.inline.} =
   ## Index register operations are 8-bit.
   cpu.emulation or (cpu.p and FlagX) != 0
 
-proc setFlag(cpu: var Cpu, flag: uint8, on: bool) =
+proc setFlag(cpu: var Cpu, flag: uint8, on: bool) {.inline.} =
   ## Set or clear one status bit.
   if on:
     cpu.p = cpu.p or flag
   else:
     cpu.p = cpu.p and not flag
 
-proc getFlag(cpu: Cpu, flag: uint8): bool =
+proc getFlag(cpu: Cpu, flag: uint8): bool {.inline.} =
   ## Test one status bit.
   (cpu.p and flag) != 0
 
-proc setNZ8(cpu: var Cpu, value: uint8) =
+proc setNZ8(cpu: var Cpu, value: uint8) {.inline.} =
   ## Set N and Z from an 8-bit result.
   cpu.setFlag(FlagZ, value == 0)
   cpu.setFlag(FlagN, (value and 0x80) != 0)
 
-proc setNZ16(cpu: var Cpu, value: uint16) =
+proc setNZ16(cpu: var Cpu, value: uint16) {.inline.} =
   ## Set N and Z from a 16-bit result.
   cpu.setFlag(FlagZ, value == 0)
   cpu.setFlag(FlagN, (value and 0x8000) != 0)
 
-proc forceWidthInvariants(cpu: var Cpu) =
+proc forceWidthInvariants(cpu: var Cpu) {.inline.} =
   ## Apply the hardware invariants for emulation mode and 8-bit index mode.
   if cpu.emulation:
     cpu.p = cpu.p or FlagM or FlagX
@@ -244,7 +244,7 @@ proc forceWidthInvariants(cpu: var Cpu) =
     cpu.x = cpu.x and 0xFF
     cpu.y = cpu.y and 0xFF
 
-proc push8(cpu: var Cpu, bus: Bus, value: uint8, wrap: bool = true) =
+proc push8(cpu: var Cpu, bus: Bus, value: uint8, wrap: bool = true) {.inline.} =
   ## Push one byte. The stack lives in bank 0. In emulation mode the
   ## original 6502 instructions wrap within page 1 (wrap = true); the new
   ## 65816 instructions (PHD, PEA, JSL, ...) use S as a full 16-bit
@@ -265,7 +265,7 @@ proc pull8(cpu: var Cpu, bus: Bus, wrap: bool = true): uint8 =
     cpu.s = cpu.s + 1
   result = bus.read8(cpu.s.uint32)
 
-proc push16(cpu: var Cpu, bus: Bus, value: uint16, wrap: bool = true) =
+proc push16(cpu: var Cpu, bus: Bus, value: uint16, wrap: bool = true) {.inline.} =
   ## Push a word, high byte first.
   cpu.push8(bus, (value shr 8).uint8, wrap)
   cpu.push8(bus, (value and 0xFF).uint8, wrap)
@@ -275,17 +275,17 @@ proc pull16(cpu: var Cpu, bus: Bus, wrap: bool = true): uint16 =
   result = cpu.pull8(bus, wrap).uint16
   result = result or (cpu.pull8(bus, wrap).uint16 shl 8)
 
-proc fetch8(cpu: var Cpu, bus: Bus): uint8 =
+proc fetch8(cpu: var Cpu, bus: Bus): uint8 {.inline.} =
   ## Fetch the next program byte; PC wraps within the program bank.
   result = bus.read8((cpu.pbr.uint32 shl 16) or cpu.pc.uint32)
   cpu.pc = cpu.pc + 1
 
-proc fetch16(cpu: var Cpu, bus: Bus): uint16 =
+proc fetch16(cpu: var Cpu, bus: Bus): uint16 {.inline.} =
   ## Fetch a program word.
   result = cpu.fetch8(bus).uint16
   result = result or (cpu.fetch8(bus).uint16 shl 8)
 
-proc directOffset(cpu: Cpu, operand: uint8, index: uint16 = 0): uint16 =
+proc directOffset(cpu: Cpu, operand: uint8, index: uint16 = 0): uint16 {.inline.} =
   ## Direct page effective offset in bank 0. In emulation mode with DL == 0,
   ## indexed direct page addresses wrap within the page.
   if cpu.emulation and (cpu.d and 0xFF) == 0 and index != 0:
@@ -293,7 +293,7 @@ proc directOffset(cpu: Cpu, operand: uint8, index: uint16 = 0): uint16 =
   else:
     cpu.d + operand.uint16 + index
 
-proc directPointer16(cpu: Cpu, bus: Bus, operand: uint8, index: uint16 = 0): uint16 =
+proc directPointer16(cpu: Cpu, bus: Bus, operand: uint8, index: uint16 = 0): uint16 {.inline.} =
   ## Read a 16-bit pointer from the direct page. The base honors the
   ## emulation-mode DL == 0 page wrap for indexed forms (directOffset);
   ## the second pointer byte reads linearly with 16-bit bank-0 wrap
@@ -387,7 +387,7 @@ proc resolve(cpu: var Cpu, bus: Bus, mode: AddressingMode,
     doAssert false, "resolve called for non-data mode: " & $mode
   discard indexIsX
 
-proc loadValue(cpu: Cpu, bus: Bus, op: Operand, wide: bool): uint16 =
+proc loadValue(cpu: Cpu, bus: Bus, op: Operand, wide: bool): uint16 {.inline.} =
   ## Load the operand value at instruction width. Direct page and stack
   ## relative accesses wrap within bank 0 for the high byte.
   if op.isImmediate:
@@ -400,7 +400,7 @@ proc loadValue(cpu: Cpu, bus: Bus, op: Operand, wide: bool): uint16 =
   else:
     bus.read8(op.address).uint16
 
-proc storeValue(cpu: Cpu, bus: Bus, op: Operand, value: uint16, wide: bool) =
+proc storeValue(cpu: Cpu, bus: Bus, op: Operand, value: uint16, wide: bool) {.inline.} =
   ## Store a result at instruction width, honoring bank-0 wrap.
   bus.write8(op.address, (value and 0xFF).uint8)
   if wide:
