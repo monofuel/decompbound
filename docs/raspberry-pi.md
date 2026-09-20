@@ -107,7 +107,11 @@ Blockers from the original plan and what happened to them:
    TO QUIT bar that fills over the second.
 3. **Audio.** slappy → OpenAL → ALSA default → pipewire-pulse on Bookworm.
    `--no-audio` is the fallback; `ALSOFT_DRIVERS=pulse` in the launcher if
-   silent.
+   silent. OpenAL Soft 1.19 (Bookworm) opens its pulse stream with
+   `PA_STREAM_DONT_MOVE`, so a game started before Bluetooth headphones
+   connect stays on the built-in jack; `~/.config/alsoft.conf` with
+   `[pulse] allow-moves = true` (written by the setup script) lets
+   WirePlumber move it to the new default sink.
 4. **Pacing.** `--no-vsync` paces by the wall clock and sleeps when no frame
    was emulated; with vsync the swap blocks as before.
 5. **Packaging.** `make release-play` → `bin/decompbound-play` (`-d:fast`),

@@ -45,6 +45,12 @@ git submodule update --init vendor/lua
 nice -n 10 make release-play NIM_TEST_FLAGS="--hints:off --warnings:off --parallelBuild:2"
 ldd bin/decompbound-play | grep -E "not found" && { echo "missing runtime libraries"; exit 1; }
 
+echo "== openal: let the audio stream follow the default sink"
+# OpenAL Soft 1.19 opens its PulseAudio stream with DONT_MOVE, so a game
+# started before Bluetooth headphones connect stays on the built-in jack.
+mkdir -p "$HOME/.config"
+printf '[pulse]\nallow-moves = true\n' > "$HOME/.config/alsoft.conf"
+
 echo "== install to $INSTALL"
 mkdir -p "$INSTALL/bin/states" "$INSTALL/captures"
 install -m 755 bin/decompbound-play "$INSTALL/decompbound-play"
