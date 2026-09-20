@@ -116,7 +116,8 @@ type
     ## (the hot-spring palette blend writes two palettes past its buffer into
     ## the queue at $0400) decodes as a tens-of-KiB A→B transfer into $2118
     ## with a VMAIN translation and sprays every tile bank (Saturn Valley
-    ## hot spring, 2026-09-19). EB's real VRAM jobs are at most a few KiB.
+    ## hot spring, 2026-09-19). EB's real VRAM jobs top out at 32 KiB, and
+    ## the ones using a VMAIN translation are far smaller.
     dmaVramOversize*: bool
     dmaVramOversizeSize*: int
     dmaVramOversizeBank*: uint8
@@ -184,7 +185,8 @@ const
     ## ~5s at 60fps of cap-glued $214x polls with frozen portsOut before one
     ## APU-HANG? diagnostic line.
   MaxDmaBytesPerFrame* = 1_048_576
-  MaxVramDmaBytes* = 0x4000  ## Largest A→B VRAM job accepted; EB's biggest legit ones are ~4.6 KiB.
+  MaxVramDmaBytes* = 0x8000  ## Largest A→B VRAM job accepted: EB loads 32 KiB tilesets from $7F:0000.
+  MaxTranslatedVramDmaBytes* = 0x4000  ## With a VMAIN address translation EB's jobs are far smaller.
     ## 1 MiB per-frame MDMA ceiling. Normal heavy frames move well under
     ## 256 KB. Hardware peak is ~10 KB/scanline so even a full-frame DMA is
     ## ~2.5 MB/s of bus traffic, not per-frame host work — a derailed NMI
@@ -496,7 +498,8 @@ proc runDma(snes: SnesBus, channels: uint8) =
     let spray64k = not toA and transferSize == 0x10000 and
       isWramMirrorABus(aBank, aAddr)
     let oversizeVram = not toA and (bbad == 0x18 or bbad == 0x19) and
-      transferSize > MaxVramDmaBytes
+      (transferSize > MaxVramDmaBytes or
+       ((snes.vmain and 0x0C) != 0 and transferSize > MaxTranslatedVramDmaBytes))
     if oversizeVram and not snes.dmaVramOversize:
       snes.dmaVramOversize = true
       snes.dmaVramOversizeSize = transferSize
