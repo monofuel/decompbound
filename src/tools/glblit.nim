@@ -146,6 +146,13 @@ proc initGlBlit*(title: string, nativeW, nativeH: int, scale: int = 3,
     nativeH: nativeH
   )
 
+proc ensureFullscreen*(blit: GlBlit) =
+  ## Ask for fullscreen again. A request sent before the compositor has mapped
+  ## the surface can land in _NET_WM_STATE without ever being applied (labwc
+  ## over Xwayland on gammapi left the window at 320x204 under the panel), so
+  ## the player repeats it a few frames after the first swap.
+  blit.window.fullscreen = true
+
 proc upload*(blit: GlBlit, img: Image) =
   ## Copy the frame image into the texture (same size as the native frame).
   glBindTexture(GL_TEXTURE_2D, blit.textureId)

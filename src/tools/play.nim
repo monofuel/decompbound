@@ -599,6 +599,7 @@ Controls:
   var cpu = snes.resetCpu()
 
   var frameCount = 0
+  var fullscreenRetries = 0
   var paused = false
   var frameAdvance = false
   var framesPerTick = 1
@@ -1870,6 +1871,10 @@ Controls:
     if drawNow:
       window.swapBuffers()
     phaseSwapMs = (getMonoTime() - swapStart).inMicroseconds.float / 1000.0
+    if kiosk and fullscreenRetries < 3 and
+        frameCount >= [2, 30, 120][fullscreenRetries]:
+      blit.ensureFullscreen()
+      inc fullscreenRetries
 
     # Perf/GC: heap snapshot here; HITCH line is emitted after the text phase so
     # the phase breakdown includes dialogue-echo. Slow outer iter -> HITCH.
