@@ -112,6 +112,15 @@ type
     ## No legitimate EB transfer reads an entire 64KiB WRAM window into a
     ## B-bus port. Play loop logs once and clears; fields hold the first
     ## skipped job.
+    ## Oversize VRAM upload rail: a CHR-queue job whose slot was overwritten
+    ## (the hot-spring palette blend writes two palettes past its buffer into
+    ## the queue at $0400) decodes as a tens-of-KiB A→B transfer into $2118
+    ## with a VMAIN translation and sprays every tile bank (Saturn Valley
+    ## hot spring, 2026-09-19). EB's real VRAM jobs are at most a few KiB.
+    dmaVramOversize*: bool
+    dmaVramOversizeSize*: int
+    dmaVramOversizeBank*: uint8
+    dmaVramOversizeAddr*: uint16
     dma64kSpray*: bool
     dma64kSprayDmap*: uint8
     dma64kSprayBbad*: uint8
@@ -175,6 +184,7 @@ const
     ## ~5s at 60fps of cap-glued $214x polls with frozen portsOut before one
     ## APU-HANG? diagnostic line.
   MaxDmaBytesPerFrame* = 1_048_576
+  MaxVramDmaBytes* = 0x4000  ## Largest A→B VRAM job accepted; EB's biggest legit ones are ~4.6 KiB.
     ## 1 MiB per-frame MDMA ceiling. Normal heavy frames move well under
     ## 256 KB. Hardware peak is ~10 KB/scanline so even a full-frame DMA is
     ## ~2.5 MB/s of bus traffic, not per-frame host work — a derailed NMI
@@ -485,13 +495,20 @@ proc runDma(snes: SnesBus, channels: uint8) =
     # but finalize regs like the storm path so game state stays coherent.
     let spray64k = not toA and transferSize == 0x10000 and
       isWramMirrorABus(aBank, aAddr)
+    let oversizeVram = not toA and (bbad == 0x18 or bbad == 0x19) and
+      transferSize > MaxVramDmaBytes
+    if oversizeVram and not snes.dmaVramOversize:
+      snes.dmaVramOversize = true
+      snes.dmaVramOversizeSize = transferSize
+      snes.dmaVramOversizeBank = aBank.uint8
+      snes.dmaVramOversizeAddr = aAddr.uint16
     if spray64k and not snes.dma64kSpray:
       snes.dma64kSpray = true
       snes.dma64kSprayDmap = dmap
       snes.dma64kSprayBbad = bbad
       snes.dma64kSprayBank = aBank.uint8
       snes.dma64kSprayAddr = aAddr.uint16
-    if not storm and not spray64k:
+    if not storm and not spray64k and not oversizeVram:
       # B-bus register sequence per transfer pattern.
       let pattern = DmaPatterns[(dmap and 0x07).int]
       var patternIndex = 0
@@ -1080,6 +1097,10 @@ proc resetUnserialized*(snes: SnesBus) =
   snes.dmaWramToABank = 0
   snes.dmaWramToAAddr = 0
   snes.dmaWramToASize = 0
+  snes.dmaVramOversize = false
+  snes.dmaVramOversizeSize = 0
+  snes.dmaVramOversizeBank = 0
+  snes.dmaVramOversizeAddr = 0
   snes.dma64kSpray = false
   snes.dma64kSprayDmap = 0
   snes.dma64kSprayBbad = 0

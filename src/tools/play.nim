@@ -1702,6 +1702,12 @@ Controls:
         # DMA-64K-SPRAY?: a DAS=0 (64KiB) A→B MDMA from a WRAM mirror was
         # skipped (poisoned CHR-queue job — the credits VRAM spray). Same
         # log-once + 300-quiet-frame re-arm as the other DMA rails.
+        if snes.dmaVramOversize:
+          let msg = &"DMA-VRAM-OVERSIZE? skipped {snes.dmaVramOversizeSize} byte A->B VRAM job " &
+            &"A={snes.dmaVramOversizeBank:02X}:{snes.dmaVramOversizeAddr:04X} PC={cpu.pbr:02X}:{cpu.pc:04X}"
+          echo msg
+          writeLog(msg)
+          snes.dmaVramOversize = false
         if snes.dma64kSpray:
           if not dma64kSprayLogged:
             let sprayMsg =
