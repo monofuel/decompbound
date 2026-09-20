@@ -125,7 +125,8 @@ proc main() =
           discard snes.tickApu()
         inc replayFrame
       if stretch == 1:
-        verifyChk(snes, tf, rheader.checkpoints)
+        when not defined(noChk):
+          verifyChk(snes, tf, rheader.checkpoints)
       if pngEvery > 0 and (tf + 1) mod pngEvery == 0:
         let p = &"bin/replay_frames/frame_{tf:04d}.png"
         frameImage.writeFile(p)

@@ -7,7 +7,7 @@ import
   ./[cpu, ppu, snesbus]
 
 const
-  InstrPerLine* = 150  # match play.nim's frame budget; at 40 the game is CPU-starved
+  InstrPerLine* {.intdefine.} = 150  # match play.nim's frame budget; at 40 the game is CPU-starved
                        # and never boots past force-blank (black frames in llm_ai/play).
   ApuSamplesPerFrame* = 533  # 2 per scanline + 9 top-up; equals replay.ReplayApuTicksPerFrame.
 
