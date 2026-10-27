@@ -87,10 +87,10 @@ proc ensureFo80Paula() =
   if fileExists(Fo80Paula):
     return
   if not fileExists(Fo60Paula) and fileExists(Fo60):
-    let (o, code) = execCmdEx("nim r -d:release src/tools/synth_fourside60_from_paula.nim")
+    let (o, code) = execCmdEx("nim r -d:release src/probes/synth_fourside60_from_paula.nim")
     echo o
     doAssert code == 0
-  let (o2, code2) = execCmdEx("nim r -d:release src/tools/synth_fourside80_from_paula.nim")
+  let (o2, code2) = execCmdEx("nim r -d:release src/probes/synth_fourside80_from_paula.nim")
   echo o2
   doAssert code2 == 0 and fileExists(Fo80Paula)
 

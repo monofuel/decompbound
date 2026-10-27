@@ -6,7 +6,7 @@ sample per emulated frame (not per window loop) and writes
 `<session>/<ts>.tas` + `<ts>_start.state`. After writing the start state it
 deserializes it back so live == file. Headless feed is `src/tools/replay.nim`
 via `applyTas`. Windowed: `make play-tas TAS=path.tas` (start state comes
-from the header). Verified by `tests/e2e_replay.nim` + `tests/e2e_tas_identity.nim`
+from the header). Verified by `tests/test_replay.nim` + `tests/e2e_tas_identity.nim`
 (serialize match). Old movies without `cadence emu` are refused unless
 `--legacy-stretch N`. Re-record those.
 
@@ -119,6 +119,41 @@ Chain a new segment from the last F12 / window-close end snap:
 
 Each run writes `_start.state` plus `started_from.png` when you loaded an
 F12. Close the window (not Ctrl+C) to write an end screenstate.
+
+## Bench referee (`.ref` goldens)
+
+`chk` lines only cover WRAM and the player position. `src/tools/bench_replay.nim`
+replays a tape with rendering on and folds a crc32 of every frame image and of
+the 533 APU samples per frame into running hashes, writing a `DBREF1` golden
+(`<tape>.ref`, one `frame image audio wram` row per 60 frames, hashes only)
+beside the tape in `decompbound_secret`. Later runs compare and fail on the first
+divergent row, naming which of image/audio/wram moved, so an emulator
+optimization is proven behaviour-preserving on every host it runs on
+(the hot path is integer-only, so x86 and arm64 must agree). `make bench`
+times the fixed workload (`20260816-223148 --frames 3600`), `make bench-check`
+replays all five verified tapes in full, `make bench-ref` rewrites the goldens
+(deliberate, after an intended rendering fix; `--accept-image` rewrites only
+the image column and requires the complete workload). The tool checks both the
+tape CRC and ROM hash before comparison. The Raspberry Pi workflow is in
+[raspberry-pi.md](raspberry-pi.md).
+
+For changes affecting scenes outside those tapes, run the local capture sweep
+before and after the change:
+
+```sh
+nim r -d:release src/probes/probe_integration_corpus.nim /tmp/corpus-before.tsv
+# Build the candidate revision, then run the same probe.
+nim r -d:release src/probes/probe_integration_corpus.nim /tmp/corpus-after.tsv
+diff -u /tmp/corpus-before.tsv /tmp/corpus-after.tsv
+```
+
+It checks three frames from every state under `bin/states/`, the private archive,
+and the Pictures screenshot archive, recording image and serialized-machine
+hashes. It reports incompatible states explicitly and counts image-only PNGs
+separately. Hash equality establishes equivalence for these captured frames;
+the replay goldens cover longer sequences. The 2026-10-27 integration sweep
+matched all 3,480 available state captures without incompatible inputs. All five
+full replay goldens also matched, covering 924,845 frames in total.
 
 Diagnose a session with [run-report.md](run-report.md):
 `make run-report SESSION=../decompbound_secret/sessions/<ts>`.

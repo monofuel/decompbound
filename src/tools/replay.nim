@@ -17,7 +17,7 @@
 import
   std/[os, strformat, strutils, tables, options],
   pixie,
-  ../decompbound/[cpu, ppu, policy, png_state, replay, replay_run, save_state, snesbus]
+  ../decompbound/[cpu, frame_step, ppu, png_state, replay, replay_run, save_state, snesbus]
 
 proc main() =
   ## Parse args, load ROM + start state, parse log, run feeding joy1 from deltas,
@@ -63,7 +63,7 @@ proc main() =
       quit(1)
     inc i
 
-  let rom = policy.readRomFile(romPath)
+  let rom = frame_step.readRomFile(romPath)
   let romHash = romHashOf(rom)
   echo &"ROM: {romPath}  hash=0x{romHash:08X}"
   let snes = newSnesBus(rom)
@@ -120,12 +120,13 @@ proc main() =
         joy = sched[tf]
       for s in 1 .. stretch:
         snes.joy1 = joy
-        policy.stepOneFrame(snes, cpu, frameImage, render = true)
+        frame_step.stepOneFrame(snes, cpu, frameImage, render = true)
         for k in 0 ..< (ReplayApuTicksPerFrame - 262 * 2):
           discard snes.tickApu()
         inc replayFrame
       if stretch == 1:
-        verifyChk(snes, tf, rheader.checkpoints)
+        when not defined(noChk):
+          verifyChk(snes, tf, rheader.checkpoints)
       if pngEvery > 0 and (tf + 1) mod pngEvery == 0:
         let p = &"bin/replay_frames/frame_{tf:04d}.png"
         frameImage.writeFile(p)

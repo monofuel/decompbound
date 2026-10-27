@@ -17,9 +17,11 @@ research stays in the existing topic docs; no separate ideas notebook is needed.
 
 ## Goals and current baseline
 
-Baseline checked on 2026-09-10, after adopting the verified sprite-storage and action-script handlers on
-`decomp/rng-contract-2026-09-10`. Earlier unfinished work remains preserved on
-`review/pending-2026-09-10`.
+The decompilation evidence baseline comes from the verified sprite-storage and
+action-script work on `decomp/rng-contract-2026-09-10`. The current `master`
+also integrates the Pi/player performance work. Earlier unfinished bot/report
+work remains preserved on `review/pending-2026-09-10`; `bestiary/integration`
+and `review/archive-2026-10-27/*` retain unverified research for later investigation.
 
 | Goal | Outcome | Current state |
 |---|---|---|

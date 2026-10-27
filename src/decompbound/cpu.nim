@@ -5,6 +5,7 @@
 ## race the beam).
 
 import
+  std/strutils,
   ./opcodes
 
 const
@@ -26,6 +27,9 @@ type
     ## readHook returns -1 to fall through to flat memory; writeHook
     ## returns true when it fully handled the write.
     mem*: seq[uint8]
+    memBase: ptr UncheckedArray[uint8]
+      ## Data pointer of `mem`, valid because `mem` is allocated once and
+      ## never resized: saves a dependent load per byte on the hot path.
     dirty*: seq[int]
     recordDirty*: bool  ## OFF by default. Only the vector-test harness needs the
                         ## dirty list (to reset touched RAM between tests); in normal
@@ -57,66 +61,179 @@ type
                      ## sets 100 to match SingleStepTests snapshots.
     nmiPending*: bool  ## Set by the system when vblank NMI fires.
 
+type
+  Mnemonic* = enum
+    ## Instruction mnemonics in OpcodeTable, for jump-table dispatch.
+    mnBRK
+    mnORA
+    mnCOP
+    mnTSB
+    mnASL
+    mnPHP
+    mnPHD
+    mnBPL
+    mnTRB
+    mnCLC
+    mnINC
+    mnTCS
+    mnJSR
+    mnAND
+    mnJSL
+    mnBIT
+    mnROL
+    mnPLP
+    mnPLD
+    mnBMI
+    mnSEC
+    mnDEC
+    mnTSC
+    mnRTI
+    mnEOR
+    mnWDM
+    mnMVP
+    mnLSR
+    mnPHA
+    mnPHK
+    mnJMP
+    mnBVC
+    mnMVN
+    mnCLI
+    mnPHY
+    mnTCD
+    mnJML
+    mnRTS
+    mnADC
+    mnPER
+    mnSTZ
+    mnROR
+    mnPLA
+    mnRTL
+    mnBVS
+    mnSEI
+    mnPLY
+    mnTDC
+    mnBRA
+    mnSTA
+    mnBRL
+    mnSTY
+    mnSTX
+    mnDEY
+    mnTXA
+    mnPHB
+    mnBCC
+    mnTYA
+    mnTXS
+    mnTXY
+    mnLDY
+    mnLDA
+    mnLDX
+    mnTAY
+    mnTAX
+    mnPLB
+    mnBCS
+    mnCLV
+    mnTSX
+    mnTYX
+    mnCPY
+    mnCMP
+    mnREP
+    mnINY
+    mnDEX
+    mnWAI
+    mnBNE
+    mnPEI
+    mnCLD
+    mnPHX
+    mnSTP
+    mnCPX
+    mnSBC
+    mnSEP
+    mnINX
+    mnNOP
+    mnXBA
+    mnBEQ
+    mnPEA
+    mnSED
+    mnPLX
+    mnXCE
+
+const
+  ModeOf: array[256, AddressingMode] = block:
+    ## Addressing mode per opcode as a compact byte table; OpcodeTable entries
+    ## also carry the mnemonic string, which is dead weight on the hot path.
+    var t: array[256, AddressingMode]
+    for i in 0 ..< 256:
+      t[i] = OpcodeTable[i].mode
+    t
+  MnemonicOf: array[256, Mnemonic] = block:
+    var t: array[256, Mnemonic]
+    for i in 0 .. 255:
+      t[i] = parseEnum[Mnemonic]("mn" & OpcodeTable[i].mnemonic)
+    t
+
 proc newBus*(): Bus =
   ## Allocate the flat memory bus.
-  Bus(mem: newSeq[uint8](MemSize))
+  result = Bus(mem: newSeq[uint8](MemSize))
+  result.memBase = cast[ptr UncheckedArray[uint8]](result.mem[0].addr)
 
-proc read8*(bus: Bus, address: uint32): uint8 =
-  ## Read one byte from the 24-bit address space.
+proc read8*(bus: Bus, address: uint32): uint8 {.inline.} =
+  ## Read one byte through the hook, falling through to flat memory.
+  let a = address and 0xFFFFFF
   if bus.readHook != nil:
-    let hooked = bus.readHook(address and 0xFFFFFF)
+    let hooked = bus.readHook(a)
     if hooked >= 0:
       return hooked.uint8
-  bus.mem[address and 0xFFFFFF]
+  bus.memBase[a]
 
 proc write8*(bus: Bus, address: uint32, value: uint8) =
-  ## Write one byte and remember it for harness cleanup.
-  if bus.writeHook != nil and bus.writeHook(address and 0xFFFFFF, value):
+  ## Write through the hook and track unhandled writes for harness cleanup.
+  let a = address and 0xFFFFFF
+  if bus.writeHook != nil and bus.writeHook(a, value):
     return
-  bus.mem[(address and 0xFFFFFF).int] = value
+  bus.memBase[a] = value
   if bus.recordDirty:
-    bus.dirty.add (address and 0xFFFFFF).int
+    bus.dirty.add a.int
 
-proc read16*(bus: Bus, address: uint32): uint16 =
+proc read16*(bus: Bus, address: uint32): uint16 {.inline.} =
   ## Read a little-endian word, crossing banks linearly (data semantics).
   bus.read8(address).uint16 or (bus.read8(address + 1).uint16 shl 8)
 
-proc read16Wrap*(bus: Bus, bank: uint32, offset: uint16): uint16 =
+proc read16Wrap*(bus: Bus, bank: uint32, offset: uint16): uint16 {.inline.} =
   ## Read a word whose second byte wraps within a 64KB bank (pointer
   ## semantics for bank-0 indirection and program fetches).
   bus.read8(bank or offset).uint16 or
     (bus.read8(bank or ((offset + 1) and 0xFFFF).uint32).uint16 shl 8)
 
-proc m8*(cpu: Cpu): bool =
+proc m8*(cpu: Cpu): bool {.inline.} =
   ## Accumulator/memory operations are 8-bit.
   cpu.emulation or (cpu.p and FlagM) != 0
 
-proc x8*(cpu: Cpu): bool =
+proc x8*(cpu: Cpu): bool {.inline.} =
   ## Index register operations are 8-bit.
   cpu.emulation or (cpu.p and FlagX) != 0
 
-proc setFlag(cpu: var Cpu, flag: uint8, on: bool) =
+proc setFlag(cpu: var Cpu, flag: uint8, on: bool) {.inline.} =
   ## Set or clear one status bit.
   if on:
     cpu.p = cpu.p or flag
   else:
     cpu.p = cpu.p and not flag
 
-proc getFlag(cpu: Cpu, flag: uint8): bool =
+proc getFlag(cpu: Cpu, flag: uint8): bool {.inline.} =
   ## Test one status bit.
   (cpu.p and flag) != 0
 
-proc setNZ8(cpu: var Cpu, value: uint8) =
+proc setNZ8(cpu: var Cpu, value: uint8) {.inline.} =
   ## Set N and Z from an 8-bit result.
   cpu.setFlag(FlagZ, value == 0)
   cpu.setFlag(FlagN, (value and 0x80) != 0)
 
-proc setNZ16(cpu: var Cpu, value: uint16) =
+proc setNZ16(cpu: var Cpu, value: uint16) {.inline.} =
   ## Set N and Z from a 16-bit result.
   cpu.setFlag(FlagZ, value == 0)
   cpu.setFlag(FlagN, (value and 0x8000) != 0)
 
-proc forceWidthInvariants(cpu: var Cpu) =
+proc forceWidthInvariants(cpu: var Cpu) {.inline.} =
   ## Apply the hardware invariants for emulation mode and 8-bit index mode.
   if cpu.emulation:
     cpu.p = cpu.p or FlagM or FlagX
@@ -125,7 +242,7 @@ proc forceWidthInvariants(cpu: var Cpu) =
     cpu.x = cpu.x and 0xFF
     cpu.y = cpu.y and 0xFF
 
-proc push8(cpu: var Cpu, bus: Bus, value: uint8, wrap: bool = true) =
+proc push8(cpu: var Cpu, bus: Bus, value: uint8, wrap: bool = true) {.inline.} =
   ## Push one byte. The stack lives in bank 0. In emulation mode the
   ## original 6502 instructions wrap within page 1 (wrap = true); the new
   ## 65816 instructions (PHD, PEA, JSL, ...) use S as a full 16-bit
@@ -146,7 +263,7 @@ proc pull8(cpu: var Cpu, bus: Bus, wrap: bool = true): uint8 =
     cpu.s = cpu.s + 1
   result = bus.read8(cpu.s.uint32)
 
-proc push16(cpu: var Cpu, bus: Bus, value: uint16, wrap: bool = true) =
+proc push16(cpu: var Cpu, bus: Bus, value: uint16, wrap: bool = true) {.inline.} =
   ## Push a word, high byte first.
   cpu.push8(bus, (value shr 8).uint8, wrap)
   cpu.push8(bus, (value and 0xFF).uint8, wrap)
@@ -156,17 +273,17 @@ proc pull16(cpu: var Cpu, bus: Bus, wrap: bool = true): uint16 =
   result = cpu.pull8(bus, wrap).uint16
   result = result or (cpu.pull8(bus, wrap).uint16 shl 8)
 
-proc fetch8(cpu: var Cpu, bus: Bus): uint8 =
+proc fetch8(cpu: var Cpu, bus: Bus): uint8 {.inline.} =
   ## Fetch the next program byte; PC wraps within the program bank.
   result = bus.read8((cpu.pbr.uint32 shl 16) or cpu.pc.uint32)
   cpu.pc = cpu.pc + 1
 
-proc fetch16(cpu: var Cpu, bus: Bus): uint16 =
+proc fetch16(cpu: var Cpu, bus: Bus): uint16 {.inline.} =
   ## Fetch a program word.
   result = cpu.fetch8(bus).uint16
   result = result or (cpu.fetch8(bus).uint16 shl 8)
 
-proc directOffset(cpu: Cpu, operand: uint8, index: uint16 = 0): uint16 =
+proc directOffset(cpu: Cpu, operand: uint8, index: uint16 = 0): uint16 {.inline.} =
   ## Direct page effective offset in bank 0. In emulation mode with DL == 0,
   ## indexed direct page addresses wrap within the page.
   if cpu.emulation and (cpu.d and 0xFF) == 0 and index != 0:
@@ -174,7 +291,7 @@ proc directOffset(cpu: Cpu, operand: uint8, index: uint16 = 0): uint16 =
   else:
     cpu.d + operand.uint16 + index
 
-proc directPointer16(cpu: Cpu, bus: Bus, operand: uint8, index: uint16 = 0): uint16 =
+proc directPointer16(cpu: Cpu, bus: Bus, operand: uint8, index: uint16 = 0): uint16 {.inline.} =
   ## Read a 16-bit pointer from the direct page. The base honors the
   ## emulation-mode DL == 0 page wrap for indexed forms (directOffset);
   ## the second pointer byte reads linearly with 16-bit bank-0 wrap
@@ -268,7 +385,7 @@ proc resolve(cpu: var Cpu, bus: Bus, mode: AddressingMode,
     doAssert false, "resolve called for non-data mode: " & $mode
   discard indexIsX
 
-proc loadValue(cpu: Cpu, bus: Bus, op: Operand, wide: bool): uint16 =
+proc loadValue(cpu: Cpu, bus: Bus, op: Operand, wide: bool): uint16 {.inline.} =
   ## Load the operand value at instruction width. Direct page and stack
   ## relative accesses wrap within bank 0 for the high byte.
   if op.isImmediate:
@@ -281,7 +398,7 @@ proc loadValue(cpu: Cpu, bus: Bus, op: Operand, wide: bool): uint16 =
   else:
     bus.read8(op.address).uint16
 
-proc storeValue(cpu: Cpu, bus: Bus, op: Operand, value: uint16, wide: bool) =
+proc storeValue(cpu: Cpu, bus: Bus, op: Operand, value: uint16, wide: bool) {.inline.} =
   ## Store a result at instruction width, honoring bank-0 wrap.
   bus.write8(op.address, (value and 0xFF).uint8)
   if wide:
@@ -465,37 +582,37 @@ proc step*(cpu: var Cpu, bus: Bus) =
       (cpu.pc >= 0xABC6'u16 and cpu.pc <= 0xABDF'u16) or
       (cpu.pc >= 0xAC20'u16 and cpu.pc <= 0xAC2F'u16))
   let opcode = cpu.fetch8(bus)
-  let info = OpcodeTable[opcode]
-  let mode = info.mode
+  let mode = ModeOf[opcode]
+  let mn = MnemonicOf[opcode]
 
   template dataOp(): Operand =
     cpu.resolve(bus, mode, true)
 
-  case info.mnemonic:
+  case mn:
   # Flag operations.
-  of "CLC": cpu.setFlag(FlagC, false)
-  of "SEC": cpu.setFlag(FlagC, true)
-  of "CLI": cpu.setFlag(FlagI, false)
-  of "SEI": cpu.setFlag(FlagI, true)
-  of "CLD": cpu.setFlag(FlagD, false)
-  of "SED": cpu.setFlag(FlagD, true)
-  of "CLV": cpu.setFlag(FlagV, false)
-  of "REP":
+  of mnCLC: cpu.setFlag(FlagC, false)
+  of mnSEC: cpu.setFlag(FlagC, true)
+  of mnCLI: cpu.setFlag(FlagI, false)
+  of mnSEI: cpu.setFlag(FlagI, true)
+  of mnCLD: cpu.setFlag(FlagD, false)
+  of mnSED: cpu.setFlag(FlagD, true)
+  of mnCLV: cpu.setFlag(FlagV, false)
+  of mnREP:
     let mask = cpu.fetch8(bus)
     cpu.p = cpu.p and not mask
     cpu.forceWidthInvariants()
-  of "SEP":
+  of mnSEP:
     let mask = cpu.fetch8(bus)
     cpu.p = cpu.p or mask
     cpu.forceWidthInvariants()
-  of "XCE":
+  of mnXCE:
     let oldCarry = cpu.getFlag(FlagC)
     cpu.setFlag(FlagC, cpu.emulation)
     cpu.emulation = oldCarry
     cpu.forceWidthInvariants()
 
   # Loads and stores.
-  of "LDA":
+  of mnLDA:
     let op = dataOp()
     let v = cpu.loadValue(bus, op, not cpu.m8)
     if cpu.m8:
@@ -504,90 +621,90 @@ proc step*(cpu: var Cpu, bus: Bus) =
     else:
       cpu.a = v
       cpu.setNZ16(v)
-  of "LDX":
+  of mnLDX:
     let op = dataOp()
     let v = cpu.loadValue(bus, op, not cpu.x8)
     cpu.x = if cpu.x8: v and 0xFF else: v
     if cpu.x8: cpu.setNZ8((v and 0xFF).uint8) else: cpu.setNZ16(v)
-  of "LDY":
+  of mnLDY:
     let op = dataOp()
     let v = cpu.loadValue(bus, op, not cpu.x8)
     cpu.y = if cpu.x8: v and 0xFF else: v
     if cpu.x8: cpu.setNZ8((v and 0xFF).uint8) else: cpu.setNZ16(v)
-  of "STA":
+  of mnSTA:
     let op = dataOp()
     cpu.storeValue(bus, op, cpu.a, not cpu.m8)
-  of "STX":
+  of mnSTX:
     let op = dataOp()
     cpu.storeValue(bus, op, cpu.x, not cpu.x8)
-  of "STY":
+  of mnSTY:
     let op = dataOp()
     cpu.storeValue(bus, op, cpu.y, not cpu.x8)
-  of "STZ":
+  of mnSTZ:
     let op = dataOp()
     cpu.storeValue(bus, op, 0, not cpu.m8)
 
   # Register transfers.
-  of "TAX":
+  of mnTAX:
     cpu.x = if cpu.x8: cpu.a and 0xFF else: cpu.a
     if cpu.x8: cpu.setNZ8((cpu.x and 0xFF).uint8) else: cpu.setNZ16(cpu.x)
-  of "TAY":
+  of mnTAY:
     cpu.y = if cpu.x8: cpu.a and 0xFF else: cpu.a
     if cpu.x8: cpu.setNZ8((cpu.y and 0xFF).uint8) else: cpu.setNZ16(cpu.y)
-  of "TXA":
+  of mnTXA:
     if cpu.m8:
       cpu.a = (cpu.a and 0xFF00) or (cpu.x and 0xFF)
       cpu.setNZ8((cpu.a and 0xFF).uint8)
     else:
       cpu.a = cpu.x
       cpu.setNZ16(cpu.a)
-  of "TYA":
+  of mnTYA:
     if cpu.m8:
       cpu.a = (cpu.a and 0xFF00) or (cpu.y and 0xFF)
       cpu.setNZ8((cpu.a and 0xFF).uint8)
     else:
       cpu.a = cpu.y
       cpu.setNZ16(cpu.a)
-  of "TXY":
+  of mnTXY:
     cpu.y = if cpu.x8: cpu.x and 0xFF else: cpu.x
     if cpu.x8: cpu.setNZ8((cpu.y and 0xFF).uint8) else: cpu.setNZ16(cpu.y)
-  of "TYX":
+  of mnTYX:
     cpu.x = if cpu.x8: cpu.y and 0xFF else: cpu.y
     if cpu.x8: cpu.setNZ8((cpu.x and 0xFF).uint8) else: cpu.setNZ16(cpu.x)
-  of "TSX":
+  of mnTSX:
     cpu.x = if cpu.x8: cpu.s and 0xFF else: cpu.s
     if cpu.x8: cpu.setNZ8((cpu.x and 0xFF).uint8) else: cpu.setNZ16(cpu.x)
-  of "TXS":
+  of mnTXS:
     if cpu.emulation:
       cpu.s = 0x0100'u16 or (cpu.x and 0xFF)
     else:
       cpu.s = cpu.x
-  of "TCD":
+  of mnTCD:
     cpu.d = cpu.a
     cpu.setNZ16(cpu.d)
-  of "TDC":
+  of mnTDC:
     cpu.a = cpu.d
     cpu.setNZ16(cpu.a)
-  of "TCS":
+  of mnTCS:
     if cpu.emulation:
       cpu.s = 0x0100'u16 or (cpu.a and 0xFF)
     else:
       cpu.s = cpu.a
-  of "TSC":
+  of mnTSC:
     cpu.a = cpu.s
     cpu.setNZ16(cpu.a)
-  of "XBA":
+  of mnXBA:
     cpu.a = (cpu.a shl 8) or (cpu.a shr 8)
     cpu.setNZ8((cpu.a and 0xFF).uint8)
 
   # Arithmetic and logic.
-  of "ADC":
+  of mnADC:
     let op = dataOp()
     cpu.adc(cpu.loadValue(bus, op, not cpu.m8))
-  of "SBC":
+  of mnSBC:
     let op = dataOp()
     cpu.sbc(cpu.loadValue(bus, op, not cpu.m8))
-  of "AND":
+  of mnAND:
     let op = dataOp()
     let v = cpu.loadValue(bus, op, not cpu.m8)
     if cpu.m8:
@@ -596,7 +713,7 @@ proc step*(cpu: var Cpu, bus: Bus) =
     else:
       cpu.a = cpu.a and v
       cpu.setNZ16(cpu.a)
-  of "ORA":
+  of mnORA:
     let op = dataOp()
     let v = cpu.loadValue(bus, op, not cpu.m8)
     if cpu.m8:
@@ -605,7 +722,7 @@ proc step*(cpu: var Cpu, bus: Bus) =
     else:
       cpu.a = cpu.a or v
       cpu.setNZ16(cpu.a)
-  of "EOR":
+  of mnEOR:
     let op = dataOp()
     let v = cpu.loadValue(bus, op, not cpu.m8)
     if cpu.m8:
@@ -614,16 +731,16 @@ proc step*(cpu: var Cpu, bus: Bus) =
     else:
       cpu.a = cpu.a xor v
       cpu.setNZ16(cpu.a)
-  of "CMP":
+  of mnCMP:
     let op = dataOp()
     cpu.compare(cpu.a, cpu.loadValue(bus, op, not cpu.m8), not cpu.m8)
-  of "CPX":
+  of mnCPX:
     let op = dataOp()
     cpu.compare(cpu.x, cpu.loadValue(bus, op, not cpu.x8), not cpu.x8)
-  of "CPY":
+  of mnCPY:
     let op = dataOp()
     cpu.compare(cpu.y, cpu.loadValue(bus, op, not cpu.x8), not cpu.x8)
-  of "BIT":
+  of mnBIT:
     let op = dataOp()
     let v = cpu.loadValue(bus, op, not cpu.m8)
     if cpu.m8:
@@ -636,7 +753,7 @@ proc step*(cpu: var Cpu, bus: Bus) =
       if not op.isImmediate:
         cpu.setFlag(FlagN, (v and 0x8000) != 0)
         cpu.setFlag(FlagV, (v and 0x4000) != 0)
-  of "TSB":
+  of mnTSB:
     let op = dataOp()
     let v = cpu.loadValue(bus, op, not cpu.m8)
     if cpu.m8:
@@ -645,7 +762,7 @@ proc step*(cpu: var Cpu, bus: Bus) =
     else:
       cpu.setFlag(FlagZ, (cpu.a and v) == 0)
       cpu.storeValue(bus, op, v or cpu.a, true)
-  of "TRB":
+  of mnTRB:
     let op = dataOp()
     let v = cpu.loadValue(bus, op, not cpu.m8)
     if cpu.m8:
@@ -656,7 +773,7 @@ proc step*(cpu: var Cpu, bus: Bus) =
       cpu.storeValue(bus, op, v and not cpu.a, true)
 
   # Increments and decrements.
-  of "INC":
+  of mnINC:
     if mode == amAccumulator:
       if cpu.m8:
         cpu.a = (cpu.a and 0xFF00) or ((cpu.a + 1) and 0xFF)
@@ -669,7 +786,7 @@ proc step*(cpu: var Cpu, bus: Bus) =
       let v = cpu.loadValue(bus, op, not cpu.m8) + 1
       cpu.storeValue(bus, op, v, not cpu.m8)
       if cpu.m8: cpu.setNZ8((v and 0xFF).uint8) else: cpu.setNZ16(v)
-  of "DEC":
+  of mnDEC:
     if mode == amAccumulator:
       if cpu.m8:
         cpu.a = (cpu.a and 0xFF00) or ((cpu.a - 1) and 0xFF)
@@ -682,21 +799,21 @@ proc step*(cpu: var Cpu, bus: Bus) =
       let v = cpu.loadValue(bus, op, not cpu.m8) - 1
       cpu.storeValue(bus, op, v, not cpu.m8)
       if cpu.m8: cpu.setNZ8((v and 0xFF).uint8) else: cpu.setNZ16(v)
-  of "INX":
+  of mnINX:
     cpu.x = if cpu.x8: (cpu.x + 1) and 0xFF else: cpu.x + 1
     if cpu.x8: cpu.setNZ8((cpu.x and 0xFF).uint8) else: cpu.setNZ16(cpu.x)
-  of "INY":
+  of mnINY:
     cpu.y = if cpu.x8: (cpu.y + 1) and 0xFF else: cpu.y + 1
     if cpu.x8: cpu.setNZ8((cpu.y and 0xFF).uint8) else: cpu.setNZ16(cpu.y)
-  of "DEX":
+  of mnDEX:
     cpu.x = if cpu.x8: (cpu.x - 1) and 0xFF else: cpu.x - 1
     if cpu.x8: cpu.setNZ8((cpu.x and 0xFF).uint8) else: cpu.setNZ16(cpu.x)
-  of "DEY":
+  of mnDEY:
     cpu.y = if cpu.x8: (cpu.y - 1) and 0xFF else: cpu.y - 1
     if cpu.x8: cpu.setNZ8((cpu.y and 0xFF).uint8) else: cpu.setNZ16(cpu.y)
 
   # Shifts and rotates.
-  of "ASL", "LSR", "ROL", "ROR":
+  of mnASL, mnLSR, mnROL, mnROR:
     let isAcc = mode == amAccumulator
     var op: Operand
     var v: uint16
@@ -708,14 +825,14 @@ proc step*(cpu: var Cpu, bus: Bus) =
     let carryIn = if cpu.getFlag(FlagC): 1'u16 else: 0'u16
     let msb = if cpu.m8: 0x80'u16 else: 0x8000'u16
     var r: uint16
-    case info.mnemonic:
-    of "ASL":
+    case mn:
+    of mnASL:
       cpu.setFlag(FlagC, (v and msb) != 0)
       r = v shl 1
-    of "LSR":
+    of mnLSR:
       cpu.setFlag(FlagC, (v and 1) != 0)
       r = v shr 1
-    of "ROL":
+    of mnROL:
       cpu.setFlag(FlagC, (v and msb) != 0)
       r = (v shl 1) or carryIn
     else:  # ROR.
@@ -732,21 +849,21 @@ proc step*(cpu: var Cpu, bus: Bus) =
       cpu.storeValue(bus, op, r, not cpu.m8)
 
   # Branches.
-  of "BPL": cpu.branch(bus, not cpu.getFlag(FlagN))
-  of "BMI": cpu.branch(bus, cpu.getFlag(FlagN))
-  of "BVC": cpu.branch(bus, not cpu.getFlag(FlagV))
-  of "BVS": cpu.branch(bus, cpu.getFlag(FlagV))
-  of "BCC": cpu.branch(bus, not cpu.getFlag(FlagC))
-  of "BCS": cpu.branch(bus, cpu.getFlag(FlagC))
-  of "BNE": cpu.branch(bus, not cpu.getFlag(FlagZ))
-  of "BEQ": cpu.branch(bus, cpu.getFlag(FlagZ))
-  of "BRA": cpu.branch(bus, true)
-  of "BRL":
+  of mnBPL: cpu.branch(bus, not cpu.getFlag(FlagN))
+  of mnBMI: cpu.branch(bus, cpu.getFlag(FlagN))
+  of mnBVC: cpu.branch(bus, not cpu.getFlag(FlagV))
+  of mnBVS: cpu.branch(bus, cpu.getFlag(FlagV))
+  of mnBCC: cpu.branch(bus, not cpu.getFlag(FlagC))
+  of mnBCS: cpu.branch(bus, cpu.getFlag(FlagC))
+  of mnBNE: cpu.branch(bus, not cpu.getFlag(FlagZ))
+  of mnBEQ: cpu.branch(bus, cpu.getFlag(FlagZ))
+  of mnBRA: cpu.branch(bus, true)
+  of mnBRL:
     let disp = cast[int16](cpu.fetch16(bus))
     cpu.pc = (cpu.pc.int32 + disp.int32).uint16
 
   # Jumps and calls.
-  of "JMP":
+  of mnJMP:
     case mode:
     of amAbsolute:
       cpu.pc = cpu.fetch16(bus)
@@ -758,7 +875,7 @@ proc step*(cpu: var Cpu, bus: Bus) =
       cpu.pc = bus.read16Wrap(cpu.pbr.uint32 shl 16, target)
     else:
       doAssert false
-  of "JML":
+  of mnJML:
     case mode:
     of amAbsoluteLong:
       let lo = cpu.fetch16(bus)
@@ -771,7 +888,7 @@ proc step*(cpu: var Cpu, bus: Bus) =
       cpu.pbr = bus.read8(((target + 2) and 0xFFFF).uint32)
     else:
       doAssert false
-  of "JSR":
+  of mnJSR:
     case mode:
     of amAbsolute:
       let target = cpu.fetch16(bus)
@@ -783,19 +900,19 @@ proc step*(cpu: var Cpu, bus: Bus) =
       cpu.pc = bus.read16Wrap(cpu.pbr.uint32 shl 16, base + cpu.x)
     else:
       doAssert false
-  of "JSL":
+  of mnJSL:
     let lo = cpu.fetch16(bus)
     let hi = cpu.fetch8(bus)
     cpu.push8(bus, cpu.pbr, wrap = false)
     cpu.push16(bus, cpu.pc - 1, wrap = false)
     cpu.pc = lo
     cpu.pbr = hi
-  of "RTS":
+  of mnRTS:
     cpu.pc = cpu.pull16(bus) + 1
-  of "RTL":
+  of mnRTL:
     cpu.pc = cpu.pull16(bus, wrap = false) + 1
     cpu.pbr = cpu.pull8(bus, wrap = false)
-  of "RTI":
+  of mnRTI:
     if cpu.emulation:
       cpu.p = cpu.pull8(bus) or FlagM or FlagX
       cpu.pc = cpu.pull16(bus)
@@ -806,10 +923,10 @@ proc step*(cpu: var Cpu, bus: Bus) =
     cpu.forceWidthInvariants()
 
   # Stack operations.
-  of "PHA":
+  of mnPHA:
     if cpu.m8: cpu.push8(bus, (cpu.a and 0xFF).uint8)
     else: cpu.push16(bus, cpu.a)
-  of "PLA":
+  of mnPLA:
     if cpu.m8:
       let v = cpu.pull8(bus)
       cpu.a = (cpu.a and 0xFF00) or v.uint16
@@ -817,56 +934,56 @@ proc step*(cpu: var Cpu, bus: Bus) =
     else:
       cpu.a = cpu.pull16(bus)
       cpu.setNZ16(cpu.a)
-  of "PHX":
+  of mnPHX:
     if cpu.x8: cpu.push8(bus, (cpu.x and 0xFF).uint8)
     else: cpu.push16(bus, cpu.x)
-  of "PLX":
+  of mnPLX:
     if cpu.x8:
       cpu.x = cpu.pull8(bus).uint16
       cpu.setNZ8((cpu.x and 0xFF).uint8)
     else:
       cpu.x = cpu.pull16(bus)
       cpu.setNZ16(cpu.x)
-  of "PHY":
+  of mnPHY:
     if cpu.x8: cpu.push8(bus, (cpu.y and 0xFF).uint8)
     else: cpu.push16(bus, cpu.y)
-  of "PLY":
+  of mnPLY:
     if cpu.x8:
       cpu.y = cpu.pull8(bus).uint16
       cpu.setNZ8((cpu.y and 0xFF).uint8)
     else:
       cpu.y = cpu.pull16(bus)
       cpu.setNZ16(cpu.y)
-  of "PHP":
+  of mnPHP:
     if cpu.emulation:
       cpu.push8(bus, cpu.p or 0x30)
     else:
       cpu.push8(bus, cpu.p)
-  of "PLP":
+  of mnPLP:
     cpu.p = cpu.pull8(bus)
     cpu.forceWidthInvariants()
-  of "PHB": cpu.push8(bus, cpu.dbr, wrap = false)
-  of "PLB":
+  of mnPHB: cpu.push8(bus, cpu.dbr, wrap = false)
+  of mnPLB:
     cpu.dbr = cpu.pull8(bus, wrap = false)
     cpu.setNZ8(cpu.dbr)
-  of "PHD": cpu.push16(bus, cpu.d, wrap = false)
-  of "PLD":
+  of mnPHD: cpu.push16(bus, cpu.d, wrap = false)
+  of mnPLD:
     cpu.d = cpu.pull16(bus, wrap = false)
     cpu.setNZ16(cpu.d)
-  of "PHK": cpu.push8(bus, cpu.pbr)
-  of "PEA":
+  of mnPHK: cpu.push8(bus, cpu.pbr)
+  of mnPEA:
     cpu.push16(bus, cpu.fetch16(bus), wrap = false)
-  of "PEI":
+  of mnPEI:
     let base = cpu.d + cpu.fetch8(bus).uint16
     cpu.push16(bus, bus.read16Wrap(0, base), wrap = false)
-  of "PER":
+  of mnPER:
     let disp = cast[int16](cpu.fetch16(bus))
     cpu.push16(bus, (cpu.pc.int32 + disp.int32).uint16, wrap = false)
 
   # Block moves. The hardware refetches the 3-byte instruction for every
   # byte moved (7 cycles per byte); the SingleStepTests vectors execute a
   # 100-cycle budget and snapshot mid-move, so we model the same budget.
-  of "MVN", "MVP":
+  of mnMVN, mnMVP:
     let startPc = cpu.pc - 1
     let dstBank = cpu.fetch8(bus)
     let srcBank = cpu.fetch8(bus)
@@ -878,7 +995,7 @@ proc step*(cpu: var Cpu, bus: Bus) =
       let srcAddr = (srcBank.uint32 shl 16) or cpu.x.uint32
       let dstAddr = (dstBank.uint32 shl 16) or cpu.y.uint32
       bus.write8(dstAddr, bus.read8(srcAddr))
-      if info.mnemonic == "MVN":
+      if mn == mnMVN:
         cpu.x = if cpu.x8: (cpu.x + 1) and 0xFF else: cpu.x + 1
         cpu.y = if cpu.x8: (cpu.y + 1) and 0xFF else: cpu.y + 1
       else:
@@ -895,23 +1012,23 @@ proc step*(cpu: var Cpu, bus: Bus) =
       cpu.pc = startPc + min(leftover, 3).uint16
 
   # Interrupts and misc.
-  of "BRK":
+  of mnBRK:
     discard cpu.fetch8(bus)
     cpu.interrupt(bus, 0xFFE6, 0xFFFE)
-  of "COP":
+  of mnCOP:
     discard cpu.fetch8(bus)
     cpu.interrupt(bus, 0xFFE4, 0xFFF4)
-  of "WDM":
+  of mnWDM:
     discard cpu.fetch8(bus)
-  of "NOP":
+  of mnNOP:
     discard
-  of "WAI":
+  of mnWAI:
     cpu.waiting = true
-  of "STP":
+  of mnSTP:
     cpu.stopped = true
 
   else:
-    doAssert false, "unhandled mnemonic: " & info.mnemonic
+    doAssert false, "unhandled mnemonic: " & $mn
 
   # Emulation invariants also hold at instruction end (S snaps back to
   # page 1 after the non-wrapping stack instructions).

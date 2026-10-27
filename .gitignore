@@ -34,6 +34,9 @@ bin/*
 # are copyrighted assets — extracted locally, never committed). Designated dir.
 extracted/
 
+# Kiosk captures contain game graphics, replays, and embedded machine states.
+/captures/
+
 # Auto-capture screenshots (play.nim F11) — contain game graphics.
 bin/autoshots/
 bin/sram_backups/

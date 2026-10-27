@@ -83,7 +83,7 @@ proc ensurePaulaFo60() =
   ## Synth Paula-join fo60 deep seat if missing.
   if fileExists(FoFromPaula):
     return
-  let (o, code) = execCmdEx("nim r -d:release src/tools/synth_fourside60_from_paula.nim")
+  let (o, code) = execCmdEx("nim r -d:release src/probes/synth_fourside60_from_paula.nim")
   echo o
   doAssert code == 0 and fileExists(FoFromPaula), "synth_fourside60_from_paula failed"
 

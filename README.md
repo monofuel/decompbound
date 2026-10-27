@@ -16,7 +16,7 @@ Nim implements the tools and emulator.
 | | Goal | Status |
 |---|------|--------|
 | **1** | Rebuild the original ROM byte-identically | **Met; maintain** — extraction + assembly + copied residual regions |
-| **2** | Understand all game code | **Early** — 42 explained assembly regions, plus further research in tools/docs |
+| **2** | Understand all game code | **Early** — 51 explained assembly regions, plus further research in tools/docs |
 | **3** | Understand scripting | **Partial** — text decoding and action-script machinery; complete semantics remain open |
 | **4** | Understand graphics, including the game map | **Partial** — codecs and exploratory exporters; comprehensive browsing remains open |
 | **5** | Understand audio | **Partial** — playback and upload/song-loader knowledge; complete driver/sequence understanding remains open |
@@ -45,11 +45,14 @@ and annotated assembly; native Nim reimplementation is outside the current goals
 
 ## Quick start
 
+On Nix, enter `nix develop` first to provide the native window, gamepad, and
+audio libraries declared in `flake.nix`.
+
 ```bash
 # Put your legally obtained US ROM at:
 #   bin/Earthbound (U) [!].smc
 
-make compare          # build decomp ROM + compare vs gold → report.md
+make compare          # build decomp ROM + compare vs gold
 make check            # nim check entrypoints + tests (compile only)
 make test             # unit suite (builds vendor/lua when needed)
 make play             # windowed emulator

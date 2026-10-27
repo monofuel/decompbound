@@ -40,7 +40,7 @@ proc skillsSrc(): string =
 proc ensureDayLeaveMap() =
   if fileExists(DayLeaveMap):
     return
-  let (o, code) = execCmdEx("nim r -d:release src/tools/synth_leave_day1_map.nim")
+  let (o, code) = execCmdEx("nim r -d:release src/probes/synth_leave_day1_map.nim")
   echo o
   doAssert code == 0 and fileExists(DayLeaveMap)
 

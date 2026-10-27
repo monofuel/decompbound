@@ -146,6 +146,17 @@ type
                                  ## flush the battery save to a .srm file.
 
 const
+  DmaPatterns: array[8, tuple[len: int, off: array[4, uint8]]] = [
+    (1, [0'u8, 0, 0, 0]),   # 0: one register.
+    (2, [0'u8, 1, 0, 0]),   # 1: two registers.
+    (2, [0'u8, 0, 0, 0]),   # 2: one register, written twice.
+    (4, [0'u8, 0, 1, 1]),   # 3: two registers, each twice.
+    (4, [0'u8, 1, 2, 3]),   # 4: four registers.
+    (4, [0'u8, 1, 0, 1]),   # 5: two registers, alternating.
+    (2, [0'u8, 0, 0, 0]),   # 6: as 2.
+    (4, [0'u8, 0, 1, 1])]   # 7: as 3.
+    ## B-bus register offset sequence per DMA/HDMA transfer mode.
+const
   ApuPortCatchupMax = 512
     ## Per-frame cap on APU catch-up ticks from $214x polling. A handshake
     ## burst services in well under this; the cap keeps a pathological poll
@@ -482,13 +493,7 @@ proc runDma(snes: SnesBus, channels: uint8) =
       snes.dma64kSprayAddr = aAddr.uint16
     if not storm and not spray64k:
       # B-bus register sequence per transfer pattern.
-      let pattern: seq[uint8] = case dmap and 0x07:
-        of 0: @[0'u8]
-        of 1: @[0'u8, 1]
-        of 2, 6: @[0'u8, 0]
-        of 3, 7: @[0'u8, 0, 1, 1]
-        of 4: @[0'u8, 1, 2, 3]
-        else: @[0'u8, 1, 0, 1]
+      let pattern = DmaPatterns[(dmap and 0x07).int]
       var patternIndex = 0
       # Once B→A touches a WRAM mirror, skip the rest of this channel's writes.
       # Poison jobs (crash3) use large DAS from $0E:0000; after $1FFF the A-bus
@@ -497,7 +502,7 @@ proc runDma(snes: SnesBus, channels: uint8) =
       # finalize size regs as hardware would. Orthogonal to dmaStorm.
       var blockToARest = false
       for i in 0..<size:
-        let bReg = 0x2100'u32 + bbad.uint32 + pattern[patternIndex].uint32
+        let bReg = 0x2100'u32 + bbad.uint32 + pattern.off[patternIndex].uint32
         let aOff = aAddr and 0xFFFF
         let aFull = (aBank shl 16) or aOff
         if toA:
@@ -646,15 +651,10 @@ proc runHdma*(snes: SnesBus) =
     let bbad = snes.dmaRegs[base + 1].uint32
     let indirect = (dmap and 0x40) != 0
     let tmode = dmap and 0x07
-    let pat: seq[uint8] = case tmode:
-      of 0: @[0'u8]
-      of 1: @[0'u8, 1]
-      of 2, 6: @[0'u8, 0]
-      of 3, 7: @[0'u8, 0, 1, 1]
-      of 4: @[0'u8, 1, 2, 3]
-      else: @[0'u8, 1, 0, 1]
+    let pat = DmaPatterns[tmode.int]
     if snes.hdmaDoTransfer[ch]:
-      for off in pat:
+      for pi in 0 ..< pat.len:
+        let off = pat.off[pi]
         var v: uint8
         if indirect:
           let ibank = snes.dmaRegs[base + 7].uint32

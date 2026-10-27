@@ -55,6 +55,13 @@ hang, Saturn Valley corruption, half-speed music) are tracked together in
 
 ## OPEN (not yet assigned)
 
+- **Saturn Valley hot-spring VRAM corruption needs a queue-level diagnosis.**
+  The `pi3-perf` experiment skipped large or translated VRAM DMA requests.
+  Transfer size alone cannot distinguish a damaged CHR job from valid hardware
+  behavior, so `master` executes those transfers. `tests/test_vram_dma.nim`
+  covers synthetic 48 KiB linear and 24 KiB translated uploads. Preserve the
+  original queue evidence on `pi3-perf` when investigating the producer.
+
 - ~~Giygas red-snow static ANIMATION fidelity~~ **FIXED 2026-07-08** (see [red-snow.md](red-snow.md)).
   Missing Mode 7 multiply (`$211B`/`$211C` → `$2134`–`$2136`) left the HDMA
   BG2HOFS distortion table all zeros, so the intro showed a coherent Giygas
@@ -91,6 +98,17 @@ hang, Saturn Valley corruption, half-speed music) are tracked together in
 
 Prior detailed sections for now-resolved items (old milestones, input latch, APU snapshot replay, menu hangs, logo fade, etc.) removed; still-relevant mechanics (HDMA per-line TM/TS splits for battle bands, top-scanline vblank timing, CPU budget vs. cycle accuracy) are summarized in the items above.
 
+## Known-failing e2e tests (2026-09-19)
+
+The Pi investigation recorded eight `tests/e2e_*.nim` failures in the
+LLM-play bot harness: `e2e_agent_giant_day_gs80`,
+`e2e_agent_knock_bed`, `e2e_agent_multileg`, `e2e_agent_product_gs70_to_gs80`,
+`e2e_campaign_full_product_spine`, `e2e_campaign_segment`, `e2e_late_game_spine`,
+`e2e_stuck_recovery`. Its recorded comparison found identical failures at
+`ec60278` and after the Pi optimization series. These bot milestone failures
+remain open; the current integration's unit, ROM-integration, capture, and
+replay-golden checks do not establish that the full bot e2e suite passes.
+
 ## Perf / investigations
 
 - **Rare `make play` frame stutter (INVESTIGATING 2026-07-19).** A very rare,
@@ -106,6 +124,10 @@ Prior detailed sections for now-resolved items (old milestones, input latch, APU
     a `seq` **per scanline (~262×/frame)**; `overlayForegroundBg` builds a `passes`
     seq/frame; per-frame `&"…"` title/log strings. Preallocate/reuse; optionally
     `GC_fullCollect()` at an idle point (vblank/pause) so it never lands mid-frame.
+  - **2026-09-19:** the PPU garbage is gone (`modeLayers` iterates const tables,
+    `overlayForegroundBg` uses a fixed array, `runHdma`/`runDma` index a const
+    pattern table, the per-frame audio buffer is allocated once). Title strings
+    remain (off under `--kiosk`). Whether the hitch is gone is unverified.
   - Instrumentation ideas if not the GC: slow-frame detector (log frame + `seg`
     replay anchor when wall-time > budget), surface per-frame `apuPortCatchup`,
     per-phase timing breakdown.

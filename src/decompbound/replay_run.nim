@@ -3,7 +3,8 @@
 
 import
   std/[strformat, tables],
-  ./[cpu, policy, replay, snesbus]
+  pixie,
+  ./[cpu, frame_step, replay, snesbus]
 
 const
   PlayApuTopUp* = ReplayApuTicksPerFrame - 262 * 2
@@ -11,11 +12,18 @@ const
 type
   ReplayFrameHook* = proc(snes: SnesBus, tasFrame: int) {.closure.}
 
-proc stepReplayFrame*(snes: SnesBus, cpu: var Cpu) =
-  ## One headless TAS frame: policy stepper + APU top-up to 533.
-  policy.stepOneFrame(snes, cpu, nil, render = false)
+proc stepReplayFrame*(snes: SnesBus, cpu: var Cpu, image: Image = nil,
+    pcm: ptr FramePcm = nil) =
+  ## One headless TAS frame: policy stepper + APU top-up to 533. Renders into
+  ## `image` when one is given and stores the frame's samples in `pcm` when
+  ## one is given (top-up samples land in slots 524..532).
+  frame_step.stepOneFrame(snes, cpu, image, render = image != nil, pcm = pcm)
   for i in 0 ..< PlayApuTopUp:
-    discard snes.tickApu()
+    let (left, right) = snes.tickApu()
+    if pcm != nil:
+      let smp = 262 * 2 + i
+      pcm[smp * 2] = left
+      pcm[smp * 2 + 1] = right
 
 proc verifyChk*(snes: SnesBus, frame: int, chks: seq[ReplayCheckpoint]) =
   ## Abort on the first checkpoint mismatch at `frame`.
@@ -32,9 +40,11 @@ proc verifyChk*(snes: SnesBus, frame: int, chks: seq[ReplayCheckpoint]) =
 
 proc applyTas*(snes: SnesBus, cpu: var Cpu, deltas: seq[ReplayDelta],
     maxTasFrame: int, stretch = 1, checkpoints: seq[ReplayCheckpoint] = @[],
-    onFrame: ReplayFrameHook = nil): int =
+    onFrame: ReplayFrameHook = nil, image: Image = nil,
+    pcm: ptr FramePcm = nil): int =
   ## Feed joy1 from `deltas` for TAS frames 0..maxTasFrame inclusive.
   ## Each TAS frame is held for `stretch` emu frames. Returns emu steps.
+  ## `image` and `pcm` are passed to every frame step (see stepReplayFrame).
   if stretch < 1:
     raise newException(ValueError, "stretch must be >= 1")
   if maxTasFrame < 0:
@@ -46,7 +56,7 @@ proc applyTas*(snes: SnesBus, cpu: var Cpu, deltas: seq[ReplayDelta],
       joy = sched[tf]
     for s in 1 .. stretch:
       snes.joy1 = joy
-      stepReplayFrame(snes, cpu)
+      stepReplayFrame(snes, cpu, image, pcm)
       inc result
       if cpu.stopped:
         return

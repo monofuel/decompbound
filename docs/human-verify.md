@@ -37,6 +37,16 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 ## OPEN — please check
 
+- [ ] **Integrated player: pause, screenshots, speed and audio** · 2026-10-27 · `master`
+  - **Run:** `nim r src/tools/play.nim --no-vsync "bin/Earthbound (U) [!].smc"`.
+    Pause with Space, hold Esc briefly, release it, and take an F12. Resume,
+    use `=` to fast-forward and `-` to return to 1x. Resize below 256x224.
+    Repeat with `--no-audio`.
+  - **Pass if:** pause and hold feedback remain visible; Esc requires one second
+    to quit; the F12 contains the game without the player toast; a small window
+    shows the whole picture; music returns at normal speed after fast-forward;
+    muted play keeps the same game speed.
+
 - [ ] **Baseline overworld sprite preview**
   - **Run:** `nim r src/tools/sprite_preview.nim 437 0 0`; open
     `extracted/view/sprites/437-0-0.png`. Repeat with phase 1 and direction 2.
@@ -44,6 +54,32 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
     assembly, facing, and walking-frame shape match without stray tile rows.
     This uses the baseline palette; scene lighting and special effects are
     outside the check. Keep generated images local.
+
+- [x] **Desktop: `make play` after the GL 2.1 blit** · 2026-09-19 · `pi3-perf` · verified 2026-09-19: Skyrunner segment, audio, graphics and framerate good
+  - **Run:** `make play`, then drag the window to a non-multiple size
+  - **Pass if:** identical picture at the default 768x672 (3x); at odd sizes the game stays pixel-exact with bigger black bars instead of a fractional stretch; F2 saves slot 1, F4 loads it; holding Esc for a second quits and the terminal prints "Esc held: quitting"
+  - **Fail if:** shader error at startup, blurry or stretched picture, Esc tap quits
+  - **Notes:** integer scaling is deliberate (matches RetroArch on gammapi). `make llm-ai-display` once, to see the other glblit user still opens.
+
+- [ ] **gammapi: fullscreen 1x from EmulationStation** · 2026-09-19 · `pi3-perf`
+  - **Run:** ES → Custom → decompbound
+  - **Pass if:** title screen 256x224 dead-centre on the 320x240 panel (32 px black sides, 8 px top/bottom), crisp pixels, no desktop or ES visible behind it
+  - **Fail if:** windowed, stretched, off-centre, decorated, or ES still on top
+
+- [ ] **gammapi: case buttons** · 2026-09-19 · `pi3-perf`
+  - **Run:** new game → walk all four ways, open the menu (A), close it (B), L1/L2 and R1/R2, Select, Start
+  - **Pass if:** every input responds; both shoulder pairs act as L/R
+  - **Fail if:** any dead button, or a press that reaches ES instead of the game
+
+- [ ] **gammapi: audio** · 2026-09-19 · `pi3-perf`
+  - **Run:** title screen 60 s, then walk Onett 60 s (earbuds or the jack)
+  - **Pass if:** music continuous, no crackle or drop-outs
+  - **Fail if:** silence (try `ALSOFT_DRIVERS=pulse` in the launcher), crackle, or slow-motion music
+
+- [ ] **gammapi: edge buttons + clean exit** · 2026-09-19 · `pi3-perf`
+  - **Run:** F2 (middle edge button) → walk away → F4 (second from left); then hold the far-right edge button (Esc) for a second
+  - **Pass if:** F4 snaps you back; Esc returns to the ES menu; `~/decompbound/play_stdout.log` shows "saved:" and "end screenstate:"; relaunch and the in-game save is there
+  - **Fail if:** no snap-back, Esc ignored, or SRAM lost on relaunch
 
 - [ ] **Lilliput cave mouth: black column** · 2026-08-18 · `master`
   - **Run:** drag-drop `earthbound_20260818-005541.png` (or `005543` /

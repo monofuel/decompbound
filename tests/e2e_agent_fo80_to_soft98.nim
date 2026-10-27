@@ -85,7 +85,7 @@ proc ensureSoft98From() =
   ## Synth soft98 from fo80 if missing.
   if fileExists(Soft98From):
     return
-  let (o, code) = execCmdEx("nim r -d:release src/tools/synth_soft98_from_fo80.nim")
+  let (o, code) = execCmdEx("nim r -d:release src/probes/synth_soft98_from_fo80.nim")
   echo o
   doAssert code == 0 and fileExists(Soft98From)
 

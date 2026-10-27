@@ -28,7 +28,7 @@ proc landmarkLua(L: lua53.PState): cint {.cdecl.} =
 
 proc ensureOutdoor() =
   if fileExists(OutdoorPk): return
-  let (o, c) = execCmdEx("nim r -d:release src/tools/synth_post_knock_outdoor.nim")
+  let (o, c) = execCmdEx("nim r -d:release src/probes/synth_post_knock_outdoor.nim")
   echo o
   doAssert c == 0 and fileExists(OutdoorPk)
 
