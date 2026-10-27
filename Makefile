@@ -7,6 +7,10 @@ SHELL := bash
 .SHELLFLAGS := -o pipefail -c
 
 ROM ?= bin/Earthbound (U) [!].smc
+MONO_RETRO_ROOT ?= $(firstword $(wildcard ../mono-retro /mnt/steel-chest/Monolab/Home/racha/src/mono-retro))
+MONO_RETRO_PLAYER ?= $(MONO_RETRO_ROOT)/build/mono-retro-player
+MONO_RETRO_ARGS ?=
+LIBRETRO_SAVE_DIR ?= bin/libretro/frontend-saves
 BG ?= 0
 FRAMES ?= 60
 # parallelBuild: without it each nim invocation fans out gcc to ALL cores, so
@@ -18,6 +22,10 @@ LUA_LIB := vendor/lua/liblua.a
 help:
 	@echo "decompbound targets:"
 	@echo "  make compare      - phase-2 extract/rebuild vs gold (BYTE-IDENTICAL gate)"
+	@echo "  make libretro     - build the headless desktop libretro core (.so)"
+	@echo "  make libretro-test - synthetic C/Nim hosts against the actual core"
+	@echo "  make libretro-play - run the core in mono-retro-player with separate test saves"
+	@echo "  make libretro-frontend-test - headless mono-retro loader and SRAM check"
 	@echo "  make check        - nim check main entrypoints + tests (no run)"
 	@echo "  make test         - unit tests only, no fixtures needed (instant)"
 	@echo "  make integration-test - needs the gold ROM / CPU vectors (seconds)"
@@ -358,10 +366,10 @@ RUN_TESTS = xargs -P $(NIM_TEST_JOBS) -I{} sh -c \
 	'out=$$(nim r $(NIM_TEST_FLAGS) "{}" 2>&1); rc=$$?; \
 	 printf "%s\n" "$$out" | sed "s|^|[{}] |"; exit $$rc'
 
-test: nim.cfg $(LUA_LIB)
+test: nim.cfg $(LUA_LIB) libretro
 	@ls tests/test_*.nim | $(RUN_TESTS)
 
-integration-test: nim.cfg $(LUA_LIB)
+integration-test: nim.cfg $(LUA_LIB) libretro
 	@ls tests/integration_*.nim | $(RUN_TESTS)
 
 # Minutes per test; several run >5 min. Run deliberately, not in a loop.
@@ -369,6 +377,22 @@ e2e-test: nim.cfg $(LUA_LIB)
 	@ls tests/e2e_*.nim | $(RUN_TESTS)
 
 test-all: test integration-test e2e-test
+
+.PHONY: libretro libretro-test libretro-frontend-test libretro-play
+
+libretro: nim.cfg
+	@mkdir -p bin/libretro
+	nim c $(NIM_TEST_FLAGS) src/libretro/core.nim
+
+libretro-test: libretro
+	nim r $(NIM_TEST_FLAGS) tests/test_libretro.nim
+
+libretro-frontend-test: libretro
+	MONO_RETRO_ROOT="$(MONO_RETRO_ROOT)" nim r $(NIM_TEST_FLAGS) tests/mono_retro/check_core.nim
+
+libretro-play: libretro
+	@test -x "$(MONO_RETRO_PLAYER)" || { echo "Build mono-retro's player-desktop target, or set MONO_RETRO_ROOT / MONO_RETRO_PLAYER to an existing player." >&2; exit 1; }
+	"$(MONO_RETRO_PLAYER)" --core:"$(CURDIR)/bin/libretro/decompbound_libretro.so" --rom:"$(ROM)" --save-dir:"$(LIBRETRO_SAVE_DIR)" $(MONO_RETRO_ARGS)
 
 # Retired: generated/* bank modules deleted at M2.5.
 test-banks: nim.cfg
@@ -448,6 +472,7 @@ check: nim.cfg
 	@fail=0; \
 	for f in src/decompbound.nim src/compare.nim \
 	         src/tools/play.nim src/tools/llm_ai.nim src/tools/bench_replay.nim \
+	         src/libretro/core.nim \
 	         src/tools/chunk_check.nim src/tools/decompbound_mcp.nim; do \
 		echo "==> nim check $$f"; \
 		nim check $(NIM_TEST_FLAGS) "$$f" || fail=1; \

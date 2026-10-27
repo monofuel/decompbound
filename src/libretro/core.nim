@@ -1,0 +1,234 @@
+## A single-instance libretro adapter around the headless SNES emulator.
+
+import
+  pixie,
+  ../decompbound/[apu, build_info, common, cpu, frame_step, libretro_api, ppu, replay_run, snesbus]
+
+const
+  Width = ppu.ScreenWidth
+  Height = ppu.ScreenHeight
+  RomSize = EarthboundRomSize
+  CopierHeaderSize = 512
+  WramOffset = 0x7E0000
+  WramSize = 0x20000
+  SramSize = 0x2000
+  FramesPerSecond = 60.0
+  Version = (if BuildCommit.len > 0: BuildCommit else: "unknown") &
+    (if BuildDirty: "+dirty" else: "")
+
+var
+  environment: RetroEnvironment
+  video: RetroVideoRefresh
+  audio: RetroAudioSample
+  audioBatch: RetroAudioSampleBatch
+  inputPoll: RetroInputPoll
+  inputState: RetroInputState
+  logger: RetroLog
+  machine: SnesBus
+  cpuState: Cpu
+  frameImage: Image
+  pixels: array[Width * Height, uint32]
+  pcm: FramePcm
+  device = RetroDeviceJoypad
+
+proc logError(message: string) =
+  ## Send an error to the frontend when its logging interface is available.
+  if logger != nil:
+    logger(RetroLogError, "%s", message.cstring)
+
+proc shutdown(message: string) =
+  ## Report a frame or reset failure and request frontend shutdown.
+  logError(message)
+  if environment != nil:
+    discard environment(RetroEnvShutdown, nil)
+
+proc releaseMachine() =
+  ## Break emulator closure cycles before releasing the machine.
+  if machine != nil:
+    if machine.bus != nil:
+      machine.bus.readHook = nil
+      machine.bus.writeHook = nil
+    if machine.apu != nil:
+      machine.apu.spc.readHook = nil
+      machine.apu.spc.writeHook = nil
+    machine = nil
+  frameImage = nil
+  GC_fullCollect()
+
+proc retro_api_version(): cuint {.cdecl, exportc, dynlib.} =
+  ## Return the supported libretro interface version.
+  RetroApiVersion
+
+proc retro_set_environment(callback: RetroEnvironment) {.cdecl, exportc, dynlib.} =
+  ## Store the frontend environment callback.
+  environment = callback
+
+proc retro_set_video_refresh(callback: RetroVideoRefresh) {.cdecl, exportc, dynlib.} =
+  ## Store the frontend video callback.
+  video = callback
+
+proc retro_set_audio_sample(callback: RetroAudioSample) {.cdecl, exportc, dynlib.} =
+  ## Store the frontend single-sample callback.
+  audio = callback
+
+proc retro_set_audio_sample_batch(callback: RetroAudioSampleBatch) {.cdecl, exportc, dynlib.} =
+  ## Store the frontend batch-audio callback.
+  audioBatch = callback
+
+proc retro_set_input_poll(callback: RetroInputPoll) {.cdecl, exportc, dynlib.} =
+  ## Store the frontend input-poll callback.
+  inputPoll = callback
+
+proc retro_set_input_state(callback: RetroInputState) {.cdecl, exportc, dynlib.} =
+  ## Store the frontend input-state callback.
+  inputState = callback
+
+proc retro_init() {.cdecl, exportc, dynlib.} =
+  ## Initialize optional frontend logging.
+  device = RetroDeviceJoypad
+  logger = nil
+  if environment != nil:
+    var callback: RetroLogCallback
+    if environment(RetroEnvGetLogInterface, addr callback):
+      logger = callback.log
+
+proc retro_deinit() {.cdecl, exportc, dynlib.} =
+  ## Release machine resources before the frontend unloads the library.
+  releaseMachine()
+  logger = nil
+
+proc retro_get_system_info(info: ptr RetroSystemInfo) {.cdecl, exportc, dynlib.} =
+  ## Describe the supported ROM and core build.
+  if info != nil:
+    info[] = RetroSystemInfo(libraryName: "Decompbound", libraryVersion: Version.cstring,
+      validExtensions: "smc|sfc", needFullpath: false, blockExtract: false)
+
+proc retro_get_system_av_info(info: ptr RetroSystemAvInfo) {.cdecl, exportc, dynlib.} =
+  ## Describe the fixed video and audio timing.
+  if info != nil:
+    info[] = RetroSystemAvInfo(
+      geometry: RetroGameGeometry(baseWidth: Width, baseHeight: Height,
+        maxWidth: Width, maxHeight: Height, aspectRatio: 8.0 / 7.0),
+      timing: RetroSystemTiming(fps: FramesPerSecond,
+        sampleRate: FramesPerSecond * ApuSamplesPerFrame.float))
+
+proc retro_set_controller_port_device(port, kind: cuint) {.cdecl, exportc, dynlib.} =
+  ## Select the first controller or disconnect it.
+  if port == 0:
+    device = kind
+
+proc retro_reset() {.cdecl, exportc, dynlib.} =
+  ## Reset the loaded machine while preserving its memory.
+  if machine != nil:
+    try:
+      # softReset replaces the APU, so sever its self-referential hooks first.
+      if machine.apu != nil:
+        machine.apu.spc.readHook = nil
+        machine.apu.spc.writeHook = nil
+      cpuState = machine.softReset()
+      GC_fullCollect()
+    except CatchableError as error:
+      shutdown("Reset failed: " & error.msg)
+
+proc retro_run() {.cdecl, exportc, dynlib.} =
+  ## Poll input and submit one video frame and 533 stereo samples.
+  if machine == nil:
+    return
+  try:
+    if inputPoll != nil:
+      inputPoll()
+    machine.joy1 = 0
+    if device == RetroDeviceJoypad and inputState != nil:
+      for id in 0.cuint .. 11.cuint:
+        if inputState(0, RetroDeviceJoypad, 0, id) != 0:
+          machine.joy1 = machine.joy1 or (1'u16 shl (15 - id.int))
+    frameImage.fill(rgbx(0, 0, 0, 255))
+    stepReplayFrame(machine, cpuState, frameImage, addr pcm)
+    if video != nil:
+      for i in 0 ..< pixels.len:
+        let color = frameImage.data[i]
+        pixels[i] = (color.r.uint32 shl 16) or (color.g.uint32 shl 8) or color.b.uint32
+      video(addr pixels[0], Width, Height, Width * sizeof(uint32))
+    if audioBatch != nil:
+      discard audioBatch(addr pcm[0], ApuSamplesPerFrame)
+    elif audio != nil:
+      for i in 0 ..< ApuSamplesPerFrame:
+        audio(pcm[i * 2], pcm[i * 2 + 1])
+  except CatchableError as error:
+    shutdown("Frame failed: " & error.msg)
+
+proc retro_serialize_size(): csize_t {.cdecl, exportc, dynlib.} =
+  ## Indicate that save states are not supported.
+  0
+
+proc retro_serialize(data: pointer, size: csize_t): bool {.cdecl, exportc, dynlib.} =
+  ## Decline save-state serialization.
+  false
+
+proc retro_unserialize(data: pointer, size: csize_t): bool {.cdecl, exportc, dynlib.} =
+  ## Decline save-state restoration.
+  false
+
+proc retro_cheat_reset() {.cdecl, exportc, dynlib.} =
+  ## Ignore unsupported cheats.
+  discard
+
+proc retro_cheat_set(index: cuint, enabled: bool, code: cstring) {.cdecl, exportc, dynlib.} =
+  ## Ignore an unsupported cheat.
+  discard
+
+proc retro_load_game(info: ptr RetroGameInfo): bool {.cdecl, exportc, dynlib.} =
+  ## Copy and load a headered or unheadered EarthBound ROM.
+  if info == nil or info.data == nil or
+      (info.size != RomSize.csize_t and info.size != (RomSize + CopierHeaderSize).csize_t):
+    logError("Expected a 3 MiB ROM, optionally with a 512-byte copier header.")
+    return false
+  if environment == nil:
+    logError("Frontend environment callback is unavailable.")
+    return false
+  var format = RetroPixelFormatXrgb8888
+  if not environment(RetroEnvSetPixelFormat, addr format):
+    logError("Frontend does not support XRGB8888 video.")
+    return false
+  try:
+    releaseMachine()
+    let offset = if info.size == RomSize.csize_t: 0 else: CopierHeaderSize
+    var rom = newSeq[uint8](RomSize)
+    copyMem(addr rom[0], cast[pointer](cast[uint](info.data) + offset.uint), RomSize)
+    machine = newSnesBus(rom)
+    cpuState = machine.resetCpu()
+    frameImage = newImage(Width, Height)
+    result = true
+  except CatchableError as error:
+    releaseMachine()
+    logError("Load failed: " & error.msg)
+    result = false
+
+proc retro_load_game_special(gameType: cuint, info: ptr RetroGameInfo,
+    count: csize_t): bool {.cdecl, exportc, dynlib.} =
+  ## Decline unsupported multi-game content.
+  false
+
+proc retro_unload_game() {.cdecl, exportc, dynlib.} =
+  ## Release loaded game resources.
+  releaseMachine()
+
+proc retro_get_region(): cuint {.cdecl, exportc, dynlib.} =
+  ## Return the NTSC timing region.
+  RetroRegionNtsc
+
+proc retro_get_memory_data(id: cuint): pointer {.cdecl, exportc, dynlib.} =
+  ## Expose stable SRAM or WRAM owned by the loaded machine.
+  if machine != nil:
+    case id
+    of RetroMemorySaveRam: result = addr machine.sram[0]
+    of RetroMemorySystemRam: result = addr machine.bus.mem[WramOffset]
+    else: discard
+
+proc retro_get_memory_size(id: cuint): csize_t {.cdecl, exportc, dynlib.} =
+  ## Return the size of an exposed memory region.
+  if machine != nil:
+    case id
+    of RetroMemorySaveRam: result = SramSize
+    of RetroMemorySystemRam: result = WramSize
+    else: discard
