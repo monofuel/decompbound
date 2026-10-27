@@ -14,10 +14,9 @@ proc main() =
   var prev = ""
   let maxF = if paramCount()>=2: parseInt(paramStr(2)) else: 2500
   while f <= maxF and not cpu.stopped:
-    snes.setScanline(line)
+    snes.tickScanline(line)
     if line == 224 and (snes.nmitimen and 0x80) != 0:
       cpu.nmiPending = true
-      snes.raiseNmi()
     for i in 0 ..< InstrPerLine: cpu.step(snes.bus)
     if line < 224: snes.runHdma()
     for k in 0 ..< 2: discard snes.tickApu()
