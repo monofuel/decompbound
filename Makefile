@@ -18,6 +18,8 @@ LUA_LIB := vendor/lua/liblua.a
 help:
 	@echo "decompbound targets:"
 	@echo "  make compare      - phase-2 extract/rebuild vs gold (BYTE-IDENTICAL gate)"
+	@echo "  make libretro     - build the headless desktop libretro core (.so)"
+	@echo "  make libretro-test - synthetic C/Nim hosts against the actual core"
 	@echo "  make check        - nim check main entrypoints + tests (no run)"
 	@echo "  make test         - unit tests only, no fixtures needed (instant)"
 	@echo "  make integration-test - needs the gold ROM / CPU vectors (seconds)"
@@ -358,10 +360,10 @@ RUN_TESTS = xargs -P $(NIM_TEST_JOBS) -I{} sh -c \
 	'out=$$(nim r $(NIM_TEST_FLAGS) "{}" 2>&1); rc=$$?; \
 	 printf "%s\n" "$$out" | sed "s|^|[{}] |"; exit $$rc'
 
-test: nim.cfg $(LUA_LIB)
+test: nim.cfg $(LUA_LIB) libretro
 	@ls tests/test_*.nim | $(RUN_TESTS)
 
-integration-test: nim.cfg $(LUA_LIB)
+integration-test: nim.cfg $(LUA_LIB) libretro
 	@ls tests/integration_*.nim | $(RUN_TESTS)
 
 # Minutes per test; several run >5 min. Run deliberately, not in a loop.
@@ -369,6 +371,18 @@ e2e-test: nim.cfg $(LUA_LIB)
 	@ls tests/e2e_*.nim | $(RUN_TESTS)
 
 test-all: test integration-test e2e-test
+
+.PHONY: libretro libretro-test libretro-frontend-test
+
+libretro: nim.cfg
+	@mkdir -p bin/libretro
+	nim c $(NIM_TEST_FLAGS) src/libretro/core.nim
+
+libretro-test: libretro
+	nim r $(NIM_TEST_FLAGS) tests/test_libretro.nim
+
+libretro-frontend-test: libretro
+	MONO_RETRO_ROOT="$(MONO_RETRO_ROOT)" nim r $(NIM_TEST_FLAGS) tests/mono_retro/check_core.nim
 
 # Retired: generated/* bank modules deleted at M2.5.
 test-banks: nim.cfg
@@ -448,6 +462,7 @@ check: nim.cfg
 	@fail=0; \
 	for f in src/decompbound.nim src/compare.nim \
 	         src/tools/play.nim src/tools/llm_ai.nim src/tools/bench_replay.nim \
+	         src/libretro/core.nim \
 	         src/tools/chunk_check.nim src/tools/decompbound_mcp.nim; do \
 		echo "==> nim check $$f"; \
 		nim check $(NIM_TEST_FLAGS) "$$f" || fail=1; \

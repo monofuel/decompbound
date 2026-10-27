@@ -55,6 +55,7 @@ audio libraries declared in `flake.nix`.
 make compare          # build decomp ROM + compare vs gold
 make check            # nim check entrypoints + tests (compile only)
 make test             # unit suite (builds vendor/lua when needed)
+make libretro         # headless Linux desktop core: bin/libretro/decompbound_libretro.so
 make play             # windowed emulator
 make llm-ai           # live qwen Agent (needs local model)
 make llm-ai-scripted  # deterministic seed Lua, no qwen (watch product seeds)
@@ -63,6 +64,9 @@ make mcp              # Goal 5 playthrough co-pilot MCP (http://localhost:4343/m
 ```
 
 Other useful targets: `make help`, `make intro`, `make jukebox`, `make audio-check`.
+
+The [libretro core](docs/libretro.md) provides video, audio callbacks, controller
+input, and battery SRAM for mono-retro and other libretro frontends.
 
 ## Rules (short)
 

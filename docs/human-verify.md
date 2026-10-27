@@ -37,6 +37,15 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 ## OPEN — please check
 
+- [ ] **Libretro core in mono-retro's desktop player** · 2026-10-27 · `monofuel/libretro`
+  - **Run:** build with `make libretro`, then run the mono-retro command in
+    [libretro.md](libretro.md#mono-retro), using its isolated save directory.
+    Boot, use a gamepad for all SNES buttons, make an in-game save, exit, and
+    reopen with the same save directory.
+  - **Pass if:** graphics and colors match ordinary desktop play, controls
+    respond, and the in-game save survives restart. The current mono-retro
+    desktop frontend intentionally discards audio; silence there is expected.
+
 - [ ] **Integrated player: pause, screenshots, speed and audio** · 2026-10-27 · `master`
   - **Run:** `nim r src/tools/play.nim --no-vsync "bin/Earthbound (U) [!].smc"`.
     Pause with Space, hold Esc briefly, release it, and take an F12. Resume,
