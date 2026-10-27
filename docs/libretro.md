@@ -75,28 +75,56 @@ The optional headless compatibility test uses mono-retro's actual loader and
 save handling without editing its checkout or opening a display/audio device:
 
 ```sh
-make libretro-frontend-test MONO_RETRO_ROOT=/absolute/path/to/mono-retro
+make libretro-frontend-test
 ```
 
 It requires the user's ROM, runs 120 frames, and checks SRAM persistence through
 an isolated temporary save directory. `MONO_RETRO_ROOT` adds only a source search
-path for this test; it is not a dependency of the shipped core.
+path for this test; it is not a dependency of the shipped core. The Makefile
+finds a sibling `../mono-retro` checkout or the shared checkout at
+`/mnt/steel-chest/Monolab/Home/racha/src/mono-retro`. Override `MONO_RETRO_ROOT`
+for a different location.
 
 For a visual test, build mono-retro's desktop player using that project's
-instructions. From its checkout, set `decompboundRoot` to this repository:
+instructions, then run from the decompbound repository:
 
 ```sh
-decompboundRoot=/absolute/path/to/decompbound
-build/mono-retro-player \
-  --core:"$decompboundRoot/bin/libretro/decompbound_libretro.so" \
-  --rom:"$decompboundRoot/bin/Earthbound (U) [!].smc" \
-  --save-dir:"$decompboundRoot/bin/libretro/frontend-saves"
+make libretro-play
 ```
 
+This rebuilds the core and starts the existing frontend binary with the ROM
+selected by `ROM`. Test saves go to ignored `bin/libretro/frontend-saves/`,
+separate from the ordinary player's battery save. It does not rebuild or edit
+mono-retro. `MONO_RETRO_PLAYER` selects another frontend executable and
+`LIBRETRO_SAVE_DIR` selects another save directory. To stop after ten seconds
+of emulation:
+
+```sh
+make libretro-play MONO_RETRO_ARGS=--frames:600
+```
+
+The player pauses while unfocused; click its window if frames stop advancing.
+Arrow keys control the D-pad, X/Z are A/B, Enter is Start, Backspace is Select,
+and Escape closes the player and persists SRAM.
+
 Use a gamepad for all twelve SNES buttons; the current frontend keyboard layout
-does not bind SNES X/Y. Mono-retro's current desktop player deliberately discards
-audio. Core PCM delivery is tested; audible playback requires frontend audio
-support. ARM64 builds and handheld acceptance are later work.
+does not bind SNES X/Y. Audio and mute options follow the installed frontend
+build; consult its `--help`. ARM64 builds and handheld acceptance are later work.
+
+The full mono-retro X11 integration test also accepts this core and ROM as its
+two arguments. From the mono-retro checkout, with an isolated Xvfb running:
+
+```sh
+MONO_RETRO_TEST_DISPLAY=:97 ALSOFT_DRIVERS=null build/integration-player-x11 \
+  /absolute/path/to/decompbound/bin/libretro/decompbound_libretro.so \
+  '/absolute/path/to/decompbound/bin/Earthbound (U) [!].smc'
+```
+
+Use an unused test display, never the desktop display. Mono-retro's
+`README-player.md` describes building this test and its fixture core. It checks
+window rendering, resize, input, focus pause, and clean exits against the fixture,
+then runs 180 paced frames with the real decompbound core and verifies an SRAM
+file. The null audio driver avoids speaker output during automated tests.
 
 ROMs, SRAM, screenshots, and machine states remain local and ignored. Human
 acceptance checks are in [human-verify.md](human-verify.md).

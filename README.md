@@ -56,6 +56,7 @@ make compare          # build decomp ROM + compare vs gold
 make check            # nim check entrypoints + tests (compile only)
 make test             # unit suite (builds vendor/lua when needed)
 make libretro         # headless Linux desktop core: bin/libretro/decompbound_libretro.so
+make libretro-play    # test it in the separately built mono-retro-player
 make play             # windowed emulator
 make llm-ai           # live qwen Agent (needs local model)
 make llm-ai-scripted  # deterministic seed Lua, no qwen (watch product seeds)
