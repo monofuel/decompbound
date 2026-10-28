@@ -1,232 +1,222 @@
-## Interactive silky GUI jukebox for EarthBound APU music.
-## Click a song in the scrollable list to play it live via slappy streaming (no WAV).
-## ROM path from argv[1] or default; builds atlas into bin/ at startup.
-## Does not touch emulator cores or sound_explore.nim.
-
 import
-  std/[os, strformat, strutils, monotimes, times],
-  opengl,
-  windy,
-  bumpy,
-  vmath,
-  chroma,
-  silky,
-  slappy,
-  ../decompbound/apu
+  std/[math, monotimes, os, parseopt, strformat, strutils, times],
+  opengl, paddy, pixie, slappy, windy,
+  ../decompbound/[jukebox_controls, jukebox_view, music_player],
+  ./glblit
 
-# --- Copied verbatim from sound_explore.nim (file-private there; do not import) ---
 const
   DefaultRom = "bin/Earthbound (U) [!].smc"
-  SampleRate = 32000
-  SongTableFile = 0x04F70A
-  PackTableFile = 0x04F947
+  UiFrameNs = 1_000_000_000'i64 div 30
+  MaxAudioDelayNs = 100_000_000'i64
+  AudioChunkFrames = 512
+  AudioPrefillFrames = MusicSampleRate div 20
+  NanosecondsPerSecond = 1_000_000_000'i64
+  Help = """Pocket Jukebox - EarthBound music from your own ROM.
+Usage: bin/jukebox [ROM] [--rom:PATH] [--song:N] [--fullscreen] [--mute]
+  --frames:N   Exit after N UI frames (for smoke checks).
+  --trace      Print control actions and playback state.
+Mouse: click a track to play; wheel browses; buttons control playback/volume.
+Keyboard: Up/Down browse, PageUp/PageDown page, Home/End first/last.
+  Enter plays selected; Space plays/pauses; S stops; Left/Right skip tracks.
+  -/+ changes volume; Escape exits.
+Paddy: D-pad or left stick Up/Down browses; bottom face button plays.
+  Start plays/pauses; right face button stops; L1/R1 skip tracks.
+  D-pad Left/Right changes volume. Controllers can connect during playback.
+  L2/R2 pages the list; Start+Select exits.
+Music continues while the window is in the background. Tracks loop as in game.
+"""
 
-proc readRomFile(filepath: string): seq[uint8] =
-  ## Read ROM, strip optional 512-byte copier header.
-  let data = readFile(filepath)
-  var start = 0
-  if data.len mod 1024 == 512:
-    start = 512
-  result = newSeq[uint8](data.len - start)
-  for i in 0..<result.len:
-    result[i] = data[start + i].uint8
+type
+  JukeboxApp = object
+    player: MusicPlayer
+    selection: TrackSelection
+    stream: StreamingSource
+    volume: int
+    level: float32
+    audioCarry: int64
+    lastAudio: MonoTime
+    audioStarted: bool
+    underruns: int
+    muted, trace, quitting: bool
 
-proc getSongPackIndices(rom: seq[uint8], songId: int): seq[int] =
-  ## Lookup up to 3 pack indices for songId from the verified song table.
-  ## 0xFF entries are skipped (unused).
-  if songId < 1:
-    quit("song id must be >= 1")
-  let base = SongTableFile + (songId - 1) * 3
-  if base + 2 >= rom.len:
-    quit(&"song table overrun for id {songId}")
-  result = @[]
-  for i in 0..2:
-    let p = rom[base + i].int
-    if p != 0xFF:
-      result.add(p)
+proc resetAudio(app: var JukeboxApp) =
+  ## Drop queued audio immediately on song changes, stop, or pause transitions.
+  if app.stream != nil: app.stream.flush()
+  app.audioCarry = 0
+  app.lastAudio = getMonoTime()
+  app.level = 0
+  app.audioStarted = false
 
-proc packFileOffset(rom: seq[uint8], packIdx: int): int =
-  ## Pack table entry -> far ptr -> file offset (HiROM mapping).
-  let base = PackTableFile + packIdx * 3
-  if base + 2 >= rom.len:
-    quit(&"pack table overrun for idx {packIdx}")
-  let bank = rom[base + 0]
-  let lo = rom[base + 1]
-  let hi = rom[base + 2]
-  result = ((bank and 0x3F).int shl 16) or ((hi.int shl 8) or lo.int)
+proc perform(app: var JukeboxApp, action: JukeboxAction) =
+  ## Apply every input method through the same navigation and playback actions.
+  case action
+  of MoveUp, MoveDown, PageUp, PageDown, GoFirst, GoLast:
+    app.selection.navigate(action)
+  of PlaySelected:
+    app.resetAudio()
+    app.player.startTrack(app.player.library.trackIds[app.selection.index])
+    app.audioCarry = AudioPrefillFrames.int64 * NanosecondsPerSecond
+    app.lastAudio = getMonoTime()
+  of TogglePlayback:
+    if app.player.state == Stopped:
+      app.perform(PlaySelected)
+    else:
+      app.resetAudio()
+      app.player.togglePause()
+      if app.player.state == Playing:
+        app.audioCarry = AudioPrefillFrames.int64 * NanosecondsPerSecond
+  of StopPlayback:
+    app.resetAudio()
+    app.player.stop()
+  of PreviousTrack, NextTrack:
+    let
+      tracks = app.player.library.trackIds
+      current = if app.player.songId > 0: tracks.find(app.player.songId) else: app.selection.index
+      direction = if action == PreviousTrack: -1 else: 1
+      index = (current + direction + tracks.len) mod tracks.len
+    app.selection.selectIndex(index)
+    app.perform(PlaySelected)
+  of Quieter, Louder:
+    app.volume = clamp(app.volume + (if action == Quieter: -VolumeStep else: VolumeStep), 0, 100)
+    if not app.muted: listener.gain = app.volume.float32 / 100
+  of QuitPlayer:
+    app.quitting = true
+  if app.trace:
+    echo &"action={action} selected={app.player.library.trackIds[app.selection.index]} song={app.player.songId} state={app.player.state} volume={app.volume}"
 
-proc loadPackageToRam(ram: var array[0x10000, uint8], rom: seq[uint8], fileOff: int) =
-  ## Replicate $C0AB06 package exactly: walk blocks, copy payloads to tgt RAM.
-  var pos = fileOff
-  while pos + 3 < rom.len:
-    let len = (rom[pos + 0].int) or (rom[pos + 1].int shl 8)
-    let tgt = (rom[pos + 2].int) or (rom[pos + 3].int shl 8)
-    pos += 4
-    if len == 0: break
-    if pos + len > rom.len: break
-    for i in 0..<len:
-      let a = tgt + i
-      if a >= 0 and a < 0x10000: ram[a] = rom[pos + i]
-    pos += len
-
-# --- App state (module scope so onFrame + templates see sk/window like silky examples) ---
-var
-  activeApu: Apu = nil
-  currentSong = 0
-  sampleCounter = 0
-  rom: seq[uint8]
-  songIds: seq[int] = @[]
-  songLabels: seq[string] = @[]
-  romPath = DefaultRom
-
-# Parse first CLI arg (ROM path) at init time so make can pass $(ROM); default otherwise.
-if paramCount() >= 1:
-  let arg = paramStr(1)
-  if arg.len > 0:
-    romPath = arg
-
-rom = readRomFile(romPath)
-
-# Build song list from table extents. Song table is 3 bytes per entry.
-# Skip slots where all three pack bytes are 0xFF (unused).
-let songCount = (PackTableFile - SongTableFile) div 3
-for id in 1 .. songCount:
-  let base = SongTableFile + (id - 1) * 3
-  if base + 2 >= rom.len: continue
-  let p0 = rom[base + 0]
-  let p1 = rom[base + 1]
-  let p2 = rom[base + 2]
-  if p0 == 0xFF'u8 and p1 == 0xFF'u8 and p2 == 0xFF'u8: continue
-  songIds.add(id)
-  songLabels.add(&"Song {id:03d}")
-
-proc startSong(song: int) =
-  ## Build a fresh APU image for the song (ROM-backed packages), boot driver,
-  ## kick via ports, store as activeApu. Mirrors sound_explore main setup.
-  if song < 1:
+proc pumpAudio(app: var JukeboxApp, pcm: var seq[int16], bytes: var seq[uint8]) =
+  ## Generate bounded wall-clock audio independently of UI rendering and focus.
+  let now = getMonoTime()
+  if app.stream != nil: app.stream.pump()
+  if app.player.state != Playing:
+    app.lastAudio = now
     return
-  let r = if rom.len > 0: rom else: readRomFile(romPath)
-  var packs = getSongPackIndices(r, song)
-  if 1 notin packs:
-    packs = @[1] & packs
-  var apuRam: array[0x10000, uint8]
-  for p in packs:
-    let foff = packFileOffset(r, p)
-    loadPackageToRam(apuRam, r, foff)
-  let apu = newApu()
-  for i in 0..<0x10000:
-    apu.spc.ram[i] = apuRam[i]
-  apu.spc.pc = 0x0500'u16
-  apu.spc.sp = 0xEF'u8
-  apu.spc.a = 0
-  apu.spc.x = 0
-  apu.spc.y = 0
-  apu.spc.psw = 0
-  for _ in 0 ..< (SampleRate div 5):
-    discard apu.runSample()
-  apu.portsIn[3] = 0x57'u8
-  for _ in 0 ..< (SampleRate div 200):
-    discard apu.runSample()
-  apu.portsIn[1] = 1'u8
-  for _ in 0 ..< (SampleRate div 200):
-    discard apu.runSample()
-  apu.portsIn[0] = 0'u8
-  for _ in 0 ..< (SampleRate div 200):
-    discard apu.runSample()
-  apu.portsIn[0] = (song and 0xFF).uint8
-  activeApu = apu
-  currentSong = song
-  sampleCounter = 0
+  let elapsed = min((now - app.lastAudio).inNanoseconds, MaxAudioDelayNs)
+  app.lastAudio = now
+  if app.stream != nil and app.audioStarted and not app.stream.playing:
+    inc app.underruns
+    app.audioCarry += AudioPrefillFrames.int64 * NanosecondsPerSecond
+  app.audioCarry += elapsed * MusicSampleRate
+  let frames = int(app.audioCarry div NanosecondsPerSecond)
+  if frames < AudioChunkFrames: return
+  app.audioCarry -= frames.int64 * NanosecondsPerSecond
+  app.player.renderPcm(frames, pcm)
+  var sumSquares = 0.0
+  bytes.setLen(pcm.len * 2)
+  for i, sample in pcm:
+    let bits = cast[uint16](sample)
+    bytes[i * 2] = (bits and 0xFF).uint8
+    bytes[i * 2 + 1] = (bits shr 8).uint8
+    sumSquares += sample.float64 * sample.float64
+  if pcm.len > 0:
+    let level = sqrt(sumSquares / pcm.len.float64) / 32768 * 8
+    app.level = max(app.level * 0.8, min(1.0, level).float32)
+  if app.stream != nil:
+    app.stream.queueData(bytes)
+    app.audioStarted = true
 
-createDir("bin")
+proc main() =
+  ## Run a music-only player with a local ROM, shared audio engine, and three input methods.
+  var
+    romPath = DefaultRom
+    initialSong = 0
+    frameLimit = 0
+    muted, fullscreen, trace = false
+  for kind, key, value in getopt():
+    case kind
+    of cmdArgument: romPath = key
+    of cmdLongOption, cmdShortOption:
+      case key
+      of "help", "h": stdout.write(Help); return
+      of "rom":
+        if value.len == 0: raise newException(ValueError, "Use --rom:PATH.")
+        romPath = value
+      of "song":
+        initialSong = parseInt(value)
+        if initialSong notin 1 .. SongCount: raise newException(ValueError, "Song must be 1..191.")
+      of "frames":
+        frameLimit = parseInt(value)
+        if frameLimit <= 0: raise newException(ValueError, "Frame limit must be positive.")
+      of "mute": muted = true
+      of "fullscreen": fullscreen = true
+      of "trace": trace = true
+      else: raise newException(ValueError, "Unknown option: " & key)
+    of cmdEnd: discard
+  let
+    library = loadMusicLibrary(romPath)
+    view = newJukeboxView()
+  if library.trackIds.len == 0: raise newException(ValueError, "ROM has no music tracks.")
+  var app = JukeboxApp(player: newMusicPlayer(library),
+    selection: TrackSelection(count: library.trackIds.len), volume: 80,
+    muted: muted, trace: trace, lastAudio: getMonoTime())
+  defer: app.player.stop()
+  if not muted:
+    slappyInit()
+  defer:
+    if not muted: slappyClose()
+  if not muted:
+    app.stream = newStreamingSource(frequency = MusicSampleRate, channels = 2, bits = 16)
+    listener.gain = app.volume.float32 / 100
+  defer:
+    if app.stream != nil: app.stream.close()
+  let blit = initGlBlit("Pocket Jukebox", ViewWidth, ViewHeight, scale = 1,
+    fullscreen = fullscreen, vsync = false)
+  let window = blit.window
+  defer:
+    glDeleteBuffers(1, unsafeAddr blit.posBuffer)
+    glDeleteBuffers(1, unsafeAddr blit.uvBuffer)
+    glDeleteTextures(1, unsafeAddr blit.textureId)
+    glDeleteProgram(blit.program)
+    window.close()
+  initGamepads()
+  defer: closeGamepads()
+  if initialSong > 0:
+    if initialSong notin library.trackIds: raise newException(ValueError, "Unused song id.")
+    app.selection.selectIndex(library.trackIds.find(initialSong))
+    app.perform(PlaySelected)
+  var
+    input: JukeboxInput
+    pcm: seq[int16]
+    bytes: seq[uint8]
+    nextUi = getMonoTime()
+    frameCount = 0
+  echo &"Pocket Jukebox: {library.trackIds.len} tracks; audio={not muted}."
+  while not app.quitting:
+    pollEvents()
+    if window.closeRequested: break
+    let
+      now = getMonoTime()
+      pads = pollGamepads()
+      mouse = viewPoint(vec2(window.mousePos.x.float32, window.mousePos.y.float32),
+        window.size.x.int, window.size.y.int)
+    if window.focused and not window.minimized:
+      var keys: set[Button]
+      for key in Button:
+        if window.buttonDown[key] or window.buttonPressed[key]: keys.incl(key)
+      for action in input.update(keyboardActions(keys) + gamepadActions(pads), now.ticks div 1_000_000):
+        app.perform(action)
+      if window.scrollDelta.y != 0:
+        app.perform(if window.scrollDelta.y > 0: MoveDown else: MoveUp)
+      if window.buttonPressed[MouseLeft]:
+        let target = mouseTarget(mouse, app.selection)
+        if target.trackIndex >= 0:
+          app.selection.selectIndex(target.trackIndex)
+          app.perform(PlaySelected)
+        for action in target.actions: app.perform(action)
+    else: input.reset()
+    app.pumpAudio(pcm, bytes)
+    if now >= nextUi and not window.minimized:
+      let image = view.render(JukeboxDisplay(selection: app.selection,
+        tracks: library.trackIds, songId: app.player.songId,
+        playing: app.player.state == Playing, paused: app.player.state == Paused,
+        elapsedSeconds: int(app.player.renderedFrames div MusicSampleRate),
+        volume: app.volume, level: app.level, hover: mouse, controllerCount: pads.len))
+      blit.blit(image)
+      inc frameCount
+      nextUi = getMonoTime() + initDuration(nanoseconds = UiFrameNs)
+      if frameLimit > 0 and frameCount >= frameLimit: break
+    sleep(2)
+  if app.trace: echo &"audioUnderruns={app.underruns} renderedFrames={app.player.renderedFrames}"
 
-# Build atlas from vendored silky theme (9-patches + font). bin/ is gitignored.
-# Current silky embeds JSON in the PNG (single-arg write / newSilky).
-let builder = newAtlasBuilder(1024, 4)
-builder.addDir("data/silky/", "data/silky/")
-builder.addFont("data/silky/IBMPlexSans-Regular.ttf", "H1", 32.0)
-builder.addFont("data/silky/IBMPlexSans-Regular.ttf", "Default", 18.0)
-builder.write("bin/jukebox_atlas.png")
-
-let window = newWindow("EarthBound Jukebox", ivec2(520, 640), vsync = false)
-makeContextCurrent(window)
-loadExtensions()
-
-let sk = newSilky(window, "bin/jukebox_atlas.png")
-
-# Real-time slappy streaming source (32kHz stereo 16-bit), lives for session.
-slappyInit()
-let ss = newStreamingSource(frequency = 32000, channels = 2, bits = 16)
-
-# Wall-clock pacing for audio frames (prevent backlog/latency runaway).
-const TargetFrameNs = 1_000_000_000 div 60
-var audioAcc: int64 = 0
-var lastAudioTime = getMonoTime()
-
-window.onFrame = proc() =
-  ss.pump()  # always reclaim, even when stopped
-
-  # Pace + generate audio only when a song is active. Use wall time acc like play.nim.
-  let nowT = getMonoTime()
-  audioAcc += (nowT - lastAudioTime).inNanoseconds
-  lastAudioTime = nowT
-
-  if activeApu != nil:
-    const SamplesPerFrame = SampleRate div 60
-    let dueNs = TargetFrameNs
-    if audioAcc > dueNs * 4:
-      audioAcc = dueNs * 4
-    var framesToGen = 0
-    while audioAcc >= dueNs and framesToGen < 4:
-      audioAcc -= dueNs
-      inc framesToGen
-    for _ in 0 ..< framesToGen:
-      var pcm = newSeq[uint8](SamplesPerFrame * 4)
-      for i in 0 ..< SamplesPerFrame:
-        let (l, r) = activeApu.runSample()
-        let off = i * 4
-        pcm[off + 0] = (l and 0xFF).uint8
-        pcm[off + 1] = ((l shr 8) and 0xFF).uint8
-        pcm[off + 2] = (r and 0xFF).uint8
-        pcm[off + 3] = ((r shr 8) and 0xFF).uint8
-        inc sampleCounter
-        if sampleCounter mod SampleRate == 0:
-          activeApu.portsIn[0] = (currentSong and 0xFF).uint8
-      ss.queueData(pcm)
-
-  sk.beginUI(window, window.size)
-  sk.clearScreen(parseHtmlColor("#1D1D1D").rgbx)
-
-  # Header
-  sk.at = vec2(16, 16)
-  h1text("EarthBound Jukebox")
-
-  # Now playing status
-  sk.at = vec2(16, 60)
-  text(if currentSong > 0: &"Now playing: Song {currentSong:03d}" else: "Stopped")
-
-  # Stop button (list click starts playback)
-  sk.at = vec2(16, 90)
-  button("Stop"):
-    activeApu = nil
-    currentSong = 0
-
-  # Scrollable song list via frame (auto scrollbars when content exceeds).
-  # Each entry is a clickable button; click starts the song immediately.
-  sk.at = vec2(16, 130)
-  frame("songs", vec2(16, 130), vec2(488, 470)):
-    sk.at = sk.pos + vec2(8, 8)
-    for i, sid in songIds:
-      let lbl = songLabels[i]
-      button(lbl):
-        startSong(sid)
-
-  sk.endUi()
-  window.swapBuffers()
-
-while not window.closeRequested:
-  pollEvents()
-
-# Clean shutdown (reached on window close).
-ss.close()
-slappyClose()
+when isMainModule:
+  main()

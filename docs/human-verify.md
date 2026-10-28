@@ -37,6 +37,20 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 ## OPEN — please check
 
+- [ ] **Pocket Jukebox: playback and three input methods** · 2026-10-27 · `monofuel/jukebox`
+  - **Run:** `make jukebox-app ARGS="--song:3"` in the usual development shell.
+    Click tracks, browse with arrows, use Enter/Space/S, skip and adjust volume.
+    Repeat with Paddy: D-pad/stick, bottom/right face buttons, Start and L1/R1;
+    unplug/reconnect the controller. Resize, then put the window in the background.
+  - **Pass if:** music is continuous without clicks/stutters, pause/resume and
+    stop react promptly, track changes leave no previous song playing, held
+    buttons do not repeatedly toggle playback, selection stays visible, mouse
+    clicks match the resized picture, and background music continues. Controller
+    disconnect/reconnect leaves mouse and keyboard usable.
+  - **Notes:** numeric labels are intentional. Track 4 may be silent; use 1/3/11/76
+    for the initial listening check. Automated tests use silent output and synthetic
+    gamepad states; real sound quality and controller behavior need this check.
+
 - [ ] **RG DS Plus through mono-retro-player** · 2026-10-27
   - **Run:** Choose Decompbound in the handheld's mono-retro menu. Play, press L2
     to switch screens, hold Select+Start for two seconds to return, then relaunch.

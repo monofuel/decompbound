@@ -11,9 +11,12 @@ understood.
 - `src/decompbound/spc700.nim`, `apu.nim`, and `dsp.nim` implement the audio
   machine. `tests/integration_spc700.nim` exercises CPU vectors;
   `tests/integration_apu_upload_starvation.nim` exercises full-game boot/upload.
-- `src/tools/sound_explore.nim` loads packages directly into a fresh APU and
+- `src/decompbound/music_player.nim` validates the song/package tables and loads
+  packages into a fresh APU. It is shared by both standalone music tools.
+- `src/tools/sound_explore.nim` uses that engine and
   renders a WAV under ignored `bin/` or another explicitly selected local path.
-- `src/tools/jukebox_app.nim` provides a GUI for that standalone loading path.
+- `src/tools/jukebox_app.nim` provides [Pocket Jukebox](jukebox.md), a mouse,
+  keyboard and Paddy GUI for that standalone loading path.
   Its numeric song list is not a verified soundtrack identity catalog.
 - `src/probes/songstart_dig.nim` compares package targets and driver state for
   two songs, including the deliberately incomplete case without package 1.
@@ -24,8 +27,9 @@ understood.
 
 Direct package loading does not execute the S-CPU/IPL handshake or reproduce
 all resident-state/cache behavior of a song change during play. The standalone
-tools currently duplicate parsers and have permissive truncated-input handling;
-consolidating and validating those parsers remains open.
+tools share a parser that rejects truncated packages and out-of-range references
+and APU destinations. Direct loading still does not establish every runtime
+upload boundary or resident-state contract.
 
 ## Song selection and resident packages
 
