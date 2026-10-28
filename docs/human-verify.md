@@ -37,7 +37,7 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 ## OPEN — please check
 
-- [ ] **Pocket Backgrounds: two windows and encounter browsing** · 2026-10-27 · `monofuel/battle-background-browser`
+- [ ] **Pocket Backgrounds: two windows and encounter browsing** · 2026-10-27 · `master`
   - **Run:** `make battle-bg-app`; optionally run the jukebox alongside it.
     Browse enemies and their variants with mouse, keyboard and Paddy. Pause,
     step, reset, change speed; resize/move both windows; use F11/Y to fullscreen
@@ -53,6 +53,8 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
     masks/UI. Scripted boss phases and the group-478 special arrangement are
     pending; do not treat their differences as verified whole-battle fidelity.
     Automated synthetic/ROM/CPU/PPU/Xvfb checks complement this physical check.
+  - **Notes:** monofuel confirmed the browser works and approved the merge.
+    Physical controller hotplug and fullscreen have not been separately confirmed.
 
 - [ ] **Pocket Jukebox: playback and three input methods** · 2026-10-27 · `master`
   - **Run:** `make jukebox-app ARGS="--song:3"` in the usual development shell.
