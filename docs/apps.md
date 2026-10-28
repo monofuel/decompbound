@@ -1,6 +1,6 @@
 # Companion Apps & Observability
 
-Beyond the core decomp/emulator goals (`docs/goal.md`), a set of small desktop
+Beyond the core decomp/emulator goals ([GOAL.md](../GOAL.md)), a set of small desktop
 apps that make the project *browsable* and *legible* — turning the data we've
 already reverse-engineered into things you can look at, listen to, and poke at
 live. None of these are on the critical path; all three are "sanctioned fun"
@@ -16,64 +16,23 @@ plumbing over solid ground, not new reverse engineering.
   map more.
 - **play.nim** already tracks SNES button state each frame and has an F12
   PPU-state dump + an F10 per-scanline trace — the raw material for a HUD.
-- **silky** (treeform's windy/opengl/pixie GUI helper) is already a dependency
-  and is imported by three intended "explorer" apps — but `sound_explore.nim`,
-  `sprites_explore.nim`, and `map_explore.nim` are all one-line TODO stubs
-  today. These apps are where silky finally gets used for real.
+- **Windy/Pixie, Paddy and Slappy** already supply window drawing, controller
+  input and audio. Pocket Jukebox uses them directly; Silky remains available
+  for other explorer apps.
 
 ---
 
-## App 1: Music jukebox — browse & play every track in the game
+## App 1: Pocket Jukebox
 
-**Status:** STARTED, doesn't work well yet. Two false starts to converge.
+Implemented as `src/tools/jukebox_app.nim`: a music-only Nim player with a
+EarthBound-inspired cassette UI, numeric track list, mouse/keyboard/Paddy controls and
+live Slappy audio. Run `make jukebox-app`; `make jukebox-build` builds without
+launching. The GUI and WAV exporter share `src/decompbound/music_player.nim`.
 
-A desktop app to browse the full EarthBound soundtrack and play any track on
-demand — a proper jukebox with a real track list, play/stop, and a now-playing
-readout, backed by our live SPC700 + S-DSP.
-
-### Why it's buildable now
-
-The audio core already produces sound. `music_explore.nim` boots the ROM,
-seeds a standalone APU from the captured driver image, replays the game's port
-writes, and renders WAV — it works well enough to have confirmed real music
-offline. The missing piece is a real **song directory** (which upload / port
-command selects which track) plus a decent UI.
-
-### What exists (and why it's rough)
-
-- `src/tools/music_explore.nim` — a raw windy/OpenGL window with **3 hardcoded
-  track presets** and a hand-rolled menu that fakes text labels with colored
-  rectangles (`# crude label: fill a "number" area`). It renders to WAV files
-  rather than playing live. It reinvents a UI instead of using silky.
-- `src/tools/sound_explore.nim` — a silky stub (`import silky`, TODO). This is
-  the natural *home* for the finished app: silky gives real text, lists, and
-  buttons like the sibling explorers are meant to.
-
-### Components
-
-1. **Song directory** — enumerate EB's music tracks (the sound-driver song
-   table: which song ID → which sequence + instrument set). This is the real RE
-   work; everything else is UI. Sources: the sound-driver upload our boot
-   captures, plus community song-ID lists to cross-check clean-room results.
-2. **Live playback** — reuse play.nim's approach: run the APU in real time and
-   stream 32kHz stereo PCM to a **slappy** `StreamingSource`, instead of
-   rendering to WAV. Select a song by writing its ID to the driver's port
-   command (the game's own "play song N" path), so sequence + samples stay
-   coherent (avoids the #4 snapshot-replay mismatch).
-3. **silky UI** — scrollable track list (real names), play/stop, now-playing +
-   a simple level/voice meter. Built in `sound_explore.nim` on silky, matching
-   the intended explorer-app pattern; retire `music_explore.nim`'s raw-GL menu.
-
-### Definition of done
-
-- [ ] A scrollable list of named tracks, not 3 hardcoded presets.
-- [ ] Selecting a track plays it **live** (streamed), not to a WAV file.
-- [ ] Song transitions are clean (pick the coherent live-APU path, per #4).
-- [ ] Built on silky in `sound_explore.nim`; the raw-GL `music_explore.nim`
-      menu is gone (its APU-render logic can be salvaged into `render_song`).
-
-**Scope:** sound-driver RE (song table) + silky UI + live APU streaming.
-Ties into issue #4 — doing this right *is* the "live two-way APU" win.
+[Usage, controls, verification and playback limits](jukebox.md) are maintained
+in the app guide. [Audio research](audio.md) tracks driver understanding;
+[music.md](music.md) tracks catalog questions. Verified track names and SFX
+playback are outside this app's current scope.
 
 ---
 
@@ -181,8 +140,9 @@ All three are parallel-safe and off the critical path. Rough effort / payoff:
    payoff (verifies SRAM RE, answers "EXP to next level" permanently).
 2. **Debug HUD** — medium effort, high payoff (turns `docs/issues.md` bugs from
    guesswork into watch-it-live).
-3. **Music jukebox** — most effort (needs the song-table RE) but the most fun,
-   and it doubles as the real fix for issue #4's audio coherence.
+3. **Music jukebox** — implemented; remaining catalog and fidelity research is
+   tracked in [music.md](music.md). Its standalone loader does not establish
+   in-game audio coherence by itself.
 
 ## See also
 
@@ -191,5 +151,3 @@ All three are parallel-safe and off the critical path. Rough effort / payoff:
   press buttons, no writes) and revises its own policy. Its own doc because it's
   an agent architecture, not just an observability app — but same spirit, and it
   reuses the save-report's memory map for the readout it shows the model.
-</content>
-</invoke>

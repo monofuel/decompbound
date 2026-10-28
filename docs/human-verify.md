@@ -37,6 +37,41 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 ## OPEN — please check
 
+- [ ] **Pocket Jukebox: playback and three input methods** · 2026-10-27 · `master`
+  - **Run:** `make jukebox-app ARGS="--song:3"` in the usual development shell.
+    Click tracks, browse with arrows, use Enter/Space/S, skip and adjust volume.
+    Repeat with Paddy: D-pad/stick, bottom/right face buttons, Start and L1/R1;
+    unplug/reconnect the controller. Resize, then put the window in the background.
+  - **Pass if:** music is continuous without clicks/stutters, pause/resume and
+    stop react promptly, track changes leave no previous song playing, held
+    buttons do not repeatedly toggle playback, selection stays visible, mouse
+    clicks match the resized picture, and background music continues. Controller
+    disconnect/reconnect leaves mouse and keyboard usable.
+  - **Theme check:** cream-framed navy panels, a red/gold cassette, and pink play
+    button should remain readable when selecting tracks and hovering controls.
+  - **Hotplug retry:** unplug and reconnect the physical controller while music
+    plays. Audio and mouse/keyboard should continue; the controller should work
+    again after reconnecting. The locked Paddy fork fixes the old device-path
+    lifetime and disconnect handling; a virtual-controller cycle passes headlessly.
+  - **Volume check:** move Knobby slider 4 while music plays. The displayed
+    percentage should follow the jukebox's mixer stream even when unfocused.
+    In-app volume buttons should change that same stream. Mixer mute should be
+    shown, and other applications' mixer settings should stay unchanged.
+  - **Notes:** monofuel confirmed the updated player works and approved the merge.
+    Physical-controller unplug/reconnect has not been separately confirmed.
+    Numeric labels are intentional. Track 4 may be silent; use 1/3/11/76
+    for the initial listening check. Automated tests use silent output and synthetic
+    gamepad states; real sound quality and controller behavior need this check.
+
+- [ ] **RG DS Plus through mono-retro-player** · 2026-10-27
+  - **Run:** Choose Decompbound in the handheld's mono-retro menu. Play, press L2
+    to switch screens, hold Select+Start for two seconds to return, then relaunch.
+    Make an in-game save and verify it survives another exit/relaunch.
+  - **Pass if:** the game starts on the bottom screen with the top black, remains
+    sharp when switched, all SNES buttons respond, sound is clean and correctly
+    paced, and exiting restores the launcher. Device saves remain separate from
+    desktop saves.
+
 - [ ] **Libretro core in mono-retro's desktop player** · 2026-10-27 · `master`
   - **Run:** `make libretro-play` ([setup and options](libretro.md#mono-retro)).
     Boot, use a gamepad for all SNES buttons, make an in-game save, exit, and
@@ -323,6 +358,10 @@ Only when an agent points you here for a **tool** check:
 ---
 
 ## FOUND IN PLAY — new issues (human → agents)
+
+- **2026-10-27** · Pocket Jukebox · unplugging a controller crashed the app;
+  stack trace unavailable. Updated the Paddy pin and verified virtual-device
+  removal/reconnect. Physical-controller retry remains in the jukebox row above.
 
 Add a bullet when something is wrong **while you're playing**. No essay.
 

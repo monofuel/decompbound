@@ -66,6 +66,10 @@ make mcp              # Goal 5 playthrough co-pilot MCP (http://localhost:4343/m
 
 Other useful targets: `make help`, `make intro`, `make jukebox`, `make audio-check`.
 
+`make jukebox-app` opens [Pocket Jukebox](docs/jukebox.md), the music-only Nim
+player with mouse, keyboard and Paddy controls. `make jukebox-build` builds it
+without launching a window.
+
 The [libretro core](docs/libretro.md) provides video, audio callbacks, controller
 input, and battery SRAM for mono-retro and other libretro frontends.
 

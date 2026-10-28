@@ -11,6 +11,18 @@ dependencies and standard Linux runtime libraries; it does not link Windy,
 Paddy, X11, OpenGL, OpenAL, ALSA, Lua, or MCP. Native device support belongs to
 the frontend. The existing desktop player and ROM rebuild remain separate.
 
+For an AArch64 Linux handheld, put the cross compiler on PATH and run:
+
+```sh
+DECOMPBOUND_TARGET=arm64 nim c src/libretro/core.nim
+```
+
+`DECOMPBOUND_CC` selects the compiler (default `aarch64-unknown-linux-gnu-gcc`).
+The output is `bin/libretro/decompbound_libretro-arm64.so`; the desktop core is
+preserved. With Nix's cross compiler, set `NIX_DONT_SET_RPATH=1` and
+`NIX_DONT_SET_RPATH_aarch64_unknown_linux_gnu=1` to omit store-specific runpaths.
+The ARM core retains runtime checks and the same frontend contract.
+
 ## Frontend contract
 
 The core exports the standard [libretro v1 functions](https://docs.libretro.com/development/cores/developing-cores/), with C calling conventions.
@@ -109,7 +121,10 @@ and Escape closes the player and persists SRAM.
 
 Use a gamepad for all twelve SNES buttons; the current frontend keyboard layout
 does not bind SNES X/Y. Audio and mute options follow the installed frontend
-build; consult its `--help`. ARM64 builds and handheld acceptance are later work.
+build; consult its `--help`. On the RG DS Plus, the mono-retro menu's Decompbound
+entry runs the ARM core with a separate device save directory. It starts on the
+bottom screen; L2 switches screens, and holding Select+Start for two seconds
+returns to the menu. Physical-device acceptance is tracked in `human-verify.md`.
 
 The full mono-retro X11 integration test also accepts this core and ROM as its
 two arguments. From the mono-retro checkout, with an isolated Xvfb running:

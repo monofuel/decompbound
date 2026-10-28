@@ -6,6 +6,8 @@
 SHELL := bash
 .SHELLFLAGS := -o pipefail -c
 
+.PHONY: jukebox jukebox-build jukebox-test jukebox-window-test jukebox-volume-test jukebox-gamepad-test
+
 ROM ?= bin/Earthbound (U) [!].smc
 MONO_RETRO_ROOT ?= $(firstword $(wildcard ../mono-retro /mnt/steel-chest/Monolab/Home/racha/src/mono-retro))
 MONO_RETRO_PLAYER ?= $(MONO_RETRO_ROOT)/build/mono-retro-player
@@ -50,8 +52,11 @@ help:
 	@echo "  make intro        - screenshot the 'War Against Giygas' title card"
 	@echo "  make title        - screenshot deep into the attract sequence"
 	@echo "  make frames       - render reference frames to bin/frame_<N>.png"
-	@echo "  make jukebox SONG=N - render EarthBound song N to bin/jukebox_songNNN.wav (7/8 songs play)"
-	@echo "  make jukebox-app  - interactive GUI jukebox (click songs in list; realtime slappy audio)"
+	@echo "  make jukebox SONG=N - render EarthBound song N to bin/jukebox_songNNN.wav"
+	@echo "  make jukebox-app  - Pocket Jukebox: mouse, keyboard and Paddy music player"
+	@echo "  make jukebox-build - build bin/jukebox without opening a window"
+	@echo "  make jukebox-test - controls, loader and real-ROM music checks"
+	@echo "  make jukebox-window-test - isolated Xvfb input, resizing and audio smoke"
 	@echo "  make vectors      - full 65816 CPU vector sweep (needs bin/65816-vectors)"
 	@echo "  make spc-vectors  - full SPC700 vector sweep (needs bin/spc700-vectors)"
 	@echo "  make regions      - regenerate all code regions from the gold ROM"
@@ -62,6 +67,8 @@ help:
 # after changing nimby.lock.
 nim.cfg: nimby.lock
 	nimby sync -g nimby.lock
+	@test -f nim.cfg
+	@touch nim.cfg
 
 # Static Lua 5.3 for the policy embed (gitignored archive; rebuild from the
 # vendor/lua submodule). Required by anything that links policy / lua53.
@@ -215,9 +222,27 @@ jukebox song: nim.cfg
 	@mkdir -p bin
 	nim r -d:release src/tools/sound_explore.nim --song $(SONG) $(ARGS) "$(ROM)"
 
-jukebox-app: nim.cfg
+jukebox-build: nim.cfg
 	@mkdir -p bin
-	nim r -d:release src/tools/jukebox_app.nim "$(ROM)"
+	nim c -d:release --out:bin/jukebox src/tools/jukebox_app.nim
+
+jukebox-app: jukebox-build
+	bin/jukebox "$(ROM)" $(ARGS)
+
+jukebox-test: nim.cfg
+	nim r $(NIM_TEST_FLAGS) tests/test_jukebox_controls.nim
+	nim r $(NIM_TEST_FLAGS) tests/test_music_player.nim
+	nim r -d:release $(NIM_TEST_FLAGS) tests/integration_music_player.nim "$(ROM)"
+
+jukebox-window-test: jukebox-build
+	nim r -d:release $(NIM_TEST_FLAGS) --out:bin/jukebox-window-smoke tests/jukebox/window_smoke.nim "$(ROM)"
+
+jukebox-gamepad-test: nim.cfg
+	nim r -d:release --forceBuild:on $(NIM_TEST_FLAGS) --out:bin/jukebox-hotplug-smoke tests/jukebox/hotplug_smoke.nim
+
+jukebox-volume-test: jukebox-build
+	nim r $(NIM_TEST_FLAGS) --out:bin/jukebox-volume-abi tests/jukebox/volume_abi.nim
+	nim r -d:release $(NIM_TEST_FLAGS) --out:bin/jukebox-window-smoke tests/jukebox/window_smoke.nim "$(ROM)" --system-volume
 
 # --- Verification -----------------------------------------------------
 
