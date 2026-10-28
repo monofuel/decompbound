@@ -1,7 +1,7 @@
 import
   std/[math, monotimes, os, parseopt, strformat, strutils, times],
   opengl, paddy, pixie, slappy, windy,
-  ../decompbound/[jukebox_controls, jukebox_view, music_player],
+  ../decompbound/[jukebox_controls, jukebox_view, music_player, system_volume],
   ./glblit
 
 const
@@ -31,6 +31,9 @@ type
     player: MusicPlayer
     selection: TrackSelection
     stream: StreamingSource
+    systemVolume: SystemVolume
+    usingSystemVolume, volumeMuted: bool
+    volumeError: string
     volume: int
     level: float32
     audioCarry: int64
@@ -78,7 +81,10 @@ proc perform(app: var JukeboxApp, action: JukeboxAction) =
     app.perform(PlaySelected)
   of Quieter, Louder:
     app.volume = clamp(app.volume + (if action == Quieter: -VolumeStep else: VolumeStep), 0, 100)
-    if not app.muted: listener.gain = app.volume.float32 / 100
+    if app.usingSystemVolume:
+      app.systemVolume.setPercent(app.volume)
+    elif not app.muted:
+      listener.gain = app.volume.float32 / 100
   of QuitPlayer:
     app.quitting = true
   if app.trace:
@@ -114,6 +120,27 @@ proc pumpAudio(app: var JukeboxApp, pcm: var seq[int16], bytes: var seq[uint8]) 
   if app.stream != nil:
     app.stream.queueData(bytes)
     app.audioStarted = true
+
+proc syncVolume(app: var JukeboxApp) =
+  ## Mirror this process's mixer stream without multiplying two volume controls.
+  if app.systemVolume == nil: return
+  app.systemVolume.poll()
+  if app.trace and app.systemVolume.lastError != app.volumeError:
+    app.volumeError = app.systemVolume.lastError
+    if app.volumeError.len > 0: echo "systemVolume: ", app.volumeError
+  if app.systemVolume.available:
+    if not app.usingSystemVolume: listener.gain = 1
+    if app.trace and (not app.usingSystemVolume or app.volume != app.systemVolume.percent or
+        app.volumeMuted != app.systemVolume.muted):
+      echo &"systemVolume={app.systemVolume.percent} muted={app.systemVolume.muted}"
+    app.volume = app.systemVolume.percent
+    app.volumeMuted = app.systemVolume.muted
+    app.usingSystemVolume = true
+  elif app.usingSystemVolume:
+    app.usingSystemVolume = false
+    app.volume = clamp(app.volume, 0, 100)
+    app.volumeMuted = false
+    listener.gain = app.volume.float32 / 100
 
 proc main() =
   ## Run a music-only player with a local ROM, shared audio engine, and three input methods.
@@ -157,6 +184,9 @@ proc main() =
   if not muted:
     app.stream = newStreamingSource(frequency = MusicSampleRate, channels = 2, bits = 16)
     listener.gain = app.volume.float32 / 100
+    app.systemVolume = openSystemVolume(getCurrentProcessId())
+  defer:
+    if app.systemVolume != nil: app.systemVolume.close()
   defer:
     if app.stream != nil: app.stream.close()
   let blit = initGlBlit("Pocket Jukebox", ViewWidth, ViewHeight, scale = 1,
@@ -189,6 +219,7 @@ proc main() =
       pads = pollGamepads()
       mouse = viewPoint(vec2(window.mousePos.x.float32, window.mousePos.y.float32),
         window.size.x.int, window.size.y.int)
+    app.syncVolume()
     if window.focused and not window.minimized:
       var keys: set[Button]
       for key in Button:
@@ -210,7 +241,8 @@ proc main() =
         tracks: library.trackIds, songId: app.player.songId,
         playing: app.player.state == Playing, paused: app.player.state == Paused,
         elapsedSeconds: int(app.player.renderedFrames div MusicSampleRate),
-        volume: app.volume, level: app.level, hover: mouse, controllerCount: pads.len))
+        volume: app.volume, volumeMuted: app.volumeMuted or muted,
+        level: app.level, hover: mouse, controllerCount: pads.len))
       blit.blit(image)
       inc frameCount
       nextUi = getMonoTime() + initDuration(nanoseconds = UiFrameNs)

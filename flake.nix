@@ -30,6 +30,7 @@
           udev
           libevdev
           openal
+          pulseaudio
           zlib
           curl
         ];

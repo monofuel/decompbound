@@ -49,6 +49,10 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
     disconnect/reconnect leaves mouse and keyboard usable.
   - **Theme check:** cream-framed navy panels, a red/gold cassette, and pink play
     button should remain readable when selecting tracks and hovering controls.
+  - **Volume check:** move Knobby slider 4 while music plays. The displayed
+    percentage should follow the jukebox's mixer stream even when unfocused.
+    In-app volume buttons should change that same stream. Mixer mute should be
+    shown, and other applications' mixer settings should stay unchanged.
   - **Notes:** monofuel confirmed the original player works; the EarthBound-inspired
     recolor needs a fresh visual check. Numeric labels are intentional. Track 4 may be silent; use 1/3/11/76
     for the initial listening check. Automated tests use silent output and synthetic

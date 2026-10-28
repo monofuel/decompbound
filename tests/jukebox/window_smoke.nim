@@ -1,5 +1,5 @@
 import
-  std/[monotimes, os, osproc, streams, strutils, tempfiles, times],
+  std/[json, monotimes, os, osproc, posix, streams, strutils, tempfiles, times],
   vmath,
   windy/platforms/linux/x11/[x, xevent, xlib]
 
@@ -82,6 +82,44 @@ proc wheel(d: Display, window: Window) =
     d.XFlush()
     sleep(90)
 
+proc pactl(arguments: openArray[string]): string =
+  ## Run a bounded mixer command against the isolated test server only.
+  let process = startProcess(findExe("pactl"), args = arguments, options = {poStdErrToStdOut})
+  defer:
+    if process.running: process.terminate()
+    discard process.waitForExit(3000)
+    process.close()
+  let code = process.waitForExit(3000)
+  result = process.outputStream.readAll()
+  doAssert code == 0, "pactl " & arguments.join(" ") & ": " & result
+
+proc streamPercent(index: string): string =
+  ## Read a stream percentage from pactl's independently formatted volume listing.
+  for input in parseJson(pactl(["-f", "json", "list", "sink-inputs"])):
+    if $input["index"].getInt == index:
+      return input["volume"]["front-left"]["value_percent"].getStr
+  raise newException(AssertionDefect, "Missing test stream " & index)
+
+proc streamForPid(pid: int): string =
+  ## Resolve a test stream by its exact process, including client-only PID metadata.
+  let deadline = getMonoTime() + initDuration(seconds = 5)
+  while getMonoTime() < deadline:
+    let
+      clients = parseJson(pactl(["-f", "json", "list", "clients"]))
+      inputs = parseJson(pactl(["-f", "json", "list", "sink-inputs"]))
+    for input in inputs:
+      let props = input["properties"]
+      if props.hasKey("application.process.id") and props["application.process.id"].getStr == $pid:
+        return $input["index"].getInt
+      for client in clients:
+        let clientId = if input["client"].kind == JString: input["client"].getStr else: $input["client"].getInt
+        if $client["index"].getInt == clientId and
+            client["properties"].hasKey("application.process.id") and
+            client["properties"]["application.process.id"].getStr == $pid:
+          return $input["index"].getInt
+    sleep(20)
+  raise newException(AssertionDefect, "No isolated audio stream for PID " & $pid)
+
 proc main() =
   ## Exercise real keyboard/mouse input, audio init, resizing, and clean exit off-desktop.
   let
@@ -90,6 +128,7 @@ proc main() =
     binary = absolutePath("bin/jukebox")
     rom = absolutePath(if paramCount() > 0: paramStr(1) else: "bin/Earthbound (U) [!].smc")
     xvfbPath = findExe("Xvfb")
+    checkMixer = paramCount() > 1 and paramStr(2) == "--system-volume"
   doAssert xvfbPath.len > 0, "Xvfb is required for this optional window test."
   defer: removeDir(directory)
   let server = startProcess(xvfbPath, args = ["-displayfd", "1", "-screen", "0",
@@ -100,7 +139,30 @@ proc main() =
     server.close()
   let displayName = ":" & server.outputStream.readLine().strip()
   putEnv("DISPLAY", displayName)
-  putEnv("ALSOFT_DRIVERS", "null")
+  var
+    pulseServer, otherStream: Process
+  defer:
+    for child in [otherStream, pulseServer]:
+      if child != nil:
+        if child.running: child.terminate()
+        discard child.waitForExit(5000)
+        child.close()
+  if checkMixer:
+    doAssert findExe("pulseaudio").len > 0 and findExe("pactl").len > 0
+    let socket = directory / "pulse.sock"
+    pulseServer = startProcess(findExe("pulseaudio"), args = ["--daemonize=no",
+      "--use-pid-file=no", "--exit-idle-time=-1", "--log-target=file:" & directory / "pulse.log", "-n",
+      "--load=module-null-sink sink_name=jukebox_test",
+      "--load=module-native-protocol-unix auth-anonymous=1 socket=" & socket], options = {})
+    let deadline = getMonoTime() + initDuration(seconds = 5)
+    while posix.access(socket.cstring, F_OK) != 0:
+      doAssert getMonoTime() < deadline, "Private Pulse server did not start: " & readFile(directory / "pulse.log")
+      sleep(20)
+    putEnv("PULSE_SERVER", "unix:" & socket)
+    putEnv("ALSOFT_DRIVERS", "pulse")
+    otherStream = startProcess(findExe("pacat"), args = ["--playback", "--raw"], options = {})
+  else:
+    putEnv("ALSOFT_DRIVERS", "null")
   let d = XOpenDisplay(displayName.cstring)
   doAssert d != nil
   defer: discard closeDisplay(d)
@@ -114,6 +176,25 @@ proc main() =
   d.XSetInputFocus(window, rtRoot)
   d.XFlush()
   waitTrace(trace, "action=PlaySelected selected=1 song=1 state=Playing")
+  if checkMixer:
+    waitTrace(trace, "systemVolume=100 muted=false")
+    let
+      mine = streamForPid(process.processID)
+      other = streamForPid(otherStream.processID)
+    discard pactl(["set-sink-input-volume", other, "23%"])
+    discard pactl(["set-sink-input-volume", mine, "37%"])
+    waitTrace(trace, "systemVolume=37 muted=false")
+    tap(d, window, 0x3D) # Plus/equal.
+    waitTrace(trace, "action=Louder selected=1 song=1 state=Playing volume=42")
+    doAssert streamPercent(mine) == "42%"
+    doAssert streamPercent(other) == "23%"
+    discard pactl(["set-sink-input-mute", mine, "1"])
+    waitTrace(trace, "systemVolume=42 muted=true")
+    discard pactl(["set-sink-input-volume", mine, "45%"])
+    waitTrace(trace, "systemVolume=45 muted=true")
+    discard pactl(["set-sink-input-mute", mine, "0"])
+    waitTrace(trace, "systemVolume=45 muted=false")
+    doAssert streamPercent(other) == "23%"
   tap(d, window, 0xFF54) # Down.
   waitTrace(trace, "action=MoveDown selected=2 song=1 state=Playing")
   tap(d, window, 0xFF0D) # Enter.
@@ -152,6 +233,7 @@ proc main() =
   key(d, window, 0xFF1B, true) # Escape destroys the window before a release can arrive.
   doAssert process.waitForExit(5000) == 0, readFile(trace)
   doAssert "audioUnderruns=0" in readFile(trace), readFile(trace)
+  if checkMixer: echo "Jukebox volume: external changes, app controls, mute and other-PID isolation passed."
   putEnv("ALSOFT_DRIVERS", "jukebox-no-such-audio-driver")
   let muted = startProcess(binary, args = [rom, "--mute", "--song:3", "--frames:3"],
     options = {poParentStreams})

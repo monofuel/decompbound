@@ -13,7 +13,7 @@ make jukebox-app ROM="/path/to/your.sfc"
 ```
 
 On NixOS, enter the repository's `nix develop` shell first; it supplies the
-native Windy, Paddy and OpenAL libraries. No new dependencies are needed.
+native Windy, Paddy and OpenAL libraries, plus the optional PulseAudio test tools.
 `make jukebox-build` builds `bin/jukebox` without opening a window. The binary
 embeds the existing IBM Plex font; it needs no theme files beside it.
 
@@ -50,8 +50,15 @@ input is accepted only while focused. The UI fits smaller windows and keeps
 mouse coordinates aligned with the centered picture.
 
 Tracks loop according to the original sound driver. The timer shows elapsed
-playback, not a guessed song length. Volume starts at 80%. There are no track
-names because we do not yet have a verified name catalog.
+playback, not a guessed song length. There are no track names because we do not
+yet have a verified name catalog.
+
+Volume follows the jukebox's own system mixer stream on Linux with PulseAudio
+or PipeWire's PulseAudio interface. Knobby's game fader and the in-app buttons
+control that same stream, so moving slider 4 updates the displayed percentage.
+The OpenAL gain stays at unity while linked; it does not multiply a second
+80% gain into the system volume. Mixer mute is shown beside the percentage.
+Other backends use the local OpenAL volume, initially 80%.
 
 ## Playback and limits
 
@@ -86,6 +93,7 @@ See [audio.md](audio.md). ROMs and rendered WAVs remain local and ignored.
 ```sh
 make jukebox-test                 # synthetic inputs/packages + actual ROM audio
 make jukebox-window-test          # optional Xvfb mouse/keyboard/window/audio smoke
+make jukebox-volume-test          # private Pulse server: external/app volume sync
 make jukebox SONG=3 ARGS="--seconds 10"
 ```
 
@@ -93,3 +101,10 @@ The window test starts its own isolated Xvfb display and uses OpenAL's null
 device. It does not open a window or play sound on your desktop. Paddy mappings
 and hold/repeat behavior are tested using synthetic gamepad states; this does
 not replace testing your physical controller and hotplugging it.
+
+The volume test uses an isolated PulseAudio server with a null sink and a
+second process's stream. It changes that test server's volume and mute, checks
+the app's percentage and buttons, and verifies that the other process is untouched.
+It does not change your desktop mixer or stop your running player. PulseAudio
+test tools are included in the Nix development shell. The player uses the native
+client library without launching mixer commands during playback.
