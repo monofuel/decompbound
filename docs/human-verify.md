@@ -47,8 +47,16 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
     desktop saves.
   - **Notes:** monofuel confirmed launch/play, audio, L2 screen switching and
     Select+Start exit on the RG DS Plus. He reported some lag. The frontend's
-    scaling and frame wait were subsequently optimized; gameplay feel after
-    that update and in-game save/reload still need a manual check.
+    scaling and frame wait were subsequently optimized; he reports the update
+    feels better but still lags. In-game save/reload still needs a manual check.
+
+- [ ] **RG SP through mono-retro-player** · 2026-10-27
+  - **Run:** Choose Decompbound in the RG SP's mono-retro menu. Play with the
+    D-pad, face buttons and shoulders, listen to music/effects, then hold
+    Select+Start for two seconds to return. Make an in-game save and relaunch.
+  - **Pass if:** graphics are upright, sharp and centered with black borders;
+    controls and sound work; exiting restores the launcher; and the in-game
+    save survives restart. RG SP saves stay separate from DS Plus/desktop saves.
 
 - [ ] **Libretro core in mono-retro's desktop player** · 2026-10-27 · `master`
   - **Run:** `make libretro-play` ([setup and options](libretro.md#mono-retro)).
