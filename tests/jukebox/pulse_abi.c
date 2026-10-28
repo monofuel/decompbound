@@ -19,3 +19,10 @@ size_t jukebox_pulse_abi(unsigned field) {
     default: return (size_t)-1;
     }
 }
+
+int bestiary_pulse_mute_abi(void *callback) {
+    typedef pa_operation *(*setter)(pa_context *, uint32_t, int,
+                                   pa_context_success_cb_t, void *);
+    setter call = (setter)callback;
+    return call((pa_context *)1, 17, 0x01020304, NULL, NULL) == (pa_operation *)2;
+}

@@ -74,6 +74,7 @@ type
     dirty: bool
     busy: bool
     needsReconnect: bool
+    writeSerial, observedSerial, listSerial, pendingWrites: int
     retryAt: MonoTime
     mainloop: PaMainloop
     context: PaContext
@@ -126,6 +127,8 @@ var
   paContextSetSinkInputVolume: proc(c: PaContext, idx: uint32,
       volume: ptr PaCVolume, cb: PaContextSuccessCb,
       userdata: pointer): PaOperation {.cdecl, gcsafe, raises: [].}
+  paContextSetSinkInputMute: proc(c: PaContext, idx: uint32, mute: cint,
+      cb: PaContextSuccessCb, userdata: pointer): PaOperation {.cdecl, gcsafe, raises: [].}
   paOperationUnref: proc(o: PaOperation) {.cdecl, gcsafe, raises: [].}
   paProplistGets: proc(p: pointer, key: cstring): cstring {.cdecl, gcsafe, raises: [].}
   paCvolumeScale: proc(v: ptr PaCVolume, maxVolume: uint32): ptr PaCVolume {.cdecl, gcsafe, raises: [].}
@@ -177,6 +180,8 @@ proc loadPulseApi(): string =
   result = loadSymbol("pa_context_get_sink_input_info_list", paContextGetSinkInputInfoList)
   if result.len > 0: return
   result = loadSymbol("pa_context_set_sink_input_volume", paContextSetSinkInputVolume)
+  if result.len > 0: return
+  result = loadSymbol("pa_context_set_sink_input_mute", paContextSetSinkInputMute)
   if result.len > 0: return
   result = loadSymbol("pa_operation_unref", paOperationUnref)
   if result.len > 0: return
@@ -349,6 +354,7 @@ proc onSinkInputInfo(c: PaContext, info: ptr PaSinkInputInfo, eol: cint,
   if eol > 0:
     control.owned = move(control.pendingOwned)
     applyOwnedState(control)
+    control.observedSerial = control.listSerial
     control.busy = false
     return
   if info.isNil:
@@ -382,6 +388,7 @@ proc startClientList(control: SystemVolume) =
   if control.closed or control.busy or not contextIsReady(control):
     return
   control.busy = true
+  control.listSerial = control.writeSerial
   control.dirty = false
   control.clients.clear()
   let op = paContextGetClientInfoList(control.context, onClientInfo,
@@ -427,6 +434,8 @@ proc teardownContext(control: SystemVolume) =
   control.busy = false
   control.dirty = false
   control.needsReconnect = false
+  control.pendingWrites = 0
+  control.observedSerial = -1
   clearOwned(control)
   if not control.context.isNil:
     paContextSetStateCallback(control.context, nil, nil)
@@ -493,8 +502,21 @@ proc poll*(control: SystemVolume) =
     control.lastError = err
     startConnect(control)
     return
-  if contextIsReady(control) and control.dirty and not control.busy:
+  if contextIsReady(control) and control.dirty and not control.busy and control.pendingWrites == 0:
     startClientList(control)
+
+proc writesSettled*(control: SystemVolume): bool =
+  ## Require completed writes and a subsequent list snapshot before adopting mixer state.
+  control.available and control.pendingWrites == 0 and
+    control.observedSerial == control.writeSerial
+
+proc onWriteDone(c: PaContext, success: cint, userdata: pointer) {.cdecl, gcsafe, raises: [].} =
+  ## Release the write barrier and request causally fresh readback, including rejected writes.
+  let control = cast[SystemVolume](userdata)
+  if control.closed or c != control.context: return
+  if control.pendingWrites > 0: dec control.pendingWrites
+  if success == 0: control.lastError = pulseError(control)
+  control.dirty = true
 
 proc setPercent*(control: SystemVolume, percent: int) =
   ## Set only this process's current sink-input volumes, preserving mute and balance.
@@ -505,18 +527,41 @@ proc setPercent*(control: SystemVolume, percent: int) =
     raise newException(ValueError, detail)
   if percent < 0 or percent > MaxPercent:
     raise newException(ValueError, "percent must be in 0..100")
-  control.percent = percent
+  inc control.writeSerial
   let target = uint32((percent.uint64 * PaVolumeNorm.uint64 + 50'u64) div 100'u64)
   for stream in control.owned:
     if not stream.writable or not stream.hasVolume:
       continue
     var volume = scaledVolume(stream.volume, target)
+    inc control.pendingWrites
     let op = paContextSetSinkInputVolume(control.context, stream.index,
-        addr volume, nil, nil)
+        addr volume, onWriteDone, cast[pointer](control))
     if op.isNil:
+      dec control.pendingWrites
       control.lastError = pulseError(control)
     else:
       unrefOperation(op)
+  control.dirty = true
+
+proc setMuted*(control: SystemVolume, muted: bool) =
+  ## Set only this process's current sink-input mute flags, preserving volume and balance.
+  if not control.available or not contextIsReady(control):
+    let detail =
+      if control.lastError.len > 0: control.lastError
+      else: "system volume is unavailable"
+    raise newException(ValueError, detail)
+  let muteFlag = if muted: 1.cint else: 0.cint
+  inc control.writeSerial
+  for i in 0 ..< control.owned.len:
+    inc control.pendingWrites
+    let op = paContextSetSinkInputMute(control.context, control.owned[i].index,
+        muteFlag, onWriteDone, cast[pointer](control))
+    if op.isNil:
+      dec control.pendingWrites
+      control.lastError = pulseError(control)
+    else:
+      unrefOperation(op)
+  control.dirty = true
 
 proc close*(control: SystemVolume) =
   ## Release Pulse objects; safe to call more than once.
