@@ -6,6 +6,7 @@
 SHELL := bash
 .SHELLFLAGS := -o pipefail -c
 
+.PHONY: battle-bg-app battle-bg-build battle-bg-test battle-bg-window-test
 .PHONY: jukebox jukebox-build jukebox-test jukebox-window-test jukebox-volume-test jukebox-gamepad-test
 
 ROM ?= bin/Earthbound (U) [!].smc
@@ -53,6 +54,10 @@ help:
 	@echo "  make title        - screenshot deep into the attract sequence"
 	@echo "  make frames       - render reference frames to bin/frame_<N>.png"
 	@echo "  make jukebox SONG=N - render EarthBound song N to bin/jukebox_songNNN.wav"
+	@echo "  make battle-bg-app - two-window enemy battle background browser"
+	@echo "  make battle-bg-build - build bin/battle-bg without opening windows"
+	@echo "  make battle-bg-test - synthetic controls/renderer and ROM oracles/sweep"
+	@echo "  make battle-bg-window-test - isolated two-window Xvfb/pixel checks"
 	@echo "  make jukebox-app  - Pocket Jukebox: mouse, keyboard and Paddy music player"
 	@echo "  make jukebox-build - build bin/jukebox without opening a window"
 	@echo "  make jukebox-test - controls, loader and real-ROM music checks"
@@ -246,6 +251,23 @@ jukebox-volume-test: jukebox-build
 
 # --- Verification -----------------------------------------------------
 
+battle-bg-build: nim.cfg
+	@mkdir -p bin
+	nim c -d:release --out:bin/battle-bg src/tools/battle_bg_app.nim
+
+battle-bg-app: battle-bg-build
+	bin/battle-bg "$(ROM)" $(ARGS)
+
+battle-bg-test: nim.cfg
+	nim r $(NIM_TEST_FLAGS) tests/test_background_catalog.nim
+	nim r $(NIM_TEST_FLAGS) tests/test_background_browser.nim
+	nim r $(NIM_TEST_FLAGS) tests/test_battle_bg.nim
+	nim r -d:release $(NIM_TEST_FLAGS) tests/integration_battle_bg.nim "$(ROM)"
+
+battle-bg-window-test: battle-bg-build
+	nim c -d:release $(NIM_TEST_FLAGS) --out:bin/background-gl-smoke tests/backgrounds/gl_smoke.nim
+	nim r -d:release $(NIM_TEST_FLAGS) --out:bin/background-window-smoke tests/backgrounds/window_smoke.nim "$(ROM)"
+
 vectors: nim.cfg
 	nim r -d:release src/tools/run_vectors.nim 0
 
@@ -350,7 +372,7 @@ gfx-roundtrip: nim.cfg
 #   make battle-bg
 #   make battle-bg BG=6 FRAMES=30
 battle-bg: nim.cfg
-	nim r src/tools/battle_bg_explore.nim --bg $(BG) --frames $(FRAMES)
+	nim r src/tools/battle_bg_explore.nim "$(ROM)" --bg $(BG) --frames $(FRAMES)
 
 # Trace emulator state changes to bin/trace.log — the decomp instrument. Pass
 # options via ARGS, e.g. make trace ARGS="--frames 240 --watch 0x0020-0x0120"

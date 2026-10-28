@@ -32,6 +32,9 @@ void main() {
 """
 
 type
+  BlitViewport* = object
+    ## A physical framebuffer viewport, including centered cropping offsets.
+    x*, y*, width*, height*: int
   GlBlit* = object
     ## Holds the GL resources and window for repeated frame blits.
     window*: Window
@@ -114,6 +117,8 @@ proc initGlBlit*(title: string, nativeW, nativeH: int, scale: int = 3,
   glBindAttribLocation(program, 1, "vertexUv")
   glLinkProgram(program)
   checkLink(program)
+  glDeleteShader(vertShader)
+  glDeleteShader(fragShader)
   let texLoc = glGetUniformLocation(program, "tex")
 
   var textureId: GLuint
@@ -155,6 +160,9 @@ proc ensureFullscreen*(blit: GlBlit) =
 
 proc upload*(blit: GlBlit, img: Image) =
   ## Copy the frame image into the texture (same size as the native frame).
+  blit.window.makeContextCurrent()
+  glUseProgram(blit.program)
+  glActiveTexture(GL_TEXTURE0)
   glBindTexture(GL_TEXTURE_2D, blit.textureId)
   glTexSubImage2D(
     GL_TEXTURE_2D, 0, 0, 0,
@@ -162,10 +170,27 @@ proc upload*(blit: GlBlit, img: Image) =
     GL_RGBA, GL_UNSIGNED_BYTE, cast[pointer](img.data[0].addr)
   )
 
-proc draw*(blit: GlBlit) =
-  ## Fit and centre the texture, using integer scaling above native size.
-  let winW = blit.window.size.x
-  let winH = blit.window.size.y
+proc integerCover*(width, height, nativeW, nativeH: int): BlitViewport =
+  ## Cover a framebuffer at the smallest whole-pixel scale and crop the overflow.
+  if nativeW <= 0 or nativeH <= 0:
+    raise newException(ValueError, "Native image dimensions must be positive.")
+  if width <= 0 or height <= 0: return
+  let
+    scale = max(1, max((width + nativeW - 1) div nativeW,
+      (height + nativeH - 1) div nativeH))
+    fittedW = nativeW * scale
+    fittedH = nativeH * scale
+  BlitViewport(x: (width - fittedW) div 2, y: (height - fittedH) div 2,
+    width: fittedW, height: fittedH)
+
+proc draw*(blit: GlBlit, cover = false) =
+  ## Draw in this window's own context, optionally using integer crop-to-fill.
+  blit.window.makeContextCurrent()
+  glUseProgram(blit.program)
+  glActiveTexture(GL_TEXTURE0)
+  let size = if cover: blit.window.framebufferSize else: blit.window.size
+  let winW = size.x
+  let winH = size.y
   let scale = min(winW.float / blit.nativeW.float, winH.float / blit.nativeH.float)
   let fittedScale = if scale >= 1: scale.int.float else: scale
   let vpW = max(1'i32, (blit.nativeW.float * fittedScale).int32)
@@ -175,7 +200,12 @@ proc draw*(blit: GlBlit) =
 
   glClearColor(0.0, 0.0, 0.0, 1.0)
   glClear(GL_COLOR_BUFFER_BIT)
-  glViewport(vpX, vpY, vpW, vpH)
+  if cover:
+    let viewport = integerCover(winW.int, winH.int, blit.nativeW, blit.nativeH)
+    glViewport(viewport.x.GLint, viewport.y.GLint, viewport.width.GLsizei,
+      viewport.height.GLsizei)
+  else:
+    glViewport(vpX, vpY, vpW, vpH)
 
   glBindTexture(GL_TEXTURE_2D, blit.textureId)
   glBindBuffer(GL_ARRAY_BUFFER, blit.posBuffer)
@@ -186,8 +216,18 @@ proc draw*(blit: GlBlit) =
   glEnableVertexAttribArray(1)
   glDrawArrays(GL_TRIANGLES, 0, 6)
 
-proc blit*(blit: GlBlit, img: Image) =
+proc blit*(blit: GlBlit, img: Image, cover = false) =
   ## Upload, draw and present one frame.
   blit.upload(img)
-  blit.draw()
+  blit.draw(cover)
   blit.window.swapBuffers()
+
+proc close*(blit: GlBlit) =
+  ## Delete resources in their owning context before closing the window.
+  if blit.window == nil or blit.window.closed: return
+  blit.window.makeContextCurrent()
+  glDeleteBuffers(1, unsafeAddr blit.posBuffer)
+  glDeleteBuffers(1, unsafeAddr blit.uvBuffer)
+  glDeleteTextures(1, unsafeAddr blit.textureId)
+  glDeleteProgram(blit.program)
+  blit.window.close()
