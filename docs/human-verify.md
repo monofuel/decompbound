@@ -45,6 +45,10 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
     sharp when switched, all SNES buttons respond, sound is clean and correctly
     paced, and exiting restores the launcher. Device saves remain separate from
     desktop saves.
+  - **Notes:** monofuel confirmed launch/play, audio, L2 screen switching and
+    Select+Start exit on the RG DS Plus. He reported some lag. The frontend's
+    scaling and frame wait were subsequently optimized; gameplay feel after
+    that update and in-game save/reload still need a manual check.
 
 - [ ] **Libretro core in mono-retro's desktop player** · 2026-10-27 · `master`
   - **Run:** `make libretro-play` ([setup and options](libretro.md#mono-retro)).
