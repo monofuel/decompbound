@@ -37,7 +37,7 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 ## OPEN — please check
 
-- [ ] **Pocket Bestiary: portraits, search and automatic music** · 2026-10-28 · `monofuel/bestiary`
+- [ ] **Pocket Bestiary: portraits, search and automatic music** · 2026-10-28 · `master`
   - **Run:** `make bestiary-app`; browse with mouse, keyboard and Paddy. Search
     names/IDs, clear with Ctrl+A, leave search with Escape; inspect different
     portrait sizes (including enemy 218), missing portraits and background
@@ -53,7 +53,8 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
   - **Coverage:** 17 entries deliberately say no standard battle portrait.
     Scripted boss phases and group-478 special arrangement remain pending;
     these are centered native portraits over encounter presets, not full battles.
-
+  - **Notes:** monofuel confirmed the app works and approved the merge.
+    Detailed physical controller hotplug and fullscreen checks remain unconfirmed.
 
 - [ ] **Pocket Backgrounds: two windows and encounter browsing** · 2026-10-27 · `master`
   - **Run:** `make battle-bg-app`; optionally run the jukebox alongside it.
