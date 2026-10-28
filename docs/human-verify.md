@@ -37,6 +37,15 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 ## OPEN — please check
 
+- [ ] **RG DS Plus through mono-retro-player** · 2026-10-27
+  - **Run:** Choose Decompbound in the handheld's mono-retro menu. Play, press L2
+    to switch screens, hold Select+Start for two seconds to return, then relaunch.
+    Make an in-game save and verify it survives another exit/relaunch.
+  - **Pass if:** the game starts on the bottom screen with the top black, remains
+    sharp when switched, all SNES buttons respond, sound is clean and correctly
+    paced, and exiting restores the launcher. Device saves remain separate from
+    desktop saves.
+
 - [ ] **Libretro core in mono-retro's desktop player** · 2026-10-27 · `master`
   - **Run:** `make libretro-play` ([setup and options](libretro.md#mono-retro)).
     Boot, use a gamepad for all SNES buttons, make an in-game save, exit, and
