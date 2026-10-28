@@ -41,6 +41,7 @@ type
     playing*, paused*: bool
     elapsedSeconds*: int
     volume*: int
+    volumeMuted*: bool
     level*: float32
     hover*: Vec2
     controllerCount*: int
@@ -196,10 +197,12 @@ proc render*(view: JukeboxView, display: JukeboxDisplay): Image =
     of PageUp: view.label("page up", area.x, area.y + 7, 15, controlInk, width = area.w, centered = true)
     of PageDown: view.label("page down", area.x, area.y + 7, 15, controlInk, width = area.w, centered = true)
     else: discard
-  view.label(&"VOLUME   {display.volume}%", 102, 499, 11, Muted)
+  view.label(&"VOLUME   {display.volume}%" & (if display.volumeMuted: " / muted" else: ""),
+    102, 499, 11, Muted)
   view.box(rect(102, 524, 205, 6), ButtonBlue, 3)
   if display.volume > 0:
-    view.box(rect(102, 524, 205 * display.volume.float32 / 100, 6), Gold, 3)
+    view.box(rect(102, 524, 205 * min(display.volume, 100).float32 / 100, 6),
+      if display.volumeMuted: Idle else: Gold, 3)
   view.label("TRACK LIST", 438, 116, 12, Muted)
   view.label(&"{display.selection.index + 1:03d} / {display.tracks.len:03d}", 660, 115, 12, Muted)
   for row in 0 ..< VisibleTracks:

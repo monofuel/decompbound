@@ -53,6 +53,10 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
     plays. Audio and mouse/keyboard should continue; the controller should work
     again after reconnecting. The locked Paddy fork fixes the old device-path
     lifetime and disconnect handling; a virtual-controller cycle passes headlessly.
+  - **Volume check:** move Knobby slider 4 while music plays. The displayed
+    percentage should follow the jukebox's mixer stream even when unfocused.
+    In-app volume buttons should change that same stream. Mixer mute should be
+    shown, and other applications' mixer settings should stay unchanged.
   - **Notes:** monofuel confirmed the original player works; the EarthBound-inspired
     recolor needs a fresh visual check. Numeric labels are intentional. Track 4 may be silent; use 1/3/11/76
     for the initial listening check. Automated tests use silent output and synthetic
