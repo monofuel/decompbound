@@ -25,7 +25,7 @@ plumbing over solid ground, not new reverse engineering.
 ## App 1: Pocket Jukebox
 
 Implemented as `src/tools/jukebox_app.nim`: a music-only Nim player with a
-pastel cassette UI, numeric track list, mouse/keyboard/Paddy controls and
+EarthBound-inspired cassette UI, numeric track list, mouse/keyboard/Paddy controls and
 live Slappy audio. Run `make jukebox-app`; `make jukebox-build` builds without
 launching. The GUI and WAV exporter share `src/decompbound/music_player.nim`.
 

@@ -47,7 +47,10 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
     buttons do not repeatedly toggle playback, selection stays visible, mouse
     clicks match the resized picture, and background music continues. Controller
     disconnect/reconnect leaves mouse and keyboard usable.
-  - **Notes:** numeric labels are intentional. Track 4 may be silent; use 1/3/11/76
+  - **Theme check:** cream-framed navy panels, a red/gold cassette, and pink play
+    button should remain readable when selecting tracks and hovering controls.
+  - **Notes:** monofuel confirmed the original player works; the EarthBound-inspired
+    recolor needs a fresh visual check. Numeric labels are intentional. Track 4 may be silent; use 1/3/11/76
     for the initial listening check. Automated tests use silent output and synthetic
     gamepad states; real sound quality and controller behavior need this check.
 

@@ -11,12 +11,23 @@ const
   RowHeight = 41'f32
   ListWidth = 310'f32
   FontData = staticRead("../../data/silky/IBMPlexSans-Regular.ttf")
-  Cream = "#FFF9EF"
-  Ink = "#403952"
-  Muted = "#776E89"
-  Lavender = "#DFD3F2"
-  Pink = "#F6B4C5"
-  Mint = "#B9DCCB"
+  Background = "#101B33"
+  Frame = "#273C68"
+  Panel = "#141D35"
+  Cream = "#FFF0C2"
+  Ink = Cream
+  DarkInk = "#202D50"
+  Muted = "#BFCAE2"
+  ButtonBlue = "#364F7C"
+  Pink = "#F4A0B4"
+  Mint = "#9BDBC2"
+  Gold = "#F2D06C"
+  CassetteRed = "#D95E70"
+  CassetteShadow = "#0B1327"
+  CassetteWindow = "#304563"
+  Idle = "#7184A4"
+  MeterOff = "#38476A"
+  RowHover = "#253752"
 
 type
   JukeboxView* = ref object
@@ -112,21 +123,21 @@ proc triangle(view: JukeboxView, x, y: float32, color: string) =
 
 proc cassette(view: JukeboxView, display: JukeboxDisplay) =
   ## Draw a smiling cassette whose reels turn with generated playback time.
-  view.box(rect(50, 157, 310, 185), "#C6B9DD", 23)
-  view.box(rect(50, 151, 310, 185), Lavender, 23)
-  view.box(rect(68, 168, 274, 91), Cream, 12)
-  view.label("SIDE A  /  EARTHBOUND", 88, 181, 13, Muted)
+  view.box(rect(50, 157, 310, 185), CassetteShadow, 23)
+  view.box(rect(50, 151, 310, 185), CassetteRed, 23)
+  view.box(rect(68, 168, 274, 91), Gold, 12)
+  view.label("SIDE A  /  EARTHBOUND", 88, 181, 13, DarkInk)
   view.label(if display.songId > 0: &"TRACK {display.songId:03d}" else: "YOUR LITTLE MIXTAPE",
-    88, 204, 23)
-  view.box(rect(84, 245, 242, 61), "#9082AD", 24)
+    88, 204, 23, DarkInk)
+  view.box(rect(84, 245, 242, 61), CassetteWindow, 24)
   for x in [130'f32, 280'f32]:
     view.circle(x, 275, 25, Cream)
-    view.circle(x, 275, 16, Lavender)
-    view.circle(x, 275, 6, Ink)
+    view.circle(x, 275, 16, ButtonBlue)
+    view.circle(x, 275, 6, Gold)
     let phase = display.elapsedSeconds.float32 * 0.7
     for tooth in 0 ..< 3:
       let angle = phase + tooth.float32 * (2 * PI.float32 / 3)
-      view.circle(x + cos(angle) * 20, 275 + sin(angle) * 20, 3, Muted)
+      view.circle(x + cos(angle) * 20, 275 + sin(angle) * 20, 3, DarkInk)
   view.circle(194, 270, 2, Cream)
   view.circle(216, 270, 2, Cream)
   view.context.strokeStyle = parseHtmlColor(Cream)
@@ -137,14 +148,16 @@ proc cassette(view: JukeboxView, display: JukeboxDisplay) =
   view.context.stroke()
   for x in [65'f32, 345'f32]:
     for y in [167'f32, 319'f32]:
-      view.circle(x, y, 3, Muted)
+      view.circle(x, y, 3, DarkInk)
 
 proc render*(view: JukeboxView, display: JukeboxDisplay): Image =
   ## Render the complete music-only player; no game graphics are extracted.
-  view.image.fill(parseHtmlColor(Cream))
-  view.box(rect(20, 20, 760, 560), "#F1EAF7", 28)
-  view.box(rect(32, 32, 376, 523), "#FFFDF8", 23)
-  view.box(rect(420, 99, 344, 456), "#FFFDF8", 20)
+  view.image.fill(parseHtmlColor(Background))
+  view.box(rect(20, 20, 760, 560), Frame, 28)
+  view.box(rect(32, 32, 376, 523), Cream, 23)
+  view.box(rect(35, 35, 370, 517), Panel, 20)
+  view.box(rect(420, 99, 344, 456), Cream, 20)
+  view.box(rect(423, 102, 338, 450), Panel, 17)
   view.circle(365, 65, 13, Pink)
   view.circle(371, 61, 4, Cream)
   view.label("pocket jukebox", 50, 48, 31)
@@ -155,36 +168,38 @@ proc render*(view: JukeboxView, display: JukeboxDisplay): Image =
   let
     status = if display.paused: "PAUSED" elif display.playing: "NOW PLAYING" else: "READY WHEN YOU ARE"
     elapsed = &"{display.elapsedSeconds div 60:02d}:{display.elapsedSeconds mod 60:02d}"
-  view.circle(59, 367, 4, if display.playing: "#629E86" else: "#B4A6C6")
+  view.circle(59, 367, 4, if display.playing: Gold else: Idle)
   view.label(status, 72, 356, 12, Muted)
   view.label(elapsed, 306, 351, 20)
   for i in 0 ..< 12:
     let lit = display.playing and i.float32 / 12 < display.level
     view.box(rect(221 + i.float32 * 6, 360, 3, 12),
-      if lit: "#629E86" else: "#E8E1EF", 1)
+      if lit: Gold else: MeterOff, 1)
   for (action, area) in ControlRects:
     let hover = area.containsPoint(display.hover)
-    let base = if action == TogglePlayback: Pink else: Lavender
+    let
+      base = if action == TogglePlayback: Pink else: ButtonBlue
+      controlInk = if hover or action == TogglePlayback: DarkInk else: Ink
     view.box(area, if hover: Mint else: base, 12)
     case action
-    of PreviousTrack: view.label("|<<", area.x, area.y + 10, 20, width = area.w, centered = true)
-    of NextTrack: view.label(">>|", area.x, area.y + 10, 20, width = area.w, centered = true)
+    of PreviousTrack: view.label("|<<", area.x, area.y + 10, 20, controlInk, width = area.w, centered = true)
+    of NextTrack: view.label(">>|", area.x, area.y + 10, 20, controlInk, width = area.w, centered = true)
     of TogglePlayback:
       if display.playing:
-        view.box(rect(area.x + 27, area.y + 22, 5, 20), Ink, 1)
-        view.box(rect(area.x + 37, area.y + 22, 5, 20), Ink, 1)
-      else: view.triangle(area.x + 27, area.y + 22, Ink)
-      view.label(if display.playing: "pause" else: "play", area.x + 54, area.y + 17, 22)
-    of StopPlayback: view.label("stop", area.x, area.y + 4, 15, width = area.w, centered = true)
-    of Quieter: view.label("-", area.x, area.y + 1, 23, width = area.w, centered = true)
-    of Louder: view.label("+", area.x, area.y + 1, 23, width = area.w, centered = true)
-    of PageUp: view.label("page up", area.x, area.y + 7, 15, width = area.w, centered = true)
-    of PageDown: view.label("page down", area.x, area.y + 7, 15, width = area.w, centered = true)
+        view.box(rect(area.x + 27, area.y + 22, 5, 20), controlInk, 1)
+        view.box(rect(area.x + 37, area.y + 22, 5, 20), controlInk, 1)
+      else: view.triangle(area.x + 27, area.y + 22, controlInk)
+      view.label(if display.playing: "pause" else: "play", area.x + 54, area.y + 17, 22, controlInk)
+    of StopPlayback: view.label("stop", area.x, area.y + 4, 15, controlInk, width = area.w, centered = true)
+    of Quieter: view.label("-", area.x, area.y + 1, 23, controlInk, width = area.w, centered = true)
+    of Louder: view.label("+", area.x, area.y + 1, 23, controlInk, width = area.w, centered = true)
+    of PageUp: view.label("page up", area.x, area.y + 7, 15, controlInk, width = area.w, centered = true)
+    of PageDown: view.label("page down", area.x, area.y + 7, 15, controlInk, width = area.w, centered = true)
     else: discard
   view.label(&"VOLUME   {display.volume}%", 102, 499, 11, Muted)
-  view.box(rect(102, 524, 205, 6), Lavender, 3)
+  view.box(rect(102, 524, 205, 6), ButtonBlue, 3)
   if display.volume > 0:
-    view.box(rect(102, 524, 205 * display.volume.float32 / 100, 6), "#8EBDA8", 3)
+    view.box(rect(102, 524, 205 * display.volume.float32 / 100, 6), Gold, 3)
   view.label("TRACK LIST", 438, 116, 12, Muted)
   view.label(&"{display.selection.index + 1:03d} / {display.tracks.len:03d}", 660, 115, 12, Muted)
   for row in 0 ..< VisibleTracks:
@@ -196,14 +211,14 @@ proc render*(view: JukeboxView, display: JukeboxDisplay): Image =
       songId = display.tracks[index]
       area = rect(ListX, y, ListWidth, RowHeight - 4)
     if selected:
-      view.box(area, Lavender, 9)
-      view.box(rect(ListX, y + 8, 4, 21), "#8A6BA7", 2)
+      view.box(area, ButtonBlue, 9)
+      view.box(rect(ListX, y + 8, 4, 21), Gold, 2)
     elif area.containsPoint(display.hover):
-      view.box(area, "#F4EFF8", 9)
+      view.box(area, RowHover, 9)
     view.label(&"{songId:03d}", ListX + 16, y + 6, 17, Muted)
     view.label(&"Track {songId:03d}", ListX + 74, y + 6, 17)
     if songId == display.songId:
-      if display.playing: view.triangle(ListX + 274, y + 8, "#629E86")
+      if display.playing: view.triangle(ListX + 274, y + 8, Gold)
       elif display.paused: view.label("||", ListX + 274, y + 5, 17, Muted)
   view.label("Arrows: browse / skip   Enter: play   Space: pause   S: stop   +/-: volume",
     38, 559, 11, Muted)

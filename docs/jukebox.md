@@ -1,6 +1,6 @@
 # Pocket Jukebox
 
-A small Nim music player with a pastel cassette UI, numeric track list, and
+A small Nim music player with an EarthBound-inspired cassette UI, numeric track list, and
 mouse, keyboard, and Paddy controls. It plays EarthBound music from your own
 US ROM. It does not load player saves or run the game, and has no SFX mode.
 
