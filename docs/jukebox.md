@@ -49,6 +49,11 @@ connected during playback. Music continues when the window loses focus;
 input is accepted only while focused. The UI fits smaller windows and keeps
 mouse coordinates aligned with the centered picture.
 
+The locked Paddy fork includes Linux device-removal fixes. The optional
+`make jukebox-gamepad-test` creates a silent virtual gamepad through `/dev/uinput`,
+checks disconnect/reconnect in a bounded child, and destroys it. It needs access
+to `/dev/uinput` and the resulting evdev node, and emits no button presses.
+
 Tracks loop according to the original sound driver. The timer shows elapsed
 playback, not a guessed song length. Volume starts at 80%. There are no track
 names because we do not yet have a verified name catalog.

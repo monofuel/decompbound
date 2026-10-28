@@ -25,7 +25,8 @@ hang, Saturn Valley corruption, half-speed music) are tracked together in
 - Sprite render order (hotel sign / street signs / Ness-behind-counter / battle sprite order / top-edge clip).
 - Top-line + battle-border flicker + audio hitching (NMI-at-vblank + real-time 60 Hz pacing).
 - Scene/transition delays incl. intro cards + hotel-exit + music-ahead-of-scene (InstrPerLine 40->150 CPU budget).
-- Controller-disconnect crash (guarded poll+read, catches Defect).
+- Controller-disconnect exception in `play.nim` (guarded poll+read, catches Defect).
+  This was an app guard, not a dependency fix; see the jukebox hotplug item below.
 - Alt-tab super-speed (pacing backlog clamp).
 - Swirl color-math MODE (CGADSUB add/subtract bits were swapped).
 - Giygas intro red-snow (Mode 7 multiply for HDMA distortion; 2026-07-08 — please confirm in `make play`).
@@ -54,6 +55,15 @@ hang, Saturn Valley corruption, half-speed music) are tracked together in
 - DSP SFX accuracy — "deeper" SFX wrong (Goods-menu click, swirl sound, enemy-defeated) while simple beeps are right. DSP fork.
 
 ## OPEN (not yet assigned)
+
+- **Pocket Jukebox controller disconnect — fix ready for physical retry
+  (2026-10-27).** monofuel reported a crash after unplugging; the terminal trace
+  was lost. The old Paddy pin retained a udev-owned path after unref and mishandled
+  HUP/ENODEV removal. The lock now uses monofuel's `5bc2573`, which owns the path
+  and handles those removal paths. `make jukebox-gamepad-test` uses a real uinput
+  controller, bounded child polling, removal and reconnection; it passes. This
+  fixes the known dependency defects without swallowing arbitrary exceptions.
+  Confirm the original hardware through [human-verify.md](human-verify.md).
 
 - **Saturn Valley hot-spring VRAM corruption needs a queue-level diagnosis.**
   The `pi3-perf` experiment skipped large or translated VRAM DMA requests.

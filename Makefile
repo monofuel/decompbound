@@ -7,6 +7,7 @@ SHELL := bash
 .SHELLFLAGS := -o pipefail -c
 
 .PHONY: jukebox jukebox-build jukebox-test jukebox-window-test
+.PHONY: jukebox-gamepad-test
 
 ROM ?= bin/Earthbound (U) [!].smc
 MONO_RETRO_ROOT ?= $(firstword $(wildcard ../mono-retro /mnt/steel-chest/Monolab/Home/racha/src/mono-retro))
@@ -234,6 +235,9 @@ jukebox-test: nim.cfg
 
 jukebox-window-test: jukebox-build
 	nim r -d:release $(NIM_TEST_FLAGS) --out:bin/jukebox-window-smoke tests/jukebox/window_smoke.nim "$(ROM)"
+
+jukebox-gamepad-test: nim.cfg
+	nim r -d:release --forceBuild:on $(NIM_TEST_FLAGS) --out:bin/jukebox-hotplug-smoke tests/jukebox/hotplug_smoke.nim
 
 # --- Verification -----------------------------------------------------
 
