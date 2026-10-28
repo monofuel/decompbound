@@ -1,7 +1,7 @@
 import
   std/[math, strformat],
   pixie,
-  ./jukebox_controls
+  ./[jukebox_controls, companion_style]
 
 const
   ViewWidth* = 800
@@ -10,24 +10,6 @@ const
   ListY = 147'f32
   RowHeight = 41'f32
   ListWidth = 310'f32
-  FontData = staticRead("../../data/silky/IBMPlexSans-Regular.ttf")
-  Background = "#101B33"
-  Frame = "#273C68"
-  Panel = "#141D35"
-  Cream = "#FFF0C2"
-  Ink = Cream
-  DarkInk = "#202D50"
-  Muted = "#BFCAE2"
-  ButtonBlue = "#364F7C"
-  Pink = "#F4A0B4"
-  Mint = "#9BDBC2"
-  Gold = "#F2D06C"
-  CassetteRed = "#D95E70"
-  CassetteShadow = "#0B1327"
-  CassetteWindow = "#304563"
-  Idle = "#7184A4"
-  MeterOff = "#38476A"
-  RowHover = "#253752"
 
 type
   JukeboxView* = ref object

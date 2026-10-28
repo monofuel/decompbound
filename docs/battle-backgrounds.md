@@ -1,80 +1,212 @@
-# Battle backgrounds — RE the format + build the explorer
+# Pocket Backgrounds and the battle-background format
 
-**Status:** format RE in flight. The iconic psychedelic backgrounds — a great toy that
-secretly cracks a format.
+Pocket Backgrounds is a music-free Nim companion to [Pocket Jukebox](jukebox.md).
+It browses enemies in ROM record order and previews the backgrounds of encounters
+that actually spawn them. Controls and artwork have separate resizable windows.
 
-The goal: **reverse-engineer EarthBound's battle-background data**, then build an
-**animated explorer** — browse all ~300 backgrounds, watch them warp, mix layers. It's
-listed in `docs/stretch-goals.md` (the "battle-background player"); this is its own track
-because it's meaty and beloved.
+```sh
+make battle-bg-app
+make battle-bg-app ARGS="--enemy:2 --variant:1"
+make battle-bg-build                 # Build only; no desktop windows.
+```
 
-## What a battle background *is*
+Use the normal development shell (`nix develop` on this machine). `ROM=...`
+selects a user-supplied 3 MiB US ROM, with or without a 512-byte copier header.
+The application reads/decompresses its graphics at runtime. No game assets,
+frames, states, audio, or enemy-name database ship in the repository.
 
-EarthBound's battle backgrounds are **layered + animated**: typically two layers (one per
-BG plane) blended with color math, each carrying its own animation — horizontal/vertical
-scroll, a sine-wave **distortion/"compression"** warp (per-scanline offsets via HDMA), and
-**palette rotation**. Hundreds of layers combine into the game's psychedelic library.
+## Windows and controls
 
-## Where it stands
+The controls start at 800×600 and share the jukebox's cream/navy/pink theme.
+The second window starts at 768×672 and contains only the animated 256×224
+background: no controls, enemy sprite, battle UI or letterbox. Preview scaling
+uses the smallest integer scale that covers the framebuffer, with nearest
+sampling and centered cropping. Resizing to a different aspect ratio therefore
+crops artwork instead of stretching it or adding bars.
 
-- **We have the pieces**: the graphics compression codec (`gfx_lz`, byte-exact round-trip,
-  `docs/graphics.md`) + the tile-animation machinery RE'd (per-frame CHR-DMA queue
-  `$C0823C`, palette-cycle `$C081C8`, effect command-lists `$C59400+`).
-- **RE progress (from the dig):** the per-layer **animation lists at `$C59400`** (keyed by
-  layer ID) drive the CHR-DMA queue, palette-DMA queue, HDMA line-offsets, and scroll each
-  frame — the `18 07` + `04 xx` streams are the distortion-wave / animation params. Layers
-  **combine on BG1+BG2 with color math** (sub/add) + windows for the classic look. Battle
-  paths: `code_00B65F` / `code_00B525` / `code_019EE6`; the NMI upload queues live in
-  `code_008000`.
-- **Format RE'd (2026-07-07) — complete enough to build the renderer.** The **layer table**
-  is at `$CADEA1`: **17 bytes/entry, ~327 layers**. Per entry:
-  - `[0]` graphics index, `[1]` palette index
-  - `[3–7]` palette-animation (type / params / #palettes / speed)
-  - `[8–11]` scroll / translation ("Mov")
-  - `[12–16]` effects — the `$C59400` anim-list reference + distortion / HDMA / CHR-DMA /
-    palette-cycle params (drives the per-frame warp).
-  - Indices resolve through parallel far-pointer tables: **gfx `$CAD9A1`**, arrangement
-    `$CADB3D`, **palette `$CADCD9`** (4B each), plus scroll `$CAF458`, distortion `$CAF908`.
-- **Background-ID → layers**: table at **`$CBDA9A`** — `layerA:u16, layerB:u16` pairs
-  (`B=0` = single layer), the two layers combining on **BG1+BG2 with color math**. One
-  layer's compressed gfx round-tripped **byte-exact** via `gfx_lz`. The full pipeline
-  (bg-ID → layer pair → decompress gfx + palette → run anim params) is now documented.
+Closing the preview keeps the controls alive. **P** or **show preview** reopens
+it at the current animation time. Closing the controls or pressing Escape exits
+both. Playback continues when both windows lose focus; input is accepted while
+either is focused. Run the jukebox alongside it for music.
 
-## The frontier — the battle-BG data structures
+| Action | Keyboard | Paddy |
+|---|---|---|
+| Enemy / page | Up, Down / PageUp, PageDown; Home, End | D-pad Up/Down or left stick / L2, R2 |
+| Encounter background variant | Left, Right | L1, R1 |
+| Pause / resume | Space | Start |
+| Restart and play | Enter | Bottom face button (A) |
+| Reset, preserving pause | R | Right face button (B) |
+| Step one frame when paused | Period | Left face button (X) |
+| Speed: 0.25×, 0.5×, 1×, 2× | Minus, Plus/Equal | D-pad Left, Right |
+| Preview fullscreen | F11 | Top face button (Y); also reopens a closed preview |
+| Reopen / focus preview | P | Y |
+| Exit | Escape | Select + Start |
 
-1. **Layer table** — how many layers, the table base, each entry (compressed-graphics
-   pointer + palette + animation params). Where the layer CHR/tilemaps live.
-2. **Combine** — a background ID → one or two layer indices; the two-layer blend on
-   BG1/BG2 via color math.
-3. **Animation params** — per layer: effect *type* (h-scroll, v-scroll, the sine
-   distortion wave, palette rotation, translation) + params (speed, amplitude, frequency).
-   This is the HDMA line-offset table + palette-cycle data that makes them breathe.
+Mouse selection, wheel browsing, page buttons and all transport controls live in
+the controls window. Selecting another enemy or variant resets to frame zero;
+pause and speed are retained. Transport buttons are edge-triggered; held enemy
+navigation repeats after a delay.
 
-## Delegatable tasks (pick one)
+## What identifies a background
 
-1. **RE the layer table + graphics** — the table base + entry format; decode a couple
-   layers via `gfx_lz` (confirm they're compressed + round-trip).
-2. **RE the background-ID → layer(s) mapping + the color-math combine.**
-3. **RE the animation-parameter format** — the effect-type enum + params; cross-ref the
-   HDMA distortion tables + the palette-cycle routine (`$C081C8`).
-4. **Build the renderer** — decode a background's layers + run its animation params
-   (scroll + distortion + palette cycle) → an animated frame sequence, headless first.
-5. **The explorer UI** — a silky browser: scroll through all backgrounds, mix any two
-   layers, watch them animate live. A mini battle-BG *generator*.
+An enemy record does **not** contain a unique background id. The catalog walks:
 
-**Verification (the round-trip rule):** a decoded layer re-encodes byte-exact against the
-gold ROM; a rendered background pixel-compares against an emulator battle frame.
+`enemy ← positively spawned battle-group member → ordered (layer A, layer B)`
 
-## Definition of done
+The headerless US ROM has **484 groups**, **327 layer records** (zero means no
+layer), and the existing enemy-name decoder's **230-record window** (ids 1–230).
+That enemy bound is a named-record window, not a proven expander clamp. All
+positively spawned ids in the audited group lists fit it (maximum 229).
 
-- [ ] The layer table + background-ID mapping + animation-param format are documented,
-      byte-evidenced.
-- [ ] A layer round-trips byte-exact (`encode(decode(bytes)) == bytes`).
-- [ ] An explorer renders every background **animated**, browsable, with layer mixing.
+The current sweep finds **174 mapped enemies**, **56 unmapped rows**, and **454
+per-enemy variants**. There are 704 distinct enemy/group associations. Twenty-four
+member records have spawn count zero and are excluded; notably they do not turn
+ids 34 and 83 into spawned enemies. Unmapped rows remain selectable. Groups
+0, 425, 473 and 481 legitimately select `(0,0)`; group 0 still maps enemy 159.
+An empty pair is different from a missing mapping.
 
-## Related
+Variants deduplicate only identical **ordered A/B plus letterbox class**; source
+group ids are retained and sorted. Variants follow their first group id. Thus
+an enemy with several encounter presets remains browsable without collapsing
+reversed layers or different encounter framing. The unmasked preview does not
+apply that framing, but it remains part of variant identity.
 
-`docs/graphics.md` (compression + tile/palette), `docs/stretch-goals.md` (the
-battle-BG player), and the tile-animation RE (the CHR-DMA / palette-cycle / effect tables).
-A `Ctrl+3` save-state *inside a battle* lets the trace tool watch the exact HDMA + palette
-writes for that background — the fastest way to pin an animation's params.
+## Verified ROM layout
+
+All offsets below are **headerless file offsets**. Older versions of this document
+and the old exporter mixed copier-header offsets into SNES addresses (+`0x200`);
+those claims are superseded here.
+
+| Table | File offset | Shape / meaning |
+|---|---|---|
+| Enemy records | `0x159589` | `0x5E` bytes; names through `battle_formation.decodeEnemyName` |
+| Battle groups | `0x10C60D` | 484 × 8 bytes; +0 u24 member pointer, +7 flags |
+| Member lists | `0x10D52D..0x10DFB4` | Repeated u8 spawn count + u16 enemy id; `FF` terminator |
+| Group background pair | `0x0BD89A` | 484 × (u16 A, u16 B) |
+| Compressed CHR pointers | `0x0AD7A1` | 103 × 4-byte far-pointer entries |
+| Compressed arrangement pointers | `0x0AD93D` | 103 × 4-byte far-pointer entries |
+| Palette pointers | `0x0ADAD9` | 114 × 4-byte entries; each points to 16 raw BGR555 colors |
+| Layer records | `0x0ADCA1` | 327 × 17 bytes |
+| Scroll programs | `0x0AF258` | 120 × 10 bytes |
+| Distortion programs | `0x0AF708` | 135 × 17 bytes |
+| Signed sine samples | `0x00B425` | 256 bytes; read from the ROM, never embedded |
+
+The group span ends exactly at the member-list base; layer span ends exactly at
+the scroll base. The pair consumer at `$C2489D` (file `0x02489D`) loads
+`$CB:D89A`, indexes `group*4`, and reads both words at `$C248BB/$C248C8`.
+The layer loader at `$C2D1CF` indexes `$CA:DCA1` by `layer*17`. Group bounds also
+have the `CMP #$01E3` sites `$C2C309/$C2C236`. The expander at `$C1E3CF` reaches
+its countdown before appending a member, so a zero count appends nobody.
+Letterbox selection is `group+7 & 3` at `$C2D148`; the in-battle vertical ranges
+are 0/224, 47/176, 57/166, and 67/156 (`$ADB2/$ADB4`).
+
+Layer bytes: +0 graphics/arrangement index, +1 palette index, +2 bpp (2 or 4),
++3 palette-cycle type, +4/+5 first inclusive range, +6/+7 second range, +8 speed,
++9..12 four scroll slots, +13..16 four distortion slots. Arrangements decode to
+exactly 2048 bytes (32×32 u16 tile attributes). All 103 audited arrangements have
+palette-selector bits zero; maximum tile index is 441. All 326 nonzero layers
+fit their decoded CHR. Nonzero palette selectors are rejected explicitly rather than ignored.
+The loader rejects truncated streams/tables, invalid
+indices, unsupported bpp, and malformed catalog member lists.
+
+Scroll entries contain duration u16, followed by signed h/v velocity and h/v
+acceleration words. The original update `$C2CBB9..$C2CCEC` adds acceleration to
+velocity **before** adding velocity to position, wrapping at 16 bits. Startup
+slot=0/counter=1 advances before loading; slot 1 is first if nonzero, otherwise
+slot 0. A zero next index returns to slot 0; a zero duration holds indefinitely.
+The decoder resolves this slot order. Rendering integrates segments in bounded
+time using modular arithmetic, without replaying every earlier frame.
+
+Distortion entries: +0 duration u16, +2 kind u8, +3 frequency u16, +5 amplitude
+u16, **+7 initial angle u8**, **+8 compression u16**, +10 frequency acceleration
+s16, +12 amplitude acceleration s16, **+14 speed u8**, +15 compression
+acceleration s16. The old packing was one byte off. `$C2CF29..$C2CFDF` updates
+frequency/amplitude/compression modulo 65536 and angle modulo 256 before
+rendering. It passes only the **high byte** of amplitude to `$C0AE5A`.
+
+The four kinds generate horizontal, alternating horizontal, vertical, and
+alternating vertical scroll-register words. Signed wave displacement is
+`(amplitudeHighByte * sine[angleIndex]) >> 8`. Horizontal phase includes vertical
+scroll; vertical phase does not. Compression advances its 8.8 accumulator
+**before** each vertical scanline. The engine's kind is record kind minus one.
+
+Palette update `$C2C94F..$C2CBA2` first writes phase zero, then advances phase;
+subsequent writes occur every speed ticks. Speed zero freezes after that first
+write. Types 1 and 2 copy backwards through one or two inclusive ranges. Type 3
+is a mirrored traversal over `2*rangeLength`, including repeated endpoints;
+it is not a rotated palette with a ping-pong shift. Render calls do not mutate
+decoded palettes, so restart and random access are deterministic.
+
+## Composition, coverage, and open research
+
+All **52 two-layer catalog groups** use two 2bpp layers. Original loader execution
+for group 39 takes `$C2D714`: A is main-screen BG3, B is subscreen BG4, mode 0,
+preset 3 (`CGWSEL=02`, `CGADSUB=64`; `$C2D899..$C2D8A8`). Separate palettes are
+staged for CGRAM indices 64 and 96. B's transparent index zero uses black fixed
+color and disables halving; an opaque B half-adds with A or the backdrop.
+`$C2E9ED → $C0B01A` clears the fixed color. The distinct 4bpp path uses BG1/BG2
+and optional preset 7; it is not the path taken by those 52 groups.
+
+The standalone preview deliberately uses a **black backdrop**, omits battle
+letterboxing/UI and starts the preset's local clock at zero. The loader leaves
+CGRAM entry zero inherited from its caller, so this is a defined preview choice,
+not a claim of pixel identity with every captured battle. Frame 1 represents
+one original update; frame 0 exposes the initial parameters. All ordinary layer
+programs are supported, but a passing sweep does not establish every whole-battle
+frame or special script effect as faithful.
+
+Scripted phases are **not yet catalog variants**. Independently located overrides:
+
+- Group **478 (`01DE`)** takes larger VRAM uploads at `$C2D205`, using `$5C00/$5000`
+  and size `$3000`. Its ordinary decoded pair is a preset preview; the special
+  arrangement/upload behavior still needs a dedicated whole-scene comparison.
+- `$C4AD34` explicitly loads pair **228+229** with Y=4; `$C473A1` also calls the
+  loader with Y=4. Their enemy/phase reachability is not yet established.
+- `$C426ED..$C42796` applies an 8.8 RGB palette ramp and requests CGRAM DMA index
+  `$18`. It is separate from the ordinary palette-cycle driver.
+
+Do not invent boss-phase names or attach script-only pairs to enemies without
+proving their call context. Next research is to trace those callers, identify
+phase transitions and the inherited backdrop, and compare whole-scene output
+with live PPU frames. `src/probes/probe_background_composition.nim` remains a
+reproducible loader/PPU investigation for these open questions; it accepts a
+group id and optional second-layer/flags overrides. Closed palette, scroll and
+distortion experiments graduated into the integration suite below.
+
+The dependency lock uses monofuel's Windy fork at `0c34bd7`. Its X11 event
+predicate and `XCheckIfEvent` use C `int` rather than Nim `bool`; the old ABI
+could route preview events to the controls window in release builds. The real
+two-window lifecycle check is a regression test for that fix.
+
+## Verification and export
+
+```sh
+make battle-bg-test
+make battle-bg-window-test
+nim r src/probes/probe_background_composition.nim 39
+make battle-bg BG=39 FRAMES=30
+make compare
+```
+
+`battle-bg-test` runs ROM-independent synthetic catalog, input/clock/hit-testing,
+scroll, palette, tile-flip, transparency and crop checks, then the required-ROM
+integration sweep (missing ROM is an error). It renders every group at frames
+0/15/30 and every nonzero layer at 0/1/15/30/180/1000000001, checks deterministic
+random access, checks decode/encode/decode for all 103 CHR and arrangement
+resources, and executes the original palette/scroll/distortion CPU routines
+against independent synthetic oracles and production palette/scroll/distortion output.
+The greedy codec's semantic round trips are not a claim of original compressed-byte
+identity. A synthetic PPU comparison independently checks the renderer's four transparency
+combinations. Distortion multi-record reload currently has disassembly evidence;
+its original-CPU oracle covers scanline equations and per-frame wrapping.
+
+The isolated Xvfb suite exercises real input through both windows, resized mouse
+coordinates, animation without focus, preview close/reopen and controls-window
+shutdown. A separate two-context GL check reads framebuffer pixels and verifies
+integer nearest crop using authored colors. It never opens the user's desktop.
+Physical controller hotplug/fullscreen/visual feel remain in
+[human verification](human-verify.md).
+
+The headless exporter now uses the same renderer and outputs local frames to
+ignored `bin/battle_bg/bg_NNN/`. `make battle-bg BG=N FRAMES=N ROM=...` preserves
+its existing entry point. Do not commit exported images or ROM-derived data.

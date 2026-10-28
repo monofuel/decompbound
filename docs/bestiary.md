@@ -36,11 +36,12 @@ real game-data formats, so building it advances the decomp.
 - ✅ **Battle enemy sprites** — output path mapped (`docs/graphics.md`): the enemy
   record holds **two 3-byte far gfx pointers + a dimension byte**; decode via
   `gfx_lz` (byte-exact round-trip codec already shipped).
-- ✅ **Battle backgrounds** — format RE complete (`docs/battle-backgrounds.md`,
-  2026-07-07): layer table `$CADEA1` (17 B/entry, ~327 layers), bg-ID → layer
-  pair `$CBDA9A`, gfx/palette pointer tables, anim params (scroll, HDMA sine
-  distortion, palette rotation). One layer round-tripped byte-exact.
-  `battle_bg_explore.nim` exists; the reusable animated renderer is Track C.
+- **Battle backgrounds** — [Pocket Backgrounds](battle-backgrounds.md) now browses
+  enemy-associated encounter presets in two windows. The verified headerless
+  layer table is `$CADCA1` (327 × 17 bytes), group pairs `$CBD89A` (484 entries).
+  Ordinary palette/scroll/distortion behavior has original-CPU evidence;
+  scripted boss phases and whole-scene fidelity remain open. The old +`0x200`
+  table claims and “format complete” status are superseded by that document.
 - ✅ **Song table** — `0x04F70A` (song ID → 3 pack indices), loader `$C4FBBD`
   (`docs/audio.md`); `sound_explore.nim` already resolves a song's packs, and
   the live-APU streaming path is designed in `docs/apps.md` App 1.
@@ -48,9 +49,8 @@ real game-data formats, so building it advances the decomp.
 - ✅ **Battle-group table** — `$D0C60D` / file `0x10C60D`, **484 × 8-byte**
   records: `+0..+2` far ptr to member list (`[u8 count, u16 enemyId]…$FF`),
   `+4` u16 event-flag + `+6` wanted value (enable predicate, reader `$C0C524`),
-  `+7&3` letterbox selector (`$C2D121`). Bg layer pair per group reported at
-  `$CBD89A + groupId*4` — reconciliation with the `$CBDA9A` claim below is
-  Track D's job. (Older `0x10D74C` note was mid-blob, not a table base.)
+  `+7&3` letterbox selector (`$C2D121`). Bg layer pair per group is verified at
+  `$CBD89A + groupId*4` — see battle-backgrounds.md. (Older `0x10D74C` note was mid-blob, not a table base.)
 - ✅ **Text decode** — `text_decode.nim` (names, via the EB text encoding).
 - ❌ **Ability/action list** — where an enemy's castable-PSI/actions live is the
   open frontier (Track E).
@@ -81,21 +81,21 @@ renderable frames (render-to-PNG headless probe).
 **Referee:** the round-trip rule — `encode(decode(bytes)) == bytes` against the
 gold ROM; pixel-compare one known enemy against an emulator battle frame.
 
-### Track C — Battle background renderer (RE done, renderer pending)
-Grow `battle_bg_explore` into a reusable animated renderer: bg-ID → layer pair
-→ decompress gfx + palette → run anim params (scroll, HDMA distortion wave,
-palette rotation) → frame sequence. **Headless first** (no-GUI-testing rule).
-**Referee:** pixel-compare a rendered bg against a captured emulator battle
-frame; decoded layers re-encode byte-exact.
+### Track C — Battle background renderer and browser
+The reusable `battle_bg` renderer and two-window Pocket Backgrounds app now
+support ordinary encounter presets. Original CPU/PPU checks cover animation
+primitives and transparency; whole-scene fidelity, inherited backdrop and
+script-driven boss phases remain open. [Battle-backgrounds](battle-backgrounds.md)
+is the canonical format, evidence and remaining-work document. Compression
+semantic round trips do not establish original compressed-byte identity.
 
-### Track D — Enemy → context linkage (why some enemies have multiple bgs)
-RE dig: field-map the formation/battle-group records (`0x10D74C`) — member
-enemy ids, **background id(s)**, and (hypothesis) the battle-music selector.
-Deliverable: enemy id → the formations it appears in → each formation's bg +
-music. This is exactly why one enemy shows several backgrounds, and it gives
-the app "appears alongside: X, Y" for free.
-**Referee:** in-battle save state (Ctrl+3) + trace: the predicted bg id and
-song id match what the emulator actually loads for a known encounter.
+### Track D — Enemy → context linkage
+`battle_bg_catalog` now derives spawned-enemy → source groups → ordered layer
+pairs and letterbox class from the verified `$D0C60D` group table. It preserves
+unmapped enemies and multiple variants. Music selectors, script-only encounters,
+and phase reachability remain additional bestiary work; do not infer them from
+the background pair. See the same canonical document for the positive-spawn
+rule and original-code evidence.
 
 ### Track E — Ability/action list (the hard RE frontier)
 Which PSI/battle actions each enemy can cast, cross-referenced to the PSI table
