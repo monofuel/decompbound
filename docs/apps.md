@@ -36,6 +36,20 @@ playback are outside this app's current scope.
 
 ---
 
+## Pocket Bestiary and Pocket Backgrounds
+
+[Pocket Bestiary](bestiary.md) now combines a searchable enemy list, standard
+battle portraits, verified core stats, encounter backgrounds and automatic
+selected-enemy music in one native window. Run `make bestiary-app`.
+[Plumbing and verification](bestiary.md#verification) share the jukebox's PCM
+output/mixer adapter and the background browser's deterministic renderer.
+
+[Pocket Backgrounds](battle-backgrounds.md) remains the separate two-window,
+visual-only browser (`make battle-bg-app`). Both read runtime assets from the
+user's ROM. Scripted boss effects remain documented gaps.
+
+---
+
 ## App 2: Save-file report card — read the SRAM, print a full report
 
 **Status:** NOT STARTED (but `sram_info.nim` is the seed).

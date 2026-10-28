@@ -6,6 +6,7 @@
 SHELL := bash
 .SHELLFLAGS := -o pipefail -c
 
+.PHONY: bestiary-app bestiary-build bestiary-test bestiary-window-test
 .PHONY: battle-bg-app battle-bg-build battle-bg-test battle-bg-window-test
 .PHONY: jukebox jukebox-build jukebox-test jukebox-window-test jukebox-volume-test jukebox-gamepad-test
 
@@ -54,6 +55,10 @@ help:
 	@echo "  make title        - screenshot deep into the attract sequence"
 	@echo "  make frames       - render reference frames to bin/frame_<N>.png"
 	@echo "  make jukebox SONG=N - render EarthBound song N to bin/jukebox_songNNN.wav"
+	@echo "  make bestiary-app - Pocket Bestiary: portraits, stats, backgrounds and music"
+	@echo "  make bestiary-build - build bin/bestiary without opening a window"
+	@echo "  make bestiary-test - synthetic, ROM and original-code portrait checks"
+	@echo "  make bestiary-window-test - isolated Xvfb/audio input and mixer checks"
 	@echo "  make battle-bg-app - two-window enemy battle background browser"
 	@echo "  make battle-bg-build - build bin/battle-bg without opening windows"
 	@echo "  make battle-bg-test - synthetic controls/renderer and ROM oracles/sweep"
@@ -250,6 +255,22 @@ jukebox-volume-test: jukebox-build
 	nim r -d:release $(NIM_TEST_FLAGS) --out:bin/jukebox-window-smoke tests/jukebox/window_smoke.nim "$(ROM)" --system-volume
 
 # --- Verification -----------------------------------------------------
+
+bestiary-build: nim.cfg
+	@mkdir -p bin
+	nim c -d:release --out:bin/bestiary src/tools/bestiary_app.nim
+
+bestiary-app: bestiary-build
+	bin/bestiary "$(ROM)" $(ARGS)
+
+bestiary-test: nim.cfg
+	nim r $(NIM_TEST_FLAGS) tests/test_bestiary.nim
+	nim r $(NIM_TEST_FLAGS) tests/test_bestiary_browser.nim
+	nim r -d:release $(NIM_TEST_FLAGS) tests/integration_bestiary.nim "$(ROM)"
+
+bestiary-window-test: bestiary-build
+	nim c -d:release $(NIM_TEST_FLAGS) --out:bin/bestiary-output-smoke tests/bestiary/output_smoke.nim
+	nim r -d:release $(NIM_TEST_FLAGS) --out:bin/bestiary-window-smoke tests/bestiary/window_smoke.nim "$(ROM)"
 
 battle-bg-build: nim.cfg
 	@mkdir -p bin

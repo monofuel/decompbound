@@ -66,6 +66,10 @@ make mcp              # Goal 5 playthrough co-pilot MCP (http://localhost:4343/m
 
 Other useful targets: `make help`, `make intro`, `make jukebox`, `make audio-check`.
 
+`make bestiary-app` opens [Pocket Bestiary](docs/bestiary.md): enemy portraits,
+core stats, animated encounter backgrounds and automatic battle music.
+`make bestiary-build` builds it without opening a window.
+
 `make battle-bg-app` opens [Pocket Backgrounds](docs/battle-backgrounds.md), a
 two-window enemy background browser with mouse, keyboard and Paddy controls.
 `make battle-bg-build` builds it without opening windows.

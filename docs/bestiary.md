@@ -1,172 +1,185 @@
-# Bestiary — the EarthBound-styled enemy browser
+# Pocket Bestiary
 
-**Status:** plan v2 (track breakdown; promoted from the "Animated Bestiary" stretch goal).
-**Updated:** 2026-08-01.
+A single-window Nim browser for enemy battle portraits, core stats, encounter
+backgrounds and automatic battle music, all read from your own ROM at runtime.
+It shares Pocket Jukebox's cream/navy/pink theme and its audio output, and uses
+Pocket Backgrounds' native renderer and enemy-to-encounter catalog.
 
-A browsable catalog of every EarthBound enemy — name, stats, abilities, battle +
-overworld sprites, **animated battle backgrounds** (some enemies have several),
-and **battle music** — extracted from the **user's own ROM at run time**
-(asset-free; nothing game-derived is committed). Styled like the game itself:
-the ROM's own font, EB window flavor, the psychedelic bg warping behind the
-sprite. Its *secret purpose* is unchanged: every track below cracks or exercises
-real game-data formats, so building it advances the decomp.
-
-## Two consumers → two modes, one backbone
-
-```
-                ┌─────────────────────────┐
-   ROM ───────▶ │  bestiary data backbone │  decode records → structured model
-                │  (bestiary module)      │  (stats + abilities + sprites + bg + music)
-                └───────────┬─────────────┘
-                    ┌───────┴────────┐
-        pretty GUI  │                │  AI / CLI
-   (default, human) ▼                ▼  (machine-readable)
-   animated Pokédex: bg warping,   `enemy_info "Mani-Mani Statue"` → stats + can-cast
-   sprite, stats, battle music     `enemy_info --json <name>` for agents/qwen
+```sh
+make bestiary-app
+make bestiary-app ARGS="--enemy:134"
+make bestiary-build                 # Build only; no desktop window.
+make bestiary-app ARGS="--mute"      # Visual-only; never opens an audio device.
 ```
 
-## RE state (what each track stands on)
+Use the normal development shell (`nix develop` on this machine). `ROM=...`
+selects a user-supplied 3 MiB US ROM, with or without its 512-byte copier header.
+CLI options also include `--rom:PATH`, `--fullscreen`, `--frames:N`, `--trace`
+and `--help`. No game assets, names, audio, memory images or captured scenes ship
+in the repository. Generated local previews remain in ignored paths.
 
-- ✅ **Enemy configuration table** — pinned (sword-of-kings RE, 2026-07-27): base
-  `$D59589` / file `0x159589`, **`0x5E`-byte records**, indexed id×`$5E`
-  (`LDY #$005E` + `JSL $C08FF7` at `$C24D88`; init copy `$C2B6FA`). Name EB-text
-  `+0x01`, HP u16 `+0x21`, PP `+0x23`, EXP u32 `+0x25`, money `+0x29`, drop freq
-  `+0x57`, drop item id `+0x58`. Remaining fields (off/def/speed, resistances,
-  music, sprite pointers, death style) not yet field-mapped — that's Track A.
-- ✅ **Battle enemy sprites** — output path mapped (`docs/graphics.md`): the enemy
-  record holds **two 3-byte far gfx pointers + a dimension byte**; decode via
-  `gfx_lz` (byte-exact round-trip codec already shipped).
-- **Battle backgrounds** — [Pocket Backgrounds](battle-backgrounds.md) now browses
-  enemy-associated encounter presets in two windows. The verified headerless
-  layer table is `$CADCA1` (327 × 17 bytes), group pairs `$CBD89A` (484 entries).
-  Ordinary palette/scroll/distortion behavior has original-CPU evidence;
-  scripted boss phases and whole-scene fidelity remain open. The old +`0x200`
-  table claims and “format complete” status are superseded by that document.
-- ✅ **Song table** — `0x04F70A` (song ID → 3 pack indices), loader `$C4FBBD`
-  (`docs/audio.md`); `sound_explore.nim` already resolves a song's packs, and
-  the live-APU streaming path is designed in `docs/apps.md` App 1.
-- ✅ **PSI table** — `0x158C50`, ~15-byte records (holds *PSI Shield*).
-- ✅ **Battle-group table** — `$D0C60D` / file `0x10C60D`, **484 × 8-byte**
-  records: `+0..+2` far ptr to member list (`[u8 count, u16 enemyId]…$FF`),
-  `+4` u16 event-flag + `+6` wanted value (enable predicate, reader `$C0C524`),
-  `+7&3` letterbox selector (`$C2D121`). Bg layer pair per group is verified at
-  `$CBD89A + groupId*4` — see battle-backgrounds.md. (Older `0x10D74C` note was mid-blob, not a table base.)
-- ✅ **Text decode** — `text_decode.nim` (names, via the EB text encoding).
-- ❌ **Ability/action list** — where an enemy's castable-PSI/actions live is the
-  open frontier (Track E).
-- ❌ **Overworld sprite definitions** — ID → CHR table still open; needs the
-  emulator-as-referee DMA watch (Track H, stretch).
+## Browsing and playback
 
-## Track breakdown
+The 960×720 logical canvas has a searchable enemy sidebar, a 256×224 native scene
+shown at 2×, core stats and transport controls. The portrait is centered at its
+original pixel size over the animated background. Window resizing fits the whole
+canvas with nearest sampling and preserved aspect ratio; fullscreen shows the
+whole bestiary. Its presentation omits battle UI and encounter letterboxing.
 
-Each track is a self-contained delegatable ticket with a **mechanical referee**
-(`docs/delegation.md`: grok conductor + sub-agents; never merge on self-report).
-A, B, C, F are independent — parallel workers from day one. D and E are RE digs
-(one hypothesis per worker). G assembles.
+The supported record window is **IDs 1–230 in ROM order**. Duplicate names remain
+separate numbered entries. This is the existing name decoder's supported window,
+not a claim that an engine bounds check proves 230 is the final possible id.
+Search matches case-insensitive name substrings or an exact numeric id (`134`
+or `#134`). Selection is retained when it still matches; otherwise the first
+match is selected. Empty results clear the scene and stop music. Clearing the
+query restores the remembered enemy where possible.
 
-### Track A — Data backbone + CLI (plumbing, zero new RE)
-`src/decompbound/bestiary.nim` module + `src/tools/enemy_info.nim`. Decode the
-full `0x5E` record: name via `text_decode`, the pinned stats/drops, and
-**field-map the rest of the record** — offense/defense/speed, status/element
-resistances, music id, the two battle-sprite pointers, death style. Ship the
-CLI modes in the same ticket: plain, `--json`, `--all`, `--query "<question>"`
-(yes/no + evidence) so llm-play's qwen can use it immediately. Magic offsets
-get `const` + comment.
-**Referee:** Pogo Punk + Mani-Mani stats byte-match the documented offsets;
-`--all` decodes every id with no garbage names.
+Core stats are base HP/PP, EXP reward, money reward, drop item and listed drop
+rate. No drop item is shown as **None**; drop frequency zero means **1/128**, not
+never. These are record values, not predictions for every scripted battle.
 
-### Track B — Battle sprite decode (buildable now)
-Enemy record gfx pointers → `gfx_lz` decompress → tile + palette assembly →
-renderable frames (render-to-PNG headless probe).
-**Referee:** the round-trip rule — `encode(decode(bytes)) == bytes` against the
-gold ROM; pixel-compare one known enemy against an emulator battle frame.
+Music follows the **selected enemy's own song field**, rather than the first
+member of a selected encounter. Changing background variants leaves music alone;
+changing enemies with the same song preserves playback position. Different-song
+changes stop stale music immediately and coalesce loading after 150 ms, keeping
+rapid navigation responsive. Zero or unused song assignments stop previous music
+and show **No assigned theme**. Tracks loop through the existing SPC/DSP player.
 
-### Track C — Battle background renderer and browser
-The reusable `battle_bg` renderer and two-window Pocket Backgrounds app now
-support ordinary encounter presets. Original CPU/PPU checks cover animation
-primitives and transparency; whole-scene fidelity, inherited backdrop and
-script-driven boss phases remain open. [Battle-backgrounds](battle-backgrounds.md)
-is the canonical format, evidence and remaining-work document. Compression
-semantic round trips do not establish original compressed-byte identity.
+Pause freezes both background and music; restart resets both and plays. Reset
+preserves pause. Mute keeps song time advancing. Volume percentage and mute track
+the app's actual mixer stream, including external slider changes. When system
+mixer control is unavailable, local gain preserves the controls. Pending volume
+and mute requests survive attachment/reattachment; local silence guards the
+transition until writes complete and a fresh server snapshot arrives. Concurrent
+external mixer changes win as the actual backend state. Audio and animation
+continue unfocused, while navigation requires focus.
 
-### Track D — Enemy → context linkage
-`battle_bg_catalog` now derives spawned-enemy → source groups → ordered layer
-pairs and letterbox class from the verified `$D0C60D` group table. It preserves
-unmapped enemies and multiple variants. Music selectors, script-only encounters,
-and phase reachability remain additional bestiary work; do not infer them from
-the background pair. See the same canonical document for the positive-spawn
-rule and original-code evidence.
+| Action | Keyboard | Paddy |
+|---|---|---|
+| Enemy / page | Up/Down; PageUp/PageDown; Home/End | D-pad/stick Up/Down; L2/R2 |
+| Background variant | Left/Right | L1/R1 |
+| Pause/resume both | Space | Start |
+| Restart and play | Enter | A |
+| Reset, preserving pause | R | B |
+| Music mute | M | X |
+| Volume | Minus/Plus | D-pad Left/Right |
+| Fullscreen | F11 | Y |
+| Search | Slash, Ctrl+F, or mouse field; Ctrl+A clears | Browse the filtered list |
+| Exit | Escape outside search | Select+Start |
 
-### Track E — Ability/action list (the hard RE frontier)
-Which PSI/battle actions each enemy can cast, cross-referenced to the PSI table
-(`0x158C50`) so the tool can say "casts *PSI Shield Σ* (reflect)". One
-hypothesis per worker: inline id bytes in the `0x5E` record vs. a pointer into
-a separate action table. If behavior turns out AI-driven and the AI isn't RE'd,
-the tool **says so explicitly** — never guesses.
-**Referee:** live battle where a known enemy casts a known move; the decoded
-list must contain it. Acceptance test: *"does the Mani-Mani Statue have a
-shield?"* answered from ROM (or the gap honestly reported).
+While search has text focus, letter/space shortcuts are suppressed. Enter or
+Escape leaves search without exiting; a held Escape must be released before a
+second press can quit. Mouse selection, wheel, page and transport buttons use
+the same model as keyboard and Paddy. Held navigation/volume repeats; transport
+actions are edge-triggered. `--mute` disables the mute button's audio operation.
 
-### Track F — Battle music (✅ field PINNED 2026-08-01; playback remains)
-**Pinned:** battle song id = **enemy record `+0x37`** (u8), selected from the
-battle group's **first member**; the group record has **no music field**.
-Evidence: byte-exact chain `$C24A4B`/`$C24CD5` (`id×$5E` → `ADC #$0037` →
-`LDA $D59589,X` → `JSL $C4FBBD`); machine referee
-`src/probes/probe_battle_music.nim` (asserts opcode bytes, range-checks all
-231 records vs the 191-song table, cross-checks the live slot200 fight);
-module `src/decompbound/battle_music.nim`. Remaining: playback — reuse the
-`docs/apps.md` App 1 path (live APU, write song id to the driver's "play song
-N" port command, stream via slappy) so the bestiary plays battle themes on
-demand (lands with Track G).
+## Portrait format and original-code evidence
 
-### Track G — The EB-styled silky app (assembles A+B+C, then D/E/F slot in)
-`sprites_explore.nim` (currently a one-line silky stub) becomes the bestiary
-browser, following the `docs/apps.md` explorer pattern. EarthBound feel comes
-**asset-clean** because everything renders from the user's ROM at runtime: the
-game's own font, EB window-border flavor, the animated battle bg warping behind
-the enemy sprite, stats in an EB-style window, battle theme playing. Scrollable
-+ searchable enemy list; a cycle button for multi-background enemies; overworld
-sprite pane ships as a labeled "coming soon" slot until Track H.
-**Referee:** headless render-to-PNG layout probes; window/audio changes get a
-flagged live `make play` smoke test (headless-untestable, per field notes).
+The enemy record does **not** contain two direct far graphics pointers. That
+older claim, including the old `+0x0C/+0x0F` candidates, is superseded.
 
-### Track H — Overworld sprites (stretch; don't block the app)
-The sprite-definition table (ID → CHR) via the emulator-as-referee approach:
-watch OBJ CHR DMA during a known sprite. Lands as the second sprite pane.
-**Referee:** decoded overworld frame pixel-matches an emulator OAM capture.
+| Data | Headerless file offset / record field | Evidence |
+|---|---|---|
+| Enemy configuration | `0x159589`, stride `0x5E` | `$C24D88` multiply; `$C2B6FA` initialization |
+| Name | Enemy `+0x01`, up to 25 encoded bytes | Existing `battle_formation.decodeEnemyName` |
+| HP / PP | `+0x21/+0x23`, u16 | Initialization loads `$C2B778/$C2B78C` |
+| EXP / money | `+0x25` u32 / `+0x29` u16 | Reward consumers `$C26345/$C26260` |
+| Drop frequency / item | `+0x57/+0x58`, u8 | `$C24DAD/$C24D92`; [drop research](sword-of-kings.md) |
+| Enemy theme | `+0x37`, u8 | `$C24A56`; [battle music](../src/decompbound/battle_music.nim) |
+| Standard sprite reference | `+0x1C`, u16, 1-based; zero absent | `$C2EF49/$C2F0F1`, decrement/index `$C2F007` |
+| Palette reference | `+0x35`, u8 | `$C2EF59`; five shifts multiply by 32 |
+| Sprite resources | `0x0E62EE`, 110 × 5 bytes | Three-byte far pointer, unused fourth byte, dimension byte; `$C2EE0B` |
+| Palette rows | `0x0E6514`, raw 32-byte BGR555 rows | `$C2EF73..$C2EF82`, far copy `$C08ED2` |
 
-## Sequencing
+All 32 referenced palette rows (0–31) are supported. This bounds the supported
+catalog; it does not prove the entire palette table ends there. Index zero is
+transparent. A malformed reference or truncated resource raises an error; it
+must not be mistaken for a valid absent portrait or replaced with a black palette.
 
+Dimension codes describe these native pixel sizes:
+
+| Code | Size | Sprite-table entries |
+|---|---|---|
+| 1 | 32×32 | 24 |
+| 2 | 64×32 | 5 |
+| 3 | 32×64 | 40 |
+| 4 | 64×64 | 36 |
+| 5 | 128×64 | 4 |
+| 6 | 128×128 | 1 |
+
+The classifiers `$C2EFFD/$C2F04E` and painter `$C2EAEA` independently establish
+these sizes. Decompression `$C41A9E` stages planar 4bpp CHR at `$7F8000`.
+The original `$C2EE60..$C2EEDD` shuffle copies four 128-byte tile rows per 32×32
+block into `$7F0000`, using `$C3F871` placement offsets and a 512-byte row stride.
+Blocks and their 4×4 tiles assemble row-major. Display-list records at `$AAD6`
+are **signed Y, tile, attributes, signed X, flags**, as consumed by the adopted
+[`emitSpriteElements`](../asm/emitSpriteElements.asm) routine. Swapping X/Y would
+incorrectly transpose nonsquare portraits.
+
+The public `BestiaryLibrary` owns normalized ROM/catalog data and a lazy portrait
+cache keyed by sprite+palette. The key is checked before decompression. Shared
+assets retain the requested enemy identity, and separate libraries do not share
+item-name or image caches. The scene and controls reuse their pixel buffers.
+
+## Coverage and remaining work
+
+There are **213 standard portrait references**, covering **all 110 sprite assets**,
+and **17 named entries without a standard portrait**: 34, 160–168, 213, 215,
+219–221, 225 and 229. All remain browsable with their available stats, music and
+backgrounds. Zero references may use special/scripted rendering; no image is
+invented for them. Enemy 218 uses the sole 128×128 standard asset (index 107).
+
+The browser uses ordinary encounter presets. Scripted boss transitions and the
+group-478 special arrangement retain the limitations documented in
+[battle backgrounds](battle-backgrounds.md). Native centered presentation and
+black backdrop are intentional; this is not a recreation of a complete battle.
+
+Future work: offense/defense/speed, resistances, castable actions/PSI (including
+the Mani-Mani shield question), overworld sprite identities, scripted portrait
+phases, and a machine-readable enemy CLI. `bestiary/integration` preserves old
+unverified research for selective investigation; it has not been merged wholesale.
+No ability or resistance is inferred from names or from missing data.
+
+## Verification
+
+```sh
+make bestiary-test
+make bestiary-window-test
+make jukebox-test
+make jukebox-volume-test
+make battle-bg-test
+make compare
 ```
-day 1 (parallel):  A backbone   B battle sprites   C bg renderer   F music-field pin
-RE digs (parallel): D formations ←coordinates→ F    E abilities
-assembly:          G app  = A+B (+C when ready; D/E/F slot in as they land)
-stretch:           H overworld sprites → second pane in G
-```
 
-## Definition of done
+Synthetic tests cover fields, drop boundaries, header handling, all six planar
+geometries/transparency, cache hits, cross-ROM palette/item isolation, malformed
+resources, search/duplicate identities, navigation, debounce, coupled transport,
+shared-song continuity and resized mouse/nearest scene pixels.
 
-- [ ] `enemy_info` CLI: any enemy by name/id → stats, drops, abilities (or the
-      honest RE-gap report), sprite + bg + music refs; `--json --all` works.
-- [ ] The Mani-Mani shield question answered from ROM.
-- [ ] Full `0x5E` record field-mapped and documented in `docs/decompilation.md`.
-- [ ] Formation records field-mapped: enemy → formations → bg id(s) + music.
-- [ ] Bestiary app: browse every enemy — animated battle bg behind the battle
-      sprite, EB-styled stat window, battle theme playback, multi-bg cycling.
-- [ ] All decode paths byte-exact/pixel/trace-refereed; zero extracted assets
-      committed.
+The required-ROM integration sweep validates all 230 records, 213 portraits,
+110 assets, 32 palettes and all six dimensions; absent ROM is an error. The
+original-code helpers under `tests/bestiary/` execute:
 
-## References
+- Original decompression for every asset and both original dimension classifiers.
+- Palette staging and actual CGRAM DMA for all 32 referenced rows.
+- Original sprite painting **through tile shuffle** for all 110 assets. A separate
+  reconstruction from emitted display lists and shuffled tiles pixel-compares
+  all 213 enemy/palette combinations with the native decoder.
+- Original HP/PP initialization copies for all 230 records, plus named
+  instruction chains for the reward/drop field consumers. Synthetic fixtures verify
+  byte widths and values; these checks do not claim full battle reward simulation.
 
-- Origin: [`docs/stretch-goals.md`](stretch-goals.md) §Animated Bestiary
-- Game-data RE: [`docs/decompilation.md`](decompilation.md) §Game data ·
-  [`docs/sword-of-kings.md`](sword-of-kings.md) (enemy record correction)
-- Battle backgrounds: [`docs/battle-backgrounds.md`](battle-backgrounds.md) ·
-  `src/tools/battle_bg_explore.nim`
-- Sprites: [`docs/graphics.md`](graphics.md) · `src/tools/sprites_explore.nim`
-- Music: [`docs/audio.md`](audio.md) (song table + loader) ·
-  [`docs/apps.md`](apps.md) App 1 (live-APU streaming path)
-- App pattern + delegation: [`docs/apps.md`](apps.md) ·
-  [`docs/delegation.md`](delegation.md)
-- Text: `src/decompbound/text_decode.nim`
-- Memory: `earthbound-cloud-ai-blindspots` (ROM ground-truth, never model memory)
+The isolated Xvfb/private-audio-server tests exercise real selection/search,
+same-song continuity, automatic different themes, selecting while paused,
+external mixer/slider changes, mute and unrelated-PID isolation, resized mouse
+input, unfocused clocks, exit and audio-free startup. Shared-output checks cover
+requests made before mixer attachment, reattachment, mute-time progression,
+pause freeze, competing external writes, rapid changes before acknowledgement,
+rejected operations and releasing the APU on close. The C ABI check includes the native
+mute function's full C integer parameter.
+
+Original decompressor equality is stronger than a semantic codec round trip;
+none of these tests claims the greedy encoder recreates original compressed
+bytes. All test machine state is generated locally from the user ROM, with no
+captured memory or screenshots committed. Physical visual/audio/controller
+checks remain in [human verification](human-verify.md).

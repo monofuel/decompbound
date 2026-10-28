@@ -37,6 +37,25 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 ## OPEN — please check
 
+- [ ] **Pocket Bestiary: portraits, search and automatic music** · 2026-10-28 · `master`
+  - **Run:** `make bestiary-app`; browse with mouse, keyboard and Paddy. Search
+    names/IDs, clear with Ctrl+A, leave search with Escape; inspect different
+    portrait sizes (including enemy 218), missing portraits and background
+    variants. Pause/reset/restart; mute, move the external volume slider,
+    resize/fullscreen, leave it unfocused, unplug/reconnect the controller.
+  - **Pass if:** sprites have correct colors, shape and tile order over the
+    animated scene; text stays readable and resized clicks match. Typing never
+    triggers music shortcuts. Same-theme neighbors preserve music; changing
+    themes flushes old sound. Pause freezes both, reset preserves pause, mute
+    keeps time, and external volume/mute stays in sync. Background variants
+    leave the enemy's theme playing. Input survives controller removal and
+    resumes on reconnect. Closing exits without leaving audio behind.
+  - **Coverage:** 17 entries deliberately say no standard battle portrait.
+    Scripted boss phases and group-478 special arrangement remain pending;
+    these are centered native portraits over encounter presets, not full battles.
+  - **Notes:** monofuel confirmed the app works and approved the merge.
+    Detailed physical controller hotplug and fullscreen checks remain unconfirmed.
+
 - [ ] **Pocket Backgrounds: two windows and encounter browsing** · 2026-10-27 · `master`
   - **Run:** `make battle-bg-app`; optionally run the jukebox alongside it.
     Browse enemies and their variants with mouse, keyboard and Paddy. Pause,
