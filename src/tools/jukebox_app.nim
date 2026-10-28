@@ -132,7 +132,7 @@ proc syncVolume(app: var JukeboxApp) =
     if not app.usingSystemVolume: listener.gain = 1
     if app.trace and (not app.usingSystemVolume or app.volume != app.systemVolume.percent or
         app.volumeMuted != app.systemVolume.muted):
-      echo &"systemVolume={app.systemVolume.percent} muted={app.systemVolume.muted}"
+      echo &"systemVolume={app.systemVolume.percent} muted={app.systemVolume.muted} gain={listener.gain:.2f}"
     app.volume = app.systemVolume.percent
     app.volumeMuted = app.systemVolume.muted
     app.usingSystemVolume = true

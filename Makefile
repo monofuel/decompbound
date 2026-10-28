@@ -67,6 +67,8 @@ help:
 # after changing nimby.lock.
 nim.cfg: nimby.lock
 	nimby sync -g nimby.lock
+	@test -f nim.cfg
+	@touch nim.cfg
 
 # Static Lua 5.3 for the policy embed (gitignored archive; rebuild from the
 # vendor/lua submodule). Required by anything that links policy / lua53.

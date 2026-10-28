@@ -16,6 +16,18 @@ proc closeDisplay(d: Display): cint {.cdecl, importc: "XCloseDisplay", dynlib: l
 proc warp(d: Display, source, destination: Window, sx, sy: cint,
     sw, sh: cuint, dx, dy: cint): cint {.cdecl, importc: "XWarpPointer", dynlib: libX11.}
 
+type XErrorCallback = proc(d: Display, event: ptr XErrorEvent): cint {.cdecl.}
+proc setErrorHandler(callback: XErrorCallback): pointer
+    {.cdecl, importc: "XSetErrorHandler", dynlib: libX11.}
+proc sync(d: Display, discardEvents: cint): cint {.cdecl, importc: "XSync", dynlib: libX11.}
+
+var xError = false
+
+proc recordXError(d: Display, event: ptr XErrorEvent): cint {.cdecl.} =
+  ## Let Nim assertions unwind test resources instead of Xlib calling exit.
+  xError = true
+  0
+
 proc findWindow(d: Display): Window =
   ## Find only our player's window on a new isolated Xvfb server.
   let deadline = getMonoTime() + initDuration(seconds = 10)
@@ -138,6 +150,7 @@ proc main() =
     discard server.waitForExit(5000)
     server.close()
   let displayName = ":" & server.outputStream.readLine().strip()
+  discard setErrorHandler(recordXError)
   putEnv("DISPLAY", displayName)
   var
     pulseServer, otherStream: Process
@@ -150,8 +163,9 @@ proc main() =
   if checkMixer:
     doAssert findExe("pulseaudio").len > 0 and findExe("pactl").len > 0
     let socket = directory / "pulse.sock"
+    putEnv("DBUS_SESSION_BUS_ADDRESS", "unix:path=" & directory / "unused-dbus")
     pulseServer = startProcess(findExe("pulseaudio"), args = ["--daemonize=no",
-      "--use-pid-file=no", "--exit-idle-time=-1", "--log-target=file:" & directory / "pulse.log", "-n",
+      "--use-pid-file=no", "--exit-idle-time=15", "--log-target=file:" & directory / "pulse.log", "-n",
       "--load=module-null-sink sink_name=jukebox_test",
       "--load=module-native-protocol-unix auth-anonymous=1 socket=" & socket], options = {})
     let deadline = getMonoTime() + initDuration(seconds = 5)
@@ -173,8 +187,17 @@ proc main() =
     discard process.waitForExit(5000)
     process.close()
   let window = findWindow(d)
+  let mapDeadline = getMonoTime() + initDuration(seconds = 5)
+  var attributes: XWindowAttributes
+  while true:
+    d.XGetWindowAttributes(window, addr attributes)
+    if attributes.map_state == IsViewable: break
+    doAssert getMonoTime() < mapDeadline, "Jukebox window was never mapped."
+    sleep(10)
   d.XSetInputFocus(window, rtRoot)
   d.XFlush()
+  discard sync(d, 0)
+  doAssert not xError, "X11 rejected focus on the mapped jukebox window."
   waitTrace(trace, "action=PlaySelected selected=1 song=1 state=Playing")
   if checkMixer:
     waitTrace(trace, "systemVolume=100 muted=false")
@@ -183,7 +206,7 @@ proc main() =
       other = streamForPid(otherStream.processID)
     discard pactl(["set-sink-input-volume", other, "23%"])
     discard pactl(["set-sink-input-volume", mine, "37%"])
-    waitTrace(trace, "systemVolume=37 muted=false")
+    waitTrace(trace, "systemVolume=37 muted=false gain=1.00")
     tap(d, window, 0x3D) # Plus/equal.
     waitTrace(trace, "action=Louder selected=1 song=1 state=Playing volume=42")
     doAssert streamPercent(mine) == "42%"
@@ -232,6 +255,8 @@ proc main() =
   doAssert readFile(trace).count("action=PlaySelected selected=2 song=2") == before
   key(d, window, 0xFF1B, true) # Escape destroys the window before a release can arrive.
   doAssert process.waitForExit(5000) == 0, readFile(trace)
+  discard sync(d, 0)
+  doAssert not xError, "X11 rejected a window/input test request."
   doAssert "audioUnderruns=0" in readFile(trace), readFile(trace)
   if checkMixer: echo "Jukebox volume: external changes, app controls, mute and other-PID isolation passed."
   putEnv("ALSOFT_DRIVERS", "jukebox-no-such-audio-driver")
