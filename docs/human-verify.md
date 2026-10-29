@@ -450,6 +450,13 @@ Only when an agent points you here for a **tool** check:
 
 ## FOUND IN PLAY — new issues (human → agents)
 
+- **2026-10-29 · Pocket Atlas / Deep Darkness — OPEN.** Assets incorrectly
+  show through the darkness; monofuel confirms the game does not render them
+  that way. The shrouded story variant itself is expected with cleared flags;
+  the bleed-through is a separate rendering defect. **Run:** `make map-app`,
+  browse to Deep Darkness in the default base atlas. **Pass if:** shrouded
+  scenery occludes the same assets as the original game. See `docs/issues.md`.
+
 - **2026-10-28 · EarthBound DS phantom party member/order — solo-Jeff fix confirmed.**
   monofuel's `earthbound_20260818-021632.png` showed Jeff and Paula despite a
   solo Jeff party. The reader crossed the six-byte walking array into its

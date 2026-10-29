@@ -113,6 +113,17 @@ oracle checks every sector-referenced logical tileset/palette selection, includi
 redirects. Global colors 0–31 are black; all actual arrangements referencing
 those subpalettes are transparent in both scenery planes.
 
+Onett exterior is a verified example: logical tileset 1, palette 0 starts at
+file `0x1A7FA7` with event condition `0x01A6`. When that flag is clear, original
+`$C007B6` redirects to the nighttime record at `0x1A8067`; setting it retains
+the daytime record at `0x1A7FA7`. Original flag reader `$C21628` locates this
+bit at WRAM `$9C3C`, mask `$20`. Isolated original-loader calls match both
+records exactly. Private night `onett_start.state` and daytime
+`earthbound_20260706-210416.png` independently confirm the corresponding flag
+states and loader results. Both palettes come from the ROM; nighttime is the
+browser's cleared-event selection, not a different map geometry or missing
+daytime asset.
+
 Original `$C006F2` also applies arrangement replacements before the map is
 published. Its 20-entry pointer table at `$D01598` selects ordered lists of
 conditions and `(destination, source)` arrangement pairs. The native renderer

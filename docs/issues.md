@@ -56,6 +56,14 @@ hang, Saturn Valley corruption, half-speed music) are tracked together in
 
 ## OPEN (not yet assigned)
 
+- **Pocket Atlas / Deep Darkness assets show through darkness
+  (2026-10-29).** Human-reported rendering defect: scenery assets appear
+  through the shroud where the original game occludes them. The default
+  cleared-story-flags variant explains why the area is shrouded, not the
+  incorrect visibility. Root cause remains unverified; do not dismiss this
+  as expected story-state behavior. Reproduction and visual verification:
+  [human-verify.md](human-verify.md), Found in play.
+
 - **Pocket Jukebox controller disconnect — fix ready for physical retry
   (2026-10-27).** monofuel reported a crash after unplugging; the terminal trace
   was lost. The old Paddy pin retained a udev-owned path after unref and mishandled
