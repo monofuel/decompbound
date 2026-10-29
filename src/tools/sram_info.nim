@@ -13,7 +13,8 @@
 ## Default save path: "bin/Earthbound (U) [!].srm".
 
 import
-  std/[os, strformat, strutils, tables]
+  std/[os, strformat, strutils, tables],
+  ../decompbound/party_sram as partyFormat
 
 const
   DefaultSrm = "bin/Earthbound (U) [!].srm"
@@ -40,8 +41,9 @@ const
   AtmOff = 0x60
   EscargoOff = 0x76
   EscargoLen = 36
-  PartyRosterOff = 0xB6
-  PartyRosterLen = 7
+  PartyRosterOff = partyFormat.PartyRosterOff
+  PartyRosterLen = partyFormat.PartyRosterLen
+  PartyCountOff = partyFormat.PartyCountOff
   PetNameOff = 0x44
   FavFoodOff = 0x4A
   FavThingOff = 0x54
@@ -642,11 +644,13 @@ proc dumpPartyAndStorage(sink: var ReportSink, data: string, slotBase: int) =
   ## Print party roster, full char blocks, and Escargo Express storage.
   emit(sink, "")
   emit(sink, &"party + storage (active slot base 0x{slotBase:04X}):")
-  var roster: seq[int] = @[]
-  for j in 0 ..< PartyRosterLen:
-    let id = readU8(data, slotBase + PartyRosterOff + j).int
-    if id >= 1 and id <= PlayableCharCount:
-      roster.add(id - 1)
+  var
+    roster: seq[int]
+    storedIds: array[PartyRosterLen, uint8]
+  for index in 0 ..< storedIds.len:
+    storedIds[index] = readU8(data, slotBase + PartyRosterOff + index)
+  for id in partyFormat.playablePartyIds(storedIds, readU8(data, slotBase + PartyCountOff).int):
+    roster.add(id - 1)
   emit(sink, "  In party (order):")
   if roster.len == 0:
     emit(sink, "    (none)")

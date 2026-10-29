@@ -3,7 +3,8 @@
 ## Character table base `$99CE` (Ness), stride `$5F` — same per-char layout as
 ## `party_sram.nim` / docs/sram-format.md. Evidence (persist block `$97F5`):
 ##   slot+$05C money  → WRAM `$9831`  (`$97F5 + ($5C-$20)`)
-##   slot+$0B6 roster → WRAM `$988B`  (`$97F5 + ($B6-$20)`)
+##   slot+$09A roster → WRAM `$986F`  (`$97F5 + ($9A-$20)`)
+##   slot+$0CF count  → WRAM `$98A4`  (`$97F5 + ($CF-$20)`)
 ##   slot+$1F9 char0  → WRAM `$99CE`  (`$97F5 + ($1F9-$20)`)
 ## Cross-checked: policy `PartyName0Wram = $99CE`; battle ptr table `$4DC8` →
 ## `$99CE`; ROM uses `ADC #$99CE` for char-table access (bank $C1/$C2).
@@ -19,9 +20,18 @@ const
   PersistBlockLen* = 0x4E0
   ## Ness character struct (name at +0; matches SRAM char table entry).
   PartyCharTableWram* = 0x99CE
-  ## Party roster ids (1-based; Ness=1..Poo=4), same bytes as slot + `$0B6`.
-  PartyRosterWram* = 0x988B
+  ## Six active identity slots consumed by original $C21034 and $C2109F.
+  PartyRosterWram* = 0x986F
+  ## Number of active entries, read as one byte by original $C2107A.
+  PartyCountWram* = 0x98A4
   WramBase = 0x7E0000
+
+proc readActivePartyIds*(wram: openArray[uint8]): seq[int] =
+  ## Read the counted live roster without interpreting unused slots or adjacent flags.
+  if wram.len <= PartyCountWram:
+    raise newException(ValueError, "WRAM buffer is too short for the active party")
+  playablePartyIds(wram.toOpenArray(PartyRosterWram, PartyRosterWram + PartyRosterLen - 1),
+    wram[PartyCountWram].int)
 
 proc wramByte(snes: SnesBus, off: int): uint8 {.inline.} =
   ## Read one byte at 16-bit WRAM offset under bank `$7E`.
@@ -73,10 +83,8 @@ proc readPartyVitalsFromWram*(snes: SnesBus, frameCount = 0): PartyVitalsReport 
   result.modifiedAt = ""
 
   var inParty: set[0..3] = {}
-  for j in 0 ..< PartyRosterLen:
-    let id = wramByte(snes, PartyRosterWram + j).int
-    if id >= 1 and id <= PlayableCharCount:
-      inParty.incl(id - 1)
+  for id in readActivePartyIds(snes.bus.mem.toOpenArray(WramBase, WramBase + 0x1FFFF)):
+    inParty.incl(id - 1)
 
   for charIdx in 0 ..< PlayableCharCount:
     let eb = PartyCharTableWram + charIdx * CharStride

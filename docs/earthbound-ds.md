@@ -120,6 +120,45 @@ ROM item-table decoder. UI font/colors are shared with the companion apps;
 new view state and item labels belong to the loaded ROM and are released with
 it. The bottom panel redraws when displayed data or selection changes.
 
+## Party membership and order
+
+Use the counted game/HUD identity array at WRAM `$986F`, with u8 count at
+`$98A4`. Preserve that order, cap at its six physical slots, and keep unique
+playable IDs 1–4. Known character records alone do not imply membership;
+guests are outside this panel's scope.
+
+Original `$C21034` loads IDs at `$C21043` (file `0x021043`) and bounds its
+walk by `$98A4` at `$C2107A`. `$C2109F` selects a meter slot from the same
+array. The six-slot capacity is explicit in the clear loop at `$C24CC9` /
+`$C24CCD` (file `0x024CC9` / `0x024CCD`); `$C229E8` also bounds compaction by
+six. Playable identities remain 1=Ness, 2=Paula, 3=Jeff, 4=Poo.
+
+The earlier reader incorrectly scanned seven bytes of `$988B`, a separate
+six-slot overworld walking array counted by `$98A3`. Original `$C02D60` /
+`$C02D6F` clear its six entries, and `$C03516` consumes them during entity
+updates. Byte seven is `$9891[0]`, a parallel attribute read at `$C03565`.
+In local `earthbound_20260818-021632.png`, the active HUD list is `[3]`, but
+that adjacent attribute equals 2. The old walk therefore invented Paula.
+
+Within the existing persist block `$97F5` → save-slot `+$20`, HUD order maps
+to slot `+$9A` (six bytes), count to `+$CF` (one byte). Walking identities are
+separately at `+$B6`, with count `+$CE`. Shared live/SRAM readers and the SRAM
+inspector use the corrected playable membership; report APIs retain known
+character rows with their `inParty` flags, while the DS panel shows only active
+members in HUD order.
+
+The ROM-generated meter test verifies displayed order against the identity
+actually advanced by original `$C2109F`. It can also verify a local capture
+without bundling it:
+
+```sh
+nim r -d:release tests/integration_ds_meters.nim "$HOME/Pictures/Screenshots/earthbound_20260818-021632.png" 3
+```
+
+Synthetic tests cover a counted solo member with other initialized characters,
+stale entries beyond the count, guest filtering across all six slots, adjacent
+attributes, reordering, and selection fallback when a member leaves.
+
 ## Live meter evidence
 
 Character records start at WRAM `$99CE`, stride `$5F`. HP display is the

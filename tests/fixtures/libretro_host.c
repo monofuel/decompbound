@@ -181,7 +181,7 @@ static void check_loaded(struct api a) {
 static void check_companion(struct api a) {
   uint8_t *ram = a.get_memory_data(MEMORY_SYSTEM_RAM);
   const unsigned base = 0x99ce, stride = 0x5f;
-  ram[0x988b] = 1; ram[0x988c] = 2;
+  ram[0x986f] = 1; ram[0x9870] = 2; ram[0x98a4] = 2;
   ram[base] = 'A' + 0x30; ram[base + 5] = 1;
   ram[base + stride] = 'B' + 0x30; ram[base + stride + 5] = 1;
   buttons = 0; run_frame(a, 533);

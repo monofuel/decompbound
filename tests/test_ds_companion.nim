@@ -37,6 +37,7 @@ proc main() =
   wram[PartyRosterWram + 1] = 1
   wram[PartyRosterWram + 2] = 2
   wram[PartyRosterWram + 3] = 7
+  wram[PartyCountWram] = 4
   let base = PartyCharTableWram
   names[19] = "Synthetic item"
   wram[base + CharInventoryOff + 13] = 19
@@ -118,5 +119,31 @@ proc main() =
   doAssert readDsParty(wram, names).len == 1
   wram[PartyCharTableWram + 2 * CharStride + CharLevelOff] = 0
   doAssert readDsParty(wram, names).len == 0
+  wram.character(3, "Chris")
+  wram[PartyRosterWram] = 3
+  wram[PartyRosterWram + 1] = 2
+  wram[PartyRosterWram + 2] = 1
+  wram[PartyCountWram] = 1
+  wram[PartyCountWram + 1] = 4
+  wram[0x9891] = 2
+  let solo = readDsParty(wram, names)
+  doAssert solo.len == 1 and solo[0].id == 3
+  wram[PartyCountWram] = 3
+  let ordered = readDsParty(wram, names)
+  doAssert ordered.len == 3
+  doAssert ordered[0].id == 3 and ordered[1].id == 2 and ordered[2].id == 1
+  view.update(ordered, 0, DsPointer())
+  view.update(ordered, NextMember, DsPointer())
+  doAssert view.selectedId == 2
+  view.update(solo, 0, DsPointer())
+  doAssert view.selectedId == 3
+  wram[PartyCountWram] = 0
+  doAssert readDsParty(wram, names).len == 0
+  let guestOrder = [3'u8, 5, 2, 6, 1, 4, 2]
+  doAssert playablePartyIds(guestOrder, 6) == @[3, 2, 1, 4]
+  doAssert playablePartyIds(guestOrder, 255) == @[3, 2, 1, 4]
+  doAssert playablePartyIds(guestOrder, 1) == @[3]
+  let adjacentAttribute = [3'u8, 0, 0, 0, 0, 0, 2]
+  doAssert playablePartyIds(adjacentAttribute, 255) == @[3]
 
 main()

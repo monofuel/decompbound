@@ -42,7 +42,9 @@ Each `$500` block:
 | `$076` | 36 | Escargo Express item IDs | confirmed |
 | `$0A2` | 2 | Party leader X | community only |
 | `$0A6` | 2 | Party leader Y | community only |
-| `$0B6` | 7 | Party roster (1-based char IDs, 0=empty) | confirmed |
+| `$09A` | 6 | Current game/HUD party order (1-based IDs) | original `$C21043`, six-slot bound `$C24CCD` |
+| `$0CF` | 1 | Current game/HUD party count | original `$C2107A` |
+| `$0B6` | 6 | Overworld walking identities | separate array `$988B`; count at slot `+$0CE` |
 | `$1F9` | `$5F`×6 | Character table (4 playable + 2 reserved) | confirmed |
 
 Data-relative form used by some tools: subtract `$20` (e.g. money `$3C`,

@@ -62,11 +62,7 @@ proc readDsParty*(wram: openArray[uint8], names: array[256, string],
   ## Read initialized playable members in live roster order without writing WRAM.
   if wram.len < PartyCharTableWram + PlayableCharCount * CharStride:
     raise newException(ValueError, "WRAM buffer is too short for party records")
-  var seen: set[1 .. PlayableCharCount]
-  for slot in 0 ..< PartyRosterLen:
-    let id = wram[PartyRosterWram + slot].int
-    if id notin 1 .. PlayableCharCount or id in seen: continue
-    seen.incl(id)
+  for id in readActivePartyIds(wram):
     let base = PartyCharTableWram + (id - 1) * CharStride
     if wram[base + CharLevelOff] == 0: continue
     var member = DsMember(id: id)

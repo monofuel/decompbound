@@ -44,6 +44,7 @@ State import/drop support was added afterward; those checks remain open.
 
 | Check | Run | Pass if |
 |---|---|---|
+| [ ] Solo-party membership and order | Restart the player with the updated core and load `earthbound_20260818-021632.png`; also try a multi-member state. | Only Jeff appears in the Winters capture. Other captures match the game's party order, and removing the selected member switches its inventory to a remaining active character. |
 | [ ] Resume a screenstate | Run `make libretro-ds-play STATE="$HOME/Pictures/Screenshots/earthbound_20260818-021941.png"`, then drop that capture onto each running desktop window. | The captured scene/party/inventory resume, audio follows the loaded state, and gameplay continues. A plain or wrong-ROM PNG is rejected without closing the app or changing its state. The source PNG stays untouched. |
 | [ ] Desktop UI at 2× | Build mono-retro-player on `monofuel/ds`; run `make libretro-ds-play`. | Game and Party windows open at 512×448. Names, HP/PP and all fourteen inventory rows are readable. Click cards or use Page Up/Page Down; original game controls still work from either window. |
 | [ ] RG DS Plus displays and input | Use the ARM core/player with `--device:rg-ds-plus --earthbound-ds`; launch instructions are in `earthbound-ds.md`. | Complete game appears on DSI-1 and companion on DSI-2 at 3× with borders. Tap cards and use L2/R2 to select once per press. Borders/top screen do not select; dragging/extra fingers do not change selection. |
@@ -410,6 +411,14 @@ Only when an agent points you here for a **tool** check:
 ---
 
 ## FOUND IN PLAY — new issues (human → agents)
+
+- **2026-10-28 · EarthBound DS phantom party member/order — ready to recheck.**
+  monofuel's `earthbound_20260818-021632.png` showed Jeff and Paula despite a
+  solo Jeff party. The reader crossed the six-byte walking array into its
+  adjacent attribute. It now uses the counted game/HUD order; synthetic,
+  original-ROM and local-capture regression checks cover the correction.
+  **Run:** the solo-party row above. **Pass if:** Jeff alone, with other states
+  following the game's active party order.
 
 - **2026-10-27** · Pocket Jukebox · unplugging a controller crashed the app;
   stack trace unavailable. Updated the Paddy pin and verified virtual-device
