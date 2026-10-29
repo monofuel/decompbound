@@ -39,8 +39,12 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 ### EarthBound DS companion (2026-10-28)
 
+2026-10-28: monofuel confirmed several minutes of play and working item display.
+State import/drop support was added afterward; those checks remain open.
+
 | Check | Run | Pass if |
 |---|---|---|
+| [ ] Resume a screenstate | Run `make libretro-ds-play STATE="$HOME/Pictures/Screenshots/earthbound_20260818-021941.png"`, then drop that capture onto each running desktop window. | The captured scene/party/inventory resume, audio follows the loaded state, and gameplay continues. A plain or wrong-ROM PNG is rejected without closing the app or changing its state. The source PNG stays untouched. |
 | [ ] Desktop UI at 2× | Build mono-retro-player on `monofuel/ds`; run `make libretro-ds-play`. | Game and Party windows open at 512×448. Names, HP/PP and all fourteen inventory rows are readable. Click cards or use Page Up/Page Down; original game controls still work from either window. |
 | [ ] RG DS Plus displays and input | Use the ARM core/player with `--device:rg-ds-plus --earthbound-ds`; launch instructions are in `earthbound-ds.md`. | Complete game appears on DSI-1 and companion on DSI-2 at 3× with borders. Tap cards and use L2/R2 to select once per press. Borders/top screen do not select; dragging/extra fingers do not change selection. |
 | [ ] Live combat and inventory | Enter a battle, take damage, heal, spend PP, finish the fight; use an item through the original menu and change party membership when available. | Companion HP/PP track the original meters during rolling updates and transitions. Inventory reflects item consumption/equipment. Only active playable members appear, in roster order. Browsing does not operate game menus. |

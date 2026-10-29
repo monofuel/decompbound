@@ -16,6 +16,7 @@ MONO_RETRO_PLAYER ?= $(MONO_RETRO_ROOT)/build/mono-retro-player
 MONO_RETRO_ARGS ?=
 LIBRETRO_SAVE_DIR ?= bin/libretro/frontend-saves
 LIBRETRO_DS_SAVE_DIR ?= bin/libretro/earthbound-ds-saves
+LIBRETRO_STATE_ARGS = $(if $(strip $(STATE)),--load-state:"$(STATE)")
 BG ?= 0
 FRAMES ?= 60
 # parallelBuild: without it each nim invocation fans out gcc to ALL cores, so
@@ -463,14 +464,15 @@ libretro-frontend-test: libretro
 
 libretro-play: libretro
 	@test -x "$(MONO_RETRO_PLAYER)" || { echo "Build mono-retro's player-desktop target, or set MONO_RETRO_ROOT / MONO_RETRO_PLAYER to an existing player." >&2; exit 1; }
-	"$(MONO_RETRO_PLAYER)" --core:"$(CURDIR)/bin/libretro/decompbound_libretro.so" --rom:"$(ROM)" --save-dir:"$(LIBRETRO_SAVE_DIR)" $(MONO_RETRO_ARGS)
+	"$(MONO_RETRO_PLAYER)" --core:"$(CURDIR)/bin/libretro/decompbound_libretro.so" --rom:"$(ROM)" --save-dir:"$(LIBRETRO_SAVE_DIR)" $(LIBRETRO_STATE_ARGS) $(MONO_RETRO_ARGS)
 
 libretro-ds-play: libretro
 	@test -x "$(MONO_RETRO_PLAYER)" || { echo "Build mono-retro's player-desktop target first, or set MONO_RETRO_PLAYER." >&2; exit 1; }
-	"$(MONO_RETRO_PLAYER)" --core:"$(CURDIR)/bin/libretro/decompbound_libretro.so" --rom:"$(ROM)" --save-dir:"$(LIBRETRO_DS_SAVE_DIR)" --earthbound-ds $(MONO_RETRO_ARGS)
+	"$(MONO_RETRO_PLAYER)" --core:"$(CURDIR)/bin/libretro/decompbound_libretro.so" --rom:"$(ROM)" --save-dir:"$(LIBRETRO_DS_SAVE_DIR)" --earthbound-ds $(LIBRETRO_STATE_ARGS) $(MONO_RETRO_ARGS)
 
 libretro-ds-test: libretro
 	nim r $(NIM_TEST_FLAGS) tests/test_ds_companion.nim
+	nim r $(NIM_TEST_FLAGS) tests/test_libretro_state.nim
 	nim r $(NIM_TEST_FLAGS) tests/test_libretro.nim
 
 # Retired: generated/* bank modules deleted at M2.5.

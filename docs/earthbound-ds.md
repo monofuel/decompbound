@@ -24,6 +24,26 @@ Then, from decompbound:
 make libretro-ds-play
 ```
 
+To resume a local F12 screenstate instead of cold booting:
+
+```sh
+make libretro-ds-play STATE="$HOME/Pictures/Screenshots/earthbound_20260818-021941.png"
+```
+
+On desktop, dropping a state PNG or `.state` file onto **either** window also
+restores it while the app runs. The dropped window gains focus, queued audio is
+cleared, and timing restarts without a burst of catch-up frames. Invalid files
+are rejected in the terminal and leave the running decompbound state intact.
+PNG imports validate the embedded state checksum and ROM hash. Legacy raw
+DBST states have no ROM hash. Both v1 and v2 state payloads remain supported.
+The source capture is only read; it stays in `~/Pictures/Screenshots/`.
+
+Loading a state also restores its battery SRAM. Normal autosave/exit persists
+that SRAM in the selected DS test-save directory. This does not touch the
+ordinary player's save directory. State creation, state hotkeys, and native
+DRM file-drop events are outside this feature; use `STATE` or the player's
+`--load-state:PATH` option on the handheld.
+
 `MONO_RETRO_ROOT` / `MONO_RETRO_PLAYER` select the frontend checkout or binary.
 `ROM` selects the user-supplied ROM. Saves default to ignored
 `bin/libretro/earthbound-ds-saves/`; override `LIBRETRO_DS_SAVE_DIR` explicitly
@@ -87,6 +107,14 @@ the geometry. It is mutually exclusive with the melonDS `--ds-layout` preset;
 melonDS retains its existing options, 256×192 panels, and touch behavior.
 Other frontends may enable the option and display the combined frame normally.
 
+The core accepts DBST or complete `ebSt` PNG bytes through `retro_unserialize`.
+It validates into a temporary machine before restoring the live one in place,
+so rejected imports do not partially change CPU, RAM or SRAM. It retains
+`retro_serialize_size = 0`: this is an import facility, not state creation.
+Mono-retro treats file contents as opaque core-defined bytes, importing startup
+state after disk SRAM and before enabling save persistence. Inputs and retained
+audio are cleared after successful imports.
+
 Party records and inventory derive from the existing live WRAM layout and
 ROM item-table decoder. UI font/colors are shared with the companion apps;
 new view state and item labels belong to the loaded ROM and are released with
@@ -148,6 +176,15 @@ equipment indices, large numeric values, input edges and selection changes.
 The independent C host checks negotiation, reset and library lifecycle in both
 modes. Real ROMs, captures, SRAM and game-derived test outputs stay local and
 ignored.
+
+The state-import unit test generates its own tiny program and machine state;
+it checks raw/PNG/v1 restore, bad versions, truncation, trailing bytes, CRC/hash
+errors, and rejection without changing live RAM/SRAM. To compare a local
+screenstate against the existing emulator through the actual core:
+
+```sh
+nim r -d:release tests/integration_libretro.nim "$HOME/Pictures/Screenshots/earthbound_20260818-021941.png"
+```
 
 Mono-retro's player tests cover the two geometries, integer scaling and pointer
 mapping. Its X11 integration runs on an isolated Xvfb display, including both

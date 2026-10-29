@@ -14,6 +14,7 @@ import
   ./save_state
 
 const
+  PngSignature* = [137'u8, 80, 78, 71, 13, 10, 26, 10]
   EbStType = ['e'.uint8, 'b'.uint8, 'S'.uint8, 't'.uint8]
   EbSsMagic = ['E'.uint8, 'B'.uint8, 'S'.uint8, 'S'.uint8]
   PngSigLen = 8
@@ -180,3 +181,31 @@ proc romHashOf*(rom: seq[uint8]): uint32 =
   if rom.len == 0:
     return 0'u32
   crc32(addr rom[0], rom.len)
+
+proc extractStateForRom*(png: seq[uint8], expectedRomHash: uint32): seq[uint8] =
+  ## Validate a state screenshot's signature, state CRC and ROM identity before decoding.
+  if png.len < PngSignature.len or png[0 ..< PngSignature.len] != @PngSignature:
+    raise newException(ValueError, "Not a PNG state screenshot")
+  var position = PngSigLen
+  while position + 12 <= png.len:
+    let length = readU32be(png, position).int
+    if length > png.len - position - 12:
+      raise newException(ValueError, "Truncated PNG chunk in state screenshot")
+    let
+      start = position + 8
+      finish = start + length
+    if png[position + 4 ..< start] == @EbStType:
+      if length < 14:
+        raise newException(ValueError, "Truncated ebSt state header")
+      if crc32(unsafeAddr png[position + 4], length + 4) != readU32be(png, finish):
+        raise newException(ValueError, "State screenshot ebSt checksum mismatch")
+      if readU32le(png, start + 6) != expectedRomHash:
+        raise newException(ValueError, "State screenshot ROM hash does not match the loaded ROM")
+      if readU32le(png, start + 10) > MaxStateBytes.uint32:
+        raise newException(ValueError, "State screenshot exceeds the 64 MiB import limit")
+      let state = extractState(png)
+      if state.isNone:
+        raise newException(ValueError, "Malformed or unsupported ebSt save-state")
+      return state.get()
+    position = finish + 4
+  raise newException(ValueError, "PNG has no embedded ebSt save-state")

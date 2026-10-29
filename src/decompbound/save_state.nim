@@ -16,6 +16,7 @@ const
   # v2: append timer0..2 + dspAddr after DSP regs.
   StateVersion* = 2'u32
   StateVersionMin* = 1'u32
+  MaxStateBytes* = 64 * 1024 * 1024
   WramBase = 0x7E0000
   WramSize = 0x20000
 
@@ -45,10 +46,15 @@ proc writeI64le(s: Stream, v: int64) =
   writeU32le(s, (u and 0xFFFFFFFF'u64).uint32)
   writeU32le(s, ((u shr 32) and 0xFFFFFFFF'u64).uint32)
 
+proc readExact(s: Stream, destination: pointer, size: int) =
+  ## Reject truncated blocks instead of restoring partially zero-filled memory.
+  if s.readData(destination, size) != size:
+    raise newException(ValueError, "Truncated decompbound save-state")
+
 proc readU8(s: Stream): uint8 =
   ## Read single byte.
   var b: uint8
-  discard s.readData(addr b, 1)
+  s.readExact(addr b, 1)
   b
 
 proc readU16le(s: Stream): uint16 =
@@ -180,7 +186,7 @@ proc writeState(s: Stream, snes: SnesBus, cpu: Cpu) =
     writeI32le(s, t.accum.int32)
   writeU8(s, apu.dspAddr)
 
-proc readState(s: Stream, snes: SnesBus, cpu: var Cpu) =
+proc readState(s: Stream, snes: SnesBus, cpu: var Cpu, length: int) =
   ## Read the full emulator state from the stream in canonical order
   ## and restore in-place. Shared by deserializeState and loadState.
   let magic = s.readStr(4)
@@ -208,7 +214,7 @@ proc readState(s: Stream, snes: SnesBus, cpu: var Cpu) =
   cpu.nmiPending = readU8(s) != 0
 
   var wramBuf: array[WramSize, uint8]
-  discard s.readData(addr wramBuf[0], WramSize)
+  s.readExact(addr wramBuf[0], WramSize)
   copyMem(addr snes.bus.mem[WramBase], addr wramBuf[0], WramSize)
 
   snes.nmitimen = readU8(s)
@@ -217,12 +223,12 @@ proc readState(s: Stream, snes: SnesBus, cpu: var Cpu) =
     snes.vram[i] = readU16le(s)
   for i in 0 ..< snes.cgram.len:
     snes.cgram[i] = readU16le(s)
-  discard s.readData(addr snes.oam[0], snes.oam.len)
-  discard s.readData(addr snes.ppuRegs[0], snes.ppuRegs.len)
+  s.readExact(addr snes.oam[0], snes.oam.len)
+  s.readExact(addr snes.ppuRegs[0], snes.ppuRegs.len)
 
   for i in 0 ..< snes.bgScroll.len:
     snes.bgScroll[i] = readU16le(s)
-  discard s.readData(addr snes.dmaRegs[0], snes.dmaRegs.len)
+  s.readExact(addr snes.dmaRegs[0], snes.dmaRegs.len)
   snes.dmaTransfers = readI32le(s).int
   snes.hdmaen = readU8(s)
   for i in 0 ..< 8:
@@ -238,18 +244,22 @@ proc readState(s: Stream, snes: SnesBus, cpu: var Cpu) =
   snes.fixedColorB = readU8(s)
   snes.joy1 = readU16le(s)
 
-  discard s.readData(addr snes.sram[0], snes.sram.len)
+  s.readExact(addr snes.sram[0], snes.sram.len)
   snes.sramDirty = readU8(s) != 0
 
-  discard s.readData(addr snes.apuImage[0], snes.apuImage.len)
+  s.readExact(addr snes.apuImage[0], snes.apuImage.len)
   snes.apuEntry = readU16le(s)
   snes.apuUploadBytes = readI32le(s).int
 
   let postCount = readU32le(s).int
+  if postCount > (length - s.getPosition()) div (sizeof(uint32) + sizeof(uint8)):
+    raise newException(ValueError, "Truncated APU port log in save-state")
   snes.apuPostBoot.setLen(postCount)
   for i in 0 ..< postCount:
     snes.apuPostBoot[i] = (readU32le(s), readU8(s))
   let jumpCount = readU32le(s).int
+  if jumpCount > (length - s.getPosition()) div (2 * sizeof(uint8) + sizeof(uint16)):
+    raise newException(ValueError, "Truncated APU jump log in save-state")
   snes.apuJumps.setLen(jumpCount)
   for i in 0 ..< jumpCount:
     snes.apuJumps[i] = (readU8(s), readU8(s), readU16le(s))
@@ -270,12 +280,12 @@ proc readState(s: Stream, snes: SnesBus, cpu: var Cpu) =
   snes.apu.spc.cycles = readI64le(s).int
 
   var spcRamBuf: array[0x10000, uint8]
-  discard s.readData(addr spcRamBuf[0], 0x10000)
+  s.readExact(addr spcRamBuf[0], spcRamBuf.len)
   copyMem(addr snes.apu.spc.ram[][0], addr spcRamBuf[0], 0x10000)
 
   snes.apu.dsp.writes = readI32le(s).int
   var dspRegsBuf: array[128, uint8]
-  discard s.readData(addr dspRegsBuf[0], 128)
+  s.readExact(addr dspRegsBuf[0], dspRegsBuf.len)
   copyMem(addr snes.apu.dsp.regs[0], addr dspRegsBuf[0], 128)
 
   if ver >= 2:
@@ -336,7 +346,7 @@ proc loadState*(snes: SnesBus, cpu: var Cpu, slot: int) =
     raise newException(IOError, &"state file not found: {path}")
   defer: stream.close()
 
-  readState(stream, snes, cpu)
+  readState(stream, snes, cpu, getFileSize(path).int)
 
 proc serializeState*(snes: SnesBus, cpu: Cpu): seq[byte] =
   ## Serialize current SnesBus public state + Cpu + live APU to a seq[byte].
@@ -353,8 +363,12 @@ proc deserializeState*(data: seq[byte], snes: SnesBus, cpu: var Cpu) =
   ## Raises on short data, bad magic, or unsupported version (same as load).
   if data.len < 8:
     raise newException(ValueError, "state data too short for magic+version")
+  if data.len > MaxStateBytes:
+    raise newException(ValueError, "Save-state exceeds the 64 MiB import limit")
   let stream = newStringStream(cast[string](data))
-  readState(stream, snes, cpu)
+  readState(stream, snes, cpu, data.len)
+  if stream.getPosition() != data.len:
+    raise newException(ValueError, "Unexpected trailing bytes in decompbound save-state")
 
 proc statePathForSlot*(slot: int): string =
   ## Filesystem path for the given save slot.

@@ -1,7 +1,8 @@
 import
-  std/[dynlib, strformat],
+  std/[dynlib, os, strformat],
   pixie,
-  decompbound/[cpu, frame_step, libretro_api, ppu, replay_run, rom_pipeline, snesbus]
+  decompbound/[cpu, frame_step, libretro_api, png_state, ppu, replay_run,
+    rom_pipeline, save_state, snesbus]
 
 const
   CorePath = "bin/libretro/decompbound_libretro.so"
@@ -15,6 +16,7 @@ const
 type
   VoidProc = proc() {.cdecl.}
   LoadGame = proc(info: ptr RetroGameInfo): bool {.cdecl.}
+  Unserialize = proc(data: pointer, size: csize_t): bool {.cdecl.}
   MemoryData = proc(id: cuint): pointer {.cdecl.}
   SetEnvironment = proc(callback: RetroEnvironment) {.cdecl.}
   SetVideo = proc(callback: RetroVideoRefresh) {.cdecl.}
@@ -135,8 +137,21 @@ proc checkMode(enabled: bool) =
   defer: unload()
   let reference = newSnesBus(rom)
   var referenceCpu = reference.resetCpu()
+  var importedBytes, stateBytes: seq[uint8]
+  if paramCount() == 1:
+    importedBytes = cast[seq[uint8]](readFile(paramStr(1)))
+    doAssert symbol[Unserialize](library, "retro_unserialize")(unsafeAddr importedBytes[0], importedBytes.len.csize_t),
+      "Core rejected the supplied startup state"
+    stateBytes = importedBytes
+    if stateBytes.len >= PngSignature.len and stateBytes[0 ..< PngSignature.len] == @PngSignature:
+      stateBytes = extractStateForRom(stateBytes, romHashOf(rom))
+    deserializeState(stateBytes, reference, referenceCpu)
   expectedImage = newImage(ppu.ScreenWidth, ppu.ScreenHeight)
   for frame in 0 ..< Frames:
+    if frame == Frames div 2 and importedBytes.len > 0:
+      doAssert symbol[Unserialize](library, "retro_unserialize")(
+        unsafeAddr importedBytes[0], importedBytes.len.csize_t), "Core rejected a live state import"
+      deserializeState(stateBytes, reference, referenceCpu)
     case (frame div 45) mod 4
     of 1: buttons = 1'u16 shl 3
     of 2: buttons = 1'u16 shl 8

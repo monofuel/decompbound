@@ -18,7 +18,7 @@ proc checkMode(dual: bool) =
     options: seq[CoreOption] = if dual: @[("decompbound_dual_screen", "enabled")] else: @[]
     height = if dual: 448 else: 224
     session = openCore(absolutePath(CorePath), absolutePath(resolveGoldBaseromPath()), directory,
-      options = options)
+      options = options, statePath = (if paramCount() == 1: paramStr(1) else: ""))
   var savePath: string
   try:
     doAssert $session.info.libraryName == "Decompbound"

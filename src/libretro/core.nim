@@ -3,7 +3,7 @@
 import
   pixie,
   ../decompbound/[apu, build_info, common, cpu, ds_companion, frame_step,
-    libretro_api, ppu, replay_run, snesbus]
+    libretro_api, png_state, ppu, replay_run, save_state, snesbus]
 
 const
   Width = ppu.ScreenWidth
@@ -49,16 +49,20 @@ proc shutdown(message: string) =
   if environment != nil:
     discard environment(RetroEnvShutdown, nil)
 
+proc releaseHooks(snes: SnesBus) =
+  ## Break emulator closure cycles before discarding an emulator instance.
+  if snes == nil: return
+  if snes.bus != nil:
+    snes.bus.readHook = nil
+    snes.bus.writeHook = nil
+  if snes.apu != nil:
+    snes.apu.spc.readHook = nil
+    snes.apu.spc.writeHook = nil
+
 proc releaseMachine() =
-  ## Break emulator closure cycles before releasing the machine.
-  if machine != nil:
-    if machine.bus != nil:
-      machine.bus.readHook = nil
-      machine.bus.writeHook = nil
-    if machine.apu != nil:
-      machine.apu.spc.readHook = nil
-      machine.apu.spc.writeHook = nil
-    machine = nil
+  ## Release the loaded machine and all presentation storage.
+  releaseHooks(machine)
+  machine = nil
   frameImage = nil
   companion = nil
   pixels.setLen(0)
@@ -195,7 +199,7 @@ proc retro_run() {.cdecl, exportc, dynlib.} =
     shutdown("Frame failed: " & error.msg)
 
 proc retro_serialize_size(): csize_t {.cdecl, exportc, dynlib.} =
-  ## Indicate that save states are not supported.
+  ## Indicate that state creation is unsupported; explicit imports are accepted separately.
   0
 
 proc retro_serialize(data: pointer, size: csize_t): bool {.cdecl, exportc, dynlib.} =
@@ -203,8 +207,30 @@ proc retro_serialize(data: pointer, size: csize_t): bool {.cdecl, exportc, dynli
   false
 
 proc retro_unserialize(data: pointer, size: csize_t): bool {.cdecl, exportc, dynlib.} =
-  ## Decline save-state restoration.
-  false
+  ## Import a DBST blob or ROM-matched state PNG without changing live memory on rejection.
+  if machine == nil or data == nil or size == 0 or size > MaxStateBytes.csize_t:
+    logError("State import requires loaded content and a nonempty state of at most 64 MiB.")
+    return false
+  var staged: SnesBus
+  try:
+    var bytes = newSeq[uint8](size.int)
+    copyMem(addr bytes[0], data, size.int)
+    if bytes.len >= PngSignature.len and bytes[0 ..< PngSignature.len] == @PngSignature:
+      bytes = extractStateForRom(bytes, romHashOf(machine.rom))
+    staged = newSnesBus(machine.rom)
+    var stagedCpu: Cpu
+    deserializeState(bytes, staged, stagedCpu)
+    deserializeState(bytes, machine, cpuState)
+    if dualScreen: companion = newDsCompanion(machine.rom)
+    frameImage.fill(rgbx(0, 0, 0, 255))
+    pcm = default(FramePcm)
+    result = true
+  except CatchableError as error:
+    logError("State import failed: " & error.msg)
+  finally:
+    releaseHooks(staged)
+    staged = nil
+    GC_fullCollect()
 
 proc retro_cheat_reset() {.cdecl, exportc, dynlib.} =
   ## Ignore unsupported cheats.
