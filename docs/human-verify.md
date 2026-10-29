@@ -37,6 +37,12 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 ## OPEN — please check
 
+### README feature showcase (2026-10-29)
+
+| Check | Run | Pass if |
+|---|---|---|
+| [ ] README layout and image selection | Open `README.md` in a Markdown preview; after publication, check GitHub on desktop and a narrow screen. | All five feature images load with readable captions, the combined background view makes both canvases clear, and the existing goals, status, quick start, rules, and doc index remain accessible below the showcase. |
+
 ### EarthBound DS companion (2026-10-28)
 
 2026-10-28: monofuel confirmed several minutes of play and working item display.

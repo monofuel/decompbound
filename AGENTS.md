@@ -56,8 +56,8 @@ notes mount:
 - **The referee is sacred**: `compare.nim`, `tests/`, `opcodes.nim`.
 - **Workers do not push.** Shipping is a conductor duty after green gates.
 - **Copyright hygiene applies to every delegated diff** (see below) — agents
-  must refuse to commit ROM slices, save-states, SRAM, screenshots, or
-  extracted assets.
+  must refuse to commit ROM slices, save-states, SRAM, uncurated screenshots,
+  or extracted assets. The README screenshot exception below applies to workers.
 
 Needs human eyes (play feel, visual, audio)? Add a row to
 **`docs/human-verify.md`** (**Run** + **Pass if**) — never chat-only; monofuel
@@ -93,13 +93,14 @@ tool/test PNGs (round-trips, probes); that is **not** the play capture archive.
   the file on disk outside the tree.
 - Design/background: `docs/state-screenshots.md`.
 
-## Copyright hygiene — keep the repo asset-free
+## Copyright hygiene — no game assets; curated README screenshots only
 
 This is a decompilation project. Like `n64decomp/sm64` and the OoT decomp, the
-repo must contain **NO copyrighted content from the game** — only our own
-reverse-engineered code, tools, and docs. The user supplies their own legally
-dumped ROM; everything copyrighted is extracted from it at build/run time and
-never committed. When in doubt, do not commit it.
+repo ships our own reverse-engineered code, tools, and docs. The user supplies
+their own legally dumped ROM; game assets are extracted at build/run time and
+never committed. The sole presentation exception is a few curated, image-only
+screenshots illustrating features in `README.md`, as specified below.
+When in doubt, do not commit it.
 
 **The line: the code is ours, the data is theirs.**
 
@@ -114,13 +115,29 @@ but nothing ships until it is independently derived and verified with our own
 evidence: disasm at named file offsets, live-WRAM cross-checks, byte-exact
 round trips. Cite our offsets and probes in docs — not external tools.
 
-### Screenshots, save-states, and SRAM — hard ban (especially save-states)
+### Curated README screenshots — narrow exception
+
+- Allow a small set of screenshots under `docs/images/`, each used in the root
+  `README.md` to demonstrate a project feature, with explanatory text or a caption.
+- Export a fresh image from decoded pixels. Never add an original F12 PNG:
+  those contain an `ebSt` save-state even though ordinary image viewers hide it.
+- Before inclusion, decode the exported image and inspect its PNG chunks.
+  Curated PNGs must contain only `IHDR`, `IDAT`, and `IEND`; no `ebSt`, text,
+  arbitrary metadata, trailing payload, or other embedded state/memory data.
+- Keep the selection explicit in `.gitignore` and document its purpose in
+  `docs/images/README.md`. This is not permission for asset galleries, sprite
+  sheets, tile/palette dumps, bulk captures, audio, or reusable game assets.
+- Screenshots illustrate the project; they are not project-owned game artwork
+  and do not become covered by the source-code license. This project policy
+  does not assert permission from the game's rightsholders or guaranteed fair use.
+
+### Save-states, SRAM, and other captures — hard ban
 
 These are the easy, high-frequency slip. Treat them as **non-negotiable**:
 
 | Kind | Examples | Why banned |
 |------|----------|------------|
-| **Screenshots** | F12 / play captures, `earthbound_*.png`, any `*.png` / `*.jpg` of in-game graphics | Literal game art (tiles, sprites, UI, text rendering) |
+| **Uncurated screenshots** | F12 / play captures, bulk captures, game images outside the README exception above | Game art; only the small README selection is allowed |
 | **Save-states** | `bin/states/slot*.state`, `*.state`, raw serialize blobs, APU/VRAM dumps used as “fixtures” | Full machine memory — ROM-derived WRAM, VRAM, APU RAM, OAM, script state — a **partial copy of the game**, not our code |
 | **State-screenshots** | F12 PNGs with **`ebSt`** chunk | **Both**: pixels *and* an embedded save-state. Worst of both worlds |
 | **Battery SRAM** | `*.srm`, e.g. `bin/Earthbound (U) [!].srm`, `bin/sram_backups/**` | The game’s own save file — party, story flags, inventory — copyrighted game data the cart would hold |
@@ -135,9 +152,9 @@ reasoning: `docs/copyright-notes.md` (savestates section).
 real battery saves. Format docs and *empty/synthetic* test bytes are fine; a
 player’s `.srm` is not. Already gitignored as `*.srm`.
 
-**Agents must refuse** requests to `git add` / commit screenshots, save-states,
-or SRAM (`.srm`). Record milestones with empty commits or docs text; keep the
-file local.
+**Agents must refuse** requests to `git add` / commit save-states, screenstates,
+SRAM (`.srm`), or screenshots outside the README exception. Record milestones
+with empty commits or docs text; keep the underlying capture local.
 
 - **Committable — our own new expression / functional reproduction:**
   - Reverse-engineered **Nim source** and tooling.
@@ -156,8 +173,8 @@ file local.
 
 - **NEVER commit — the copyrighted work, in whole or in part:**
   - **ROM images** — `*.smc` / `*.sfc`, or any slice of the ROM.
-  - **Screenshots of the game** — any still of rendered graphics (see table
-    above). Repo root `/*.png` is already gitignored for this reason.
+  - **Screenshots outside the curated README exception** — see the rules above.
+    Repo root `/*.png` remains ignored; original F12 captures are never allowed.
   - **Save-states and emulator memory dumps** — `*.state`, `bin/states/**`,
     F12 **`ebSt`** payloads, savestates used as fixtures, APU RAM / VRAM /
     CGRAM / OAM dumps that came from real play. **Especially do not commit
@@ -183,7 +200,8 @@ file local.
   ships the *extractor/codec*; the **user's own ROM** is the source of the bytes;
   extraction runs at build/run time and its output lands in a **git-ignored**
   path (`bin/` or `extracted/`), never committed. A `make` step turns the user's
-  baserom into assets/scripts locally; the repo stays asset-free.
+  baserom into assets/scripts locally. Curated README illustrations are the
+  only exception to the repository's exclusion of game imagery.
 
 - **The ROM is always user-supplied** (the `ROM` var in the Makefile); it is
   never bundled. Users must own the original.
@@ -191,6 +209,7 @@ file local.
 - **Before every commit, confirm nothing slipped in** — `git status` for ROMs,
   `*.state` / `bin/states/`, `*.srm` / `bin/sram_backups/`, F12 /
   `earthbound_*.png`, extracted scripts/assets, dumps, `*.wav`, other `*.png`.
+  Verify each curated README PNG's chunk structure separately before inclusion.
   If you add a tool that writes screenshots, save-states, SRAM, or extracted
   data, point its output at a **git-ignored** path first (and never stage those
   paths).

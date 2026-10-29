@@ -3,6 +3,35 @@
 > (graphics/audio/text), or memory/state dumps that embed them; reverse-engineered
 > code is our own new expression and is fine. This doc is the *why* behind that.
 
+## README screenshot exception (2026-10-29)
+
+The project allows a few curated, image-only screenshots in `docs/images/`
+to demonstrate features in the root README. This is a project-policy choice,
+not a guarantee of fair use or permission from a rightsholder. The older legal
+discussion below is background, not a legal opinion; its categorical statements
+should not be treated as settled conclusions about this project.
+
+The [US Copyright Office's fair-use guidance](https://www.copyright.gov/fair-use/)
+describes a case-specific assessment of purpose, nature, amount, and market
+effect. A limited illustration with an explanation of the feature serves a
+different purpose from distributing reusable game assets. That is the rationale
+for this narrow documentation exception, not a claim that screenshots are
+uncopyrighted. External image hosting does not change that analysis.
+
+[Nintendo's sharing guidelines](https://www.nintendo.co.jp/networkservice_guideline/en/index.html)
+permit some screenshot sharing but contain emulator-related exclusions; they
+are not relied on as permission for decompbound documentation.
+
+Every curated image must be freshly encoded from pixels and its PNG chunks
+checked: only `IHDR`, `IDAT`, and `IEND`, with no trailing payload. **Never
+publish original F12 files or their `ebSt` chunks.** Save-states, SRAM, ROMs,
+extracted scripts/assets, and memory/audio dumps remain prohibited. See
+[the image inventory](images/README.md) and [AGENTS.md](../AGENTS.md) for the
+selection and exact rules. This exception does not license game artwork under
+the project's source-code license.
+
+---
+
 - grok suggested copyright rules around git / CI
 
 - we are not lawyers take with a grain of salt
