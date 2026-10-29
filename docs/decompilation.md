@@ -82,7 +82,7 @@ The silky explorer stubs already reserved in the repo are the intended viewers,
 one per data track — each format we crack gets a browser:
 
 - `sprites_explore.nim` → graphics track
-- `map_explore.nim` → maps track
+- `map_app.nim` → Pocket Atlas / verified maps track
 - `sound_explore.nim` → audio-data track (and the music jukebox, `docs/apps.md`)
 
 Cracking a format and building its explorer are two halves of one job.
@@ -112,36 +112,34 @@ honest, and CoilSnake's docs are a cross-check, not a source to copy.
 | 🎨 Graphics | Tiles, palettes, sprites, battle BGs, font, compression | `docs/graphics.md` | `sprites_explore.nim` |
 | 🎵 Audio data | Song sequences, BRR instruments, SFX (ROM-side format + upload) | `docs/audio.md` (ROM-side section) | `sound_explore.nim` |
 | 💬 Scripts | Dialogue text (char table + control codes) + the event/script system | `docs/scripts.md` | text-log + a script dump |
-| 🗺️ Maps | Overworld tilemaps, tilesets, sectors, doors/warps, enemy placement | *(in this hub for now)* | `map_explore.nim` |
+| 🗺️ Maps | Base world atlas, arrangements, tilesets and sector palettes; doors/collision remain research | [world-map.md](world-map.md) | `map_app.nim` |
 | 📊 Game data | Enemy/item/PSI/character-growth/EXP/shop tables | *(in this hub for now)* | `sram_info`-style dump |
 | 🧩 ROM chunks | Full-image typed inventory + per-chunk gold check (sub-agent gate) | `docs/rom-chunks.md` | `chunk_check.nim` |
 
-### 🗺️ Maps (track, not yet its own doc)
+### 🗺️ Maps — Pocket Atlas
 
-EarthBound's overworld is a large tilemap assembled from **tilesets** + **map
-tiles**, divided into **sectors** (each with its own music, tileset, teleport
-rules), plus **door/warp tables** (where each exit leads) and **enemy-placement**
-data (which encounters spawn where). Shares tileset/tile decoding with the
-graphics track. Round-trip DoD: decode a map region → re-encode → byte-exact;
-`map_explore.nim` renders the whole overworld as one big browsable image (its
-stated TODO), with a keybind to overlay impassable tiles.
+[Pocket Atlas and the map format](world-map.md) are the canonical map reference.
+The complete base atlas is 8192×10240 pixels, including outdoors and interiors
+in their original locations. It contains 256×320 placements of 32×32 arrangements
+and 32×80 resource regions of 256×128 pixels. Run `make map-app` to browse it.
 
-**Located (verified byte-exact):** a **tilemap pointer table** at file `0x100000`
-(4-byte entries → bank `$CF`), **tilemap data** at file `0x101800` (2-byte
-tile+attr words, standard SNES BG format), and **tileset graphics** at file
-`0x3E408` (historical candidate; loader attribution needs verification).
-`$C3E4CA` was previously called a graphics loader here, but its complete
-10-byte routine only clears the service-suppression byte at `$9622`; see
-[the verified service setters](prng.md#early-exit-flags-and-adopted-setters).
+Original `$C0A152` combines eight row-interleaved low-byte streams through
+`$C42F64` with packed high bits at `$D75000/$D78000`. Region graphics/palette
+selectors are at `$D7A800`, raw attribute words at `$D7B200`, and the original
+loader chain starts at `$C008C3`. The retained original-code tests verify every
+placement and sector; the format document explains resources and composition.
 
-- **Sectors** — the previous attribution of `0x03E250` / `$C3E250` to sectors
-  was incorrect. Original `$C104EE` reads its 53 eight-byte records as window
-  x/y/width/height and resolves them through `$88E4` into `$8650` window slots.
-  `$89CA` also selects the active battle status panel. These UI observations
-  do not establish a world-sector layout or `(X,Y)→sector` rule. Those remain
-  open; see [the independently verified UI contracts](earthbound-ui.md).
-- **Doors/warps** — *not* a flat door table: exits are per-entity **script streams**
-  run by the object interpreter, executor at file `0x009D9E` (`JML [$0A5A]`).
+The former `0x100000/0x101800` graphical-map attribution was incorrect:
+`$C02640` reads encounter-placement words at `$D01880` / file `0x101880`.
+Likewise, `0x03E250` is UI window geometry and `$89CA` has UI/status uses;
+neither is a world-sector selector. The guessed-offset, synthetic-palette
+`map_explore` tool has been retired. Base scenery browsing is separate from
+collision, doors, story variants and live scene effects.
+
+- **Doors/warps (not established by the atlas work)** — object scripts can
+  trigger transitions, but the older blanket claim that doors are not table
+  driven was not independently established. The object interpreter's executor
+  is at file `0x009D9E` (`JML [$0A5A]`).
   **Separate resource and script selection:** `$EF133F` (file `0x2F133F`,
   four-byte entries) supplies sprite resources. Byte `+8` is a graphics DMA
   source bank; the record address plus 9 starts graphics entries, not scripts.
@@ -149,14 +147,14 @@ tile+attr words, standard SNES BG format), and **tileset graphics** at file
   `$C400D4` in three-byte entries. See the verified
   [resource-field distinction](graphics.md#real-resource-layout-checks-and-field-correction).
   Placement also uses
-  8-byte object-ID records at `$C3E012` (file `0x03E012`) and a coarse map-
-  attribute filter at `$D7A800` (file `0x17A800`).
+  8-byte object-ID records at `$C3E012` (file `0x03E012`). `$D7A800`
+  (file `0x17A800`) now has a verified role as the region graphics/palette selector.
 - **Player position + collision (for pathfinding)** — the player/entity **world X/Y**
   is at WRAM `$0B8E,X` / `$0BCA,X` (indexed by entity slot; the player is the first
   active entity, usually slot 0) — byte-verified (81 `(LDA|STA) $0B8E,X` sites; `STA
   $0B8E,X` near file `0x9390`; screen-relative = minus scroll `$0031/$0033`). The
-  **tile+attr reader** is at file `0x2640` (SNES `$C02640`): `LDA $D01880,X` returns
-  the 2-byte tilemap word (data `0x101800`, ptr table `0x100000`) for a target tile.
+  **encounter reader** at file `0x2640` (SNES `$C02640`) reads a 2-byte word
+  at `$D01880`. This is not the graphical map or a verified collision attribute.
   Walkability uses a **live collision page in WRAM `$7EE000`** (2026-07-09,
   disasm + empirical — the earlier "ROM bank E0" guess was wrong: `LDA $E000,X`
   runs with DBR=`$7E`): a byte per 8px coarse tile indexed
@@ -169,8 +167,8 @@ tile+attr words, standard SNES BG format), and **tileset graphics** at file
   (`JSL $C05F33; AND #$00D0; BNE skip` — nonzero blocks the `STA $0B8E,X`
   update at `0x0029F9`). **Blocked mask confirmed `0x00D0`** by a 4-direction
   live-movement cross-check (`probe_walkable.nim`); Onett page bytes: `0x00`
-  open, `0x80` solid, `0x01/0x03` pass under the mask. The `0x2640` reader
-  also feeds a tile-attr scan at `0x002A6B`. The page **wraps mod 64 tiles**
+  open, `0x80` solid, `0x01/0x03` pass under the mask. The `0x2640` encounter reader
+  also feeds the scan at `0x002A6B`; its old graphics attribution is withdrawn. The page **wraps mod 64 tiles**
   (512×512px window); the loader that fills `$7EE000` on area change is still
   unpinned. This powers the real A\* `navTo` skill (docs/pokey-percent.md §3);
   address registry: `docs/memory-map.md`.

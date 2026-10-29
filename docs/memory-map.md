@@ -38,7 +38,7 @@ unconfirmed) · `❓ unpinned` (known to exist, address/bit not nailed down).
 | `$0024` | dword | **RNG seed** (32-bit LE: lo word `$0024`, hi word `$0026`) | ✅ | The game's PRNG state (SNES has no HW entropy — randomness is deterministic over this seed). **Advance routine `$C08E9A`** (file `0x008E9A`, 56 bytes → RTL; `src/decompbound/snes_src/rng.nim`): `seed_hi.lo * seed_lo.lo` via HW mul (`$4202`→`$4216`), fold `+$6D` into hi, rotate product into lo (carry forces high bit), return byte in A. **JSL-only, 59 call sites** (e.g. `$C2008C` battle roll, `$C02686` ~1/16 branch). **Cold-init `$C08121`**: fixed `$5678_1234` (`LDA #$1234;STA $0024;LDA #$5678;STA $0026`) → deterministic boot. Reimpl matched emulator 10/10; seed reproduces byte-identical across runs. RE'd 2026-07-21 (grok dig + verified). |
 | `$0B8E` | word × slots | Entity **world X** array (stride 2) | ✅ | Player = **slot 24** → `+0x30`. Writer traced `$C04E15` (`$0B8E,X`, X=0x30). `touch_grass.nim` |
 | `$0BCA` | word × slots | Entity **world Y** array (stride 2) | ✅ | Same layout as X. Player = slot 24. |
-| `$89CA` | word | **Sector ID** (per-area music/tileset/teleport) | ✅ | Set via `JSL $C3E74F`; setter at ROM `0x043573`. ⚠️ reads `0xFFFF` in some loaded states — confirm save-state restore. |
+| `$89CA` | word | **UI/window selection, including active battle status panel** | ✅ | Original UI consumers use this selector; the former world-sector attribution was incorrect. World regions derive from coordinates and `$D7A800`; see [world-map.md](world-map.md). |
 | `$9831` | word | **Money** ($) | 🟡 | `touch_grass.readU16`; used for progress signal. |
 | `$8650` | byte | **First text/window slot header** — `0xFF` = free (no window open) | 🟡 | `advanceDialogue` gate. `$8958` = focus (unreliable alone). Slot 1 = `$8654` (NPC/scene dialogue). |
 | `$96C5` | far ptr (24-bit) | **Live dialogue script cursor** into ROM (bank $C0-$CF → HiROM file offset) | ✅ | Advances as chars print. Decoded by `getDialogueText` (`text_decode.nim`): storage byte = ASCII+0x30; control `<0x20` (dispatch file `0x1890E`); `0x15/16/17` = dictionary-token calls via far-ptr tables `0x8CDED/0x8D1ED/0x8D5ED`. EB dialogue is **VWF** so VRAM tiles are pixel glyphs, not chars — the script stream is the only reliable read. Verified 2026-07-10 vs SHA-1 of a private screenstate line (`tests/test_dialogue_decode.nim`). |
@@ -68,13 +68,13 @@ unconfirmed) · `❓ unpinned` (known to exist, address/bit not nailed down).
 
 | Offset | What | Conf | Notes / source |
 |--------|------|------|----------------|
-| `0x100000` | **Tilemap pointer table** (4-byte entries → bank `$CF`) | ✅ | Byte-exact per `docs/decompilation.md`. |
-| `0x101800` | **Tilemap data** (2-byte words) | ✅ | The map tiles A\* reads. |
-| `0x043573` | **Sector setter** (writes `$89CA`) | ✅ | Takes pre-computed sector ID in `A`. |
+| `0x17A800` | **World-region graphics/palette selectors** (2,560 bytes) | ✅ | Upper five bits select logical tileset, lower three palette; see original `$C008C3` and [world-map.md](world-map.md). |
+| `0x042F64` | **World-map row pointers** (8×4 bytes) | ✅ | Original `$C0A152` reads low placement bytes through these streams; packed high bits live at `0x175000/0x178000`. |
+| `0x043573` | **UI selection setter** (writes `$89CA`) | ✅ | The former sector-setter label is withdrawn; `$89CA` is not a world-region identifier. |
 | `0x005F33` | **Collision probe `$C05F33`** (A=world X px, X=world Y px, Y=slot → OR of hitbox collision bytes in `$5DA4`) | ✅ | Disasm-audited 2026-07-09. `xAdj -= u16($C42A1F+type*2)`; `yAdj -= u16($C42A41+type*2) += u16($C42AEB+type*2)`; hitbox w/h counts at `$C42AA7`/`$C42AC9`. Left/right column scans `JSR $5639`/`$56D0`. |
 | `0x0029CC` | **Walk gate** — `JSL $C05F33; AND #$00D0; BNE blocked` | ✅ | Nonzero blocks the `STA $0B8E,X` pos update at `0x0029F9`. |
 | `$C3E012` | **Object-ID records** (8-byte) | 🟡 | `docs/decompilation.md`. |
-| `0x03ED00` | Map / graphics load path | 🟡 | `docs/graphics.md`. |
+| `0x2F105B/0x2F10AB` | **World CHR/arrangement pointer tables** | ✅ | Twenty drawing tilesets, loaded by original `$C008C3`; `0x03ED00` was an unverified bootstrap guess. |
 
 ## How to add an entry
 
@@ -86,7 +86,7 @@ unconfirmed) · `❓ unpinned` (known to exist, address/bit not nailed down).
 
 ## References
 
-- Map/sector RE detail: [`docs/decompilation.md`](decompilation.md)
+- Map/sector RE detail: [world-map.md](world-map.md); collision research: [decompilation.md](decompilation.md)
 - Navigation + read-access foundation: [`docs/pokey-percent.md`](pokey-percent.md)
 - Savestate format (`ebSt`): [`docs/state-screenshots.md`](state-screenshots.md)
 - Code constants: `src/tools/touch_grass.nim`, `src/tools/story_percents.nim`,

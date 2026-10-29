@@ -26,6 +26,8 @@
           xorg.libXcursor
           xorg.libXrandr
           xorg.libXi
+          xorg.xorgserver
+          openbox
           libGL
           udev
           libevdev

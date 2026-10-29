@@ -7,7 +7,7 @@ The organizing idea: **"figure out how X works" is grind, but "build a toy that
 needs X" makes the grind ride along for free.** Pick a shiny artifact you *want
 to exist*; building it forces you to crack a format — now the format is a means
 to a fun end, not a chore. Most of these also **realize the silky explorer
-stubs** (`sprites_explore`, `map_explore`, `sound_explore`) already staked out in
+stubs** (`sprites_explore`, the retired `map_explore`, `sound_explore`) already staked out in
 the repo.
 
 **Legal note (applies to all):** every one of these *runs against the user's own
@@ -45,7 +45,10 @@ pulled from the game-data tables.
 poster; export a giant PNG. Toggle overlays for sectors / music zones / enemy
 regions.
 **Secretly cracks:** map RE (tilesets, tilemaps, sectors).
-**Realizes:** `map_explore.nim`.
+**Current implementation:** [Pocket Atlas](world-map.md) provides full base-atlas
+browsing and region inspection through `make map-app`. The guessed-offset
+`map_explore.nim` was retired; giant exports, music/encounter overlays and dynamic
+variants remain wishlist items.
 **Done when:** the full overworld renders as one browsable image and a map region
 round-trips byte-exact.
 
@@ -115,7 +118,7 @@ every data track.
 |---|---|---|
 | Battle-BG player | BG distortion engine (+ fixes #10) | — |
 | Bestiary | sprites + enemy data | `sprites_explore` |
-| World map poster | maps | `map_explore` |
+| World map poster | maps | Pocket Atlas (`make map-app`); poster export remains future work |
 | Screenplay | scripts | text-log |
 | Soundboard | audio instruments | `sound_explore` |
 | Battle sandbox | game-data + battle math | Goal 3 teaser |

@@ -26,13 +26,13 @@ and `review/archive-2026-10-27/*` retain unverified research for later investiga
 | Goal | Outcome | Current state |
 |---|---|---|
 | **1. Rebuild identically** | Reconstruct every original byte from our source and the user's local extraction. | **Met; maintain.** `make compare` printed `BYTE-IDENTICAL`. |
-| **2. Understand all code** | Explain every game routine, its contracts, and its role in the larger system. | **Early.** 51 assembly regions, 3,927 bytes, formally marked explained and reproduced. Additional research lives outside that inventory. |
+| **2. Understand all code** | Explain every game routine, its contracts, and its role in the larger system. | **Early.** 55 assembly regions, 4,145 bytes, formally marked explained and reproduced, including world-map lookup and arrangement readers. Additional research lives outside that inventory. |
 | **3. Understand scripting** | Explain the script languages, their interpreters, and how scripts cause game behavior. | **Partial.** Text decoding and entity action-script machinery exist; complete semantics and a whole-ROM script inventory remain open. |
-| **4. Understand graphics** | Explain and browse the game's graphics, including the assembled world map. | **Partial.** Rendering/compression tools exist; a complete asset catalog and faithful browse-all viewer do not. |
+| **4. Understand graphics** | Explain and browse the game's graphics, including the assembled world map. | **Partial.** Pocket Atlas browses the complete base world/interior atlas; enemy portraits, backgrounds and UI also have verified renderers. A complete graphics catalog and dynamic world variants remain open. |
 | **5. Understand audio** | Explain the sound driver, music, effects, instruments, and playback behavior. | **Partial.** Emulator playback and annotated upload/song-selection routines exist; full driver and content interpretation remain open. |
 
-The manifest currently covers 3,145,728 bytes in 76 regions. Of those bytes,
-3,927 (0.1248%) are `reproduce` / `explained`; 3,141,801 are `copy` / `unknown`.
+The manifest currently covers 3,145,728 bytes in 81 regions. Of those bytes,
+4,145 (0.1318%) are `reproduce` / `explained`; 3,141,583 are `copy` / `unknown`.
 This denominator is the **whole ROM**, including data and assets, not executable
 code alone. It is not a percentage of functions understood. Recompute from
 [manifest.json](manifest.json) when updating this baseline.
@@ -150,12 +150,14 @@ tilesets, palettes, and the world map with its rooms and arrangements.
 
 The overworld `sprite_preview` tool renders resource IDs using verified layouts,
 uploads, and the baseline ROM palette. Scene palettes and identity labels remain
-open. Older sprite/map exporters use selected offsets and synthetic palettes;
-none is a complete asset browser. Likewise, `decode(encode(raw)) == raw` proves decoded-content fidelity;
+open. Pocket Atlas now composes the complete base atlas with verified map
+placements, original two-plane tilesets, cleared-event substitutions and actual
+palettes. Animation and story-specific variants remain open. The guessed-offset
+map exporter was retired. Likewise, `decode(encode(raw)) == raw` proves decoded-content fidelity;
 it does not establish that an encoder recreates the original compressed bytes.
 Keep the original-byte rebuild path until that stronger claim is verified.
 
-References: [graphics](docs/graphics.md), [battle backgrounds](docs/battle-backgrounds.md),
+References: [graphics](docs/graphics.md), [world atlas](docs/world-map.md), [battle backgrounds](docs/battle-backgrounds.md),
 [bestiary plan](docs/bestiary.md), [map/data research](docs/decompilation.md).
 
 ## Goal 5 — Understand audio

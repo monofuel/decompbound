@@ -131,10 +131,11 @@ Located graphics resources include:
   graphics at `0x200000`, flavored overlay at `0x200754`, and palettes selected
   through `0x201FB9`. Original-routine regressions verify decoding, glyphs,
   generated status graphics and layout; see [original UI rendering](earthbound-ui.md).
-- **Overworld tilesets** — older bootstrap guesses such as `0x3E408` and
-  `0x03ED00` lack a verified overworld loader and are not an asset catalog.
-  The nearby `0x03E250` table is now independently verified as UI window
-  geometry, correcting its former sector-table attribution.
+- **World atlas and tilesets** — [Pocket Atlas](world-map.md) browses the complete
+  base world/interior layout. Original loaders verify all map placements,
+  20 drawing resources, their two scenery planes and arrangements, clear-event
+  substitutions and all 149 sector-referenced palettes. The previous `0x3E408`
+  and `0x03ED00` guesses were superseded; `0x03E250` is UI window geometry.
 - **Still open:** complete player/NPC OBJ CHR and palette mapping. The resource
   and layout tables are located below, together with verified sprite composition.
   Correlating those resources with OBJ-VRAM transfers during an overworld load

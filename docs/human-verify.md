@@ -47,7 +47,13 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 | Check | Run | Pass if |
 |---|---|---|
-| [ ] README layout and image selection | Open `README.md` in a Markdown preview; after publication, check GitHub on desktop and a narrow screen. | All five feature images load with readable captions, the combined background view makes both canvases clear, and the existing goals, status, quick start, rules, and doc index remain accessible below the showcase. |
+| [ ] README layout and image selection | Open `README.md` in a Markdown preview; after publication, check GitHub on desktop and a narrow screen. | All six feature images load with readable captions, the combined background view makes both canvases clear, and the existing goals, status, quick start, rules, and doc index remain accessible below the showcase. |
+
+### Pocket Atlas (2026-10-29)
+
+| Check | Run | Pass if |
+|---|---|---|
+| [ ] Full-atlas browsing and physical input | Run `make map-app`; try `make map-app ARGS="--x:6782 --y:10064 --zoom:2"`. Browse outdoors/interiors with mouse, keyboard and Paddy; zoom at the pointer, resize/fullscreen, disconnect/reconnect the controller, and exit. | The entire base atlas fits initially, interiors stay in their original positions, terrain and borders are sharp at integer zoom, and pan/selection/inspection work after resizing. A wheel gesture zooms once, taps/clicks inspect rather than drag, region navigation stays in bounds, and unplugging the pad leaves mouse/keyboard usable. Palette/story variants and base-frame animation limits are described in `world-map.md`. |
 
 ### EarthBound DS companion (2026-10-28)
 

@@ -9,7 +9,7 @@ crunchy 0.1.11 https://github.com/guzba/crunchy 98eb6526982bb8aae8eec6e8781f4539
 shady 0.1.5 https://github.com/treeform/shady e6b643a3b3d0568541a71499dc891cbcc46060e0
 silky 0.1.0 https://github.com/treeform/silky 41a9fbcd513dd449e8376a7a5a102113eefc2836
 paddy 0.1.0 https://github.com/monofuel/paddy 5bc257366aad98cd5267d9eabe814a90c5bb836f
-windy 0.5.0 https://github.com/monofuel/windy 0c34bd7379f44d5b005786147013b2a036258bce
+windy 0.5.0 https://github.com/monofuel/windy fb663ce9ce5eeb9944b1a1d127728548676da60f
 opengl 1.2.9 https://github.com/nim-lang/opengl 8e2e098f82dc5eefd874488c37b5830233cd18f4
 urlly 1.1.1 https://github.com/treeform/urlly 99784779f05649df25fd9c33003d8ef6de027345
 ws 0.6.0 https://github.com/treeform/ws c9c0c7b51e2e83cc9305a895a0b144a297b4bea8

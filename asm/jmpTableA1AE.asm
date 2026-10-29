@@ -1,34 +1,14 @@
-; jmpTableA1AE
-; Ported from snes_src/action_script_tables.nim :: jmpTableA1AE (evidence-preserving re-port).
-;
-; Entity action-script VM dispatch tables (bank $C0).
-;
-; Reverse-engineered structure (docs/scripts.md): low path `$C09558` is 77
-; little-endian code pointers (`X = opcode * 2`); high path `$C095E2` overlays
-; the last 8 low-path words. Companion tables `$C08C65`, `$C0A1AE`, `$C0A350`
-; are additional static jump tables already used as convert_all seeds.
-;
-; Declared as project data (like header/vectors): pointers into our decompiled
-; code, not copyrighted script *content*. Gold-gated via the region registry.
-;
-;
-; --- jmpTableA1AE ---
-; Emit the stride-4 word+pad table at file 0xA1AE (32 bytes).
-; Emit the stride-4 word+pad table at file 0xA1AE (32 bytes).
-;
-; Named constants (values inlined below; names preserved as comments):
-;   ActionScriptDispatchOffset = $9558
-;   ActionScriptDispatchSnes = $C09558
-;   ActionScriptDispatchLen = $9A
-;     77 entries × 2 bytes (opcodes 0x00–0x4C low path).
-;   JmpTable8C65Offset = $8C65
-;   JmpTable8C65Len = $08
-;   JmpTableA1AEOffset = $A1AE
-;   JmpTableA1AELen = $20
-;     Four word+pad pairs (8 words) = 32 bytes.
-;   JmpTableA350Offset = $A350
-;   JmpTableA350Len = $10
-;     Eight code pointers.
-;
-.byte $D4, $A1, $00, $00, $D2, $A1, $00, $00, $D0, $A1, $00, $00, $CE, $A1, $00, $00
-.byte $D4, $A1, $00, $00, $D2, $A1, $00, $00, $D0, $A1, $00, $00, $CE, $A1, $00, $00
+; World-map packed high-bit extraction dispatch, file $00A1AE, SNES $C0A1AE.
+; C0A1A3 masks row&7; two ASLs produce X=rowModuloEight*4.
+; JMP ($A1AE,X) selects a near entry in readWorldMapTileTail.asm.
+; Each entry is a near code pointer and a zero padding word. Padding is
+; retained as original layout, not interpreted as part of the near pointer.
+; Rows 0..3 read the D75000 plane, rows 4..7 the D78000 plane.
+.word $A1D4, $0000 ; Row 0: preserve packed bits 0..1.
+.word $A1D2, $0000 ; Row 1: shift packed bits 2..3 down by 2.
+.word $A1D0, $0000 ; Row 2: shift packed bits 4..5 down by 4.
+.word $A1CE, $0000 ; Row 3: shift packed bits 6..7 down by 6.
+.word $A1D4, $0000 ; Row 4: preserve packed bits 0..1.
+.word $A1D2, $0000 ; Row 5: shift packed bits 2..3 down by 2.
+.word $A1D0, $0000 ; Row 6: shift packed bits 4..5 down by 4.
+.word $A1CE, $0000 ; Row 7: shift packed bits 6..7 down by 6.
