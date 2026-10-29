@@ -15,9 +15,49 @@
     {
       "name": "blob_000013",
       "offset": 19,
-      "length": 6771,
+      "length": 840,
       "kind": "blob",
       "source": "blobs/blob_000013.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "readWorldMapArrangementTile",
+      "offset": 859,
+      "length": 54,
+      "kind": "code",
+      "source": "asm/readWorldMapArrangementTile.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/world-map.md and integration_world_map_layout.nim compare original arrangement/sector lookup over the complete atlas"
+    },
+    {
+      "name": "blob_000391",
+      "offset": 913,
+      "length": 1808,
+      "kind": "blob",
+      "source": "blobs/blob_000391.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "readWorldMapRegionAttributes",
+      "offset": 2721,
+      "length": 36,
+      "kind": "code",
+      "source": "asm/readWorldMapRegionAttributes.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/world-map.md and integration_world_map_layout.nim compare original arrangement/sector lookup over the complete atlas"
+    },
+    {
+      "name": "blob_000AC5",
+      "offset": 2757,
+      "length": 4033,
+      "kind": "blob",
+      "source": "blobs/blob_000AC5.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
@@ -423,14 +463,14 @@
       "evidence": "adopted sramMirrorPiracyCheck from asm/"
     },
     {
-      "name": "blob_00A152",
+      "name": "readWorldMapTile",
       "offset": 41298,
       "length": 92,
-      "kind": "blob",
-      "source": "blobs/blob_00A152.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "kind": "code",
+      "source": "asm/readWorldMapTile.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/world-map.md and integration_world_map_layout.nim compare original arrangement/sector lookup over the complete atlas"
     },
     {
       "name": "jmpTableA1AE",
@@ -440,14 +480,24 @@
       "source": "asm/jmpTableA1AE.asm",
       "build": "reproduce",
       "comprehension": "explained",
-      "evidence": "adopted jmpTableA1AE from asm/"
+      "evidence": "docs/world-map.md: packed world-map high-bit dispatch into readWorldMapTileTail; original full-atlas and byte-exact checks"
     },
     {
-      "name": "blob_00A1CE",
+      "name": "readWorldMapTileTail",
       "offset": 41422,
-      "length": 386,
+      "length": 36,
+      "kind": "code",
+      "source": "asm/readWorldMapTileTail.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/world-map.md and integration_world_map_layout.nim compare original arrangement/sector lookup over the complete atlas"
+    },
+    {
+      "name": "blob_00A1F2",
+      "offset": 41458,
+      "length": 350,
       "kind": "blob",
-      "source": "blobs/blob_00A1CE.bin",
+      "source": "blobs/blob_00A1F2.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"

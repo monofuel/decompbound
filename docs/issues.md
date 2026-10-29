@@ -56,6 +56,28 @@ hang, Saturn Valley corruption, half-speed music) are tracked together in
 
 ## OPEN (not yet assigned)
 
+- **Pocket Atlas / Deep Darkness assets show through darkness
+  (2026-10-29).** Human-reported visibility discrepancy: scenery assets appear
+  through the shroud where they are expected to stay hidden in normal play.
+  The default cleared-story-flags variant explains the palette selection;
+  palette selection alone does not settle whether this visibility is correct.
+  Root cause remains under investigation. Reproduction and visual verification:
+  [human-verify.md](human-verify.md), Found in play.
+  Direct reproduction: `make map-app ARGS="--x:4842 --y:7566 --zoom:2 --flag:0120=off"`.
+  Original-code investigation now reproduces the same patches in our emulator
+  after relocating an actual pre-Hawk-Eye state into the affected area. Native
+  scenery matches all 57,344 background pixels produced by our own PPU; OAM
+  does not hide the patches. This is not an independent console reference.
+  monofuel expects these objects to remain hidden during normal console play.
+  Further original-code evidence proves a transparent collision gate at
+  `(6016,7960)`: it spawns with `$0120` clear and blocks movement; removing
+  only that object permits movement without changing the palette flag. Thus
+  the warped comparison exposes normally restricted map data and does not
+  establish a PPU defect. The complete reachable-camera boundary and a console
+  comparison remain unverified. See
+  [world-map.md](world-map.md#deep-darkness-investigation). Keep this issue open;
+  do not substitute a guessed atlas mask for missing evidence.
+
 - **Pocket Jukebox controller disconnect — fix ready for physical retry
   (2026-10-27).** monofuel reported a crash after unplugging; the terminal trace
   was lost. The old Paddy pin retained a udev-owned path after unref and mishandled

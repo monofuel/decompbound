@@ -73,18 +73,12 @@ Four layers, bottom-up. Layer 1 is the keystone; everything else is standard onc
 it exists.
 
 1. **Walkability query — RE the collision / "pass" bit (KEYSTONE).**
-   EarthBound builds the overworld from a tilemap (`docs/decompilation.md`:
-   tilemap data at file `0x101800`, 2-byte words; ptr table `0x100000`; sectors
-   are 8-byte records keyed by sector ID `$89CA`). The per-tile **passability bit
-   lives in the tile word but is not yet pinned** (the `0x2640` note in
-   `touch_grass.nim`). **Pin it empirically with the emulator:** walk Ness into
-   known walls vs. open ground, read the tile word at the player's tile in each
-   case, and find the bit(s) that flip solid↔walkable. Deliver a
-   `isWalkable(snes, tx, ty) -> bool` over the live map. (`src/tools/map_explore.nim`
-   already reads map data — start there.)
-   - *Note:* `sector` (`$89CA`) reads `0xFFFF` in our loaded `bedroom`/`onett`
-     states — confirm whether that's a save-state restore gap before relying on
-     sector for anything.
+   **Historical correction:** the old graphical-map offsets, sector `$89CA`,
+   and proposed tile-word passability bit below were incorrect hypotheses.
+   [Pocket Atlas](world-map.md) now explains the actual visual map. Live
+   collision comes from the game's WRAM page at `$7EE000`; its loader and
+   movement consumers remain the relevant pathfinding investigation. See
+   [the map/collision research hub](decompilation.md#-maps--pocket-atlas).
 2. **A\* pathfinder.** Grid search over `isWalkable` from Ness's tile to a goal
    tile. Returns a tile path.
 3. **Path → inputs (reactive).** Convert the path to d-pad presses; re-plan when
@@ -124,10 +118,12 @@ Store states privately in `decompbound_secret/states/` (see
 
 ## 5. Metric correctness (independent of navigation)
 
-- **No real map-id gate today.** Grading is position-only; EarthBound interiors
-  reuse coordinate ranges, so `(x,y)` can collide across maps (how Picky passed
-  for Pokey). Gate on a real map/area byte — find one (sector `$89CA` is `0xFFFF`,
-  currently unusable). `currentRoomLabel`/`touchGrassPercent` are `tg%`-derived
+- **No verified map-identity gate in this historical bot work.** Grading is
+  position-only. The old inference that interiors reuse graphical-map coordinates
+  is superseded by the continuous atlas in [world-map.md](world-map.md).
+  Correlate the bot's entity coordinates with the original camera/region lookup
+  before using them as an area identity; `$89CA` is a UI selector, not a sector.
+  `currentRoomLabel`/`touchGrassPercent` are `tg%`-derived
   and map-blind (they label the Minch interior `outside_onett`).
 - **No "talked to Pokey" flag found.** Event block `0x988B..` is unchanged before
   vs. after the (wrong, indoor) talk. RE a real met-Pokey / dialogue-complete bit
@@ -203,9 +199,7 @@ Store states privately in `decompbound_secret/states/` (see
 - Campaign ladder: [`docs/llm-sequence.md`](llm-sequence.md) · Harness:
   [`docs/llm-plays.md`](llm-plays.md) (already defers "real A\* once we RE the
   collision map")
-- Map/collision RE: [`docs/decompilation.md`](decompilation.md) (tilemap
-  `0x101800`, sectors `$89CA`), [`docs/graphics.md`](graphics.md),
-  `src/tools/map_explore.nim`
+- Visual map RE: [world-map.md](world-map.md); collision: [decompilation.md](decompilation.md); graphics: [graphics.md](graphics.md)
 - Hang fix / baseline: [`docs/play-regressions.md`](play-regressions.md) (commit
   `eb93a14`; baseline `0bdad72`)
 - Savestate format: [`docs/state-screenshots.md`](state-screenshots.md)

@@ -8,6 +8,7 @@ SHELL := bash
 
 .PHONY: bestiary-app bestiary-build bestiary-test bestiary-window-test
 .PHONY: battle-bg-app battle-bg-build battle-bg-test battle-bg-window-test
+.PHONY: map-app map-build map-test map-window-test
 .PHONY: jukebox jukebox-build jukebox-test jukebox-window-test jukebox-volume-test jukebox-gamepad-test
 
 ROM ?= bin/Earthbound (U) [!].smc
@@ -65,6 +66,7 @@ help:
 	@echo "  make bestiary-test - synthetic, ROM and original-code portrait checks"
 	@echo "  make bestiary-window-test - isolated Xvfb/audio input and mixer checks"
 	@echo "  make battle-bg-app - two-window enemy battle background browser"
+	@echo "  make map-app      - Pocket Atlas: complete world map and interior browser"
 	@echo "  make battle-bg-build - build bin/battle-bg without opening windows"
 	@echo "  make battle-bg-test - synthetic controls/renderer and ROM oracles/sweep"
 	@echo "  make battle-bg-window-test - isolated two-window Xvfb/pixel checks"
@@ -276,6 +278,26 @@ bestiary-test: nim.cfg
 bestiary-window-test: bestiary-build
 	nim c -d:release $(NIM_TEST_FLAGS) --out:bin/bestiary-output-smoke tests/bestiary/output_smoke.nim
 	nim r -d:release $(NIM_TEST_FLAGS) --out:bin/bestiary-window-smoke tests/bestiary/window_smoke.nim "$(ROM)"
+
+map-build: nim.cfg
+	@mkdir -p bin
+	nim c $(NIM_TEST_FLAGS) -d:release -o:bin/map-browser src/tools/map_app.nim
+
+map-app: map-build
+	bin/map-browser "$(ROM)" $(ARGS)
+
+map-test: nim.cfg
+	nim r $(NIM_TEST_FLAGS) tests/test_world_map.nim
+	nim r $(NIM_TEST_FLAGS) tests/test_world_map_story.nim
+	nim r $(NIM_TEST_FLAGS) tests/test_world_map_browser.nim
+	DECOMPBOUND_ROM="$(ROM)" nim r -d:release $(NIM_TEST_FLAGS) tests/integration_world_map_layout.nim
+	DECOMPBOUND_ROM="$(ROM)" nim r -d:release $(NIM_TEST_FLAGS) tests/integration_world_map_assets.nim
+	DECOMPBOUND_ROM="$(ROM)" nim r -d:release $(NIM_TEST_FLAGS) tests/integration_world_map_story.nim
+	DECOMPBOUND_ROM="$(ROM)" nim r -d:release $(NIM_TEST_FLAGS) tests/integration_world_map_render.nim
+
+map-window-test: map-build
+	nim c -d:release $(NIM_TEST_FLAGS) -o:bin/background-gl-smoke tests/backgrounds/gl_smoke.nim
+	nim r -d:release $(NIM_TEST_FLAGS) -o:bin/map-window-test tests/world_map/window_smoke.nim "$(ROM)"
 
 battle-bg-build: nim.cfg
 	@mkdir -p bin
@@ -563,6 +585,7 @@ check: nim.cfg
 	for f in src/decompbound.nim src/compare.nim \
 	         src/tools/play.nim src/tools/llm_ai.nim src/tools/bench_replay.nim \
 	         src/libretro/core.nim \
+	         src/tools/map_app.nim \
 	         src/tools/chunk_check.nim src/tools/decompbound_mcp.nim; do \
 		echo "==> nim check $$f"; \
 		nim check $(NIM_TEST_FLAGS) "$$f" || fail=1; \

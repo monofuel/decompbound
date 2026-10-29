@@ -34,6 +34,27 @@ proc main() =
           expected = image[sourceX, sourceY]
         doAssert pixels[y * dimensions.x.int + x] == expected
     doAssert glGetError() == GL_NO_ERROR
+  for size in [ivec2(7, 5), ivec2(2, 9), ivec2(4, 4)]:
+    preview.window.size = size
+    pollEvents()
+    preview.resize(size.x.int, size.y.int)
+    let resized = newImage(size.x.int, size.y.int)
+    for y in 0 ..< resized.height:
+      for x in 0 ..< resized.width:
+        resized[x, y] = ColorRGBA(r: uint8(x * 23), g: uint8(y * 19), b: 170, a: 255)
+    controls.blit(image)
+    preview.upload(resized)
+    preview.draw()
+    var pixels = newSeq[ColorRGBA](resized.width * resized.height)
+    glReadPixels(0, 0, size.x.GLsizei, size.y.GLsizei, GL_RGBA,
+      GL_UNSIGNED_BYTE, addr pixels[0])
+    for y in 0 ..< resized.height:
+      for x in 0 ..< resized.width:
+        doAssert pixels[y * resized.width + x] == resized[x, resized.height - 1 - y]
+    doAssert glGetError() == GL_NO_ERROR
+  doAssert preview.nativeW == 4 and preview.nativeH == 4
+  preview.resize(4, 4)
+  doAssert glGetError() == GL_NO_ERROR
   preview.close()
   pollEvents()
   preview = initGlBlit("Synthetic reopened preview", 4, 4, scale = 3, vsync = false)
