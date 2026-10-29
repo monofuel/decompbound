@@ -15,7 +15,7 @@ nimcache
 bin/*
 
 # --- Copyright hygiene: never commit the game or its assets ---
-# See AGENTS.md "Copyright hygiene" + docs/copywrite-notes.md.
+# See AGENTS.md "Copyright hygiene" + docs/copyright-notes.md.
 # ROM images (the copyrighted work). Anywhere in the tree, not just bin/.
 *.smc
 *.sfc
@@ -28,6 +28,15 @@ bin/*
 # repo root so docs/ can still hold legit diagram images.
 /*.png
 /*.bmp
+# Curated, image-only README illustrations. Other captures stay local.
+# See docs/images/README.md; verify PNG chunks before adding an image.
+/docs/images/*
+!/docs/images/README.md
+!/docs/images/emulator.png
+!/docs/images/earthbound_20260818-022023-ds.png
+!/docs/images/music-jukebox.png
+!/docs/images/battle-background-viewer.png
+!/docs/images/bestiary.png
 # Battery saves (player data, but keep them out of the repo anyway).
 *.srm
 # Build-time extraction output from the user's ROM (scripts/graphics/audio/etc.

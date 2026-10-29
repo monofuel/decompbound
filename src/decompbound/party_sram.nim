@@ -19,16 +19,21 @@ const
   # community cross-ref (datacrystal character table). See docs/sram-format.md.
   # Layout is shared with live WRAM (party_wram.nim): slot+off maps to
   # PersistBlockWram + (off - DataOffset). See docs/memory-map.md / party_wram.
-  PartyRosterOff* = 0xB6
-  PartyRosterLen* = 7
+  PlayableCharCount* = 4
+  # Counted HUD order: original $C21034, with six slots bounded at $C24CCD.
+  PartyRosterOff* = 0x9A
+  PartyRosterLen* = 6
+  PartyCountOff* = 0xCF
   CharTableBase* = 0x1F9
   CharStride* = 0x5F
-  PlayableCharCount* = 4
   CharNameOff* = 0x00
   CharLevelOff* = 0x05
   CharExpOff* = 0x06
   CharHpMaxOff* = 0x0A
   CharPpMaxOff* = 0x0C
+  # Original $C203E5 passes this seven-byte block to $C223D9/$C22474.
+  CharConditionsOff* = 0x0E
+  CharConditionsLen* = 7
   CharStatsOff* = 0x15      # OFF/DEF/SPD/GUT/LUC/VIT/IQ ×u8, with equipment
   CharStatsBaseOff* = 0x1C  # same order, base (no equipment)
   CharInventoryOff* = 0x23  # 14 ×u8 item IDs (0 = empty slot)
@@ -37,6 +42,15 @@ const
   CharEquipLen* = 4
   CharHpCurOff* = 0x47
   CharPpCurOff* = 0x4D
+  # Original $C2109F updates these integer words separately from the targets.
+  # See docs/earthbound-ds.md and integration_ds_meters.nim for the ROM oracle.
+  CharHpDisplayOff* = 0x45
+  CharPpDisplayOff* = 0x4B
+  # Original $C213AC passes these phase words to the digit renderer.
+  CharHpFractionOff* = 0x43
+  CharPpFractionOff* = 0x49
+  # Original $C203C3 adds these palette attributes to status-frame tiles.
+  CharUiPaletteOff* = 0x4F
   CharNameMaxLen* = 5
   CharRoleNames* = ["Ness", "Paula", "Jeff", "Poo"]
 
@@ -86,6 +100,15 @@ type
     members*: seq[PartyMemberVitals]
     empty*: bool
     note*: string
+
+proc playablePartyIds*(roster: openArray[uint8], count: int): seq[int] =
+  ## Return active playable identities once each, preserving the game's roster order.
+  var seen: set[1 .. PlayableCharCount]
+  for index in 0 ..< min(max(count, 0), min(roster.len, PartyRosterLen)):
+    let id = roster[index].int
+    if id in 1 .. PlayableCharCount and id notin seen:
+      result.add(id)
+      seen.incl(id)
 
 proc readLE*(data: string, offset, size: int): uint32 =
   ## Little-endian unsigned read of `size` bytes at `offset`.
@@ -236,10 +259,11 @@ proc readPartyVitalsFromBytes*(data: string, srmPath = "",
     return result
 
   var inParty: set[0..3] = {}
-  for j in 0 ..< PartyRosterLen:
-    let id = readU8(data, slotBase + PartyRosterOff + j).int
-    if id >= 1 and id <= PlayableCharCount:
-      inParty.incl(id - 1)
+  var roster: array[PartyRosterLen, uint8]
+  for index in 0 ..< roster.len:
+    roster[index] = readU8(data, slotBase + PartyRosterOff + index)
+  for id in playablePartyIds(roster, readU8(data, slotBase + PartyCountOff).int):
+    inParty.incl(id - 1)
 
   for charIdx in 0 ..< PlayableCharCount:
     let eb = slotBase + CharTableBase + charIdx * CharStride

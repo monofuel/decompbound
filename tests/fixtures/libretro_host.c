@@ -33,6 +33,7 @@ typedef size_t (*batch_cb)(const int16_t *, size_t);
 typedef void (*poll_cb)(void);
 typedef int16_t (*input_cb)(unsigned, unsigned, unsigned, unsigned);
 struct log_callback { void (*log)(int, const char *, ...); };
+struct variable { const char *key, *value; };
 
 struct api {
   void (*set_environment)(environment_cb); void (*set_video_refresh)(video_cb);
@@ -62,8 +63,10 @@ static struct api open_api(void *handle) {
   return a;
 }
 static bool accept_pixels = true;
+static bool dual_screen = false;
 static unsigned pixel_requests, polls, videos, frames, samples, buttons;
 static uint32_t pixel;
+static uint32_t first_card, second_card;
 static unsigned errors;
 static char last_error[256];
 static void core_log(int level, const char *format, ...) {
@@ -77,22 +80,62 @@ static void core_log(int level, const char *format, ...) {
 static bool environment(unsigned command, void *data) {
   if (command == PIXEL_FORMAT_COMMAND) { CHECK(data); CHECK(*(unsigned *)data == XRGB8888); pixel_requests++; return accept_pixels; }
   if (command == LOG_INTERFACE_COMMAND) { CHECK(data); ((struct log_callback *)data)->log = core_log; return true; }
+  if (command == 16) {
+    struct variable *v = data; CHECK(v && !strcmp(v[0].key, "decompbound_dual_screen"));
+    CHECK(strstr(v[0].value, "disabled|enabled") && !v[1].key); return true;
+  }
+  if (command == 15) {
+    struct variable *v = data; CHECK(v && !strcmp(v->key, "decompbound_dual_screen"));
+    v->value = dual_screen ? "enabled" : "disabled"; return true;
+  }
   return false;
 }
 static void video(const void *data, unsigned width, unsigned height, size_t pitch) {
-  CHECK(data); CHECK(width == 256 && height == 224 && pitch == 1024);
+  CHECK(data); CHECK(width == 256 && height == (dual_screen ? 448u : 224u) && pitch == 1024);
   pixel = ((const uint32_t *)data)[0]; videos++;
+  if (dual_screen) {
+    first_card = ((const uint32_t *)data)[(224 + 144) * 256 + 72];
+    second_card = ((const uint32_t *)data)[(224 + 144) * 256 + 128];
+  }
 }
 static void sample(int16_t left, int16_t right) { (void)left; (void)right; samples++; }
 static size_t batch(const int16_t *data, size_t count) { CHECK(data); frames += (unsigned)count; return count; }
 static void poll(void) { polls++; }
 static int16_t input(unsigned port, unsigned device, unsigned index, unsigned id) {
-  CHECK(device == DEVICE_JOYPAD); CHECK(index == 0);
-  return port == 0 && id < 12 && (buttons & (1u << id)) != 0;
+  CHECK(device == DEVICE_JOYPAD || (dual_screen && device == 6)); CHECK(index == 0);
+  return device == DEVICE_JOYPAD && port == 0 && id < 14 && (buttons & (1u << id)) != 0;
 }
 static void callbacks(struct api a) {
   a.set_environment(environment); a.set_video_refresh(video); a.set_audio_sample(sample);
   a.set_audio_sample_batch(batch); a.set_input_poll(poll); a.set_input_state(input);
+}
+static void ui_word(unsigned char *r, unsigned offset, unsigned value) {
+  r[offset] = (unsigned char)value;
+  r[offset + 1] = (unsigned char)(value >> 8);
+}
+static void ui_rle(unsigned char *r, unsigned offset, unsigned remaining) {
+  /* Authored flat two-bit tiles, using long RLE commands rather than game data. */
+  while (remaining) {
+    unsigned count = remaining < 1024 ? remaining : 1024;
+    r[offset++] = (unsigned char)(0xe4u | ((count - 1) >> 8));
+    r[offset++] = (unsigned char)(count - 1);
+    r[offset++] = 0xff;
+    remaining -= count;
+  }
+  r[offset] = 0xff;
+}
+static void make_ui(unsigned char *r) {
+  /* Independent synthetic descriptors and blank fonts for dual-screen ABI tests. */
+  for (unsigned id = 0; id < 5; ++id) {
+    unsigned entry = 0x3f054 + id * 12, height = id == 3 ? 8 : 16;
+    ui_word(r, entry, 0x8000); r[entry + 2] = 0xc4;
+    ui_word(r, entry + 4, 0x8100); r[entry + 6] = 0xc4;
+    ui_word(r, entry + 8, height); ui_word(r, entry + 10, height);
+    ui_word(r, 0x201fb9 + id * 3, id * 64);
+    r[0x201fb9 + id * 3 + 2] = id == 0 ? 1 : 8;
+  }
+  memset(r + 0x48000, 6, 96); memset(r + 0x48100, 0xff, 96 * 16);
+  ui_rle(r, 0x200000, 0x1a00); ui_rle(r, 0x200754, 0x70);
 }
 static unsigned char *make_rom(size_t prefix) {
   unsigned char *rom = calloc(1, ROM_SIZE + prefix); CHECK(rom);
@@ -103,16 +146,20 @@ static unsigned char *make_rom(size_t prefix) {
     0xa9,0x00,0x8d,0x21,0x21, /* LDA #0; STA $2121 */
     0xa9,0x1f,0x8d,0x22,0x21, /* LDA #31; STA $2122 */
     0xa9,0x00,0x8d,0x22,0x21, /* LDA #0; STA $2122 */
+    0xa9,0x03,0x8d,0x21,0x21, /* Set synthetic UI color 3 to red too. */
+    0xa9,0x1f,0x8d,0x22,0x21,
+    0xa9,0x00,0x8d,0x22,0x21,
     0xa9,0x0f,0x8d,0x02,0x00, /* LDA #15; STA $0002 */
     0xad,0x02,0x00,0x8d,0x00,0x21, /* LDA $0002; STA $2100 */
     0xad,0x18,0x42,0x8d,0x00,0x00, /* LDA $4218; STA $0000 */
     0xad,0x19,0x42,0x8d,0x01,0x00, /* LDA $4219; STA $0001 */
     0xee,0x03,0x00, /* INC $0003, a timing witness. */
-    0x4c,0x14,0x80 /* JMP $8014 */
+    0x4c,0x23,0x80 /* JMP $8023 */
   };
   memcpy(r + 0x8000, code, sizeof(code));
   memcpy(r + 0xffc0, "SYNTHETIC ABI TEST   ", 21);
   r[0xffd5] = 0x21; r[0xfffc] = 0x00; r[0xfffd] = 0x80;
+  make_ui(r);
   return rom;
 }
 static void check_metadata(struct api a) {
@@ -163,10 +210,26 @@ static void check_loaded(struct api a) {
   CHECK(ram[1] == 0x80 && ram[3] == timing);
   a.set_audio_sample(sample); a.set_audio_sample_batch(batch);
 }
+static void check_companion(struct api a) {
+  uint8_t *ram = a.get_memory_data(MEMORY_SYSTEM_RAM);
+  const unsigned base = 0x99ce, stride = 0x5f;
+  ram[0x986f] = 1; ram[0x9870] = 2; ram[0x98a4] = 2;
+  ram[base] = 'A' + 0x30; ram[base + 5] = 1;
+  ram[base + stride] = 'B' + 0x30; ram[base + stride + 5] = 1;
+  buttons = 0; run_frame(a, 533);
+  CHECK(first_card == 0xff0000 && second_card == 0);
+  buttons = 1u << 13; run_frame(a, 533);
+  CHECK(first_card == 0 && second_card == 0xff0000);
+  CHECK(ram[0] == 0 && ram[1] == 0);
+  run_frame(a, 533); CHECK(second_card == 0xff0000);
+  a.reset(); buttons = 0; run_frame(a, 533);
+  CHECK(first_card == 0xff0000);
+}
 int main(int argc, char **argv) {
   CHECK(argc == 2);
   long initial_peak = 0;
   for (unsigned cycle = 0; cycle < 22; ++cycle) {
+    dual_screen = (cycle % 2) != 0;
     void *handle = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL); CHECK(handle);
     struct api a = open_api(handle); callbacks(a); a.init(); check_metadata(a);
     unsigned previous_errors = errors;
@@ -180,8 +243,11 @@ int main(int argc, char **argv) {
       CHECK(strstr(last_error, "XRGB8888")); accept_pixels = true;
     }
     unsigned old_requests = pixel_requests; CHECK(a.load_game(&game)); CHECK(pixel_requests > old_requests);
+    struct av_info loaded_av; a.get_system_av_info(&loaded_av);
+    CHECK(loaded_av.geometry.height == (dual_screen ? 448u : 224u));
     memset(rom, 0, game.size); free(rom);
     if (cycle < 2) check_loaded(a); else { a.reset(); run_frame(a, 533); }
+    if (dual_screen) check_companion(a);
     if (cycle == 0) {
       uint8_t saved[8192]; memcpy(saved, a.get_memory_data(MEMORY_SAVE_RAM), sizeof(saved));
       a.unload_game(); rom = make_rom(0); game.data = rom; game.size = ROM_SIZE;

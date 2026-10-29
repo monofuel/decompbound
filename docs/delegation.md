@@ -37,9 +37,10 @@ spend the expensive session on conducting.
 - **The referee is sacred** — `src/decompbound/compare.nim`, `tests/`,
   `src/decompbound/opcodes.nim`. Never subcontracted without the conductor
   reading the diff. A broken referee poisons every future decision.
-- **Copyright hygiene** — no ROM slices, save-states, SRAM, screenshots,
-  extracted scripts/graphics/audio in the index. See `AGENTS.md` → Copyright
-  hygiene. Agents must *refuse* requests to commit these.
+- **Copyright hygiene** — no ROM slices, save-states, SRAM, uncurated screenshots,
+  or extracted scripts/graphics/audio in the index. See `AGENTS.md` → Copyright
+  hygiene for the narrow, image-only README screenshot exception. Agents must
+  *refuse* requests to commit the prohibited files.
 - **Workers do not push.** Shipping is a conductor duty after green gates.
 - **Don't leave WIP in the shared checkout** — monofuel's `make play` compiles
   whatever is in the tree. Use a worktree, or commit/stash before you stop.
@@ -117,8 +118,9 @@ Do not modify: src/decompbound/compare.nim, opcodes.nim, assembler.nim, tests/
   (the referee), the Makefile, or docs/*.md — report suggested doc edits instead.
 Constraints: probes go in src/probes/ only; no magic bytes without TODO +
   comment; only touch the files listed above; never commit ROM slices, states,
-  SRAM, screenshots, or extracted assets. Do not push; commit only if this
-  brief says to commit locally in your worktree.
+  SRAM, uncurated screenshots, or extracted assets. Curated README images must
+  satisfy AGENTS.md's exception. Do not push; commit only if this brief says to
+  commit locally in your worktree.
 ```
 
 ## After every delegated run

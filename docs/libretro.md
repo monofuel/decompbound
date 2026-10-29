@@ -51,9 +51,11 @@ it during the callback. SRAM and WRAM pointers remain stable until game unload.
 The frontend loads and persists SRAM, using the same raw 8 KiB layout as the
 existing player. Reset preserves SRAM. The core performs no save-file I/O.
 
-Save-states, cheats, special-content loading, other controller ports, and
+State creation, cheats, special-content loading, other controller ports, and
 hardware rendering are unsupported. Serialization reports size zero and returns
-false. The legacy player snapshot format is unchanged. The ABI is single-instance
+false. Explicit `retro_unserialize` imports accept the existing DBST v1/v2
+format or complete F12 PNGs with an `ebSt` chunk, including ROM-hash validation
+for PNGs. The legacy snapshot format is unchanged. The ABI is single-instance
 and used on the frontend's emulation thread.
 
 Target-local Nim settings keep runtime checks enabled, prefix the Nim runtime
@@ -82,6 +84,16 @@ also builds it before the ROM-dependent suite. The existing replay goldens
 remain independent and are checked with `make bench-check`.
 
 ## Mono-retro
+
+The optional [EarthBound DS companion](earthbound-ds.md) adds a live party and
+inventory screen through the same core. Use `make libretro-ds-play` with the
+matching mono-retro-player branch; ordinary mode remains the default.
+
+Both launch targets accept `STATE=/absolute/path/to/state.png` (or `.state`).
+The matching frontend also accepts state files dropped onto either desktop
+window. This restores captured SRAM into the selected test-save history;
+the original state file is never rewritten. The handheld uses the startup
+`--load-state:PATH` option.
 
 The optional headless compatibility test uses mono-retro's actual loader and
 save handling without editing its checkout or opening a display/audio device:

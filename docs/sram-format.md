@@ -42,7 +42,10 @@ Each `$500` block:
 | `$076` | 36 | Escargo Express item IDs | confirmed |
 | `$0A2` | 2 | Party leader X | community only |
 | `$0A6` | 2 | Party leader Y | community only |
-| `$0B6` | 7 | Party roster (1-based char IDs, 0=empty) | confirmed |
+| `$09A` | 6 | Current game/HUD party order (1-based IDs) | original `$C21043`, six-slot bound `$C24CCD` |
+| `$0CF` | 1 | Current game/HUD party count | original `$C2107A` |
+| `$0B6` | 6 | Overworld walking identities | separate array `$988B`; count at slot `+$0CE` |
+| `$1F8` | 1 | Window flavor, one-based 1–5 | original `$C47FCF`, live `$99CD` |
 | `$1F9` | `$5F`×6 | Character table (4 playable + 2 reserved) | confirmed |
 
 Data-relative form used by some tools: subtract `$20` (e.g. money `$3C`,
@@ -57,16 +60,24 @@ char table `$1D9`).
 | `$06` | 4 u32 LE | EXP | confirmed |
 | `$0A` | 2 | Max HP | confirmed (matches full HP) |
 | `$0C` | 2 | Max PP | confirmed |
+| `$0E`–`$14` | 7 | Condition groups | original `$C223D9` / `$C22474`; icon/palette selection verified |
 | `$15`–`$1B` | 7×u8 | OFF/DEF/SPD/GUT/LUC/VIT/IQ (with equip) | community + sane midgame |
 | `$1C`–`$22` | 7×u8 | Same stats, base (no equip) | community + sane midgame |
 | `$23` | 14 | Inventory item IDs | confirmed |
 | `$31`–`$34` | 4 | Equipment (1-based inv slot indices) | confirmed as indices; slot *names* soft |
 | `$35` | 14 | PSI-learned bit table (raw) | candidate |
-| `$45` | 2 | Rolling HP (display) | community |
-| `$47` | 2 | Current HP | confirmed |
-| `$4B` | 2 | Rolling PP | community |
-| `$4D` | 2 | Current PP | confirmed |
+| `$43` | 2 | HP display fraction; bit 0 also gates rolling | original `$C2109F` + generated-state oracle |
+| `$45` | 2 | Rolling HP integer (display) | original `$C21108` / `$C21164` |
+| `$47` | 2 | Current/settled HP; target during rolling | confirmed |
+| `$49` | 2 | PP display fraction; bit 0 also gates rolling | original `$C2109F` + generated-state oracle |
+| `$4B` | 2 | Rolling PP integer (display) | original `$C21247` / `$C21345` |
+| `$4D` | 2 | Current/settled PP; target during rolling | confirmed |
+| `$4F` | 2 | Status-frame palette attributes | original `$C203C3`; `$0C00` selects incapacitated treatment |
 | `$57`–`$5B` | 5 | Capsule boosts SPD/GUT/VIT/IQ/LUC | community |
+
+The display/target distinction is verified against original ROM execution for
+all four playable identities; see [EarthBound DS meter evidence](earthbound-ds.md#live-meter-evidence).
+The existing SRAM/live-party APIs retain their settled-value semantics.
 
 ## How to map more
 

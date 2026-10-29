@@ -46,7 +46,9 @@ proc main() =
   doAssert PartyCharTableWram == PersistBlockWram + (CharTableBase - DataOffset)
   doAssert PartyRosterWram == PersistBlockWram + (PartyRosterOff - DataOffset)
   doAssert PartyCharTableWram == 0x99CE
-  doAssert PartyRosterWram == 0x988B
+  doAssert PartyRosterWram == 0x986F
+  doAssert PartyCountWram == 0x98A4
+  doAssert PartyCountWram == PersistBlockWram + (PartyCountOff - DataOffset)
   doAssert CharStride == 0x5F
 
   # Synthetic persist payload → SRAM slot → party_sram parse (layout identity).
@@ -55,6 +57,7 @@ proc main() =
   for i in 0 ..< Sig.len:
     srm[i] = Sig[i]
   putU8(srm, PartyRosterOff, 1)
+  putU8(srm, PartyCountOff, 1)
   let ness = CharTableBase
   putName(srm, ness + CharNameOff, "Ness")
   putU8(srm, ness + CharLevelOff, 5)

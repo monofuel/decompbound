@@ -41,8 +41,10 @@ rollover this implies.
 
 HP-max and PP-max are u16 targets computed at level-up from vitality/IQ via
 the growth record (the `$C08FF7` multiply above). Current/rolling HP-PP live
-elsewhere in the record (`+$45` rolling, `+$47` current — the famous rolling
-HP meter). 🟡 The exact target formula (vit×k? table lookup?) is not yet
+elsewhere in the record (`+$45` displayed integer, `+$47` settled/target HP;
+PP uses `+$4B` / `+$4D`). The 16.16 display words and original updater are
+[verified independently](../earthbound-ds.md#live-meter-evidence).
+🟡 The exact level-up target formula (vit×k? table lookup?) is not yet
 pinned — needs the record layout above.
 
 ## Related

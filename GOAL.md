@@ -273,8 +273,10 @@ scope and verification criteria.
 ## Repository and verification rules
 
 - The user supplies the ROM. Never commit ROM slices, extracted assets/scripts,
-  screenshots, save-states, SRAM, or audio/memory dumps. Use ignored `extracted/`
-  or `bin/` outputs; keep live F12 captures in the user's screenshot archive.
+  save-states, SRAM, or audio/memory dumps. Screenshots remain local except for
+  a few curated, image-only README illustrations under `docs/images/`, governed
+  by `AGENTS.md`. Use ignored `extracted/` or `bin/` outputs; keep original F12
+  captures with their embedded states in the user's screenshot archive.
 - Preserve unfinished changes on review branches; integrate verified work in
   focused commits. A pushed WIP commit is preservation, not acceptance.
 - Treat assembly names, format claims, and completion checkmarks as claims that

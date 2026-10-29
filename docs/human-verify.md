@@ -37,6 +37,32 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 ## OPEN — please check
 
+### README feature showcase (2026-10-29)
+
+| Check | Run | Pass if |
+|---|---|---|
+| [ ] README layout and image selection | Open `README.md` in a Markdown preview; after publication, check GitHub on desktop and a narrow screen. | All five feature images load with readable captions, the combined background view makes both canvases clear, and the existing goals, status, quick start, rules, and doc index remain accessible below the showcase. |
+
+### EarthBound DS companion (2026-10-28)
+
+2026-10-28: monofuel confirmed several minutes of play and working item display.
+State import/drop support was added afterward; those checks remain open.
+
+2026-10-28: monofuel confirmed the solo-Jeff roster correction after reloading
+`earthbound_20260818-021632.png` with the updated core.
+
+| Check | Run | Pass if |
+|---|---|---|
+| [ ] Solo-party membership and order | Restart the player with the updated core and load `earthbound_20260818-021632.png`; also try a multi-member state. | Only Jeff appears in the Winters capture. Other captures match the game's party order, and removing the selected member switches its inventory to a remaining active character. |
+| [ ] Resume a screenstate | Run `make libretro-ds-play STATE="$HOME/Pictures/Screenshots/earthbound_20260818-021941.png"`, then drop that capture onto each running desktop window. | The captured scene/party/inventory resume, audio follows the loaded state, and gameplay continues. A plain or wrong-ROM PNG is rejected without closing the app or changing its state. The source PNG stays untouched. |
+| [ ] Original UI at 2× | Run `make libretro-ds-play STATE="$HOME/Pictures/Screenshots/earthbound_20260818-021632.png"`; also load a multi-member battle and open the original Goods menu for comparison. | Goods above and native HP/PP panels below use the original fonts, borders, equipment symbol, condition graphics and rolling digits. Items fill across rows, with no missing item at slot 14. Selecting a lower panel raises it and switches its Goods. The top game view stays complete. |
+| [ ] Window flavors and state changes | Change the in-game window flavor; load other local states, including an injured or incapacitated party; take damage/heal/spend PP. | Both screens use the appropriate window colors. Names, icons and rolling digit graphics stay clean; state imports leave no stale selection or old assets. |
+| [ ] Desktop UI at 2× | Build mono-retro-player on `monofuel/ds`; run `make libretro-ds-play`. | Game and Party windows open at 512×448. Names, HP/PP and all fourteen items fit and remain readable. Click lower status panels or use Page Up/Page Down; original game controls still work from either window. |
+| [ ] RG DS Plus displays and input | Use the ARM core/player with `--device:rg-ds-plus --earthbound-ds`; launch instructions are in `earthbound-ds.md`. | Complete game appears on DSI-1 and companion on DSI-2 at 3× with borders. Tap lower status panels and use L2/R2 to select once per press. Borders/top screen do not select; dragging/extra fingers do not change selection. |
+| [ ] Live combat and inventory | Enter a battle, take damage, heal, spend PP, finish the fight; use an item through the original menu and change party membership when available. | Companion HP/PP track the original meters during rolling updates and transitions. Inventory reflects item consumption/equipment. Only active playable members appear, in roster order. Browsing does not operate game menus. |
+| [ ] Audio, reconnect and saves | Play with audio, unplug/reconnect a controller, then hold Select+Start to exit and relaunch using the same DS save directory. | Audio/play remain usable; disconnect clears held input without a crash. Exit returns control cleanly and normal in-game save progress persists. |
+
+
 - [ ] **Pocket Bestiary: portraits, search and automatic music** · 2026-10-28 · `master`
   - **Run:** `make bestiary-app`; browse with mouse, keyboard and Paddy. Search
     names/IDs, clear with Ctrl+A, leave search with Escape; inspect different
@@ -396,6 +422,14 @@ Only when an agent points you here for a **tool** check:
 ---
 
 ## FOUND IN PLAY — new issues (human → agents)
+
+- **2026-10-28 · EarthBound DS phantom party member/order — solo-Jeff fix confirmed.**
+  monofuel's `earthbound_20260818-021632.png` showed Jeff and Paula despite a
+  solo Jeff party. The reader crossed the six-byte walking array into its
+  adjacent attribute. It now uses the counted game/HUD order; synthetic,
+  original-ROM and local-capture regression checks cover the correction.
+  **Run:** the solo-party row above. **Pass if:** Jeff alone, with other states
+  following the game's active party order.
 
 - **2026-10-27** · Pocket Jukebox · unplugging a controller crashed the app;
   stack trace unavailable. Updated the Paddy pin and verified virtual-device

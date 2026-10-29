@@ -127,9 +127,14 @@ Located graphics resources include:
   Seventeen supported enemy rows have no standard sprite and remain explicit
   gaps for special/scripted rendering. Original compressed-byte re-encoding is
   not claimed.
-- **Tilesets** — `0x3E408` (verified) + small compressed candidates nearby (e.g.
-  `0x03ED00`); larger overworld sets share the maps load path (some uncompressed
-  via the `~0x008ED2` far-copy).
+- **Fonts/windows** — five font descriptors at `0x03F054`, common 2bpp UI
+  graphics at `0x200000`, flavored overlay at `0x200754`, and palettes selected
+  through `0x201FB9`. Original-routine regressions verify decoding, glyphs,
+  generated status graphics and layout; see [original UI rendering](earthbound-ui.md).
+- **Overworld tilesets** — older bootstrap guesses such as `0x3E408` and
+  `0x03ED00` lack a verified overworld loader and are not an asset catalog.
+  The nearby `0x03E250` table is now independently verified as UI window
+  geometry, correcting its former sector-table attribution.
 - **Still open:** complete player/NPC OBJ CHR and palette mapping. The resource
   and layout tables are located below, together with verified sprite composition.
   Correlating those resources with OBJ-VRAM transfers during an overworld load

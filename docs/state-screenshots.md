@@ -117,8 +117,13 @@ RAM/…). Same ban as ROM slices and `*.state` files:
 - Milestones → empty bookmark commits or text; reference the **filename** in
   prose if needed.
 
-Policy: root `AGENTS.md` (F12 section + *Screenshots and save-states — hard
-ban*). Background: `docs/copyright-notes.md`.
+The README may use a few freshly exported image-only illustrations under the
+exception in root `AGENTS.md`. An original F12 file is never eligible: export
+decoded pixels into a new file and verify the resulting PNG contains only
+`IHDR`, `IDAT`, and `IEND`, without embedded state or trailing data.
+
+Policy: root `AGENTS.md` (F12 section + *Copyright hygiene*).
+Background: `docs/copyright-notes.md`.
 
 ## Related
 

@@ -10,6 +10,8 @@ type
   RetroLog* = proc(level: cuint, format: cstring) {.cdecl, varargs.}
   RetroLogCallback* {.bycopy.} = object
     log*: RetroLog
+  RetroVariable* {.bycopy.} = object
+    key*, value*: cstring
   RetroGameInfo* {.bycopy.} = object
     path*: cstring
     data*: pointer
@@ -31,10 +33,13 @@ const
   RetroApiVersion* = 1.cuint
   RetroEnvShutdown* = 7.cuint
   RetroEnvSetPixelFormat* = 10.cuint
+  RetroEnvGetVariable* = 15.cuint
+  RetroEnvSetVariables* = 16.cuint
   RetroEnvGetLogInterface* = 27.cuint
   RetroPixelFormatXrgb8888* = 1.cuint
   RetroDeviceNone* = 0.cuint
   RetroDeviceJoypad* = 1.cuint
+  RetroDevicePointer* = 6.cuint
   RetroMemorySaveRam* = 0.cuint
   RetroMemorySystemRam* = 2.cuint
   RetroRegionNtsc* = 0.cuint

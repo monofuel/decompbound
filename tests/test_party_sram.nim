@@ -8,7 +8,8 @@ const
   SramSize = 0x2000
   CharTableBase = 0x1F9
   CharStride = 0x5F
-  PartyRosterOff = 0xB6
+  PartyRosterOff = 0x9A
+  PartyCountOff = 0xCF
   CharNameOff = 0x00
   CharLevelOff = 0x05
   CharHpMaxOff = 0x0A
@@ -41,6 +42,7 @@ proc makeSyntheticSrm(): string =
   # Roster: Ness (1), Paula (2)
   putU8(result, PartyRosterOff, 1)
   putU8(result, PartyRosterOff + 1, 2)
+  putU8(result, PartyCountOff, 2)
   # Ness
   let ness = CharTableBase
   putName(result, ness + CharNameOff, "Ness")
