@@ -11,8 +11,12 @@ runtime; no ROM, extracted asset collection, or save-state is included.
 
 <img src="docs/images/emulator.png" alt="EarthBound running in the Nim emulator: Ness, Paula and Jeff in a cave" width="768">
 
-The Nim core runs the game with graphics, stereo audio, keyboard and Paddy
-controller input, and battery saves. The project records a complete human
+The emulator and companion apps showcase Nim's native library ecosystem:
+[Windy](https://github.com/treeform/windy) for windows and keyboard input,
+[Pixie](https://github.com/treeform/pixie) for image buffers and UI drawing,
+[Paddy](https://github.com/treeform/paddy) for controller input, and
+[Slappy](https://github.com/treeform/slappy) for stereo audio output.
+The player also supports battery saves. The project records a complete human
 playthrough through Giygas; remaining fidelity issues are tracked in
 [the issue list](docs/issues.md).
 
