@@ -63,6 +63,7 @@ hang, Saturn Valley corruption, half-speed music) are tracked together in
   palette selection alone does not settle whether this visibility is correct.
   Root cause remains under investigation. Reproduction and visual verification:
   [human-verify.md](human-verify.md), Found in play.
+  Direct reproduction: `make map-app ARGS="--x:4842 --y:7566 --zoom:2 --flag:0120=off"`.
   Original-code investigation now reproduces the same patches in our emulator
   after relocating an actual pre-Hawk-Eye state into the affected area. Native
   scenery matches all 57,344 background pixels produced by our own PPU; OAM

@@ -460,12 +460,16 @@ Only when an agent points you here for a **tool** check:
   Pixel comparisons through 4K and the isolated window gate pass.
   **Run / Pass if:** the large-window performance row above.
 
-- **2026-10-29 · Pocket Atlas / Deep Darkness — OPEN.** Assets incorrectly
-  show through the darkness; monofuel confirms the game does not render them
-  that way. The shrouded story variant itself is expected with cleared flags;
-  the bleed-through is a separate rendering defect. **Run:** `make map-app`,
-  browse to Deep Darkness in the default base atlas. **Pass if:** shrouded
-  scenery occludes the same assets as the original game. See `docs/issues.md`.
+- **2026-10-29 · Pocket Atlas / Deep Darkness — OPEN.** Scenery appears
+  through the unrevealed darkness where monofuel expects it hidden in normal
+  console play. Correct palette selection alone does not resolve this report.
+  The original collision gate and a counterfactual scene comparison are
+  documented, but the visibility discrepancy's cause remains unverified.
+  **Run:** `make map-app ARGS="--x:4842 --y:7566 --zoom:2 --flag:0120=off"`.
+  **Pass if:** the visibility matches the original game, supported by a
+  verified explanation or rendering correction. See `docs/issues.md` and
+  `docs/world-map.md`, Deep Darkness investigation. This remains open
+  independently of the atlas feature's acceptance.
 
 - **2026-10-28 · EarthBound DS phantom party member/order — solo-Jeff fix confirmed.**
   monofuel's `earthbound_20260818-021632.png` showed Jeff and Paula despite a
