@@ -42,6 +42,9 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 2026-10-28: monofuel confirmed several minutes of play and working item display.
 State import/drop support was added afterward; those checks remain open.
 
+2026-10-28: monofuel confirmed the solo-Jeff roster correction after reloading
+`earthbound_20260818-021632.png` with the updated core.
+
 | Check | Run | Pass if |
 |---|---|---|
 | [ ] Solo-party membership and order | Restart the player with the updated core and load `earthbound_20260818-021632.png`; also try a multi-member state. | Only Jeff appears in the Winters capture. Other captures match the game's party order, and removing the selected member switches its inventory to a remaining active character. |
@@ -412,7 +415,7 @@ Only when an agent points you here for a **tool** check:
 
 ## FOUND IN PLAY — new issues (human → agents)
 
-- **2026-10-28 · EarthBound DS phantom party member/order — ready to recheck.**
+- **2026-10-28 · EarthBound DS phantom party member/order — solo-Jeff fix confirmed.**
   monofuel's `earthbound_20260818-021632.png` showed Jeff and Paula despite a
   solo Jeff party. The reader crossed the six-byte walking array into its
   adjacent attribute. It now uses the counted game/HUD order; synthetic,
