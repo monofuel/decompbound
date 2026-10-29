@@ -33,6 +33,7 @@ typedef size_t (*batch_cb)(const int16_t *, size_t);
 typedef void (*poll_cb)(void);
 typedef int16_t (*input_cb)(unsigned, unsigned, unsigned, unsigned);
 struct log_callback { void (*log)(int, const char *, ...); };
+struct variable { const char *key, *value; };
 
 struct api {
   void (*set_environment)(environment_cb); void (*set_video_refresh)(video_cb);
@@ -62,8 +63,10 @@ static struct api open_api(void *handle) {
   return a;
 }
 static bool accept_pixels = true;
+static bool dual_screen = false;
 static unsigned pixel_requests, polls, videos, frames, samples, buttons;
 static uint32_t pixel;
+static uint32_t first_card, second_card;
 static unsigned errors;
 static char last_error[256];
 static void core_log(int level, const char *format, ...) {
@@ -77,18 +80,30 @@ static void core_log(int level, const char *format, ...) {
 static bool environment(unsigned command, void *data) {
   if (command == PIXEL_FORMAT_COMMAND) { CHECK(data); CHECK(*(unsigned *)data == XRGB8888); pixel_requests++; return accept_pixels; }
   if (command == LOG_INTERFACE_COMMAND) { CHECK(data); ((struct log_callback *)data)->log = core_log; return true; }
+  if (command == 16) {
+    struct variable *v = data; CHECK(v && !strcmp(v[0].key, "decompbound_dual_screen"));
+    CHECK(strstr(v[0].value, "disabled|enabled") && !v[1].key); return true;
+  }
+  if (command == 15) {
+    struct variable *v = data; CHECK(v && !strcmp(v->key, "decompbound_dual_screen"));
+    v->value = dual_screen ? "enabled" : "disabled"; return true;
+  }
   return false;
 }
 static void video(const void *data, unsigned width, unsigned height, size_t pitch) {
-  CHECK(data); CHECK(width == 256 && height == 224 && pitch == 1024);
+  CHECK(data); CHECK(width == 256 && height == (dual_screen ? 448u : 224u) && pitch == 1024);
   pixel = ((const uint32_t *)data)[0]; videos++;
+  if (dual_screen) {
+    first_card = ((const uint32_t *)data)[(224 + 6) * 256 + 6];
+    second_card = ((const uint32_t *)data)[(224 + 6) * 256 + 68];
+  }
 }
 static void sample(int16_t left, int16_t right) { (void)left; (void)right; samples++; }
 static size_t batch(const int16_t *data, size_t count) { CHECK(data); frames += (unsigned)count; return count; }
 static void poll(void) { polls++; }
 static int16_t input(unsigned port, unsigned device, unsigned index, unsigned id) {
-  CHECK(device == DEVICE_JOYPAD); CHECK(index == 0);
-  return port == 0 && id < 12 && (buttons & (1u << id)) != 0;
+  CHECK(device == DEVICE_JOYPAD || (dual_screen && device == 6)); CHECK(index == 0);
+  return device == DEVICE_JOYPAD && port == 0 && id < 14 && (buttons & (1u << id)) != 0;
 }
 static void callbacks(struct api a) {
   a.set_environment(environment); a.set_video_refresh(video); a.set_audio_sample(sample);
@@ -163,10 +178,26 @@ static void check_loaded(struct api a) {
   CHECK(ram[1] == 0x80 && ram[3] == timing);
   a.set_audio_sample(sample); a.set_audio_sample_batch(batch);
 }
+static void check_companion(struct api a) {
+  uint8_t *ram = a.get_memory_data(MEMORY_SYSTEM_RAM);
+  const unsigned base = 0x99ce, stride = 0x5f;
+  ram[0x988b] = 1; ram[0x988c] = 2;
+  ram[base] = 'A' + 0x30; ram[base + 5] = 1;
+  ram[base + stride] = 'B' + 0x30; ram[base + stride + 5] = 1;
+  buttons = 0; run_frame(a, 533);
+  CHECK(first_card == 0xf4a0b4 && second_card == 0x273c68);
+  buttons = 1u << 13; run_frame(a, 533);
+  CHECK(first_card == 0x273c68 && second_card == 0xf4a0b4);
+  CHECK(ram[0] == 0 && ram[1] == 0);
+  run_frame(a, 533); CHECK(second_card == 0xf4a0b4);
+  a.reset(); buttons = 0; run_frame(a, 533);
+  CHECK(first_card == 0xf4a0b4);
+}
 int main(int argc, char **argv) {
   CHECK(argc == 2);
   long initial_peak = 0;
   for (unsigned cycle = 0; cycle < 22; ++cycle) {
+    dual_screen = (cycle % 2) != 0;
     void *handle = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL); CHECK(handle);
     struct api a = open_api(handle); callbacks(a); a.init(); check_metadata(a);
     unsigned previous_errors = errors;
@@ -180,8 +211,11 @@ int main(int argc, char **argv) {
       CHECK(strstr(last_error, "XRGB8888")); accept_pixels = true;
     }
     unsigned old_requests = pixel_requests; CHECK(a.load_game(&game)); CHECK(pixel_requests > old_requests);
+    struct av_info loaded_av; a.get_system_av_info(&loaded_av);
+    CHECK(loaded_av.geometry.height == (dual_screen ? 448u : 224u));
     memset(rom, 0, game.size); free(rom);
     if (cycle < 2) check_loaded(a); else { a.reset(); run_frame(a, 533); }
+    if (dual_screen) check_companion(a);
     if (cycle == 0) {
       uint8_t saved[8192]; memcpy(saved, a.get_memory_data(MEMORY_SAVE_RAM), sizeof(saved));
       a.unload_game(); rom = make_rom(0); game.data = rom; game.size = ROM_SIZE;

@@ -41,7 +41,7 @@ proc ensureItemCache(id: int) =
     gItemCache.setLen(id + 1)
     gItemCached.setLen(id + 1)
 
-proc decodeItemRecord(rom: openArray[uint8], id: int): ItemRecordCache =
+proc decodeItemRecord*(rom: openArray[uint8], id: int): ItemRecordCache =
   ## Decode name / type / price for `id` from ROM (no cache write).
   ## Returns default empty if the ROM is too short to hold the record.
   let base = ItemTableBase + id * ItemRecordSize

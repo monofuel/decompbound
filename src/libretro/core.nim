@@ -2,7 +2,8 @@
 
 import
   pixie,
-  ../decompbound/[apu, build_info, common, cpu, frame_step, libretro_api, ppu, replay_run, snesbus]
+  ../decompbound/[apu, build_info, common, cpu, ds_companion, frame_step,
+    libretro_api, ppu, replay_run, snesbus]
 
 const
   Width = ppu.ScreenWidth
@@ -13,6 +14,10 @@ const
   WramSize = 0x20000
   SramSize = 0x2000
   FramesPerSecond = 60.0
+  BgModeRegister = 0x05
+  BgModeMask = 0x07
+  DualScreenOption = "decompbound_dual_screen"
+  DualScreenDescription = "EarthBound DS companion (restart required); disabled|enabled"
   Version = (if BuildCommit.len > 0: BuildCommit else: "unknown") &
     (if BuildDirty: "+dirty" else: "")
 
@@ -27,7 +32,9 @@ var
   machine: SnesBus
   cpuState: Cpu
   frameImage: Image
-  pixels: array[Width * Height, uint32]
+  pixels: seq[uint32]
+  dualScreen: bool
+  companion: DsCompanion
   pcm: FramePcm
   device = RetroDeviceJoypad
 
@@ -53,6 +60,9 @@ proc releaseMachine() =
       machine.apu.spc.writeHook = nil
     machine = nil
   frameImage = nil
+  companion = nil
+  pixels.setLen(0)
+  dualScreen = false
   GC_fullCollect()
 
 proc retro_api_version(): cuint {.cdecl, exportc, dynlib.} =
@@ -62,6 +72,10 @@ proc retro_api_version(): cuint {.cdecl, exportc, dynlib.} =
 proc retro_set_environment(callback: RetroEnvironment) {.cdecl, exportc, dynlib.} =
   ## Store the frontend environment callback.
   environment = callback
+  if environment != nil:
+    var variables = [RetroVariable(key: DualScreenOption, value: DualScreenDescription),
+      RetroVariable()]
+    discard environment(RetroEnvSetVariables, addr variables[0])
 
 proc retro_set_video_refresh(callback: RetroVideoRefresh) {.cdecl, exportc, dynlib.} =
   ## Store the frontend video callback.
@@ -107,8 +121,10 @@ proc retro_get_system_av_info(info: ptr RetroSystemAvInfo) {.cdecl, exportc, dyn
   ## Describe the fixed video and audio timing.
   if info != nil:
     info[] = RetroSystemAvInfo(
-      geometry: RetroGameGeometry(baseWidth: Width, baseHeight: Height,
-        maxWidth: Width, maxHeight: Height, aspectRatio: 8.0 / 7.0),
+      geometry: RetroGameGeometry(baseWidth: Width,
+        baseHeight: (if dualScreen: DsCombinedHeight.cuint else: Height.cuint),
+        maxWidth: Width, maxHeight: (if dualScreen: DsCombinedHeight.cuint else: Height.cuint),
+        aspectRatio: (if dualScreen: Width.float32 / DsCombinedHeight.float32 else: 8.0 / 7.0)),
       timing: RetroSystemTiming(fps: FramesPerSecond,
         sampleRate: FramesPerSecond * ApuSamplesPerFrame.float))
 
@@ -126,6 +142,7 @@ proc retro_reset() {.cdecl, exportc, dynlib.} =
         machine.apu.spc.readHook = nil
         machine.apu.spc.writeHook = nil
       cpuState = machine.softReset()
+      if dualScreen: companion = newDsCompanion(machine.rom)
       GC_fullCollect()
     except CatchableError as error:
       shutdown("Reset failed: " & error.msg)
@@ -144,11 +161,31 @@ proc retro_run() {.cdecl, exportc, dynlib.} =
           machine.joy1 = machine.joy1 or (1'u16 shl (15 - id.int))
     frameImage.fill(rgbx(0, 0, 0, 255))
     stepReplayFrame(machine, cpuState, frameImage, addr pcm)
+    if dualScreen:
+      var
+        buttons: uint16
+        pointerInput: DsPointer
+      if inputState != nil:
+        if device == RetroDeviceJoypad:
+          if inputState(0, RetroDeviceJoypad, 0, 12) != 0: buttons = buttons or PreviousMember
+          if inputState(0, RetroDeviceJoypad, 0, 13) != 0: buttons = buttons or NextMember
+        pointerInput = DsPointer(x: inputState(0, RetroDevicePointer, 0, 0),
+          y: inputState(0, RetroDevicePointer, 0, 1),
+          pressed: inputState(0, RetroDevicePointer, 0, 2) != 0)
+      companion.update(machine.bus.mem.toOpenArray(WramOffset, WramOffset + WramSize - 1),
+        buttons, pointerInput,
+        partyBattleVisible(machine.bus.mem.toOpenArray(WramOffset, WramOffset + WramSize - 1),
+          (machine.ppuRegs[BgModeRegister] and BgModeMask).int))
     if video != nil:
-      for i in 0 ..< pixels.len:
+      for i in 0 ..< frameImage.data.len:
         let color = frameImage.data[i]
         pixels[i] = (color.r.uint32 shl 16) or (color.g.uint32 shl 8) or color.b.uint32
-      video(addr pixels[0], Width, Height, Width * sizeof(uint32))
+      if dualScreen:
+        for i, color in companion.image.data:
+          pixels[Width * Height + i] = (color.r.uint32 shl 16) or
+            (color.g.uint32 shl 8) or color.b.uint32
+      video(addr pixels[0], Width, (if dualScreen: DsCombinedHeight.cuint else: Height.cuint),
+        Width * sizeof(uint32))
     if audioBatch != nil:
       discard audioBatch(addr pcm[0], ApuSamplesPerFrame)
     elif audio != nil:
@@ -192,12 +229,17 @@ proc retro_load_game(info: ptr RetroGameInfo): bool {.cdecl, exportc, dynlib.} =
     return false
   try:
     releaseMachine()
+    var setting = RetroVariable(key: DualScreenOption)
+    dualScreen = environment(RetroEnvGetVariable, addr setting) and
+      setting.value != nil and $setting.value == "enabled"
     let offset = if info.size == RomSize.csize_t: 0 else: CopierHeaderSize
     var rom = newSeq[uint8](RomSize)
     copyMem(addr rom[0], cast[pointer](cast[uint](info.data) + offset.uint), RomSize)
     machine = newSnesBus(rom)
     cpuState = machine.resetCpu()
     frameImage = newImage(Width, Height)
+    pixels = newSeq[uint32](Width * (if dualScreen: DsCombinedHeight else: Height))
+    if dualScreen: companion = newDsCompanion(rom)
     result = true
   except CatchableError as error:
     releaseMachine()

@@ -83,6 +83,10 @@ remain independent and are checked with `make bench-check`.
 
 ## Mono-retro
 
+The optional [EarthBound DS companion](earthbound-ds.md) adds a live party and
+inventory screen through the same core. Use `make libretro-ds-play` with the
+matching mono-retro-player branch; ordinary mode remains the default.
+
 The optional headless compatibility test uses mono-retro's actual loader and
 save handling without editing its checkout or opening a display/audio device:
 

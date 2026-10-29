@@ -62,11 +62,17 @@ char table `$1D9`).
 | `$23` | 14 | Inventory item IDs | confirmed |
 | `$31`–`$34` | 4 | Equipment (1-based inv slot indices) | confirmed as indices; slot *names* soft |
 | `$35` | 14 | PSI-learned bit table (raw) | candidate |
-| `$45` | 2 | Rolling HP (display) | community |
-| `$47` | 2 | Current HP | confirmed |
-| `$4B` | 2 | Rolling PP | community |
-| `$4D` | 2 | Current PP | confirmed |
+| `$43` | 2 | HP display fraction; bit 0 also gates rolling | original `$C2109F` + generated-state oracle |
+| `$45` | 2 | Rolling HP integer (display) | original `$C21108` / `$C21164` |
+| `$47` | 2 | Current/settled HP; target during rolling | confirmed |
+| `$49` | 2 | PP display fraction; bit 0 also gates rolling | original `$C2109F` + generated-state oracle |
+| `$4B` | 2 | Rolling PP integer (display) | original `$C21247` / `$C21345` |
+| `$4D` | 2 | Current/settled PP; target during rolling | confirmed |
 | `$57`–`$5B` | 5 | Capsule boosts SPD/GUT/VIT/IQ/LUC | community |
+
+The display/target distinction is verified against original ROM execution for
+all four playable identities; see [EarthBound DS meter evidence](earthbound-ds.md#live-meter-evidence).
+The existing SRAM/live-party APIs retain their settled-value semantics.
 
 ## How to map more
 

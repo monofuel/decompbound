@@ -37,6 +37,16 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 ## OPEN — please check
 
+### EarthBound DS companion (2026-10-28)
+
+| Check | Run | Pass if |
+|---|---|---|
+| [ ] Desktop UI at 2× | Build mono-retro-player on `monofuel/ds`; run `make libretro-ds-play`. | Game and Party windows open at 512×448. Names, HP/PP and all fourteen inventory rows are readable. Click cards or use Page Up/Page Down; original game controls still work from either window. |
+| [ ] RG DS Plus displays and input | Use the ARM core/player with `--device:rg-ds-plus --earthbound-ds`; launch instructions are in `earthbound-ds.md`. | Complete game appears on DSI-1 and companion on DSI-2 at 3× with borders. Tap cards and use L2/R2 to select once per press. Borders/top screen do not select; dragging/extra fingers do not change selection. |
+| [ ] Live combat and inventory | Enter a battle, take damage, heal, spend PP, finish the fight; use an item through the original menu and change party membership when available. | Companion HP/PP track the original meters during rolling updates and transitions. Inventory reflects item consumption/equipment. Only active playable members appear, in roster order. Browsing does not operate game menus. |
+| [ ] Audio, reconnect and saves | Play with audio, unplug/reconnect a controller, then hold Select+Start to exit and relaunch using the same DS save directory. | Audio/play remain usable; disconnect clears held input without a crash. Exit returns control cleanly and normal in-game save progress persists. |
+
+
 - [ ] **Pocket Bestiary: portraits, search and automatic music** · 2026-10-28 · `master`
   - **Run:** `make bestiary-app`; browse with mouse, keyboard and Paddy. Search
     names/IDs, clear with Ctrl+A, leave search with Escape; inspect different

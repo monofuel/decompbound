@@ -37,6 +37,10 @@ const
   CharEquipLen* = 4
   CharHpCurOff* = 0x47
   CharPpCurOff* = 0x4D
+  # Original $C2109F updates these integer words separately from the targets.
+  # See docs/earthbound-ds.md and integration_ds_meters.nim for the ROM oracle.
+  CharHpDisplayOff* = 0x45
+  CharPpDisplayOff* = 0x4B
   CharNameMaxLen* = 5
   CharRoleNames* = ["Ness", "Paula", "Jeff", "Poo"]
 
