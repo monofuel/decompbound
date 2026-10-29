@@ -71,12 +71,24 @@ mono-retro-player-rg-ds-plus \
 ```
 
 The launcher must release DRM/input ownership before the player runs, as it
-does for existing games. This feature does not change installed launcher
-wrappers or device configuration. Two DRM outputs are required: DSI-1 is Game,
-DSI-2 is Party/touch. The frontend scales each logical 256×224 panel separately.
+does for existing games. Two DRM outputs are required. Use the frontend's
+device profile matching the installed kernel: `rg-ds-plus` for the vendor
+kernel, or `rg-ds-plus-rocknix` when that profile is present in a player built
+with ROCKNIX support. The vendor profile maps DSI-1 to Game and DSI-2 to
+Party/touch; the current ROCKNIX kernel exposes the physical panels in the
+opposite connector order, so its profile uses DSI-2 for Game and DSI-1 for
+Party/touch. The frontend scales each logical 256×224 panel separately.
 On 1024×768 displays it selects 3× (768×672), with 128-pixel side borders and
 48-pixel top/bottom borders. UI acceptance targets 2× and above; native DS 1×
 display accommodation is outside scope.
+
+For a temporary default test state, add `--earthbound-ds` and
+`--load-state:/absolute/path/to/capture.png` to the installed Decompbound
+wrapper and select a separate `--save-dir`. Remove the state argument to
+return to normal boot/save loading; leaving it present reloads the capture on
+every launch. Copy private screenstates directly to the device, never through
+Git. Keep a backup of the installed wrapper before changing these defaults.
+The current device test setup is recorded in [human-verify.md](human-verify.md).
 
 ## Controls
 

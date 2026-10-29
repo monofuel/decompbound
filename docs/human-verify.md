@@ -45,6 +45,16 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 ### EarthBound DS companion (2026-10-28)
 
+2026-10-29: deployed the merged core and a player combining DS/state-import
+support with the current ROCKNIX device profile and physical panel order.
+The RG DS Plus Decompbound menu entry temporarily defaults to
+`earthbound_20260818-022023.png` in DS mode, using independent
+`/var/lib/mono-retro/saves/decompbound-ds-test/` saves. The actual device loaded
+that state and emitted 120 video frames / 63,960 stereo audio frames with OpenAL
+enabled, exited successfully, and returned to the menu. The ordinary
+`decompbound/EarthBound.srm` checksum stayed unchanged. Visual, touch, and
+listening acceptance still need the manual check below.
+
 2026-10-28: monofuel confirmed several minutes of play and working item display.
 State import/drop support was added afterward; those checks remain open.
 
@@ -53,12 +63,13 @@ State import/drop support was added afterward; those checks remain open.
 
 | Check | Run | Pass if |
 |---|---|---|
+| [ ] Installed RG DS Plus DS test | Select **Decompbound** in the handheld menu; hold Select+Start for two seconds to return. | The cave scene from `earthbound_20260818-022023.png` appears on the physical top screen, with original Goods/status UI below. Ness, Paula, and Jeff appear in roster order; taps and L2/R2 switch the selected inventory. Game controls and audio work, and exit restores the menu. Each launch currently reloads the test capture, while ordinary game saves remain separate. |
 | [ ] Solo-party membership and order | Restart the player with the updated core and load `earthbound_20260818-021632.png`; also try a multi-member state. | Only Jeff appears in the Winters capture. Other captures match the game's party order, and removing the selected member switches its inventory to a remaining active character. |
 | [ ] Resume a screenstate | Run `make libretro-ds-play STATE="$HOME/Pictures/Screenshots/earthbound_20260818-021941.png"`, then drop that capture onto each running desktop window. | The captured scene/party/inventory resume, audio follows the loaded state, and gameplay continues. A plain or wrong-ROM PNG is rejected without closing the app or changing its state. The source PNG stays untouched. |
 | [ ] Original UI at 2× | Run `make libretro-ds-play STATE="$HOME/Pictures/Screenshots/earthbound_20260818-021632.png"`; also load a multi-member battle and open the original Goods menu for comparison. | Goods above and native HP/PP panels below use the original fonts, borders, equipment symbol, condition graphics and rolling digits. Items fill across rows, with no missing item at slot 14. Selecting a lower panel raises it and switches its Goods. The top game view stays complete. |
 | [ ] Window flavors and state changes | Change the in-game window flavor; load other local states, including an injured or incapacitated party; take damage/heal/spend PP. | Both screens use the appropriate window colors. Names, icons and rolling digit graphics stay clean; state imports leave no stale selection or old assets. |
 | [ ] Desktop UI at 2× | Build mono-retro-player on `monofuel/ds`; run `make libretro-ds-play`. | Game and Party windows open at 512×448. Names, HP/PP and all fourteen items fit and remain readable. Click lower status panels or use Page Up/Page Down; original game controls still work from either window. |
-| [ ] RG DS Plus displays and input | Use the ARM core/player with `--device:rg-ds-plus --earthbound-ds`; launch instructions are in `earthbound-ds.md`. | Complete game appears on DSI-1 and companion on DSI-2 at 3× with borders. Tap lower status panels and use L2/R2 to select once per press. Borders/top screen do not select; dragging/extra fingers do not change selection. |
+| [ ] RG DS Plus displays and input | Use the ARM core/player with `--earthbound-ds` and the profile matching the installed kernel; launch instructions are in `earthbound-ds.md`. | Complete game appears on the physical top screen and companion on the bottom at 3× with borders. Vendor kernel uses DSI-1/DSI-2; the current ROCKNIX kernel uses DSI-2/DSI-1. Tap lower status panels and use L2/R2 to select once per press. Borders/top screen do not select; dragging/extra fingers do not change selection. |
 | [ ] Live combat and inventory | Enter a battle, take damage, heal, spend PP, finish the fight; use an item through the original menu and change party membership when available. | Companion HP/PP track the original meters during rolling updates and transitions. Inventory reflects item consumption/equipment. Only active playable members appear, in roster order. Browsing does not operate game menus. |
 | [ ] Audio, reconnect and saves | Play with audio, unplug/reconnect a controller, then hold Select+Start to exit and relaunch using the same DS save directory. | Audio/play remain usable; disconnect clears held input without a crash. Exit returns control cleanly and normal in-game save progress persists. |
 
