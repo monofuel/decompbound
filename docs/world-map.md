@@ -124,6 +124,17 @@ states and loader results. Both palettes come from the ROM; nighttime is the
 browser's cleared-event selection, not a different map geometry or missing
 daytime asset.
 
+Winters also has a verified conditional palette: logical tileset 13, palette 0
+starts at file `0x1AA8E7` with condition `0x011F`. Cleared flags redirect to
+`0x1AAA67`; setting flag `0x011F` (WRAM `$9C2B`, mask `$40`) retains the
+primary record. Original `$C007B6` confirms that changing only this bit changes
+58 visible colors. In private `earthbound_20260818-021632.png`, this flag is
+set, and the original loader's visible colors exactly match live CGRAM.
+Palette 1 of this logical tileset has no such condition. These checks establish
+story-dependent palette selection, not the complete narrative meaning of the
+flag or the cause of the reported neon-green dungeon entrance; that specific
+arrangement has not yet been compared under both variants.
+
 Original `$C006F2` also applies arrangement replacements before the map is
 published. Its 20-entry pointer table at `$D01598` selects ordered lists of
 conditions and `(destination, source)` arrangement pairs. The native renderer
