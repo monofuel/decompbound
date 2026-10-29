@@ -94,8 +94,8 @@ static void video(const void *data, unsigned width, unsigned height, size_t pitc
   CHECK(data); CHECK(width == 256 && height == (dual_screen ? 448u : 224u) && pitch == 1024);
   pixel = ((const uint32_t *)data)[0]; videos++;
   if (dual_screen) {
-    first_card = ((const uint32_t *)data)[(224 + 6) * 256 + 6];
-    second_card = ((const uint32_t *)data)[(224 + 6) * 256 + 68];
+    first_card = ((const uint32_t *)data)[(224 + 144) * 256 + 72];
+    second_card = ((const uint32_t *)data)[(224 + 144) * 256 + 128];
   }
 }
 static void sample(int16_t left, int16_t right) { (void)left; (void)right; samples++; }
@@ -109,6 +109,34 @@ static void callbacks(struct api a) {
   a.set_environment(environment); a.set_video_refresh(video); a.set_audio_sample(sample);
   a.set_audio_sample_batch(batch); a.set_input_poll(poll); a.set_input_state(input);
 }
+static void ui_word(unsigned char *r, unsigned offset, unsigned value) {
+  r[offset] = (unsigned char)value;
+  r[offset + 1] = (unsigned char)(value >> 8);
+}
+static void ui_rle(unsigned char *r, unsigned offset, unsigned remaining) {
+  /* Authored flat two-bit tiles, using long RLE commands rather than game data. */
+  while (remaining) {
+    unsigned count = remaining < 1024 ? remaining : 1024;
+    r[offset++] = (unsigned char)(0xe4u | ((count - 1) >> 8));
+    r[offset++] = (unsigned char)(count - 1);
+    r[offset++] = 0xff;
+    remaining -= count;
+  }
+  r[offset] = 0xff;
+}
+static void make_ui(unsigned char *r) {
+  /* Independent synthetic descriptors and blank fonts for dual-screen ABI tests. */
+  for (unsigned id = 0; id < 5; ++id) {
+    unsigned entry = 0x3f054 + id * 12, height = id == 3 ? 8 : 16;
+    ui_word(r, entry, 0x8000); r[entry + 2] = 0xc4;
+    ui_word(r, entry + 4, 0x8100); r[entry + 6] = 0xc4;
+    ui_word(r, entry + 8, height); ui_word(r, entry + 10, height);
+    ui_word(r, 0x201fb9 + id * 3, id * 64);
+    r[0x201fb9 + id * 3 + 2] = id == 0 ? 1 : 8;
+  }
+  memset(r + 0x48000, 6, 96); memset(r + 0x48100, 0xff, 96 * 16);
+  ui_rle(r, 0x200000, 0x1a00); ui_rle(r, 0x200754, 0x70);
+}
 static unsigned char *make_rom(size_t prefix) {
   unsigned char *rom = calloc(1, ROM_SIZE + prefix); CHECK(rom);
   unsigned char *r = rom + prefix;
@@ -118,16 +146,20 @@ static unsigned char *make_rom(size_t prefix) {
     0xa9,0x00,0x8d,0x21,0x21, /* LDA #0; STA $2121 */
     0xa9,0x1f,0x8d,0x22,0x21, /* LDA #31; STA $2122 */
     0xa9,0x00,0x8d,0x22,0x21, /* LDA #0; STA $2122 */
+    0xa9,0x03,0x8d,0x21,0x21, /* Set synthetic UI color 3 to red too. */
+    0xa9,0x1f,0x8d,0x22,0x21,
+    0xa9,0x00,0x8d,0x22,0x21,
     0xa9,0x0f,0x8d,0x02,0x00, /* LDA #15; STA $0002 */
     0xad,0x02,0x00,0x8d,0x00,0x21, /* LDA $0002; STA $2100 */
     0xad,0x18,0x42,0x8d,0x00,0x00, /* LDA $4218; STA $0000 */
     0xad,0x19,0x42,0x8d,0x01,0x00, /* LDA $4219; STA $0001 */
     0xee,0x03,0x00, /* INC $0003, a timing witness. */
-    0x4c,0x14,0x80 /* JMP $8014 */
+    0x4c,0x23,0x80 /* JMP $8023 */
   };
   memcpy(r + 0x8000, code, sizeof(code));
   memcpy(r + 0xffc0, "SYNTHETIC ABI TEST   ", 21);
   r[0xffd5] = 0x21; r[0xfffc] = 0x00; r[0xfffd] = 0x80;
+  make_ui(r);
   return rom;
 }
 static void check_metadata(struct api a) {
@@ -185,13 +217,13 @@ static void check_companion(struct api a) {
   ram[base] = 'A' + 0x30; ram[base + 5] = 1;
   ram[base + stride] = 'B' + 0x30; ram[base + stride + 5] = 1;
   buttons = 0; run_frame(a, 533);
-  CHECK(first_card == 0xf4a0b4 && second_card == 0x273c68);
+  CHECK(first_card == 0xff0000 && second_card == 0);
   buttons = 1u << 13; run_frame(a, 533);
-  CHECK(first_card == 0x273c68 && second_card == 0xf4a0b4);
+  CHECK(first_card == 0 && second_card == 0xff0000);
   CHECK(ram[0] == 0 && ram[1] == 0);
-  run_frame(a, 533); CHECK(second_card == 0xf4a0b4);
+  run_frame(a, 533); CHECK(second_card == 0xff0000);
   a.reset(); buttons = 0; run_frame(a, 533);
-  CHECK(first_card == 0xf4a0b4);
+  CHECK(first_card == 0xff0000);
 }
 int main(int argc, char **argv) {
   CHECK(argc == 2);

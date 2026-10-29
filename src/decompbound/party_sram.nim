@@ -31,6 +31,9 @@ const
   CharExpOff* = 0x06
   CharHpMaxOff* = 0x0A
   CharPpMaxOff* = 0x0C
+  # Original $C203E5 passes this seven-byte block to $C223D9/$C22474.
+  CharConditionsOff* = 0x0E
+  CharConditionsLen* = 7
   CharStatsOff* = 0x15      # OFF/DEF/SPD/GUT/LUC/VIT/IQ ×u8, with equipment
   CharStatsBaseOff* = 0x1C  # same order, base (no equipment)
   CharInventoryOff* = 0x23  # 14 ×u8 item IDs (0 = empty slot)
@@ -43,6 +46,11 @@ const
   # See docs/earthbound-ds.md and integration_ds_meters.nim for the ROM oracle.
   CharHpDisplayOff* = 0x45
   CharPpDisplayOff* = 0x4B
+  # Original $C213AC passes these phase words to the digit renderer.
+  CharHpFractionOff* = 0x43
+  CharPpFractionOff* = 0x49
+  # Original $C203C3 adds these palette attributes to status-frame tiles.
+  CharUiPaletteOff* = 0x4F
   CharNameMaxLen* = 5
   CharRoleNames* = ["Ness", "Paula", "Jeff", "Poo"]
 

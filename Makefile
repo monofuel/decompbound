@@ -33,6 +33,7 @@ help:
 	@echo "  make libretro-play - run the core in mono-retro-player with separate test saves"
 	@echo "  make libretro-ds-play - run EarthBound DS with Game and Party screens"
 	@echo "  make libretro-ds-test - check companion UI and dual-screen core behavior"
+	@echo "  make libretro-ui-test - verify native UI against original ROM routines"
 	@echo "  make libretro-frontend-test - headless mono-retro loader and SRAM check"
 	@echo "  make check        - nim check main entrypoints + tests (no run)"
 	@echo "  make test         - unit tests only, no fixtures needed (instant)"
@@ -450,7 +451,7 @@ e2e-test: nim.cfg $(LUA_LIB)
 
 test-all: test integration-test e2e-test
 
-.PHONY: libretro libretro-test libretro-frontend-test libretro-play libretro-ds-play libretro-ds-test
+.PHONY: libretro libretro-test libretro-frontend-test libretro-play libretro-ds-play libretro-ds-test libretro-ui-test
 
 libretro: nim.cfg
 	@mkdir -p bin/libretro
@@ -470,7 +471,15 @@ libretro-ds-play: libretro
 	@test -x "$(MONO_RETRO_PLAYER)" || { echo "Build mono-retro's player-desktop target first, or set MONO_RETRO_PLAYER." >&2; exit 1; }
 	"$(MONO_RETRO_PLAYER)" --core:"$(CURDIR)/bin/libretro/decompbound_libretro.so" --rom:"$(ROM)" --save-dir:"$(LIBRETRO_DS_SAVE_DIR)" --earthbound-ds $(LIBRETRO_STATE_ARGS) $(MONO_RETRO_ARGS)
 
-libretro-ds-test: libretro
+libretro-ui-test: nim.cfg
+	nim r $(NIM_TEST_FLAGS) tests/test_eb_ui_font.nim
+	nim r $(NIM_TEST_FLAGS) tests/integration_eb_ui_font.nim
+	nim r $(NIM_TEST_FLAGS) tests/integration_eb_ui_assets.nim
+	nim r $(NIM_TEST_FLAGS) tests/integration_eb_ui_meters.nim
+	nim r $(NIM_TEST_FLAGS) tests/integration_eb_ui_status.nim
+	nim r $(NIM_TEST_FLAGS) tests/integration_eb_ui.nim
+
+libretro-ds-test: libretro libretro-ui-test
 	nim r $(NIM_TEST_FLAGS) tests/test_ds_companion.nim
 	nim r $(NIM_TEST_FLAGS) tests/test_libretro_state.nim
 	nim r $(NIM_TEST_FLAGS) tests/test_libretro.nim

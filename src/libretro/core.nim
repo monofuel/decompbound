@@ -179,7 +179,8 @@ proc retro_run() {.cdecl, exportc, dynlib.} =
       companion.update(machine.bus.mem.toOpenArray(WramOffset, WramOffset + WramSize - 1),
         buttons, pointerInput,
         partyBattleVisible(machine.bus.mem.toOpenArray(WramOffset, WramOffset + WramSize - 1),
-          (machine.ppuRegs[BgModeRegister] and BgModeMask).int))
+          (machine.ppuRegs[BgModeRegister] and BgModeMask).int),
+        machine.cgram.toOpenArray(0, 31))
     if video != nil:
       for i in 0 ..< frameImage.data.len:
         let color = frameImage.data[i]

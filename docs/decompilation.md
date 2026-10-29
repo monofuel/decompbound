@@ -134,16 +134,12 @@ tile+attr words, standard SNES BG format), and **tileset graphics** at file
 10-byte routine only clears the service-suppression byte at `$9622`; see
 [the verified service setters](prng.md#early-exit-flags-and-adopted-setters).
 
-- **Sectors** — the per-sector graphic-set config is an 8-byte-record table at file
-  `0x03E250` (SNES `$C3E250`), resolved through a `~0x35`-entry RAM cache (`$88E4`)
-  keyed by sector ID (`$89CA`, set via `JSL $C3E74F`). A single flat
-  `{tileset, music, flags}` record isn't isolated (music/palette/teleport are split
-  across tables). The **sector setter** is at file `0x043573` (takes a *pre-computed*
-  sector ID in `A`, writes `$89CA`, then ID-derived buffer math via `$C08756`);
-  callers pass the ID explicitly (some hardcoded, e.g. `LDA #$0000; JSL $C43573`), so
-  there is **no simple `(X,Y)→ID` formula** — the sector is set on area-load /
-  boundary-cross, not derived from continuous position. The walk-time boundary-cross
-  recompute (likely a per-tile sector attribute or a grid lookup) isn't isolated yet.
+- **Sectors** — the previous attribution of `0x03E250` / `$C3E250` to sectors
+  was incorrect. Original `$C104EE` reads its 53 eight-byte records as window
+  x/y/width/height and resolves them through `$88E4` into `$8650` window slots.
+  `$89CA` also selects the active battle status panel. These UI observations
+  do not establish a world-sector layout or `(X,Y)→sector` rule. Those remain
+  open; see [the independently verified UI contracts](earthbound-ui.md).
 - **Doors/warps** — *not* a flat door table: exits are per-entity **script streams**
   run by the object interpreter, executor at file `0x009D9E` (`JML [$0A5A]`).
   **Separate resource and script selection:** `$EF133F` (file `0x2F133F`,

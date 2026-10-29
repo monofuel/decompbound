@@ -1,7 +1,7 @@
 import
   std/[dynlib, os, strformat],
   pixie,
-  decompbound/[cpu, frame_step, libretro_api, png_state, ppu, replay_run,
+  decompbound/[cpu, ds_companion, frame_step, libretro_api, png_state, ppu, replay_run,
     rom_pipeline, save_state, snesbus]
 
 const
@@ -27,6 +27,7 @@ type
 
 var
   expectedImage: Image
+  expectedCompanion: DsCompanion
   expectedPcm: FramePcm
   buttons: uint16
   failure: string
@@ -65,6 +66,12 @@ proc video(data: pointer, width, height: cuint, pitch: csize_t) {.cdecl.} =
       return
     if expected != 0:
       inc coloredPixels
+  if dualScreen:
+    for index, color in expectedCompanion.image.data:
+      let expected = (color.r.uint32 shl 16) or (color.g.uint32 shl 8) or color.b.uint32
+      if pixels[ppu.ScreenWidth * ppu.ScreenHeight + index] != expected:
+        failure = &"Companion pixel {index} differs from the live WRAM/CGRAM snapshot."
+        return
 
 proc sample(left, right: int16) {.cdecl.} =
   ## Compare one stereo sample without throwing through the foreign ABI.
@@ -147,11 +154,13 @@ proc checkMode(enabled: bool) =
       stateBytes = extractStateForRom(stateBytes, romHashOf(rom))
     deserializeState(stateBytes, reference, referenceCpu)
   expectedImage = newImage(ppu.ScreenWidth, ppu.ScreenHeight)
+  if dualScreen: expectedCompanion = newDsCompanion(rom)
   for frame in 0 ..< Frames:
     if frame == Frames div 2 and importedBytes.len > 0:
       doAssert symbol[Unserialize](library, "retro_unserialize")(
         unsafeAddr importedBytes[0], importedBytes.len.csize_t), "Core rejected a live state import"
       deserializeState(stateBytes, reference, referenceCpu)
+      if dualScreen: expectedCompanion = newDsCompanion(rom)
     case (frame div 45) mod 4
     of 1: buttons = 1'u16 shl 3
     of 2: buttons = 1'u16 shl 8
@@ -165,6 +174,11 @@ proc checkMode(enabled: bool) =
         reference.joy1 = reference.joy1 or (1'u16 shl (15 - id))
     expectedImage.fill(rgbx(0, 0, 0, 255))
     stepReplayFrame(reference, referenceCpu, expectedImage, addr expectedPcm)
+    if dualScreen:
+      expectedCompanion.update(reference.bus.mem.toOpenArray(WramOffset, WramOffset + WramSize - 1),
+        buttons and (PreviousMember or NextMember), DsPointer(),
+        partyBattleVisible(reference.bus.mem.toOpenArray(WramOffset, WramOffset + WramSize - 1),
+          (reference.ppuRegs[0x05] and 7).int), reference.cgram.toOpenArray(0, 31))
     if frame == SingleSampleStart:
       setBatch(nil)
     elif frame == MutedStart:

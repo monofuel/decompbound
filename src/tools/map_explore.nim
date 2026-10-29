@@ -20,8 +20,9 @@ const
   DefaultOutDir = "bin"
   ## TODO: default map data and tileset from docs/decompilation.md Maps section
   ## (tilemap ptr table file 0x100000 bank $CF, tilemap data 0x101800 2-byte words,
-  ## tileset gfx 0x3E408, sector config 0x3E250). These are magic for bootstrap;
-  ## replace with resolved runtime values / table lookups in future.
+  ## tileset gfx 0x3E408). These remain unverified bootstrap guesses, not a
+  ## located overworld asset set. 0x3E250 is UI window geometry, not sectors.
+  ## Replace the guesses with independently traced runtime map/tileset values.
   DefaultMapOffset = 0x101800
   DefaultTilesetOffset = 0x3E408
   DefaultMapWidth = 32

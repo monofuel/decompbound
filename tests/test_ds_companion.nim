@@ -1,6 +1,20 @@
 import
   pixie,
-  ../src/decompbound/[ds_companion, party_sram, party_wram]
+  ../src/decompbound/[ds_companion, eb_ui_assets, eb_ui_font, party_sram, party_wram]
+
+proc syntheticAssets(): EbUiAssets =
+  ## Supply authored flat tiles and empty glyphs to isolate layout and input tests.
+  result = EbUiAssets()
+  result.graphics.tiles = newSeq[uint8](0x1A00)
+  for index in 0 ..< result.graphics.tiles.len: result.graphics.tiles[index] = 255
+  for palette in result.palettes.mitems:
+    for color in palette.mitems: color = 0x001F
+  for index, font in result.fonts.mpairs:
+    let height = if index == 3: 8 else: 16
+    font = EbUiFont(fontId: index, height: height, stride: height, cellWidth: 8,
+      widths: newSeq[uint8](FontGlyphCount), bitmap: newSeq[uint8](FontGlyphCount * height))
+    for width in font.widths.mitems: width = 6
+    for value in font.bitmap.mitems: value = 255
 
 proc putWord(data: var seq[uint8], offset, value: int) =
   ## Store a synthetic little-endian party word.
@@ -48,6 +62,7 @@ proc main() =
   doAssert party.len == 2
   doAssert party[0].id == 2 and party[1].id == 1
   doAssert party[1].name == "Alice" and party[1].hp == 60000
+  doAssert party[1].encodedName == @[0x71'u8, 0x9C, 0x99, 0x93, 0x95]
   doAssert party[1].hpMax == 65535
   doAssert party[1].inventory.len == 14
   doAssert party[1].inventory[0].id == 0
@@ -58,10 +73,20 @@ proc main() =
   wram.putWord(base + CharHpCurOff, 0)
   wram.putWord(base + CharPpDisplayOff, 12)
   wram.putWord(base + CharPpCurOff, 2)
+  wram.putWord(base + CharHpFractionOff, 0xAB01)
+  wram.putWord(base + CharPpFractionOff, 0x3401)
+  wram[base + CharConditionsOff + 3] = 2
+  wram.putWord(base + CharUiPaletteOff, 0x0C00)
   doAssert readDsParty(wram, names, true)[1].hp == 25
   doAssert readDsParty(wram, names, true)[1].pp == 12
+  doAssert readDsParty(wram, names, true)[1].hpFraction == 0xAB01
+  doAssert readDsParty(wram, names, true)[1].ppFraction == 0x3401
+  doAssert readDsParty(wram, names, true)[1].conditions[3] == 2
+  doAssert readDsParty(wram, names, true)[1].framePalette == 0x0C00
   doAssert readDsParty(wram, names)[1].hp == 0
   doAssert readDsParty(wram, names)[1].pp == 2
+  doAssert readDsParty(wram, names)[1].hpFraction == 0
+  doAssert readDsParty(wram, names)[1].ppFraction == 0
   wram.putWord(base + CharHpDisplayOff, 24)
   doAssert readDsParty(wram, names, true)[1].hp == 24
   doAssert not partyBattleVisible(wram, 0)
@@ -70,20 +95,24 @@ proc main() =
   doAssert not partyBattleVisible(wram, 1)
   wram.putWord(0x4DC8, PartyCharTableWram + 1)
   doAssert not partyBattleVisible(wram, 0)
-  doAssert cardAt(party, 6, 6) == 2
-  doAssert cardAt(party, 63, 65) == 2
-  doAssert cardAt(party, 64, 6) == 0
-  doAssert cardAt(party, 68, 6) == 1
-  doAssert cardAt(party, 6, 66) == 0
-  doAssert cardAt(party, -1, 6) == 0
-  let view = newDsCompanion(@[])
+  doAssert statusBounds(2, 0, false) == (72, 152, 56, 64)
+  doAssert statusBounds(2, 1, true) == (128, 144, 56, 64)
+  doAssert cardAt(party, 72, 152) == 2
+  doAssert cardAt(party, 127, 215) == 2
+  doAssert cardAt(party, 128, 152) == 1
+  doAssert cardAt(party, 184, 152) == 0
+  doAssert cardAt(party, 72, 216) == 0
+  doAssert cardAt(party, 72, 144, 2) == 2
+  doAssert cardAt(party, 72, 144) == 0
+  doAssert cardAt(party, -1, 152) == 0
+  let view = newDsCompanion(syntheticAssets())
   view.update(party, 0, DsPointer())
   doAssert view.selectedId == 2
   doAssert view.image.width == 256 and view.image.height == 224
-  let cardColor = view.image.data[6 * DsPanelWidth + 6]
+  let cardColor = view.image.data[144 * DsPanelWidth + 72]
   view.update(party, NextMember, DsPointer())
   doAssert view.selectedId == 1
-  doAssert view.image.data[6 * DsPanelWidth + 6] != cardColor
+  doAssert view.image.data[144 * DsPanelWidth + 72] != cardColor
   view.update(party, NextMember, DsPointer())
   doAssert view.selectedId == 1
   view.update(party, 0, DsPointer())
@@ -95,12 +124,12 @@ proc main() =
   view.update(party, PreviousMember or NextMember, DsPointer())
   doAssert view.selectedId == 1
   view.update(party, 0, DsPointer())
-  view.update(party, 0, pointerAt(7, 7))
+  view.update(party, 0, pointerAt(73, 153))
   doAssert view.selectedId == 2
-  view.update(party, 0, pointerAt(69, 7))
+  view.update(party, 0, pointerAt(129, 153))
   doAssert view.selectedId == 2
   view.update(party, 0, DsPointer())
-  view.update(party, 0, pointerAt(69, 7))
+  view.update(party, 0, pointerAt(129, 153))
   doAssert view.selectedId == 1
   view.update(party, 0, DsPointer())
   view.update(party, 0, pointerAt(255, 223))

@@ -4,10 +4,13 @@ The optional dual-screen libretro mode keeps the complete SNES game above a
 read-only party companion. It runs the user's original ROM through decompbound;
 it does not patch the ROM or replace the game's menus.
 
-The lower panel shows initialized playable party members in roster order,
-their HP/PP and maxima, and the selected character's fourteen inventory slots.
-An `E` marks equipped items. Empty slots remain visible. Character artwork,
-ailment icons, maps, and touch-driven item/PSI actions are outside this MVP.
+The lower panel uses the game's actual bitmap fonts, window graphics and
+palettes. A Goods window above the status panels shows the selected member's
+items in the original two-column, seven-row order, with the original equipped
+symbol. Empty inventory slots are omitted as in the game. Native battle-style
+HP/PP panels sit below, in active roster order; the selected panel rises eight
+pixels. Their rolling digits and condition icons follow live game data.
+Character artwork, maps and touch-driven item/PSI actions remain outside scope.
 
 ## Build and launch
 
@@ -81,7 +84,7 @@ display accommodation is outside scope.
 |---|---|
 | L2 / R2 | Previous / next character, wrapping once per press |
 | Page Up / Page Down | Keyboard equivalents |
-| Tap / click a party card | Select that character |
+| Tap / click a lower status panel | Select that character |
 
 The first touch contact owns the pointer until it ends. Selection happens on
 press rather than while dragging. Top-screen and border touches are ignored.
@@ -116,9 +119,15 @@ state after disk SRAM and before enabling save persistence. Inputs and retained
 audio are cleared after successful imports.
 
 Party records and inventory derive from the existing live WRAM layout and
-ROM item-table decoder. UI font/colors are shared with the companion apps;
-new view state and item labels belong to the loaded ROM and are released with
-it. The bottom panel redraws when displayed data or selection changes.
+ROM item-table decoder. Fonts and common UI assets are decoded once per ROM
+load. Live CGRAM colors preserve the game's palette changes; the renderer
+reads WRAM and palette snapshots without changing either. The lower panel
+redraws when its data, rolling phase, palette or selection changes. See
+[original UI rendering](earthbound-ui.md) for the independently verified
+loaders, font formats, icon generation and layout contracts.
+
+Run `make libretro-ui-test` for the original-routine UI oracles, or
+`make libretro-ds-test` for those checks plus the core ABI/state tests.
 
 ## Party membership and order
 

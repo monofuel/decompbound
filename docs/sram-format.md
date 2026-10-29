@@ -45,6 +45,7 @@ Each `$500` block:
 | `$09A` | 6 | Current game/HUD party order (1-based IDs) | original `$C21043`, six-slot bound `$C24CCD` |
 | `$0CF` | 1 | Current game/HUD party count | original `$C2107A` |
 | `$0B6` | 6 | Overworld walking identities | separate array `$988B`; count at slot `+$0CE` |
+| `$1F8` | 1 | Window flavor, one-based 1–5 | original `$C47FCF`, live `$99CD` |
 | `$1F9` | `$5F`×6 | Character table (4 playable + 2 reserved) | confirmed |
 
 Data-relative form used by some tools: subtract `$20` (e.g. money `$3C`,
@@ -59,6 +60,7 @@ char table `$1D9`).
 | `$06` | 4 u32 LE | EXP | confirmed |
 | `$0A` | 2 | Max HP | confirmed (matches full HP) |
 | `$0C` | 2 | Max PP | confirmed |
+| `$0E`–`$14` | 7 | Condition groups | original `$C223D9` / `$C22474`; icon/palette selection verified |
 | `$15`–`$1B` | 7×u8 | OFF/DEF/SPD/GUT/LUC/VIT/IQ (with equip) | community + sane midgame |
 | `$1C`–`$22` | 7×u8 | Same stats, base (no equip) | community + sane midgame |
 | `$23` | 14 | Inventory item IDs | confirmed |
@@ -70,6 +72,7 @@ char table `$1D9`).
 | `$49` | 2 | PP display fraction; bit 0 also gates rolling | original `$C2109F` + generated-state oracle |
 | `$4B` | 2 | Rolling PP integer (display) | original `$C21247` / `$C21345` |
 | `$4D` | 2 | Current/settled PP; target during rolling | confirmed |
+| `$4F` | 2 | Status-frame palette attributes | original `$C203C3`; `$0C00` selects incapacitated treatment |
 | `$57`–`$5B` | 5 | Capsule boosts SPD/GUT/VIT/IQ/LUC | community |
 
 The display/target distinction is verified against original ROM execution for

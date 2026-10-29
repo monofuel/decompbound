@@ -1,7 +1,8 @@
 import
   std/[dynlib, strutils],
   pixie,
-  ../src/decompbound/[cpu, libretro_api, png_state, save_state, snesbus]
+  ../src/decompbound/[cpu, libretro_api, png_state, save_state, snesbus],
+  ./fixtures/synthetic_ui_rom
 
 type
   VoidProc = proc() {.cdecl.}
@@ -45,6 +46,7 @@ proc video(data: pointer, width, height: cuint, pitch: csize_t) {.cdecl.} =
 proc main() =
   ## Verify raw/PNG import and rejection atomicity with wholly synthetic game state.
   var rom = newSeq[uint8](RomSize)
+  rom.addSyntheticUi()
   # Authored BRA -2 program at the reset entry; no game code or assets.
   rom[ResetEntry] = 0x80
   rom[ResetEntry + 1] = 0xFE
