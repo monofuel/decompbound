@@ -240,3 +240,11 @@ input, and battery SRAM for mono-retro and other libretro frontends.
 External SNES references: [SNES memory map](https://en.wikibooks.org/wiki/Super_NES_Programming/SNES_memory_map),
 [superfamicom.org wiki](https://wiki.superfamicom.org/),
 [SnesLab quick links](https://www.sneslab.net/wiki/Official_Documentation_Quick_Links).
+
+## Acknowledgement
+
+EarthBound and its game artwork belong to their respective rightsholders.
+decompbound is an independent project, unaffiliated with and not endorsed by
+Nintendo. Screenshots illustrate project features; game artwork is not covered
+by this repository's source-code license. No ROMs or game assets for running
+the software are provided.
