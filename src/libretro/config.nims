@@ -8,7 +8,6 @@ let
 
 switch("app", "lib")
 switch("mm", "orc")
-switch("define", "release")
 # Return the library's allocations to libc instead of retaining a private heap
 # whose page pools cannot be reclaimed after dlclose.
 switch("define", "useMalloc")

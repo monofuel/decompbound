@@ -37,6 +37,12 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 ## OPEN — please check
 
+### RG DS Plus shipping build
+
+| Check | Run | Pass if |
+|---|---|---|
+| [ ] Default shipping core and frontend | Open Decompbound from the RG DS Plus menu; it loads the existing mid-game screenstate in EarthBound DS mode. | Both screens, controls and audio work, performance is acceptable, and holding Select+Start returns to the menu. |
+
 ### README feature showcase (2026-10-29)
 
 | Check | Run | Pass if |

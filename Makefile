@@ -541,12 +541,12 @@ bench: nim.cfg
 	nim r $(NIM_TEST_FLAGS) -d:release $(NIMFLAGS) src/tools/bench_replay.nim "$(ROM)" "$(BENCH_TAPE)" --frames $(BENCH_FRAMES) --label "$(LABEL)" --out bin/bench/results.$$(hostname).tsv
 
 bench-check: nim.cfg
-	@nim c $(NIM_TEST_FLAGS) -d:release $(NIMFLAGS) -o:bin/bench_replay src/tools/bench_replay.nim
+	@nim c $(NIM_TEST_FLAGS) $(NIMFLAGS) -d:debug --opt:speed -o:bin/bench_replay src/tools/bench_replay.nim
 	@printf '%s\n' $(BENCH_TAPES) | xargs -P $(NIM_TEST_JOBS) -I{} sh -c \
 	  'out=$$(bin/bench_replay "$(ROM)" "{}" 2>&1); rc=$$?; printf "%s\n" "$$out" | tail -4 | sed "s|^|[{}] |"; exit $$rc'
 
 bench-ref: nim.cfg
-	@nim c $(NIM_TEST_FLAGS) -d:release -o:bin/bench_replay src/tools/bench_replay.nim
+	@nim c $(NIM_TEST_FLAGS) -d:debug --opt:speed -o:bin/bench_replay src/tools/bench_replay.nim
 	@for t in $(BENCH_TAPES); do bin/bench_replay "$(ROM)" "$$t" --write-ref | tail -2; done
 
 # Shipping build of the player for a handheld / kiosk box (docs/raspberry-pi.md).

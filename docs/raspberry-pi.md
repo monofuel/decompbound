@@ -85,9 +85,13 @@ host. Nim on a node: `nimby` (`nimby-Linux-ARM64` release) + `nimby use 2.2.4`
 
 ## Build flags
 
-`-d:fast` (root `config.nims`) implies `-d:danger`: bounds, range and overflow
-checks off. It is the shipping/benchmark profile; the referee build and the
-tests stay `-d:release` so a hidden out-of-range access still raises there.
+Applications and libretro cores default to the shipping profile in root
+`config.nims`: `danger`, with release optimization and bounds, range and
+overflow checks disabled. `-d:fast` remains a compatible shipping selection.
+Use `-d:debug` for a checked developer build with stack traces. Tests default
+to checked builds; `-d:danger` explicitly exercises shipping behavior.
+`make bench-check` and `make bench-ref` select checked builds to preserve the
+referee, while `make bench` measures the shipping configuration by default.
 `--mm:arc` and `-d:lto` measured within noise on the A53 and are not used.
 
 ## Player port (`--kiosk`)

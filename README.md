@@ -165,6 +165,11 @@ Use Nim 2 or newer and the repository's dependencies. On Nix, enter
 declared in `flake.nix`. All feature commands above run from the repository root
 in that environment with your ROM available.
 
+Applications and libretro cores default to shipping builds with compiler runtime
+checks disabled (`danger`). Use `-d:debug` for checked developer builds with
+stack traces, for example `nim c -d:debug src/libretro/core.nim`. Tests default
+to checked builds; explicit input validation remains active in both profiles.
+
 ```bash
 # Put your legally obtained US ROM at:
 #   bin/Earthbound (U) [!].smc

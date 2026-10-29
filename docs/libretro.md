@@ -21,7 +21,10 @@ DECOMPBOUND_TARGET=arm64 nim c src/libretro/core.nim
 The output is `bin/libretro/decompbound_libretro-arm64.so`; the desktop core is
 preserved. With Nix's cross compiler, set `NIX_DONT_SET_RPATH=1` and
 `NIX_DONT_SET_RPATH_aarch64_unknown_linux_gnu=1` to omit store-specific runpaths.
-The ARM core retains runtime checks and the same frontend contract.
+Desktop and ARM cores use the shipping profile by default (`danger`, with
+compiler runtime checks disabled). Use `nim c -d:debug src/libretro/core.nim`
+for a checked developer build; the same selection applies to the ARM command.
+The frontend contract and explicit ROM/state validation are unchanged.
 
 ## Frontend contract
 
@@ -58,7 +61,7 @@ format or complete F12 PNGs with an `ebSt` chunk, including ROM-hash validation
 for PNGs. The legacy snapshot format is unchanged. The ABI is single-instance
 and used on the frontend's emulation thread.
 
-Target-local Nim settings keep runtime checks enabled, prefix the Nim runtime
+Target-local Nim settings inherit the root build profile, prefix the Nim runtime
 entrypoints, and export only `retro_*`. Library allocations use libc allocation
 with ORC reference cleanup: a private Nim allocator otherwise retains heap pages
 across library unloads. Lifecycle tests retain the memory-growth check.
