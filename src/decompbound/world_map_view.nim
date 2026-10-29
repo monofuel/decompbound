@@ -1,7 +1,7 @@
 import
-  std/[math, strformat],
+  std/[math, strformat, unicode],
   pixie,
-  ./[companion_style, world_map_browser]
+  ./[companion_style, world_map, world_map_browser]
 
 type
   AtlasLayout* = object
@@ -33,9 +33,16 @@ const
     (CenterSelection, rect(162, 276, 116, 34)),
     (ToggleGrid, rect(38, 326, 240, 34)),
     (InspectCenter, rect(38, 664, 240, 34)),
-    (ToggleFullscreen, rect(38, 710, 240, 34))]
+    (ToggleFullscreen, rect(38, 710, 240, 34)),
+    (ShowInspectPanel, rect(38, 374, 116, 28)),
+    (ShowWorldPanel, rect(162, 374, 116, 28))]
   GridMinimumSpacing = 8.0
   SelectionRadius = 7
+  WorldListTop = 414
+  WorldRowHeight = 44
+  WorldListBottomInset = 156
+  WorldListLeft = 38
+  WorldListWidth = 240
 
 proc contains*(area: Rect, point: Vec2): bool =
   ## Test half-open logical UI bounds for pointer routing.
@@ -80,10 +87,30 @@ proc buttonArea(action: MapAction, area: Rect, height: int): Rect =
   if action in {InspectCenter, ToggleFullscreen}:
     result.y += (height - AtlasHeight).float32
 
-proc mouseActions*(point: Vec2, height = AtlasHeight): set[MapAction] =
+proc mouseActions*(point: Vec2, height = AtlasHeight, panel = InspectPanel): set[MapAction] =
   ## Resolve sidebar controls independently from atlas selection and dragging.
   for (action, area) in MapButtons:
-    if buttonArea(action, area, height).contains(point): result.incl(action)
+    if buttonArea(action, area, height).contains(point):
+      result.incl(if action == InspectCenter and panel == WorldPanel:
+        ResetWorldFlags else: action)
+
+proc worldListRows*(height: int): int =
+  ## Count complete catalog rows above the pinned sidebar controls.
+  max(1, (height - WorldListTop - WorldListBottomInset) div WorldRowHeight)
+
+proc worldPanelContains*(point: Vec2, height: int): bool =
+  ## Route wheel gestures over the World sidebar independently of map zoom.
+  rect(29, 103, 262, (height - 146).float32).contains(point)
+
+proc worldFlagRow*(point: Vec2, browser: WorldMapBrowser, height: int): int =
+  ## Resolve visible catalog rows without accepting gaps or controls as flags.
+  result = -1
+  if browser.panel != WorldPanel: return
+  let rows = worldListRows(height)
+  if rect(WorldListLeft.float32, WorldListTop.float32, WorldListWidth.float32,
+      (rows * WorldRowHeight).float32).contains(point):
+    let index = browser.worldScroll + (point.y.int - WorldListTop) div WorldRowHeight
+    if index < browser.worldFlagCount: result = index
 
 proc resize*(view: WorldMapView, width, height: int) =
   ## Reallocate the UI canvas only when the responsive layout changes size.
@@ -111,6 +138,15 @@ proc label(view: WorldMapView, text: string, x, y, size: float32,
   view.font.paint.color = parseHtmlColor(color)
   view.image.fillText(view.font, text, translate(vec2(x, y)), bounds = vec2(width, 0),
     hAlign = if centered: CenterAlign else: LeftAlign)
+
+proc shortLabel(view: WorldMapView, text: string, width, size: float32): string =
+  ## Fit authored labels on one line without spilling into neighboring rows.
+  view.font.size = size
+  result = text
+  if view.font.layoutBounds(result).x <= width: return
+  while result.len > 0 and view.font.layoutBounds(result & "...").x > width:
+    result = result.runeSubStr(0, result.runeLen - 1)
+  result.add("...")
 
 proc zoomLabel*(zoom: float64): string =
   ## Describe native pixel scale without rounding fractional overviews to zero.
@@ -168,7 +204,8 @@ proc drawSelection(view: WorldMapView, browser: WorldMapBrowser) =
       view.mapPixel(x, y + offset, color)
 
 proc render*(view: WorldMapView, browser: WorldMapBrowser, scenery: Image,
-    inspector: MapInspector, hover: Vec2, controllerCount: int): Image =
+    inspector: MapInspector, hover: Vec2, controllerCount: int,
+    catalog: openArray[WorldMapFlag] = [], enabledFlags: openArray[int] = []): Image =
   ## Compose a native-size viewport and readable map inspection controls.
   let
     viewport = view.layout.viewport
@@ -194,8 +231,38 @@ proc render*(view: WorldMapView, browser: WorldMapBrowser, scenery: Image,
   view.label(&"{browser.selectedRegion:04d} / {browser.regionCount - 1:04d}", 142, 116, 17, Gold)
   view.label("ZOOM", 38, 196, 11, Muted)
   view.label(zoomLabel(browser.zoom), 88, 225, 20, Gold, 140, true)
-  view.label("SELECTED LOCATION", 38, 382, 11, Gold)
-  if inspector.valid:
+  if browser.panel == WorldPanel:
+    let rows = worldListRows(height)
+    for visible in 0 ..< rows:
+      let index = browser.worldScroll + visible
+      if index >= catalog.len: break
+      let
+        flag = catalog[index]
+        rowY = WorldListTop + visible * WorldRowHeight
+        area = rect(WorldListLeft.float32, rowY.float32, WorldListWidth.float32,
+          (WorldRowHeight - 3).float32)
+        focused = index == browser.worldRow
+        enabled = flag.id in enabledFlags
+      if focused or area.contains(hover): view.box(area, ButtonBlue, 7)
+      view.box(rect(44, (rowY + 12).float32, 15, 15), Cream, 3)
+      if enabled: view.box(rect(47, (rowY + 15).float32, 9, 9), Pink, 1)
+      view.label(view.shortLabel(flag.label, 196, 13), 68, (rowY + 4).float32, 13)
+      view.label(&"${flag.id:04X}  " & (if enabled: "on" else: "off"),
+        68, (rowY + 23).float32, 11, if enabled: Gold else: Muted)
+    if catalog.len > rows:
+      let
+        trackHeight = (rows * WorldRowHeight).float32
+        thumbHeight = max(12'f32, trackHeight * rows.float32 / catalog.len.float32)
+        thumbY = WorldListTop.float32 + (trackHeight - thumbHeight) *
+          browser.worldScroll.float32 / (catalog.len - rows).float32
+      view.box(rect(282, WorldListTop.float32, 4, trackHeight), ButtonBlue, 2)
+      view.box(rect(282, thumbY, 4, thumbHeight), Mint, 2)
+    if catalog.len == 0:
+      view.label("No map flags in this ROM.", 38, WorldListTop.float32, 14, Muted)
+    elif browser.worldRow in 0 ..< catalog.len:
+      view.label(view.shortLabel(catalog[browser.worldRow].description, 240, 10),
+        38, (height - 153).float32, 10, Muted)
+  elif inspector.valid:
     view.label(&"X {inspector.worldX}   Y {inspector.worldY}", 38, 408, 17)
     view.label(&"Region {inspector.regionIndex}", 38, 442, 15)
     view.label(&"Grid {inspector.regionX}, {inspector.regionY}", 38, 466, 14, Muted)
@@ -214,7 +281,9 @@ proc render*(view: WorldMapView, browser: WorldMapBrowser, scenery: Image,
     let
       area = buttonArea(action, originalArea, height)
       hovered = area.contains(hover)
-      primary = action == FitWorld
+      primary = action == FitWorld or
+        (action == ShowInspectPanel and browser.panel == InspectPanel) or
+        (action == ShowWorldPanel and browser.panel == WorldPanel)
       text = case action
         of PreviousRegion: "< region"
         of NextRegion: "region >"
@@ -223,14 +292,16 @@ proc render*(view: WorldMapView, browser: WorldMapBrowser, scenery: Image,
         of FitWorld: "whole world"
         of CenterSelection: "center here"
         of ToggleGrid: (if browser.grid: "region grid: on" else: "region grid: off")
-        of InspectCenter: "inspect center"
+        of InspectCenter: (if browser.panel == WorldPanel: "reset world flags" else: "inspect center")
         of ToggleFullscreen: "fullscreen"
+        of ShowInspectPanel: "Inspect"
+        of ShowWorldPanel: (if catalog.len > 0: &"World ({catalog.len})" else: "World")
         else: ""
     view.box(area, if hovered: Mint elif primary: Pink else: ButtonBlue, 10)
     view.label(text, area.x, area.y + 7,
       if action in {ZoomOut, ZoomIn}: 20'f32 else: 14'f32,
       if hovered or primary: DarkInk else: Ink, area.w, true)
-  view.label(&"Center {browser.centerX.int}, {browser.centerY.int} / base scenery / animation frame 0",
+  view.label(&"Center {browser.centerX.int}, {browser.centerY.int} / {enabledFlags.len} flags on / animation frame 0",
     326, (height - 21).float32, 11, Muted)
   view.label("Mouse / keyboard / Paddy",
     34, (height - 21).float32, 10, Muted)

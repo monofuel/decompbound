@@ -106,8 +106,10 @@ Explore the whole 8192×10240-pixel world, with towns, caves and stored interior
 in their original atlas positions. Pan and zoom with mouse, keyboard, or Paddy;
 click to inspect the region, arrangement, tileset, palette and tile flags.
 The app composes scenery directly from your ROM using the original graphics
-and palettes. It shows a deterministic static base world, without NPCs or
-story-state simulation.
+and palettes. The World tab toggles story-dependent lighting, bridges, ladders,
+and other verified map changes, with named controls and flag IDs. It starts
+with all flags clear and keeps the scenery static, without NPCs or gameplay
+simulation.
 
 ```sh
 make map-app

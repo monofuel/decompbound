@@ -12,7 +12,7 @@ project's source-code license does not grant rights to that artwork.
 | `music-jukebox.png` | Pocket Jukebox's original procedural cassette UI during offline playback of track 24. |
 | `battle-background-viewer.png` | Pocket Backgrounds' actual control and preview canvases placed side by side, with New Age Retro Hippie selected at animation frame 180. |
 | `bestiary.png` | Pocket Bestiary's actual UI, portrait, stats, and encounter background with Starman selected at animation frame 180. |
-| `world-map-browser.png` | Pocket Atlas's actual UI displaying the complete base atlas at 1/16 scale, composed from the user's ROM. |
+| `world-map-browser.png` | Pocket Atlas's actual World controls and complete cleared-flags atlas at 1/16 scale, composed from the user's ROM. |
 
 The gameplay images were exported from the user's local ROM/screenstate; the
 original screenstate stays in the user's screenshot archive. Companion-app

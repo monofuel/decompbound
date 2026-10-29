@@ -148,6 +148,57 @@ suite "World atlas camera and controls":
     check mouseActions(vec2(60, 292)) == {FitWorld}
     check mouseActions(vec2(600, 400)) == {}
 
+  test "world controls navigate flags without moving the map or leaking held return actions":
+    let camera = browser()
+    camera.configureWorldFlags(15, 5)
+    camera.perform(ShowWorldPanel)
+    let center = (camera.centerX, camera.centerY)
+    check keyboardActions({KeyTab}, WorldPanel) == {ToggleWorldPanel}
+    check keyboardActions({KeyDown, KeyEnter}, WorldPanel) ==
+      {WorldNextFlag, ToggleWorldFlag}
+    check gamepadActions([pad({GamepadDown, GamepadA})], WorldPanel) ==
+      {WorldNextFlag, ToggleWorldFlag}
+    check keyboardActions({KeyW}, WorldPanel) == {PanUp}
+    check gamepadActions([pad({}, 0.8, 0)], WorldPanel) == {PanRight}
+    camera.navigateWorldFlag(100)
+    check camera.worldRow == 14 and camera.worldScroll == 10
+    camera.navigateWorldFlag(1)
+    check camera.worldRow == 14
+    camera.scrollWorldFlags(-100)
+    check camera.worldScroll == 0 and camera.worldRow in 0 .. 4
+    check (camera.centerX, camera.centerY) == center
+    camera.configureWorldFlags(15, 8)
+    camera.focusWorldRow(14)
+    check camera.worldScroll == 7
+    check mouseActions(vec2(210, 386)) == {ShowWorldPanel}
+    check mouseActions(vec2(60, 680), AtlasHeight, WorldPanel) == {ResetWorldFlags}
+    check worldFlagRow(vec2(70, 430), camera, AtlasHeight) == 7
+    var input: MapInput
+    check input.update({ShowInspectPanel}, 0) == @[ShowInspectPanel]
+    check input.update({QuitAtlas}, 1).len == 0
+    check input.update({QuitAtlas}, 500).len == 0
+    discard input.update({}, 501)
+    check input.update({QuitAtlas}, 502) == @[QuitAtlas]
+    input.reset()
+    check input.update({ShowInspectPanel}, 0) == @[ShowInspectPanel]
+    check input.update({ToggleGrid}, 1).len == 0
+    discard input.update({}, 2)
+    check input.update({ToggleGrid}, 3) == @[ToggleGrid]
+
+  test "changing panels cannot turn a held confirmation into another press":
+    var input: MapInput
+    check input.update({InspectCenter}, 0) == @[InspectCenter]
+    check input.update({InspectCenter, ToggleWorldPanel}, 1) == @[ToggleWorldPanel]
+    check input.update({ToggleWorldFlag}, 2).len == 0
+    check input.update({ToggleWorldFlag}, 500).len == 0
+    check input.update({InspectCenter}, 500).len == 0
+    check input.update({ToggleWorldFlag}, 500).len == 0
+    discard input.update({}, 501)
+    check input.update({ToggleWorldFlag}, 502) == @[ToggleWorldFlag]
+    check input.update({InspectCenter}, 503).len == 0
+    discard input.update({}, 504)
+    check input.update({InspectCenter}, 505) == @[InspectCenter]
+
   test "viewport resize preserves exploration and selection while updating whole-world fit":
     let camera = browser()
     camera.selectWorld(4000, 5000)

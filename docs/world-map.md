@@ -42,11 +42,38 @@ to the map, with mouse input following the resized layout.
 | Fullscreen | F11 | Start |
 | Exit | Escape | Select + Start |
 
-The inspector identifies world pixels, the row-major region index and grid
+The Inspect tab identifies world pixels, the row-major region index and grid
 position, logical map tileset, palette group, 32×32 arrangement ID, 8×8 CHR tile,
 and the tile's priority/flip flags. Labels are numeric rather than inferred town
 names. Previous/next region follows atlas order, including stored interior and
 unused regions; this is not a door-connected tour of towns.
+
+The World tab controls the story flags referenced by the original palette and
+arrangement loaders. Named changes appear first: Onett daylight, Winters
+lighting, Threed / Saturn ladder, Deep Darkness revealed, and the Peaceful Rest
+Valley bridge. Threed's daytime palette and Saturn Valley's completed ladder
+share flag `$0047`; they are one control because that is how the game connects
+them. Other verified loader conditions retain numeric labels while their story
+meaning remains under investigation.
+
+Click a checkbox to toggle it; the mouse wheel over the sidebar scrolls the
+list. Tab or Paddy Select switches tabs. In World, arrows / D-pad move the
+focused row and Enter / Space / A toggles it; Escape / B returns to Inspect.
+WASD / left stick still pan, and mouse gestures over the map retain their normal
+behavior. Reset world flags clears every selection. Changes are session-local:
+startup remains all flags clear, without writing the ROM, SRAM or screenstates.
+
+Flags can also be selected before the first frame:
+
+```sh
+make map-app ARGS="--flag:01A6=on --flag:011F=on --flag:0047=on"
+make map-app ARGS="--flag:0120=on --flag:0044=on"
+```
+
+IDs are hexadecimal, with an optional `0x` prefix. Values must be `on` or `off`;
+repeated settings for the same flag apply in command-line order. Unsupported
+IDs are rejected. Toggles preserve camera, zoom, selection and responsive
+layout while rebuilding affected scenery from immutable decoded resources.
 
 Drawing resources are cached per ROM. The atlas retains compact placement IDs,
 sector metadata and decoded tilesets/palettes, never an atlas-sized RGBA image.
@@ -98,7 +125,7 @@ zero transparent. Both planes share the arrangement flips and palette bits.
 There are no characters or BG3 menus in the browser. This split matters even
 when the finished scenery appears to be one image.
 
-### Base palettes and scope
+### Story-dependent palettes and arrangements
 
 Original `$C007B6` copies a `$C0`-byte palette record to WRAM `$0240`, supplying
 six sixteen-color BG subpalettes at global palette indices 32–127. Transparent
@@ -106,9 +133,10 @@ slots also carry metadata: the first word is a story-flag selector, the word at
 `+$20` an alternate palette address, and `+$40` an OBJ-palette source selector
 consumed by `$C00778`. The OBJ override is not a map-animation index.
 
-The browser reproduces palette redirection with **all numbered event flags
-clear**. That gives a deterministic base atlas; it is not a snapshot of the
-player's story state or a promise of daytime everywhere. The original loader
+The browser reproduces palette redirection using the **selected numbered event
+flags**, initially all clear. That default gives a deterministic base atlas;
+it is not a snapshot of the player's story state or a promise of daytime
+everywhere. The original loader
 oracle checks every sector-referenced logical tileset/palette selection, including
 redirects. Global colors 0–31 are black; all actual arrangements referencing
 those subpalettes are transparent in both scenery planes.
@@ -138,15 +166,113 @@ arrangement has not yet been compared under both variants.
 Original `$C006F2` also applies arrangement replacements before the map is
 published. Its 20-entry pointer table at `$D01598` selects ordered lists of
 conditions and `(destination, source)` arrangement pairs. The native renderer
-applies the same replacements with numbered event flags clear: 56 pair
-applications across drawing tilesets 3, 6 and 8. They are part of the base
-loader result, not an optional cosmetic patch.
+applies the same replacements in their original order for the selected flags.
+The cleared baseline performs 56 pair applications across drawing tilesets 3,
+6 and 8. The full table has nine conditional records, 157 ordered replacement
+pairs and seven distinct flags. Palettes reference nine flags; the union of
+these two loader inventories is 15 numbered flags. Conditions are discovered
+from the supplied ROM, not a bundled copy of its patch data. Each change starts
+from untouched decoded arrangements, so repeated toggles cannot accumulate old
+bridge or ladder tiles.
 
-Animated graphics remain at their base uploaded frame. Story-specific map
-variants beyond this cleared-event baseline, palette animation, sprites, encounters, doors, collision,
-distortion/color-math scene effects and playable navigation are outside this
-release. Neighboring stored interiors can be adjacent in the atlas while the
+The two loaders have different comparisons at the exact `$8000` condition:
+palette redirection compares against `condition > $8000`, while arrangement
+replacement compares against `condition >= $8000`. Original `$C21628`
+decrements flag zero to `$FFFF` and reads WRAM `$BC07` bit `$80`, outside the
+numbered event store. The viewer keeps that out-of-state bit clear and exposes
+only flags `$0001..$7FFF`. Original-loader calls with locally authored `$8000`
+conditions verified both edge cases; the synthetic palette regression retains
+the redirect case without a game-data fixture.
+
+Animated graphics remain at their base uploaded frame. The World catalog
+covers all numbered conditions in the verified palette and arrangement loaders;
+it does not execute arbitrary story scripts or actors. Palette animation,
+characters, encounters, interactive doors, collision, general scene distortion
+and playable navigation remain outside this release. Neighboring stored
+interiors can be adjacent in the atlas while the
 game normally clips or hides them during play.
+
+### Deep Darkness investigation
+
+The reported non-black patches are reproduced with flag `$0120` clear. The
+palette path is verified: logical tileset 6 / palette 3 starts at file
+`0x1A8D27`; cleared `$0120` redirects to `0x1A8F67`. Setting it selects the
+revealed palette. Both records have zero palette-animation metadata at `+$60`,
+`+$80` and `+$A0`.
+
+A stronger scene check starts from private pre-Hawk-Eye
+`earthbound_20260725-183101.png`, updates the authoritative party coordinates
+`$9877/$987B` as well as the leader entity, and advances 120 original frames
+into the affected region. At camera `(4929,7136)`, `$0120` remains clear;
+`TM=$17`, `TS=0`, and window/color math/HDMA are disabled. Background rendering
+contains 7,895 non-black pixels. OAM adds only 204 party pixels and does not
+cover the scenery patches. With animation and live arrangement state aligned,
+the atlas matches all 57,344 original background pixels.
+
+This disproves the provisional black-cover-sprite explanation; it does not
+establish that this counterfactual location is reachable in normal pre-Hawk-Eye
+play or that our PPU is an independent hardware reference. An independent
+decode of two affected pixels using the
+[Nintendo SNES Development Manual](https://floating.muncher.se/bot/manual/book1_text.pdf)'s
+mode-1 addressing and transparency rules finds colored BG1 pixels and transparent
+BG2 pixels, not an opaque black overlay:
+
+| World pixel | BG1 tile word / pixel index / CGRAM color | BG2 tile word / pixel index |
+|---|---|---|
+| `(5010,7160)` | `$15D8` / 6 / `$39EB` | `$0000` / 0 |
+| `(4996,7142)` | `$1514` / 13 / `$20BA` | `$3514` / 0 |
+
+Changing priority cannot hide these particular pixels with the scene inputs
+observed. The manual's mode-1 priority table (appendix A-19) and index-zero
+transparency rule (A-10/A-17) agree with the active compositor. No guessed
+opaque mask is presented as original behavior. The reported difference from
+normal console play remains tracked in [issues.md](issues.md); matching our
+own PPU alone does not establish hardware correctness.
+
+The original game also has a flag-controlled invisible collision object:
+TPT `$04CF`, file `0x0FDB44`, references transparent sprite resource `$01C8`
+and flag `$0120` with condition byte 1. Its only placement is `(6016,7960)`,
+in the bank-`$CF` list at file `0x0F82FD`, selected from the 32×40 placement
+pointer table at `$CF61E7`. Original `$C0222B` reads the four-byte placement
+record; `$C0244A..$C02470` admits the object when `$0120` is clear and skips
+it when set. Full population mode `$4A58=1` is required when rebuilding a
+scene after a coordinate warp; normal incremental population deliberately
+skips objects already inside the camera viewport.
+
+In two fresh branches of the private pre-Hawk-Eye capture, original population
+creates the object only with the flag clear. Starting at `(6016,7940)`, identical
+Down input stops the leader at Y=7941 with the object, versus Y=7960 without
+it. Calling original `$C02140` to remove only that object while leaving
+`$0120` clear permits movement to Y=7960 too. Thus this is a collision gate,
+not a black covering sprite. This is an important limit on the earlier warped
+scene comparison: the atlas can expose locations the game restricts before
+the palette changes. It does not establish the complete normally reachable
+camera boundary or close the human-reported visibility issue.
+
+An independent [first-person report](https://gamefaqs.gamespot.com/boards/588301-earthbound/68394715)
+also describes an invisible pre-Hawk-Eye barrier and colored scenery patches
+after bypassing it with a walk-through-walls code. This supports the
+normally-inaccessible-map hypothesis; its unspecified execution platform is
+not a stock-console pixel reference. No community code or asset data enters
+the implementation.
+
+Reproduce the diagnostic with the user's own ROM and private capture:
+
+```sh
+nim r tests/world_map/private_shroud_scene.nim \
+  /home/monofuel/Pictures/Screenshots/earthbound_20260725-183101.png
+```
+
+The diagnostic writes no state, images, or extracted assets.
+
+The retained gate investigation checks the original metadata, transparent
+graphics, conditional spawning and causal collision removal. It requires the
+same private capture and does not claim to verify the complete walkable area:
+
+```sh
+nim r --path:src -d:debug src/probes/probe_story_hardware_gate.nim \
+  /home/monofuel/Pictures/Screenshots/earthbound_20260725-183101.png
+```
 
 ## Verification and decompilation
 
@@ -167,6 +293,12 @@ and palette selectors. Asset gates execute original loaders for all 20 CHR and
 20 arrangement streams, all referenced palette selections, and arrangement-word
 lookup. Rendering gates compare native composition with independently staged
 original data through the emulator's PPU.
+
+Story-state gates enumerate every combination of each resource's own condition
+dependencies: 165 palette assignments and 30 complete arrangement states.
+They compare original loader output word-for-word, then exercise named visual
+changes, repeated set/clear sequences, snapshots and idempotent reset. The
+World controls and CLI overrides also run through the isolated window gate.
 
 The annotated map lookup prefix/tail, region-attribute reader and arrangement
 tile reader are individually byte-compared against the ROM and promoted in

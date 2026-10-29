@@ -6,7 +6,10 @@ type
   MapAction* = enum
     PanLeft, PanRight, PanUp, PanDown, ZoomOut, ZoomIn, PreviousRegion,
     NextRegion, InspectCenter, CenterSelection, FitWorld, ToggleGrid,
-    ToggleFullscreen, QuitAtlas
+    ToggleFullscreen, QuitAtlas, ToggleWorldPanel, ShowInspectPanel, ShowWorldPanel,
+    WorldPreviousFlag, WorldNextFlag, ToggleWorldFlag, ResetWorldFlags
+  MapPanel* = enum
+    InspectPanel, WorldPanel
   WorldMapBrowser* = ref object
     width*, height*, regionWidth*, regionHeight*, regionCount*: int
     viewportWidth*, viewportHeight*: int
@@ -14,8 +17,12 @@ type
     selectedX*, selectedY*: int
     hasSelection*, grid*: bool
     revision*: int
+    panel*: MapPanel
+    worldRow*, worldScroll*, worldFlagCount*, worldVisibleRows*: int
   MapInput* = object
     previous: set[MapAction]
+    suppressed: set[MapAction]
+    confirmationHeld: bool
     repeatAt: array[MapAction, int64]
   MapDrag* = object
     active*, moved*: bool
@@ -83,6 +90,49 @@ proc resizeViewport*(browser: WorldMapBrowser, width, height: int) =
   browser.zoom = if fitting: browser.minimumZoom else:
     max(browser.zoom, browser.minimumZoom)
   browser.clampCamera()
+  browser.markChanged()
+
+proc configureWorldFlags*(browser: WorldMapBrowser, count, visibleRows: int) =
+  ## Keep the current flag and scroll position inside the visible catalog.
+  if count < 0 or visibleRows <= 0:
+    raise newException(ValueError, "World flag count and visible rows must be valid.")
+  if browser.worldFlagCount == count and browser.worldVisibleRows == visibleRows: return
+  browser.worldFlagCount = count
+  browser.worldVisibleRows = visibleRows
+  browser.worldRow = clamp(browser.worldRow, 0, max(0, count - 1))
+  browser.worldScroll = clamp(browser.worldScroll, 0, max(0, count - visibleRows))
+  browser.worldScroll = clamp(browser.worldScroll,
+    max(0, browser.worldRow - visibleRows + 1), browser.worldRow)
+  browser.markChanged()
+
+proc showPanel*(browser: WorldMapBrowser, panel: MapPanel) =
+  ## Switch sidebar content without changing the camera or selected map pixel.
+  if browser.panel != panel:
+    browser.panel = panel
+    browser.markChanged()
+
+proc focusWorldRow*(browser: WorldMapBrowser, row: int) =
+  ## Focus a catalog row and reveal it for keyboard and controller navigation.
+  if browser.worldFlagCount == 0: return
+  let nextRow = clamp(row, 0, browser.worldFlagCount - 1)
+  if nextRow == browser.worldRow: return
+  browser.worldRow = nextRow
+  browser.worldScroll = clamp(browser.worldScroll,
+    max(0, nextRow - browser.worldVisibleRows + 1), nextRow)
+  browser.markChanged()
+
+proc navigateWorldFlag*(browser: WorldMapBrowser, direction: int) =
+  ## Move through the actual flag catalog without wrapping at either endpoint.
+  browser.focusWorldRow(browser.worldRow + direction)
+
+proc scrollWorldFlags*(browser: WorldMapBrowser, direction: int) =
+  ## Scroll the flag list while keeping its focused row visible.
+  let nextScroll = clamp(browser.worldScroll + direction, 0,
+    max(0, browser.worldFlagCount - browser.worldVisibleRows))
+  if nextScroll == browser.worldScroll: return
+  browser.worldScroll = nextScroll
+  browser.worldRow = clamp(browser.worldRow, nextScroll,
+    min(browser.worldFlagCount - 1, nextScroll + browser.worldVisibleRows - 1))
   browser.markChanged()
 
 proc worldPoint*(browser: WorldMapBrowser, x, y: float64): tuple[x, y: float64] =
@@ -198,7 +248,14 @@ proc perform*(browser: WorldMapBrowser, action: MapAction) =
   of ToggleGrid:
     browser.grid = not browser.grid
     browser.markChanged()
-  of PanLeft, PanRight, PanUp, PanDown, ToggleFullscreen, QuitAtlas: discard
+  of ToggleWorldPanel:
+    browser.showPanel(if browser.panel == InspectPanel: WorldPanel else: InspectPanel)
+  of ShowInspectPanel: browser.showPanel(InspectPanel)
+  of ShowWorldPanel: browser.showPanel(WorldPanel)
+  of WorldPreviousFlag: browser.navigateWorldFlag(-1)
+  of WorldNextFlag: browser.navigateWorldFlag(1)
+  of PanLeft, PanRight, PanUp, PanDown, ToggleFullscreen, QuitAtlas,
+      ToggleWorldFlag, ResetWorldFlags: discard
 
 proc advancePan*(browser: WorldMapBrowser, actions: set[MapAction], seconds: float64) =
   ## Advance held directions in elapsed time with normalized diagonal motion.
@@ -213,40 +270,59 @@ proc advancePan*(browser: WorldMapBrowser, actions: set[MapAction], seconds: flo
     browser.pan(dx * PanPixelsPerSecond * min(seconds, MaximumPanSeconds),
       dy * PanPixelsPerSecond * min(seconds, MaximumPanSeconds))
 
-proc keyboardActions*(keys: set[Button]): set[MapAction] =
+proc keyboardActions*(keys: set[Button], panel = InspectPanel): set[MapAction] =
   ## Translate keyboard controls into shared atlas actions.
   for (key, action) in [
-    (KeyLeft, PanLeft), (KeyA, PanLeft), (KeyRight, PanRight), (KeyD, PanRight),
-    (KeyUp, PanUp), (KeyW, PanUp), (KeyDown, PanDown), (KeyS, PanDown),
+    (KeyA, PanLeft), (KeyD, PanRight), (KeyW, PanUp), (KeyS, PanDown),
     (KeyMinus, ZoomOut), (KeyEqual, ZoomIn), (KeyPageUp, PreviousRegion),
-    (KeyPageDown, NextRegion), (KeyEnter, InspectCenter), (KeyC, CenterSelection),
-    (KeyHome, FitWorld), (KeyG, ToggleGrid), (KeyF11, ToggleFullscreen),
-    (KeyEscape, QuitAtlas)]:
+    (KeyPageDown, NextRegion), (KeyC, CenterSelection), (KeyTab, ToggleWorldPanel),
+    (KeyHome, FitWorld), (KeyG, ToggleGrid), (KeyF11, ToggleFullscreen)]:
     if key in keys: result.incl(action)
+  for (key, action) in [(KeyLeft, PanLeft), (KeyRight, PanRight),
+      (KeyUp, PanUp), (KeyDown, PanDown)]:
+    if key in keys:
+      result.incl(if panel == InspectPanel: action elif action in {PanLeft, PanUp}:
+        WorldPreviousFlag else: WorldNextFlag)
+  if KeyEnter in keys: result.incl(if panel == WorldPanel: ToggleWorldFlag else: InspectCenter)
+  if KeySpace in keys and panel == WorldPanel: result.incl(ToggleWorldFlag)
+  if KeyEscape in keys: result.incl(if panel == WorldPanel: ShowInspectPanel else: QuitAtlas)
 
-proc gamepadActions*(pads: openArray[Gamepad]): set[MapAction] =
+proc gamepadActions*(pads: openArray[Gamepad], panel = InspectPanel): set[MapAction] =
   ## Read only Paddy's public controller state and positional button names.
   for pad in pads:
     for (button, action) in [
-      (GamepadLeft, PanLeft), (GamepadRight, PanRight),
-      (GamepadUp, PanUp), (GamepadDown, PanDown),
       (GamepadL1, ZoomOut), (GamepadR1, ZoomIn),
       (GamepadL2, PreviousRegion), (GamepadR2, NextRegion),
-      (GamepadA, InspectCenter), (GamepadX, CenterSelection),
-      (GamepadY, FitWorld), (GamepadB, ToggleGrid), (GamepadStart, ToggleFullscreen)]:
+      (GamepadX, CenterSelection), (GamepadY, FitWorld),
+      (GamepadStart, ToggleFullscreen), (GamepadSelect, ToggleWorldPanel)]:
       if pad.button(button): result.incl(action)
+    for (button, action) in [(GamepadLeft, PanLeft), (GamepadRight, PanRight),
+        (GamepadUp, PanUp), (GamepadDown, PanDown)]:
+      if pad.button(button):
+        result.incl(if panel == InspectPanel: action elif action in {PanLeft, PanUp}:
+          WorldPreviousFlag else: WorldNextFlag)
+    if pad.button(GamepadA): result.incl(if panel == WorldPanel: ToggleWorldFlag else: InspectCenter)
+    if pad.button(GamepadB): result.incl(if panel == WorldPanel: ShowInspectPanel else: ToggleGrid)
     if pad.axis(GamepadLStickX) < -StickThreshold: result.incl(PanLeft)
     if pad.axis(GamepadLStickX) > StickThreshold: result.incl(PanRight)
     if pad.axis(GamepadLStickY) < -StickThreshold: result.incl(PanUp)
     if pad.axis(GamepadLStickY) > StickThreshold: result.incl(PanDown)
     if pad.button(GamepadSelect) and pad.button(GamepadStart):
       result.excl(ToggleFullscreen)
+      result.excl(ToggleWorldPanel)
       result.incl(QuitAtlas)
 
 proc update*(input: var MapInput, held: set[MapAction], nowMs: int64): seq[MapAction] =
-  ## Edge-trigger transport actions and repeat only region navigation and zoom.
+  ## Edge-trigger actions and repeat region navigation, flag selection, and zoom.
   var actions = held - {PanLeft, PanRight, PanUp, PanDown}
-  for (first, second) in [(ZoomIn, ZoomOut), (PreviousRegion, NextRegion)]:
+  # Enter/A is one gesture even when switching panels remaps its action.
+  let confirmation = actions * {InspectCenter, ToggleWorldFlag}
+  if input.confirmationHeld: actions = actions - confirmation
+  input.confirmationHeld = confirmation.len > 0
+  input.suppressed = input.suppressed * actions
+  actions = actions - input.suppressed
+  for (first, second) in [(ZoomIn, ZoomOut), (PreviousRegion, NextRegion),
+      (WorldPreviousFlag, WorldNextFlag)]:
     if first in actions and second in actions:
       actions.excl(first)
       actions.excl(second)
@@ -254,10 +330,15 @@ proc update*(input: var MapInput, held: set[MapAction], nowMs: int64): seq[MapAc
     if action notin input.previous:
       result.add(action)
       input.repeatAt[action] = nowMs + InitialRepeatMs
-    elif action in {PreviousRegion, NextRegion, ZoomIn, ZoomOut} and nowMs >= input.repeatAt[action]:
+    elif action in {PreviousRegion, NextRegion, ZoomIn, ZoomOut,
+        WorldPreviousFlag, WorldNextFlag} and nowMs >= input.repeatAt[action]:
       result.add(action)
       input.repeatAt[action] = nowMs + RepeatMs
   input.previous = actions
+  # Returning changes Escape/B's meaning while its physical key may remain held.
+  # Retain that gesture until release rather than exiting or toggling the grid.
+  if ShowInspectPanel in actions:
+    input.suppressed = {QuitAtlas, ToggleGrid}
 
 proc reset*(input: var MapInput) =
   ## Release remembered actions when the window loses focus.

@@ -1,5 +1,5 @@
 import
-  std/[monotimes, options, os, parseopt, strformat, strutils, times],
+  std/[algorithm, monotimes, options, os, parseopt, sequtils, strformat, strutils, times],
   paddy, pixie, windy,
   ../decompbound/[rom_pipeline, world_map, world_map_browser, world_map_view],
   ./glblit
@@ -9,37 +9,75 @@ const
   PollSleepMs = 2
   Help = """Pocket Atlas - the EarthBound world map from your own US ROM.
 Usage: bin/map-browser [ROM] [--rom:PATH] [--x:N] [--y:N] [--zoom:fit|FACTOR]
+  --flag:01A6=on|off  Set a map-referenced story flag; repeat for several flags.
   --fullscreen  Open fullscreen.
   --frames:N    Exit after N presented UI frames (for bounded smoke checks).
   --trace       Print camera, selection, actions, and viewport render counts.
 Mouse: drag the map to pan; click to inspect; wheel up/down zooms around pointer.
 Keyboard: arrows/WASD pan; +/- zoom; PageUp/PageDown select neighboring regions.
   Enter inspects center; C centers selection; Home fits world; G toggles grid.
-  F11 toggles fullscreen; Escape exits.
+  Tab changes Inspect/World panel; F11 toggles fullscreen; Escape exits.
+World panel: arrows/D-pad select flags; Enter/Space/A toggles; Escape/B returns.
+  Wheel over the World sidebar scrolls its flag list. WASD/stick still pan.
 Paddy: D-pad/stick pan; L1/R1 zoom; L2/R2 regions; A inspects; X centers;
-  Y fits world; B toggles grid; Start fullscreen; Select+Start exits.
+  Y fits world; B toggles grid; Select changes panel; Start fullscreen;
+  Select+Start exits.
 Zoom factors are powers of two through 8x; fractional factors show overviews.
-Base scenery is static at animation frame zero. No ROM, state, or save is changed.
+Scenery is static at animation frame zero. World flags only affect this session.
 """
 
 type
   AtlasApp = object
     atlas: WorldMapAtlas
     browser: WorldMapBrowser
+    catalog: seq[WorldMapFlag]
     blit: GlBlit
     quitting, trace: bool
 
 proc traceState(app: AtlasApp, action: string) =
   ## Report testable navigation state without writing game-derived image data.
   if app.trace:
-    let browser = app.browser
-    echo &"action={action} center={browser.centerX:.3f},{browser.centerY:.3f} zoom={browser.zoom} region={browser.selectedRegion} selected={browser.hasSelection}:{browser.selectedX},{browser.selectedY} grid={browser.grid} viewport={browser.viewportWidth}x{browser.viewportHeight} canvas={app.blit.nativeW}x{app.blit.nativeH}"
+    let
+      browser = app.browser
+      flags = app.atlas.enabledFlags().mapIt(it.toHex(4)).join(",")
+      flagLabel = if flags.len == 0: "-" else: flags
+      panel = if browser.panel == WorldPanel: "world" else: "inspect"
+    echo &"action={action} center={browser.centerX:.3f},{browser.centerY:.3f} zoom={browser.zoom} region={browser.selectedRegion} selected={browser.hasSelection}:{browser.selectedX},{browser.selectedY} grid={browser.grid} viewport={browser.viewportWidth}x{browser.viewportHeight} canvas={app.blit.nativeW}x{app.blit.nativeH} enabledFlags={flagLabel} stateRevision={app.atlas.stateRevision} worldpanel={panel} row={browser.worldRow} scroll={browser.worldScroll}"
+
+proc flagPresentationOrder(flag: WorldMapFlag): int =
+  ## Show verified named world changes before numerically ordered research conditions.
+  case flag.id
+  of 0x01A6: 0
+  of 0x011F: 1
+  of 0x0047: 2
+  of 0x0120: 3
+  of 0x0044: 4
+  else: flag.id + 5
+
+proc parseFlagOption(value: string): tuple[id: int, enabled: bool] =
+  ## Parse a strict hexadecimal flag ID and explicit on/off setting.
+  let parts = value.split('=')
+  if parts.len != 2:
+    raise newException(ValueError, "Use --flag:01A6=on or --flag:01A6=off.")
+  let
+    rawId = parts[0].toLowerAscii()
+    selector = if rawId.startsWith("0x"): rawId[2 .. ^1] else: rawId
+    setting = parts[1].toLowerAscii()
+  if selector.len notin 1 .. 4 or not selector.allCharsInSet({'0' .. '9', 'a' .. 'f'}) or
+      setting notin ["on", "off"]:
+    raise newException(ValueError, "World flags require a hexadecimal ID and on/off setting.")
+  (parseHexInt(selector), setting == "on")
 
 proc perform(app: var AtlasApp, action: MapAction) =
   ## Apply window operations or route an input action through the camera model.
   case action
   of QuitAtlas: app.quitting = true
   of ToggleFullscreen: app.blit.window.fullscreen = not app.blit.window.fullscreen
+  of ToggleWorldFlag:
+    if app.browser.worldRow in 0 ..< app.catalog.len:
+      let id = app.catalog[app.browser.worldRow].id
+      app.atlas.setStoryFlag(id, not app.atlas.flagEnabled(id))
+  of ResetWorldFlags: app.atlas.resetStoryFlags()
   else: app.browser.perform(action)
   app.traceState($action)
 
@@ -60,6 +98,7 @@ proc main() =
     initialZoom = "fit"
     frameLimit = 0
     fullscreen, trace = false
+    initialFlags: seq[tuple[id: int, enabled: bool]]
   for kind, key, value in getopt():
     case kind
     of cmdArgument: romPath = key
@@ -74,6 +113,7 @@ proc main() =
       of "zoom": initialZoom = value
       of "fullscreen": fullscreen = true
       of "trace": trace = true
+      of "flag": initialFlags.add(parseFlagOption(value))
       of "frames":
         frameLimit = parseInt(value)
         if frameLimit <= 0: raise newException(ValueError, "Frame limit must be positive.")
@@ -84,6 +124,12 @@ proc main() =
     browser = newWorldMapBrowser(atlas.width, atlas.height, atlas.regionWidth,
       atlas.regionHeight, atlas.regionCount, MapViewport.w.int, MapViewport.h.int)
     view = newWorldMapView()
+    catalog = atlas.flagCatalog().sortedByIt(it.flagPresentationOrder())
+  for flag in initialFlags:
+    if not catalog.anyIt(it.id == flag.id):
+      raise newException(ValueError, "Flag $" & flag.id.toHex(4) & " is not referenced by this map.")
+    atlas.setStoryFlag(flag.id, flag.enabled)
+  browser.configureWorldFlags(catalog.len, worldListRows(view.layout.height))
   if initialZoom != "fit":
     let zoom = parseFloat(initialZoom)
     if zoom < browser.minimumZoom or zoom > MaximumZoom:
@@ -97,13 +143,13 @@ proc main() =
       raise newException(ValueError, "Initial coordinates are outside the atlas.")
     browser.centerAt(x.float64, y.float64)
     browser.selectWorld(x.float64, y.float64)
-  var app = AtlasApp(atlas: atlas, browser: browser, trace: trace,
+  var app = AtlasApp(atlas: atlas, browser: browser, catalog: catalog, trace: trace,
     blit: initGlBlit("Pocket Atlas", AtlasWidth, AtlasHeight, scale = 1,
       fullscreen = fullscreen, vsync = false))
   defer: app.blit.close()
   initGamepads()
   defer: closeGamepads()
-  echo &"Pocket Atlas: {atlas.width}x{atlas.height} pixels; {atlas.regionCount} regions; static base scenery."
+  echo &"Pocket Atlas: {atlas.width}x{atlas.height} pixels; {atlas.regionCount} regions; {catalog.len} world flags; static scenery."
   app.traceState("startup")
   var
     input: MapInput
@@ -111,8 +157,10 @@ proc main() =
     scenery: Image
     renderedCenterX, renderedCenterY, renderedZoom: float64
     renderedRevision = -1
+    renderedStateRevision = -1
     previousControllers = -1
     previousHover: set[MapAction]
+    previousWorldHover = -1
     previous = getMonoTime()
     nextUi = previous
     frameCount, viewportRenders = 0
@@ -128,6 +176,7 @@ proc main() =
       previousWindowHeight = window.size.y.int
       view.resize(previousWindowWidth, previousWindowHeight)
       browser.resizeViewport(view.layout.viewport.w.int, view.layout.viewport.h.int)
+      browser.configureWorldFlags(catalog.len, worldListRows(view.layout.height))
       app.blit.resize(view.layout.width, view.layout.height)
       drag = MapDrag()
       app.traceState("resize")
@@ -138,21 +187,33 @@ proc main() =
       mouse = atlasPoint(vec2(window.mousePos.x.float32, window.mousePos.y.float32),
         window.size.x.int, window.size.y.int)
       canvas = mouse.canvasPoint()
-      hover = mouseActions(mouse, view.layout.height)
+      hover = mouseActions(mouse, view.layout.height, browser.panel)
+      hoveredWorldRow = worldFlagRow(mouse, browser, view.layout.height)
     previous = now
     if window.focused and not window.minimized:
       var keys: set[Button]
       for key in Button:
         if window.buttonDown[key] or window.buttonPressed[key]: keys.incl(key)
-      let held = world_map_browser.keyboardActions(keys) + world_map_browser.gamepadActions(pads)
+      var held = world_map_browser.keyboardActions(keys, browser.panel) +
+        world_map_browser.gamepadActions(pads, browser.panel)
+      if pads.anyIt(it.button(GamepadSelect) and it.button(GamepadStart)):
+        app.perform(QuitAtlas)
+        held.excl(QuitAtlas)
       browser.advancePan(held, elapsed)
       for action in input.update(held, now.ticks div 1_000_000): app.perform(action)
-      if view.layout.viewport.contains(mouse) and window.scrollDelta.y != 0:
-        browser.zoomStep(if window.scrollDelta.y < 0: 1 else: -1,
-          canvas.x.float64, canvas.y.float64)
-        app.traceState("wheel")
+      if window.scrollDelta.y != 0:
+        if browser.panel == WorldPanel and worldPanelContains(mouse, view.layout.height):
+          browser.scrollWorldFlags(if window.scrollDelta.y < 0: -1 else: 1)
+          app.traceState("world-wheel")
+        elif view.layout.viewport.contains(mouse):
+          browser.zoomStep(if window.scrollDelta.y < 0: 1 else: -1,
+            canvas.x.float64, canvas.y.float64)
+          app.traceState("wheel")
       if window.buttonPressed[MouseLeft]:
         if view.layout.viewport.contains(mouse): drag.beginDrag(canvas.x.float64, canvas.y.float64)
+        elif hoveredWorldRow >= 0:
+          browser.focusWorldRow(hoveredWorldRow)
+          app.perform(ToggleWorldFlag)
         else:
           for action in hover: app.perform(action)
       if drag.active and window.buttonDown[MouseLeft]:
@@ -165,9 +226,11 @@ proc main() =
       drag = MapDrag()
     if now >= nextUi and not window.minimized:
       let changed = browser.revision != renderedRevision or
+        atlas.stateRevision != renderedStateRevision or hoveredWorldRow != previousWorldHover or
         pads.len != previousControllers or hover != previousHover
       if changed:
-        if scenery == nil or scenery.width != browser.viewportWidth or
+        if scenery == nil or atlas.stateRevision != renderedStateRevision or
+            scenery.width != browser.viewportWidth or
             scenery.height != browser.viewportHeight or renderedCenterX != browser.centerX or
             renderedCenterY != browser.centerY or renderedZoom != browser.zoom:
           scenery = atlas.renderViewport(browser.centerX, browser.centerY,
@@ -176,10 +239,13 @@ proc main() =
           renderedCenterY = browser.centerY
           renderedZoom = browser.zoom
           inc viewportRenders
-        app.blit.upload(view.render(browser, scenery, app.inspector(), mouse, pads.len))
+        app.blit.upload(view.render(browser, scenery, app.inspector(), mouse, pads.len,
+          catalog, atlas.enabledFlags()))
         renderedRevision = browser.revision
+        renderedStateRevision = atlas.stateRevision
         previousControllers = pads.len
         previousHover = hover
+        previousWorldHover = hoveredWorldRow
       app.blit.draw()
       window.swapBuffers()
       inc frameCount

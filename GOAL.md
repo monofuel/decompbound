@@ -28,7 +28,7 @@ and `review/archive-2026-10-27/*` retain unverified research for later investiga
 | **1. Rebuild identically** | Reconstruct every original byte from our source and the user's local extraction. | **Met; maintain.** `make compare` printed `BYTE-IDENTICAL`. |
 | **2. Understand all code** | Explain every game routine, its contracts, and its role in the larger system. | **Early.** 55 assembly regions, 4,145 bytes, formally marked explained and reproduced, including world-map lookup and arrangement readers. Additional research lives outside that inventory. |
 | **3. Understand scripting** | Explain the script languages, their interpreters, and how scripts cause game behavior. | **Partial.** Text decoding and entity action-script machinery exist; complete semantics and a whole-ROM script inventory remain open. |
-| **4. Understand graphics** | Explain and browse the game's graphics, including the assembled world map. | **Partial.** Pocket Atlas browses the complete base world/interior atlas; enemy portraits, backgrounds and UI also have verified renderers. A complete graphics catalog and dynamic world variants remain open. |
+| **4. Understand graphics** | Explain and browse the game's graphics, including the assembled world map. | **Partial.** Pocket Atlas browses the world/interior atlas and 15 verified static scenery flags; enemy portraits, backgrounds and UI also have verified renderers. A complete graphics catalog, animation and dynamic scene behavior remain open. |
 | **5. Understand audio** | Explain the sound driver, music, effects, instruments, and playback behavior. | **Partial.** Emulator playback and annotated upload/song-selection routines exist; full driver and content interpretation remain open. |
 
 The manifest currently covers 3,145,728 bytes in 81 regions. Of those bytes,
@@ -151,8 +151,10 @@ tilesets, palettes, and the world map with its rooms and arrangements.
 The overworld `sprite_preview` tool renders resource IDs using verified layouts,
 uploads, and the baseline ROM palette. Scene palettes and identity labels remain
 open. Pocket Atlas now composes the complete base atlas with verified map
-placements, original two-plane tilesets, cleared-event substitutions and actual
-palettes. Animation and story-specific variants remain open. The guessed-offset
+placements, original two-plane tilesets, state-dependent substitutions and actual
+palettes. Its World panel exposes all 15 numbered conditions referenced by the
+verified palette and arrangement loaders. Animation and script-driven scene
+behavior remain open. The guessed-offset
 map exporter was retired. Likewise, `decode(encode(raw)) == raw` proves decoded-content fidelity;
 it does not establish that an encoder recreates the original compressed bytes.
 Keep the original-byte rebuild path until that stronger claim is verified.

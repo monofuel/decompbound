@@ -4,11 +4,13 @@
 ## streams contain one extra decoded byte, independently verified but unused
 ## by that upload. $C00ED6 duplicates tile IDs below $180 onto BG2 using its
 ## separate CHR base at byte $4000. Base palettes and arrangement substitutions
-## use clear event flags, matching $C007B6 and $C006F2 respectively.
+## follow the selected event flags, matching $C007B6 and $C006F2 respectively.
 
 import
-  std/[sets, strformat, tables],
-  ./gfx_lz
+  std/[algorithm, sets, strformat, tables],
+  ./[gfx_lz, world_map_layout, world_map_story]
+
+export world_map_story
 
 type
   WorldMapResource* = ref object
@@ -22,8 +24,14 @@ type
     redirected*: bool
   WorldMapAssets* = ref object
     rom: seq[uint8]
+    story: WorldMapStoryState
+    rawResources: array[20, WorldMapResource]
     resources: array[20, WorldMapResource]
     palettes: Table[(int, int), WorldMapPalette]
+    catalog: seq[WorldMapFlag]
+    catalogIds: HashSet[int]
+    catalogReady: bool
+    revision*: int
 
 const
   WorldDrawingTilesetCount* = 20
@@ -120,11 +128,122 @@ proc decompress(rom: openArray[uint8], offset: int): seq[uint8] =
     raise newException(ValueError, &"Malformed map graphics stream at 0x{offset:06X}.")
   decoded.data
 
-proc newWorldMapAssets*(rom: seq[uint8]): WorldMapAssets =
-  ## Bind validated resource tables to one caller-owned normalized ROM image.
+iterator replacementRecords(assets: WorldMapAssets, drawing: int):
+    tuple[condition, pairsFile, count: int] =
+  ## Walk checked bank-local records shared by discovery and arrangement application.
+  var position = ReplacementBankFile + assets.rom.readWord(
+    WorldArrangementReplacementPointersFile + drawing * 2).int
+  while true:
+    if position < ReplacementBankFile or position > ReplacementBankFile + ReplacementBankBytes - 2:
+      raise newException(ValueError, "Map arrangement replacement list is missing its bank-local terminator.")
+    let condition = assets.rom.readWord(position).int
+    if condition == 0: break
+    assets.rom.requireRange(position, ReplacementHeaderBytes)
+    let
+      count = assets.rom.readWord(position + 2).int
+      pairs = position + ReplacementHeaderBytes
+      pairBytes = count * ReplacementPairBytes
+    if pairs > ReplacementBankFile + ReplacementBankBytes or
+        pairBytes > ReplacementBankFile + ReplacementBankBytes - pairs:
+      raise newException(ValueError, "Map arrangement replacement list leaves its original ROM bank.")
+    assets.rom.requireRange(pairs, pairBytes)
+    yield (condition, pairs, count)
+    position = pairs + pairBytes
+
+proc ensureFlagCatalog(assets: WorldMapAssets) =
+  ## Discover conditions from every used palette chain and all drawing replacement lists.
+  if assets.catalogReady: return
+  assets.rom.requireRange(RegionResourceFile, RegionCount)
+  let redirectBank = assets.rom.readFar(WorldPalettePointersFile) and 0x3F0000
+  var
+    ids: HashSet[int]
+    selectors: HashSet[(int, int)]
+  for index in 0 ..< RegionCount:
+    let
+      selector = assets.rom[RegionResourceFile + index].int
+      key = (selector shr 3, selector and 7)
+    if key in selectors: continue
+    selectors.incl(key)
+    var
+      source = assets.rom.readFar(WorldPalettePointersFile + key[0] * FarPointerBytes) +
+        key[1] * WorldPaletteBytes
+      visited: HashSet[int]
+    while true:
+      assets.rom.requireRange(source, WorldPaletteBytes)
+      if source in visited:
+        raise newException(ValueError, "Map palette redirect contains a cycle.")
+      visited.incl(source)
+      let condition = assets.rom.readWord(source).int
+      if condition == 0: break
+      let id = condition and (EventFlagInverted - 1)
+      if id != 0: ids.incl(id)
+      source = redirectBank + assets.rom.readWord(source + AlternatePaletteOffset).int
+  for drawing in 0 ..< WorldDrawingTilesetCount:
+    for record in assets.replacementRecords(drawing):
+      let id = record.condition and (EventFlagInverted - 1)
+      if id != 0: ids.incl(id)
+  var sortedIds: seq[int]
+  for id in ids: sortedIds.add(id)
+  sortedIds.sort()
+  var catalog: seq[WorldMapFlag]
+  for id in sortedIds: catalog.add(storyFlagMetadata(id))
+  assets.catalogIds = ids
+  assets.catalog = catalog
+  assets.catalogReady = true
+
+proc flagCatalog*(assets: WorldMapAssets): seq[WorldMapFlag] =
+  ## Return independent metadata values for every ROM-discovered map-visible flag.
+  assets.ensureFlagCatalog()
+  result = newSeq[WorldMapFlag](assets.catalog.len)
+  for index, flag in assets.catalog: result[index] = flag
+
+proc newWorldMapAssets*(rom: seq[uint8],
+    state = default(WorldMapStoryState)): WorldMapAssets =
+  ## Bind one ROM and an independently owned initial set of supported event bits.
   rom.requireRange(WorldPalettePointersFile,
     WorldLogicalTilesetCount * FarPointerBytes)
-  WorldMapAssets(rom: rom)
+  result = WorldMapAssets(rom: rom, story: state)
+  let enabled = state.enabledFlags()
+  if enabled.len > 0:
+    result.ensureFlagCatalog()
+    for id in enabled:
+      if id notin result.catalogIds:
+        raise newException(ValueError, &"Flag ${id:04X} is not referenced by the world-map loaders.")
+
+proc flagEnabled*(assets: WorldMapAssets, id: int): bool =
+  ## Inspect a numbered flag in this atlas's independent story state.
+  assets.story.flagEnabled(id)
+
+proc enabledFlags*(assets: WorldMapAssets): seq[int] =
+  ## Enumerate this atlas's enabled flags in ascending order.
+  assets.story.enabledFlags()
+
+proc invalidateStoryCaches(assets: WorldMapAssets) =
+  ## Discard resolved views while retaining the immutable decoded resource cache.
+  assets.resources = default(array[WorldDrawingTilesetCount, WorldMapResource])
+  assets.palettes.clear()
+  inc assets.revision
+
+proc setStoryFlag*(assets: WorldMapAssets, id: int, enabled: bool) =
+  ## Change a catalogued condition and invalidate only after an observable state change.
+  assets.ensureFlagCatalog()
+  if id notin assets.catalogIds:
+    raise newException(ValueError, &"Flag ${id:04X} is not referenced by the world-map loaders.")
+  if assets.story.flagEnabled(id) == enabled: return
+  assets.story.setStoryFlag(id, enabled)
+  assets.invalidateStoryCaches()
+
+proc resetStoryFlags*(assets: WorldMapAssets) =
+  ## Restore the cleared-event baseline without accumulating prior arrangement copies.
+  if assets.enabledFlags().len == 0: return
+  assets.story = default(WorldMapStoryState)
+  assets.invalidateStoryCaches()
+
+proc originalFlagEnabled(assets: WorldMapAssets, id: int): bool =
+  ## Keep the original zero getter's wrapped out-of-state bit clear.
+  # C21628 decrements zero to FFFF and tests BC07 bit80, beyond the numbered
+  # 1..7FFF store. This viewer leaves memory outside its numbered state clear.
+  if id == 0: false else: assets.story.flagEnabled(id)
 
 proc drawingTileset*(assets: WorldMapAssets, logicalTileset: int): int =
   ## Translate the sector's logical graphics family using original $EF101B.
@@ -135,32 +254,13 @@ proc drawingTileset*(assets: WorldMapAssets, logicalTileset: int): int =
     raise newException(ValueError, "Logical map tileset references an invalid drawing tileset.")
 
 proc applyBaseReplacements(assets: WorldMapAssets, resource: WorldMapResource) =
-  ## Reproduce $C006F2/$C0067E arrangement substitutions with every event flag clear.
-  var position = ReplacementBankFile + assets.rom.readWord(
-    WorldArrangementReplacementPointersFile + resource.id * 2).int
-  while true:
-    if position < ReplacementBankFile or position > ReplacementBankFile + ReplacementBankBytes - 2:
-      raise newException(ValueError, "Map arrangement replacement list is missing its bank-local terminator.")
-    assets.rom.requireRange(position, 2)
-    let condition = assets.rom.readWord(position).int
-    if condition == 0:
-      break
-    assets.rom.requireRange(position, ReplacementHeaderBytes)
-    let
-      count = assets.rom.readWord(position + 2).int
-      pairs = position + ReplacementHeaderBytes
-      pairBytes = count * ReplacementPairBytes
-    if position < ReplacementBankFile or
-        pairs > ReplacementBankFile + ReplacementBankBytes or
-        pairBytes > ReplacementBankFile + ReplacementBankBytes - pairs:
-      raise newException(ValueError, "Map arrangement replacement list leaves its original ROM bank.")
-    assets.rom.requireRange(pairs, pairBytes)
-    # $C006F2 compares the false flag result with bit 15: clear-bit records
-    # apply on the base state, while set-bit records retain the decoded layout.
-    if condition < EventFlagInverted:
-      for pair in 0 ..< count:
+  ## Reproduce ordered $C006F2/$C0067E substitutions for the selected event bits.
+  for record in assets.replacementRecords(resource.id):
+    let id = record.condition and (EventFlagInverted - 1)
+    if assets.originalFlagEnabled(id) == (record.condition >= EventFlagInverted):
+      for pair in 0 ..< record.count:
         let
-          offset = pairs + pair * ReplacementPairBytes
+          offset = record.pairsFile + pair * ReplacementPairBytes
           destination = assets.rom.readWord(offset).int
           source = assets.rom.readWord(offset + 2).int
         if destination notin 0 ..< resource.arrangements.len or
@@ -168,14 +268,11 @@ proc applyBaseReplacements(assets: WorldMapAssets, resource: WorldMapResource) =
           raise newException(ValueError, "Map arrangement replacement references an absent arrangement.")
         resource.arrangements[destination] = resource.arrangements[source]
         inc resource.baseReplacementCount
-    position = pairs + pairBytes
 
-proc resource*(assets: WorldMapAssets, drawingTileset: int): WorldMapResource =
-  ## Decode one graphics family lazily, preserving original 4-by-4 tile order.
-  if drawingTileset notin 0 ..< WorldDrawingTilesetCount:
-    raise newException(ValueError, "Drawing map tileset is outside 0..19.")
-  if assets.resources[drawingTileset] != nil:
-    return assets.resources[drawingTileset]
+proc decodedResource(assets: WorldMapAssets, drawingTileset: int): WorldMapResource =
+  ## Decode one immutable graphics and arrangement source before applying story state.
+  if assets.rawResources[drawingTileset] != nil:
+    return assets.rawResources[drawingTileset]
   let
     graphicsFile = assets.rom.readFar(WorldChrPointersFile + drawingTileset * FarPointerBytes)
     arrangementsFile = assets.rom.readFar(WorldArrangementPointersFile + drawingTileset * FarPointerBytes)
@@ -197,11 +294,29 @@ proc resource*(assets: WorldMapAssets, drawingTileset: int): WorldMapResource =
       if (word and TileIndexMask).int >= WorldChrTileCount:
         raise newException(ValueError, "Map arrangement references a tile outside the CHR upload.")
       result.arrangements[arrangement][tile] = word
+  assets.rawResources[drawingTileset] = result
+
+proc resource*(assets: WorldMapAssets, drawingTileset: int): WorldMapResource =
+  ## Build a state-specific arrangement view from an immutable lazily decoded source.
+  if drawingTileset notin 0 ..< WorldDrawingTilesetCount:
+    raise newException(ValueError, "Drawing map tileset is outside 0..19.")
+  if assets.resources[drawingTileset] != nil:
+    return assets.resources[drawingTileset]
+  let original = assets.decodedResource(drawingTileset)
+  result = WorldMapResource(id: original.id, graphicsFile: original.graphicsFile,
+    arrangementsFile: original.arrangementsFile,
+    decodedGraphicsLength: original.decodedGraphicsLength,
+    graphics: newSeq[uint8](original.graphics.len),
+    arrangements: newSeq[array[WorldArrangementCells, uint16]](original.arrangements.len))
+  for index, value in original.graphics:
+    result.graphics[index] = value
+  for index, arrangement in original.arrangements:
+    result.arrangements[index] = arrangement
   assets.applyBaseReplacements(result)
   assets.resources[drawingTileset] = result
 
 proc palette*(assets: WorldMapAssets, logicalTileset, paletteId: int): WorldMapPalette =
-  ## Resolve original palette redirects with all event flags clear and return BG rows 2..7.
+  ## Resolve original palette conditions for this story state and return BG rows 2..7.
   if logicalTileset notin 0 ..< WorldLogicalTilesetCount or
       paletteId notin 0 ..< PaletteSelectorCount:
     raise newException(ValueError, "Map palette selector is outside its sector encoding.")
@@ -222,12 +337,12 @@ proc palette*(assets: WorldMapAssets, logicalTileset, paletteId: int): WorldMapP
     if source in visited:
       raise newException(ValueError, "Map palette redirect contains a cycle.")
     visited.incl(source)
-    let flag = assets.rom.readWord(source).int
-    if flag == 0 or flag > EventFlagInverted:
+    let condition = assets.rom.readWord(source).int
+    if condition == 0:
       break
-    # $C007B6 redirects when the tested event flag equals the encoded polarity.
-    # A zero-initialized event store clears all numbered flags, so positive
-    # selectors (and the exact $8000 sentinel) follow the alternate address.
+    let id = condition and (EventFlagInverted - 1)
+    if assets.originalFlagEnabled(id) != (condition > EventFlagInverted):
+      break
     source = redirectBankBase + assets.rom.readWord(source + AlternatePaletteOffset).int
     result.redirected = true
   result.resolvedFile = source

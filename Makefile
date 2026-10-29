@@ -288,9 +288,11 @@ map-app: map-build
 
 map-test: nim.cfg
 	nim r $(NIM_TEST_FLAGS) tests/test_world_map.nim
+	nim r $(NIM_TEST_FLAGS) tests/test_world_map_story.nim
 	nim r $(NIM_TEST_FLAGS) tests/test_world_map_browser.nim
 	DECOMPBOUND_ROM="$(ROM)" nim r -d:release $(NIM_TEST_FLAGS) tests/integration_world_map_layout.nim
 	DECOMPBOUND_ROM="$(ROM)" nim r -d:release $(NIM_TEST_FLAGS) tests/integration_world_map_assets.nim
+	DECOMPBOUND_ROM="$(ROM)" nim r -d:release $(NIM_TEST_FLAGS) tests/integration_world_map_story.nim
 	DECOMPBOUND_ROM="$(ROM)" nim r -d:release $(NIM_TEST_FLAGS) tests/integration_world_map_render.nim
 
 map-window-test: map-build

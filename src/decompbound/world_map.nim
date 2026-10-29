@@ -1,7 +1,9 @@
 import
   std/[math, strformat],
   pixie,
-  ./[ppu, rom_pipeline, world_map_assets, world_map_layout]
+  ./[ppu, rom_pipeline, world_map_assets, world_map_layout, world_map_story]
+
+export world_map_story
 
 type
   MapCellInfo* = object
@@ -18,6 +20,7 @@ type
     width*, height*, regionWidth*, regionHeight*, regionCount*: int
     layout*: WorldMapLayout
     assets*: WorldMapAssets
+    drawingRevision: int
     drawings: seq[RegionDrawing]
 
 const
@@ -32,21 +35,36 @@ const
   PriorityHigh = 0x2000'u16
   AtlasMargin = rgbx(10, 17, 31, 255)
 
-proc newWorldMapAtlas*(rom: seq[uint8]): WorldMapAtlas =
-  ## Validate all base-map placements and prepare actual per-sector palette colors.
+proc refreshDrawings(atlas: WorldMapAtlas) =
+  ## Resolve scenery resources and palettes for the current numbered story flags.
+  for region in atlas.layout.regions:
+    let
+      resource = atlas.assets.resource(region.drawingTilesetId)
+      palette = atlas.assets.palette(region.mapTilesetId, region.paletteId)
+    atlas.drawings[region.index].resource = resource
+    for index, color in palette.colors:
+      atlas.drawings[region.index].colors[index] = bgr555ToColor(color).rgbx
+  atlas.drawingRevision = atlas.assets.revision
+
+proc stateRevision*(atlas: WorldMapAtlas): int =
+  ## Report the authoritative asset-state revision even through the public asset interface.
+  if atlas.assets == nil: 0 else: atlas.assets.revision
+
+proc ensureDrawings(atlas: WorldMapAtlas) =
+  ## Refresh snapshots if a caller changed flags through either supported public interface.
+  if atlas.drawingRevision != atlas.stateRevision:
+    atlas.refreshDrawings()
+
+proc newWorldMapAtlas*(rom: seq[uint8],
+    state = default(WorldMapStoryState)): WorldMapAtlas =
+  ## Validate all placements and prepare original scenery for the selected story flags.
   let
     layout = newWorldMapLayout(rom)
-    assets = newWorldMapAssets(rom)
+    assets = newWorldMapAssets(rom, state)
   result = WorldMapAtlas(width: WorldWidth, height: WorldHeight,
     regionWidth: RegionWidth, regionHeight: RegionHeight, regionCount: RegionCount,
     layout: layout, assets: assets, drawings: newSeq[RegionDrawing](RegionCount))
-  for region in layout.regions:
-    let
-      resource = assets.resource(region.drawingTilesetId)
-      palette = assets.palette(region.mapTilesetId, region.paletteId)
-    result.drawings[region.index].resource = resource
-    for index, color in palette.colors:
-      result.drawings[region.index].colors[index] = bgr555ToColor(color).rgbx
+  result.refreshDrawings()
   for row in 0 ..< MapRows:
     for column in 0 ..< MapColumns:
       let
@@ -57,9 +75,32 @@ proc newWorldMapAtlas*(rom: seq[uint8]): WorldMapAtlas =
         raise newException(ValueError,
           &"Map cell {column},{row} arrangement {arrangement} exceeds tileset {resource.id}.")
 
-proc loadWorldMapAtlas*(path: string): WorldMapAtlas =
+proc loadWorldMapAtlas*(path: string,
+    state = default(WorldMapStoryState)): WorldMapAtlas =
   ## Load the user's US ROM and decode the complete base atlas without emulating play.
-  newWorldMapAtlas(readGoldBaserom(path))
+  newWorldMapAtlas(readGoldBaserom(path), state)
+
+proc flagCatalog*(atlas: WorldMapAtlas): seq[WorldMapFlag] =
+  ## List the ROM's supported static scenery flags and their verified descriptions.
+  atlas.assets.flagCatalog()
+
+proc flagEnabled*(atlas: WorldMapAtlas, id: int): bool =
+  ## Read the selected value of one numbered scenery flag.
+  atlas.assets.flagEnabled(id)
+
+proc enabledFlags*(atlas: WorldMapAtlas): seq[int] =
+  ## List active flags in stable numeric order for controls and reproduction.
+  atlas.assets.enabledFlags()
+
+proc setStoryFlag*(atlas: WorldMapAtlas, id: int, enabled: bool) =
+  ## Refresh resolved scenery only after an actual supported story-flag change.
+  atlas.assets.setStoryFlag(id, enabled)
+  atlas.ensureDrawings()
+
+proc resetStoryFlags*(atlas: WorldMapAtlas) =
+  ## Restore the cleared-event baseline without modifying the user's game data.
+  atlas.assets.resetStoryFlags()
+  atlas.ensureDrawings()
 
 proc regionOrigin*(atlas: WorldMapAtlas, index: int): tuple[x, y: int] =
   ## Locate one original sector in the continuous atlas.
@@ -71,6 +112,7 @@ proc regionOrigin*(atlas: WorldMapAtlas, index: int): tuple[x, y: int] =
 proc arrangementWord(atlas: WorldMapAtlas, x, y: int):
     tuple[region, arrangement: int, word: uint16] =
   ## Select the original 8-pixel tile word inside its 32-pixel map arrangement.
+  atlas.ensureDrawings()
   result.region = regionIndex(x, y)
   result.arrangement = atlas.layout.arrangements[
     (y div MapCellPixels) * MapColumns + x div MapCellPixels].int

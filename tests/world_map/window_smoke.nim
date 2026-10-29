@@ -9,6 +9,8 @@ type
     x, y, zoom: float64
     selectedX, selectedY, region: int
     viewportWidth, viewportHeight, canvasWidth, canvasHeight: int
+    stateRevision, worldRow, worldScroll: int
+    enabledFlags, worldPanel: string
     selected, grid: bool
 
 const
@@ -25,8 +27,12 @@ const
   HomeKey = 0xFF50.culong
   FullscreenKey = 0xFFC8.culong
   GridKey = 0x0067.culong
+  TabKey = 0xFF09.culong
+  DownKey = 0xFF54.culong
 
-var xError = false
+var
+  xError = false
+  xErrorDetails: string
 
 proc queryTree(d: Display, window: Window, root, parent: ptr Window,
     children: ptr ptr UncheckedArray[Window], count: ptr cuint): cint
@@ -48,6 +54,8 @@ proc sync(d: Display, discardEvents: cint): cint
 proc recordXError(d: Display, event: ptr XErrorEvent): cint {.cdecl.} =
   ## Retain protocol failures so assertions can unwind child processes cleanly.
   xError = true
+  xErrorDetails.add(" code=" & $event.error_code.ord & " request=" &
+    $event.request_code.ord & " resource=" & $event.resourceid)
   0
 
 proc namedChild(d: Display, parent: Window, depth = 0): Window =
@@ -98,6 +106,11 @@ proc state(path: string): TraceState =
       elif item.startsWith("zoom="): result.zoom = parseFloat(item[5 .. ^1])
       elif item.startsWith("region="): result.region = parseInt(item[7 .. ^1])
       elif item.startsWith("grid="): result.grid = parseBool(item[5 .. ^1])
+      elif item.startsWith("enabledFlags="): result.enabledFlags = item[13 .. ^1]
+      elif item.startsWith("stateRevision="): result.stateRevision = parseInt(item[14 .. ^1])
+      elif item.startsWith("worldpanel="): result.worldPanel = item[11 .. ^1]
+      elif item.startsWith("row="): result.worldRow = parseInt(item[4 .. ^1])
+      elif item.startsWith("scroll="): result.worldScroll = parseInt(item[7 .. ^1])
       elif item.startsWith("viewport="):
         let size = item[9 .. ^1].split('x')
         result.viewportWidth = parseInt(size[0])
@@ -156,6 +169,14 @@ proc waitSize(d: Display, window: Window, width, height: int) =
 
 proc focus(d: Display, window: Window) =
   ## Assign and verify focus on the private display before dispatching actions.
+  let deadline = getMonoTime() + initDuration(seconds = WaitSeconds)
+  var attributes: XWindowAttributes
+  while getMonoTime() < deadline:
+    d.XGetWindowAttributes(window, addr attributes)
+    if attributes.map_state == IsViewable: break
+    sleep(10)
+  doAssert attributes.map_state == IsViewable,
+    "The private window must be viewable before XSetInputFocus."
   d.XSetInputFocus(window, rtRoot)
   d.XFlush()
   sleep(InputDelayMs)
@@ -210,7 +231,8 @@ proc main() =
   doAssert glCheck.exitCode == 0, glCheck.output
   echo "Shared GL canvas resize: exact authored pixels and independent contexts passed."
   for arguments in ["--zoom:nan", "--zoom:3", "--zoom:0", "--zoom:16",
-      "--frames:0", "--x:-1", "--y:10240"]:
+      "--frames:0", "--x:-1", "--y:10240", "--flag:xyz=on", "--flag:01A6=yes",
+      "--flag:0000=on", "--flag:7FFF=off"]:
     let check = execCmdEx(quoteShell(binary) & " " & quoteShell(rom) & " " & arguments)
     doAssert check.exitCode != 0, "Invalid CLI argument was accepted: " & arguments
   let
@@ -220,6 +242,13 @@ proc main() =
   doAssert idle.waitForExit(WaitSeconds * 1000) == 0, readFile(idleTrace)
   doAssert "uiFrames=12 viewportRenders=1" in readFile(idleTrace), readFile(idleTrace)
   let
+    flagTrace = directory / "flags.log"
+    flagCheck = appProcess(binary, rom, flagTrace,
+      "--frames:2 --flag:01A6=on --flag:011F=on --flag:01A6=off --flag:0x0044=on")
+  defer: flagCheck.finish()
+  doAssert flagCheck.waitForExit(WaitSeconds * 1000) == 0, readFile(flagTrace)
+  doAssert state(flagTrace).enabledFlags == "0044,011F", readFile(flagTrace)
+  let
     trace = directory / "trace.log"
     process = appProcess(binary, rom, trace, "--frames:1200")
   defer: process.finish()
@@ -227,6 +256,33 @@ proc main() =
   display.focus(window)
   waitTrace(trace, "action=startup")
   doAssert state(trace).zoom == 0.0625
+  display.tap(window, TabKey)
+  waitTrace(trace, "worldpanel=world")
+  let beforeFlags = state(trace)
+  display.tap(window, DownKey)
+  waitTrace(trace, "action=WorldNextFlag")
+  doAssert state(trace).worldRow == 1
+  display.tap(window, EnterKey)
+  waitTrace(trace, "action=ToggleWorldFlag")
+  doAssert state(trace).enabledFlags == "011F"
+  doAssert state(trace).stateRevision == beforeFlags.stateRevision + 1
+  doAssert state(trace).x == beforeFlags.x and state(trace).y == beforeFlags.y
+  doAssert state(trace).zoom == beforeFlags.zoom
+  display.pointer(window, 80, 430)
+  display.mouseButton(window, 80, 430, 5, true)
+  display.mouseButton(window, 80, 430, 5, false)
+  waitTrace(trace, "action=world-wheel")
+  doAssert state(trace).worldScroll == 1
+  doAssert state(trace).zoom == beforeFlags.zoom
+  display.pointer(window, 80, 680)
+  display.mouseButton(window, 80, 680, 1, true)
+  display.mouseButton(window, 80, 680, 1, false)
+  waitTrace(trace, "action=ResetWorldFlags")
+  doAssert state(trace).enabledFlags == "-"
+  display.tap(window, EscapeKey)
+  waitTrace(trace, "action=ShowInspectPanel")
+  doAssert state(trace).worldPanel == "inspect"
+  doAssert process.running, "Returning from World must not exit the application."
   display.tap(window, PlusKey)
   waitTrace(trace, "action=ZoomIn")
   let beforePan = state(trace)
@@ -323,9 +379,9 @@ proc main() =
   display.key(window, EscapeKey, true)
   doAssert process.waitForExit(5000) == 0, readFile(trace)
   discard sync(display, 0)
-  doAssert not xError, "X11 rejected an input or lifecycle operation."
+  doAssert not xError, "X11 rejected an input or lifecycle operation:" & xErrorDetails
   doAssert wheelZoomCorrect, "One wheel gesture must produce one zoom step.\n" & readFile(trace)
-  echo "Pocket Atlas window: invalid CLI, idle cache, pan, zoom, resized selection, drag, grid, regions, focus, fullscreen, and exit passed."
+  echo "Pocket Atlas window: CLI flags, World controls, reset, idle cache, pan, zoom, resized selection, drag, grid, regions, focus, fullscreen, and exit passed."
 
 when isMainModule:
   main()
