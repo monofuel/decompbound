@@ -21,10 +21,14 @@ companion apps. This release targets the desktop Windy/OpenGL path.
 
 ## Controls and presentation
 
-The 1200×800 canvas contains a pan-and-zoom viewport and an inspector/sidebar.
+The app opens at 1200×800 with a pan-and-zoom viewport and an inspector/sidebar.
 Mouse-wheel zoom anchors the world position under the pointer; a drag pans,
-and a click selects a pixel. Resizing preserves the UI's aspect and input
-mapping. The region grid and selection marker stay clipped to the map.
+and a click selects a pixel. Resizing expands or contracts the map viewport;
+larger windows and fullscreen show more scenery at the same native zoom.
+The camera keeps its center and selection, and the whole-world overview
+recalculates its fit. Controls remain readable at normal sizes and scale down
+uniformly in small windows. The region grid and selection marker stay clipped
+to the map, with mouse input following the resized layout.
 
 | Action | Keyboard | Paddy |
 |---|---|---|

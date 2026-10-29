@@ -8,6 +8,7 @@ type
   TraceState = object
     x, y, zoom: float64
     selectedX, selectedY, region: int
+    viewportWidth, viewportHeight, canvasWidth, canvasHeight: int
     selected, grid: bool
 
 const
@@ -97,6 +98,14 @@ proc state(path: string): TraceState =
       elif item.startsWith("zoom="): result.zoom = parseFloat(item[5 .. ^1])
       elif item.startsWith("region="): result.region = parseInt(item[7 .. ^1])
       elif item.startsWith("grid="): result.grid = parseBool(item[5 .. ^1])
+      elif item.startsWith("viewport="):
+        let size = item[9 .. ^1].split('x')
+        result.viewportWidth = parseInt(size[0])
+        result.viewportHeight = parseInt(size[1])
+      elif item.startsWith("canvas="):
+        let size = item[7 .. ^1].split('x')
+        result.canvasWidth = parseInt(size[0])
+        result.canvasHeight = parseInt(size[1])
       elif item.startsWith("selected="):
         let
           values = item[9 .. ^1].split(':')
@@ -182,7 +191,7 @@ proc main() =
   defer: removeDir(directory)
   defer: putEnv("DISPLAY", priorDisplay)
   let server = startProcess(xvfb, args = ["-displayfd", "1", "-screen", "0",
-    "1280x900x24", "-nolisten", "tcp"], options = {})
+    "1920x1440x24", "-nolisten", "tcp"], options = {})
   defer: server.finish()
   let displayNumber = server.outputStream.readLine().strip()
   doAssert displayNumber.len > 0 and displayNumber.allCharsInSet({'0' .. '9'})
@@ -197,6 +206,9 @@ proc main() =
   doAssert display != nil
   defer: discard closeDisplay(display)
   sleep(200)
+  let glCheck = execCmdEx(quoteShell(absolutePath("bin/background-gl-smoke")))
+  doAssert glCheck.exitCode == 0, glCheck.output
+  echo "Shared GL canvas resize: exact authored pixels and independent contexts passed."
   for arguments in ["--zoom:nan", "--zoom:3", "--zoom:0", "--zoom:16",
       "--frames:0", "--x:-1", "--y:10240"]:
     let check = execCmdEx(quoteShell(binary) & " " & quoteShell(rom) & " " & arguments)
@@ -241,13 +253,34 @@ proc main() =
   display.tap(window, EnterKey)
   waitTrace(trace, "action=InspectCenter", 2)
   doAssert abs(state(trace).x - focusedState.x) < 0.01
+  display.tap(window, PlusKey)
+  waitTrace(trace, "action=ZoomIn", 2)
+  let beforeResize = state(trace)
+  display.XResizeWindow(window, 1500, 1100)
+  display.XFlush()
+  display.waitSize(window, 1500, 1100)
+  waitTrace(trace, "canvas=1500x1100")
+  let larger = state(trace)
+  doAssert larger.viewportWidth == 1162 and larger.viewportHeight == 952
+  doAssert larger.zoom == beforeResize.zoom
+  doAssert abs(larger.x - beforeResize.x) < 0.01
+  doAssert abs(larger.y - beforeResize.y) < 0.01
+  doAssert larger.selectedX == beforeResize.selectedX and larger.selectedY == beforeResize.selectedY
+  # The right-hand part of this map did not exist in the fixed canvas.
+  display.pointer(window, 1400, 850)
+  display.mouseButton(window, 1400, 850, 1, true)
+  display.mouseButton(window, 1400, 850, 1, false)
+  waitTrace(trace, "action=pointer")
+  let expandedClick = state(trace)
+  doAssert abs(expandedClick.selectedX - floor(larger.x + (1400 - 314 - 581) / larger.zoom).int) <= 1
+  doAssert abs(expandedClick.selectedY - floor(larger.y + (850 - 108 - 476) / larger.zoom).int) <= 1
   display.XResizeWindow(window, 600, 400)
   display.XFlush()
   display.waitSize(window, 600, 400)
   display.pointer(window, 300, 200)
   display.mouseButton(window, 300, 200, 1, true)
   display.mouseButton(window, 300, 200, 1, false)
-  waitTrace(trace, "action=pointer")
+  waitTrace(trace, "action=pointer", 2)
   let clicked = state(trace)
   doAssert clicked.selected
   doAssert abs(clicked.selectedX - floor(clicked.x + (600.0 - 314 - 431) / clicked.zoom).int) <= 1
@@ -256,12 +289,12 @@ proc main() =
   display.mouseButton(window, 300, 200, 4, false)
   waitTrace(trace, "action=wheel")
   let beforeDrag = state(trace)
-  let wheelZoomCorrect = beforeDrag.zoom == 0.25
+  let wheelZoomCorrect = beforeDrag.zoom == clicked.zoom * 2
   display.mouseButton(window, 300, 200, 1, true)
   display.pointer(window, 320, 200)
   display.pointer(window, 330, 200)
   display.mouseButton(window, 330, 200, 1, false)
-  waitTrace(trace, "action=pointer", 2)
+  waitTrace(trace, "action=pointer", 3)
   let dragged = state(trace)
   doAssert abs(dragged.x - (beforeDrag.x - 60 / beforeDrag.zoom)) < 1, readFile(trace)
   doAssert dragged.selectedX == beforeDrag.selectedX and dragged.selectedY == beforeDrag.selectedY
@@ -274,12 +307,18 @@ proc main() =
   doAssert state(trace).region == oldRegion + 1
   display.tap(window, FullscreenKey)
   waitTrace(trace, "action=ToggleFullscreen")
-  display.waitSize(window, 1280, 900)
+  display.waitSize(window, 1920, 1440)
+  waitTrace(trace, "canvas=1920x1440")
+  doAssert state(trace).viewportWidth == 1582
+  doAssert state(trace).viewportHeight == 1292
+  display.tap(window, HomeKey)
+  waitTrace(trace, "action=FitWorld")
+  doAssert state(trace).zoom == 0.125
   display.tap(window, FullscreenKey)
   waitTrace(trace, "action=ToggleFullscreen", 2)
   display.waitSize(window, 600, 400)
   display.tap(window, HomeKey)
-  waitTrace(trace, "action=FitWorld")
+  waitTrace(trace, "action=FitWorld", 2)
   doAssert state(trace).zoom == 0.0625
   display.key(window, EscapeKey, true)
   doAssert process.waitForExit(5000) == 0, readFile(trace)

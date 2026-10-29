@@ -139,14 +139,70 @@ suite "World atlas camera and controls":
     input.reset()
     check input.update({ToggleGrid}, 501) == @[ToggleGrid]
 
-  test "resized mouse coordinates follow the same centered fit as the blitter":
+  test "resized pointer mapping follows the responsive canvas without fixed-size letterboxing":
     check atlasPoint(vec2(600, 400), 1200, 800) == vec2(600, 400)
-    check atlasPoint(vec2(1200, 800), 2400, 1600) == vec2(600, 400)
-    check atlasPoint(vec2(600, 450), 1200, 900) == vec2(600, 400)
+    check atlasPoint(vec2(1200, 800), 2400, 1600) == vec2(1200, 800)
+    check atlasPoint(vec2(600, 450), 1200, 900) == vec2(600, 450)
     check atlasPoint(vec2(300, 200), 600, 400) == vec2(600, 400)
     check atlasPoint(vec2(0, 0), 0, 0) == vec2(-1, -1)
     check mouseActions(vec2(60, 292)) == {FitWorld}
     check mouseActions(vec2(600, 400)) == {}
+
+  test "viewport resize preserves exploration and selection while updating whole-world fit":
+    let camera = browser()
+    camera.selectWorld(4000, 5000)
+    camera.resizeViewport(1662, 1452)
+    check camera.zoom == 0.125
+    for point in [(0.0, 0.0), (WorldWidth.float64, WorldHeight.float64)]:
+      let view = camera.viewportPoint(point[0], point[1])
+      check view.x >= 0 and view.x <= 1662
+      check view.y >= 0 and view.y <= 1452
+    camera.setZoom(1, 831, 726)
+    camera.centerAt(4000, 5000)
+    camera.resizeViewport(1062, 852)
+    check camera.centerX == 4000 and camera.centerY == 5000
+    check camera.zoom == 1
+    check camera.selectedX == 4000 and camera.selectedY == 5000
+    let unchanged = camera.revision
+    camera.resizeViewport(1062, 852)
+    check camera.revision == unchanged
+    camera.perform(FitWorld)
+    camera.resizeViewport(462, 652)
+    check camera.zoom == 0.03125
+    check camera.centerX == WorldWidth.float64 / 2
+    check camera.centerY == WorldHeight.float64 / 2
+    expect ValueError: camera.resizeViewport(0, 800)
+
+  test "responsive viewport consumes extra space and moves bottom controls":
+    let
+      normal = atlasLayout(1200, 800)
+      large = atlasLayout(1600, 1100)
+      small = atlasLayout(600, 400)
+    check large.width == 1600 and large.height == 1100
+    check large.viewport.w - normal.viewport.w == 400
+    check large.viewport.h - normal.viewport.h == 300
+    check small.width == 1200 and small.height == 800
+    for dimensions in [(1600, 1), (1, 1600)]:
+      let extreme = atlasLayout(dimensions[0], dimensions[1])
+      check extreme.width <= 8192 and extreme.height <= 8192
+      check extreme.viewport.w > 0 and extreme.viewport.h > 0
+    check mouseActions(vec2(60, 980), large.height) == {InspectCenter}
+    check mouseActions(vec2(60, 1027), large.height) == {ToggleFullscreen}
+    check mouseActions(vec2(60, 680), large.height) == {}
+    for dimensions in [(1600, 1100), (800, 800), (600, 400)]:
+      let
+        view = newWorldMapView(dimensions[0], dimensions[1])
+        area = view.layout.viewport
+        camera = newWorldMapBrowser(WorldWidth, WorldHeight, RegionWidth,
+          RegionHeight, RegionCount, area.w.int, area.h.int)
+        scenery = newImage(area.w.int, area.h.int)
+        color = rgbx(230, 120, 50, 255)
+      scenery.fill(color)
+      let rendered = view.render(camera, scenery, MapInspector(), vec2(-1, -1), 0)
+      check rendered.width == view.layout.width
+      check rendered.height == view.layout.height
+      check rendered[area.x.int, area.y.int] == color
+      check rendered[(area.x + area.w).int - 1, (area.y + area.h).int - 1] == color
 
   test "view preserves the complete viewport and clips overlays to scenery":
     let

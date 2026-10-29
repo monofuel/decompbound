@@ -33,7 +33,7 @@ proc traceState(app: AtlasApp, action: string) =
   ## Report testable navigation state without writing game-derived image data.
   if app.trace:
     let browser = app.browser
-    echo &"action={action} center={browser.centerX:.3f},{browser.centerY:.3f} zoom={browser.zoom} region={browser.selectedRegion} selected={browser.hasSelection}:{browser.selectedX},{browser.selectedY} grid={browser.grid}"
+    echo &"action={action} center={browser.centerX:.3f},{browser.centerY:.3f} zoom={browser.zoom} region={browser.selectedRegion} selected={browser.hasSelection}:{browser.selectedX},{browser.selectedY} grid={browser.grid} viewport={browser.viewportWidth}x{browser.viewportHeight} canvas={app.blit.nativeW}x{app.blit.nativeH}"
 
 proc perform(app: var AtlasApp, action: MapAction) =
   ## Apply window operations or route an input action through the camera model.
@@ -116,10 +116,21 @@ proc main() =
     previous = getMonoTime()
     nextUi = previous
     frameCount, viewportRenders = 0
+    previousWindowWidth = AtlasWidth
+    previousWindowHeight = AtlasHeight
   while not app.quitting:
     pollEvents()
     let window = app.blit.window
     if window.closeRequested: break
+    if window.size.x > 0 and window.size.y > 0 and
+        (window.size.x.int != previousWindowWidth or window.size.y.int != previousWindowHeight):
+      previousWindowWidth = window.size.x.int
+      previousWindowHeight = window.size.y.int
+      view.resize(previousWindowWidth, previousWindowHeight)
+      browser.resizeViewport(view.layout.viewport.w.int, view.layout.viewport.h.int)
+      app.blit.resize(view.layout.width, view.layout.height)
+      drag = MapDrag()
+      app.traceState("resize")
     let
       now = getMonoTime()
       elapsed = (now - previous).inNanoseconds.float64 / 1_000_000_000
@@ -127,7 +138,7 @@ proc main() =
       mouse = atlasPoint(vec2(window.mousePos.x.float32, window.mousePos.y.float32),
         window.size.x.int, window.size.y.int)
       canvas = mouse.canvasPoint()
-      hover = mouseActions(mouse)
+      hover = mouseActions(mouse, view.layout.height)
     previous = now
     if window.focused and not window.minimized:
       var keys: set[Button]
@@ -136,12 +147,12 @@ proc main() =
       let held = world_map_browser.keyboardActions(keys) + world_map_browser.gamepadActions(pads)
       browser.advancePan(held, elapsed)
       for action in input.update(held, now.ticks div 1_000_000): app.perform(action)
-      if MapViewport.contains(mouse) and window.scrollDelta.y != 0:
+      if view.layout.viewport.contains(mouse) and window.scrollDelta.y != 0:
         browser.zoomStep(if window.scrollDelta.y < 0: 1 else: -1,
           canvas.x.float64, canvas.y.float64)
         app.traceState("wheel")
       if window.buttonPressed[MouseLeft]:
-        if MapViewport.contains(mouse): drag.beginDrag(canvas.x.float64, canvas.y.float64)
+        if view.layout.viewport.contains(mouse): drag.beginDrag(canvas.x.float64, canvas.y.float64)
         else:
           for action in hover: app.perform(action)
       if drag.active and window.buttonDown[MouseLeft]:
@@ -156,10 +167,11 @@ proc main() =
       let changed = browser.revision != renderedRevision or
         pads.len != previousControllers or hover != previousHover
       if changed:
-        if scenery == nil or renderedCenterX != browser.centerX or
+        if scenery == nil or scenery.width != browser.viewportWidth or
+            scenery.height != browser.viewportHeight or renderedCenterX != browser.centerX or
             renderedCenterY != browser.centerY or renderedZoom != browser.zoom:
           scenery = atlas.renderViewport(browser.centerX, browser.centerY,
-            browser.zoom, MapViewport.w.int, MapViewport.h.int)
+            browser.zoom, browser.viewportWidth, browser.viewportHeight)
           renderedCenterX = browser.centerX
           renderedCenterY = browser.centerY
           renderedZoom = browser.zoom

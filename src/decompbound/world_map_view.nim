@@ -4,6 +4,9 @@ import
   ./[companion_style, world_map_browser]
 
 type
+  AtlasLayout* = object
+    width*, height*: int
+    viewport*: Rect
   MapInspector* = object
     valid*: bool
     worldX*, worldY*, regionIndex*, regionX*, regionY*: int
@@ -11,12 +14,15 @@ type
     flags*: uint16
   WorldMapView* = ref object
     image*: Image
+    layout*: AtlasLayout
     context: Context
     font: Font
 
 const
   AtlasWidth* = 1200
   AtlasHeight* = 800
+  MinimumAtlasWidth = 800
+  MaximumCanvasDimension = 8192
   MapViewport* = rect(314, 108, 862, 652)
   MapButtons = [
     (PreviousRegion, rect(38, 148, 116, 34)),
@@ -36,31 +42,62 @@ proc contains*(area: Rect, point: Vec2): bool =
   point.x >= area.x and point.y >= area.y and
     point.x < area.x + area.w and point.y < area.y + area.h
 
+proc atlasLayout*(width, height: int): AtlasLayout =
+  ## Fill the window with a flexible map and scale controls only in small windows.
+  if width <= 0 or height <= 0:
+    raise newException(ValueError, "Atlas window dimensions must be positive.")
+  let scale = min(1'f64, min(width.float64 / MinimumAtlasWidth.float64,
+    height.float64 / AtlasHeight.float64))
+  # Limit virtual canvas growth when a window becomes extremely thin or narrow.
+  result.width = min(MaximumCanvasDimension,
+    max(MinimumAtlasWidth, round(width.float64 / scale).int))
+  result.height = min(MaximumCanvasDimension,
+    max(AtlasHeight, round(height.float64 / scale).int))
+  result.viewport = rect(MapViewport.x, MapViewport.y,
+    (result.width - AtlasWidth).float32 + MapViewport.w,
+    (result.height - AtlasHeight).float32 + MapViewport.h)
+
 proc atlasPoint*(point: Vec2, width, height: int): Vec2 =
-  ## Undo the shared blitter's fitted viewport after window resizing.
+  ## Match pointer coordinates to the responsive texture's fitted GL viewport.
   if width <= 0 or height <= 0: return vec2(-1, -1)
   let
-    ratio = min(width.float32 / AtlasWidth.float32, height.float32 / AtlasHeight.float32)
+    layout = atlasLayout(width, height)
+    ratio = min(width.float64 / layout.width.float64, height.float64 / layout.height.float64)
     scale = if ratio >= 1: floor(ratio) else: ratio
-    fittedW = max(1, int(AtlasWidth.float32 * scale))
-    fittedH = max(1, int(AtlasHeight.float32 * scale))
+    fittedW = max(1, int(layout.width.float64 * scale))
+    fittedH = max(1, int(layout.height.float64 * scale))
     origin = vec2(((width - fittedW) div 2).float32, ((height - fittedH) div 2).float32)
-  (point - origin) / vec2(fittedW.float32 / AtlasWidth.float32,
-    fittedH.float32 / AtlasHeight.float32)
+  (point - origin) / vec2(fittedW.float32 / layout.width.float32,
+    fittedH.float32 / layout.height.float32)
 
 proc canvasPoint*(point: Vec2): Vec2 =
   ## Convert a logical UI point to coordinates relative to the map canvas.
   point - vec2(MapViewport.x, MapViewport.y)
 
-proc mouseActions*(point: Vec2): set[MapAction] =
+proc buttonArea(action: MapAction, area: Rect, height: int): Rect =
+  ## Keep the final sidebar controls aligned with the bottom of the window.
+  result = area
+  if action in {InspectCenter, ToggleFullscreen}:
+    result.y += (height - AtlasHeight).float32
+
+proc mouseActions*(point: Vec2, height = AtlasHeight): set[MapAction] =
   ## Resolve sidebar controls independently from atlas selection and dragging.
   for (action, area) in MapButtons:
-    if area.contains(point): result.incl(action)
+    if buttonArea(action, area, height).contains(point): result.incl(action)
 
-proc newWorldMapView*(): WorldMapView =
+proc resize*(view: WorldMapView, width, height: int) =
+  ## Reallocate the UI canvas only when the responsive layout changes size.
+  let layout = atlasLayout(width, height)
+  if view.image != nil and view.layout.width == layout.width and
+      view.layout.height == layout.height: return
+  view.layout = layout
+  view.image = newImage(layout.width, layout.height)
+  view.context = newContext(view.image)
+
+proc newWorldMapView*(width = AtlasWidth, height = AtlasHeight): WorldMapView =
   ## Allocate the companion-themed canvas and embedded font once.
-  let image = newImage(AtlasWidth, AtlasHeight)
-  WorldMapView(image: image, context: newContext(image), font: newFont(parseTtf(FontData)))
+  result = WorldMapView(font: newFont(parseTtf(FontData)))
+  result.resize(width, height)
 
 proc box(view: WorldMapView, area: Rect, color: string, radius = 12'f32) =
   ## Paint a panel using the established companion-app colors.
@@ -81,8 +118,9 @@ proc zoomLabel*(zoom: float64): string =
 
 proc mapPixel(view: WorldMapView, x, y: int, color: ColorRGBX) =
   ## Clip map annotations to the interactive canvas.
-  if x >= 0 and y >= 0 and x < MapViewport.w.int and y < MapViewport.h.int:
-    view.image[MapViewport.x.int + x, MapViewport.y.int + y] = color
+  let viewport = view.layout.viewport
+  if x >= 0 and y >= 0 and x < viewport.w.int and y < viewport.h.int:
+    view.image[viewport.x.int + x, viewport.y.int + y] = color
 
 proc drawGrid(view: WorldMapView, browser: WorldMapBrowser) =
   ## Draw region boundaries only at legible screen spacing.
@@ -91,13 +129,13 @@ proc drawGrid(view: WorldMapView, browser: WorldMapBrowser) =
     spacingX = browser.regionWidth.float64 * browser.zoom
     spacingY = browser.regionHeight.float64 * browser.zoom
     first = browser.worldPoint(0, 0)
-    last = browser.worldPoint(MapViewport.w.float64, MapViewport.h.float64)
+    last = browser.worldPoint(view.layout.viewport.w.float64, view.layout.viewport.h.float64)
     atlasFirst = browser.viewportPoint(0, 0)
     atlasLast = browser.viewportPoint(browser.width.float64, browser.height.float64)
     startX = max(0, floor(atlasFirst.x).int)
     startY = max(0, floor(atlasFirst.y).int)
-    endX = min(MapViewport.w.int, ceil(atlasLast.x).int + 1)
-    endY = min(MapViewport.h.int, ceil(atlasLast.y).int + 1)
+    endX = min(view.layout.viewport.w.int, ceil(atlasLast.x).int + 1)
+    endY = min(view.layout.viewport.h.int, ceil(atlasLast.y).int + 1)
     color = parseHtmlColor(Mint).rgbx
   if min(spacingX, spacingY) < GridMinimumSpacing: return
   for regionX in max(0, ceil(first.x / browser.regionWidth.float64).int) ..
@@ -132,19 +170,23 @@ proc drawSelection(view: WorldMapView, browser: WorldMapBrowser) =
 proc render*(view: WorldMapView, browser: WorldMapBrowser, scenery: Image,
     inspector: MapInspector, hover: Vec2, controllerCount: int): Image =
   ## Compose a native-size viewport and readable map inspection controls.
-  if scenery == nil or scenery.width != MapViewport.w.int or scenery.height != MapViewport.h.int:
+  let
+    viewport = view.layout.viewport
+    width = view.layout.width
+    height = view.layout.height
+  if scenery == nil or scenery.width != viewport.w.int or scenery.height != viewport.h.int:
     raise newException(ValueError, "Atlas scenery must match the logical map viewport.")
   view.image.fill(parseHtmlColor(Background))
-  view.box(rect(16, 16, 1168, 756), Frame, 25)
+  view.box(rect(16, 16, (width - 32).float32, (height - 44).float32), Frame, 25)
   view.label("pocket atlas", 34, 29, 32)
   view.label("the whole world, one little adventure", 36, 72, 14, Muted)
-  view.label(&"{browser.width} x {browser.height} WORLD PIXELS", 834, 45, 14, Muted)
-  view.label(&"{browser.regionCount} regions / {controllerCount} pad(s)", 834, 70, 12, Muted)
-  view.box(rect(26, 100, 268, 660), Cream, 18)
-  view.box(rect(29, 103, 262, 654), Panel, 15)
-  view.box(rect(308, 102, 874, 664), Cream, 9)
+  view.label(&"{browser.width} x {browser.height} WORLD PIXELS", (width - 366).float32, 45, 14, Muted)
+  view.label(&"{browser.regionCount} regions / {controllerCount} pad(s)", (width - 366).float32, 70, 12, Muted)
+  view.box(rect(26, 100, 268, (height - 140).float32), Cream, 18)
+  view.box(rect(29, 103, 262, (height - 146).float32), Panel, 15)
+  view.box(rect(viewport.x - 6, viewport.y - 6, viewport.w + 12, viewport.h + 12), Cream, 9)
   for y in 0 ..< scenery.height:
-    copyMem(addr view.image.data[(MapViewport.y.int + y) * AtlasWidth + MapViewport.x.int],
+    copyMem(addr view.image.data[(viewport.y.int + y) * width + viewport.x.int],
       unsafeAddr scenery.data[y * scenery.width], scenery.width * sizeof(ColorRGBX))
   view.drawGrid(browser)
   view.drawSelection(browser)
@@ -168,8 +210,9 @@ proc render*(view: WorldMapView, browser: WorldMapBrowser, scenery: Image,
     view.label("Drag to explore.", 38, 492, 15)
     view.label("Wheel to zoom.", 38, 520, 15)
     view.label("Enter inspects the center.", 38, 560, 13, Muted)
-  for (action, area) in MapButtons:
+  for (action, originalArea) in MapButtons:
     let
+      area = buttonArea(action, originalArea, height)
       hovered = area.contains(hover)
       primary = action == FitWorld
       text = case action
@@ -188,7 +231,7 @@ proc render*(view: WorldMapView, browser: WorldMapBrowser, scenery: Image,
       if action in {ZoomOut, ZoomIn}: 20'f32 else: 14'f32,
       if hovered or primary: DarkInk else: Ink, area.w, true)
   view.label(&"Center {browser.centerX.int}, {browser.centerY.int} / base scenery / animation frame 0",
-    326, 779, 11, Muted)
+    326, (height - 21).float32, 11, Muted)
   view.label("Mouse / keyboard / Paddy",
-    34, 779, 10, Muted)
+    34, (height - 21).float32, 10, Muted)
   view.image

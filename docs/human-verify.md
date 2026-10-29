@@ -53,6 +53,7 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 | Check | Run | Pass if |
 |---|---|---|
+| [ ] Responsive map viewport | Run `make map-app`, zoom in, resize wider/taller and smaller, then toggle fullscreen. Also try Home before resizing. | The map fills the available area, larger windows reveal more scenery at the same zoom, and center/selection stay in place. Home keeps the whole atlas visible after resizing; small windows keep the controls accessible. Click, drag, and wheel zoom remain aligned with the visible map. |
 | [ ] Full-atlas browsing and physical input | Run `make map-app`; try `make map-app ARGS="--x:6782 --y:10064 --zoom:2"`. Browse outdoors/interiors with mouse, keyboard and Paddy; zoom at the pointer, resize/fullscreen, disconnect/reconnect the controller, and exit. | The entire base atlas fits initially, interiors stay in their original positions, terrain and borders are sharp at integer zoom, and pan/selection/inspection work after resizing. A wheel gesture zooms once, taps/clicks inspect rather than drag, region navigation stays in bounds, and unplugging the pad leaves mouse/keyboard usable. Palette/story variants and base-frame animation limits are described in `world-map.md`. |
 
 ### EarthBound DS companion (2026-10-28)

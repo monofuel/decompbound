@@ -71,6 +71,20 @@ proc newWorldMapBrowser*(width, height, regionWidth, regionHeight,
     centerX: width.float64 / 2, centerY: height.float64 / 2,
     zoom: minimumZoom, minimumZoom: minimumZoom, revision: 1)
 
+proc resizeViewport*(browser: WorldMapBrowser, width, height: int) =
+  ## Resize the visible map while retaining its selected pixel and native zoom.
+  if width <= 0 or height <= 0:
+    raise newException(ValueError, "Map viewport dimensions must be positive.")
+  if width == browser.viewportWidth and height == browser.viewportHeight: return
+  let fitting = browser.zoom == browser.minimumZoom
+  browser.viewportWidth = width
+  browser.viewportHeight = height
+  browser.minimumZoom = fitZoom(browser.width, browser.height, width, height)
+  browser.zoom = if fitting: browser.minimumZoom else:
+    max(browser.zoom, browser.minimumZoom)
+  browser.clampCamera()
+  browser.markChanged()
+
 proc worldPoint*(browser: WorldMapBrowser, x, y: float64): tuple[x, y: float64] =
   ## Map a point relative to the viewport into native world coordinates.
   (browser.centerX + (x - browser.viewportWidth.float64 / 2) / browser.zoom,

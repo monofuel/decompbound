@@ -294,6 +294,7 @@ map-test: nim.cfg
 	DECOMPBOUND_ROM="$(ROM)" nim r -d:release $(NIM_TEST_FLAGS) tests/integration_world_map_render.nim
 
 map-window-test: map-build
+	nim c -d:release $(NIM_TEST_FLAGS) -o:bin/background-gl-smoke tests/backgrounds/gl_smoke.nim
 	nim r -d:release $(NIM_TEST_FLAGS) -o:bin/map-window-test tests/world_map/window_smoke.nim "$(ROM)"
 
 battle-bg-build: nim.cfg

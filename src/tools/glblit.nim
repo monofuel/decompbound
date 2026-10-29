@@ -158,6 +158,19 @@ proc ensureFullscreen*(blit: GlBlit) =
   ## the player repeats it a few frames after the first swap.
   blit.window.fullscreen = true
 
+proc resize*(blit: var GlBlit, width, height: int) =
+  ## Reallocate the texture when a responsive viewer changes its canvas dimensions.
+  if width <= 0 or height <= 0:
+    raise newException(ValueError, "Blit dimensions must be positive.")
+  if width == blit.nativeW and height == blit.nativeH: return
+  blit.window.makeContextCurrent()
+  glActiveTexture(GL_TEXTURE0)
+  glBindTexture(GL_TEXTURE_2D, blit.textureId)
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA.GLint, width.GLsizei, height.GLsizei,
+    0, GL_RGBA, GL_UNSIGNED_BYTE, nil)
+  blit.nativeW = width
+  blit.nativeH = height
+
 proc upload*(blit: GlBlit, img: Image) =
   ## Copy the frame image into the texture (same size as the native frame).
   blit.window.makeContextCurrent()
