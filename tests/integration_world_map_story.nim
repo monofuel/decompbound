@@ -169,6 +169,32 @@ proc verifyAtlasChanges(rom: seq[uint8]) =
   except ValueError: rejected = true
   doAssert rejected, "An unsupported flag was accepted."
 
+proc verifyHousePalettes(rom: seq[uint8], machine: SnesBus) =
+  ## Preserve the original flashback-to-lit chain and the separate normal room copies.
+  const
+    FlashbackPaletteFile = 0x1AA227
+    HouseLitPaletteFile = 0x1ABA27
+    BedroomLitPaletteFile = 0x1AA767
+    HouseNightPaletteFile = 0x1AAB27
+  for mask in 0 ..< 4:
+    let
+      state = machine.applyFlags(@[0x0174, 0x0205], mask)
+      assets = newWorldMapAssets(rom, state)
+      flashback = (mask and 1) == 0
+      lit = (mask and 2) != 0
+    for (logical, paletteId, expected) in [
+        (11, 7, if flashback: FlashbackPaletteFile elif lit:
+          HouseLitPaletteFile else: HouseNightPaletteFile),
+        (16, 3, if lit: HouseLitPaletteFile else: HouseNightPaletteFile),
+        (12, 6, if lit: BedroomLitPaletteFile else: HouseNightPaletteFile)]:
+      let palette = assets.palette(logical, paletteId)
+      doAssert palette.resolvedFile == expected,
+        &"House palette {logical}/{paletteId}, flag mask={mask}."
+      discard machine.callOriginal(OriginalPalette, a = logical, x = paletteId,
+        directPage = 0x1A00)
+      for color in 0 ..< WorldPaletteBytes div 2:
+        doAssert palette.colors[32 + color].int == machine.wramWord(PaletteWram + color * 2)
+
 proc main() =
   ## Verify state-aware scenery against the original game rather than native self-comparison.
   let
@@ -179,6 +205,7 @@ proc main() =
     palettes = rom.verifyPalettes(machine)
     arrangements = rom.verifyArrangements(machine)
   rom.verifyAtlasChanges()
+  rom.verifyHousePalettes(machine)
   echo "Original story-state truth tables passed: ", palettes,
     " palette states, ", arrangements, " complete arrangement states; cache transitions passed."
 

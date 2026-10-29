@@ -50,6 +50,21 @@ proc storyFlagMetadata*(id: int): WorldMapFlag =
   result = WorldMapFlag(id: id, label: &"Flag ${id:04X}",
     description: "Original map palette or arrangement condition; story meaning is unresolved.")
   case id
+  of 0x000D:
+    result.label = "Happy Happy Village"
+    result.description = "Changes the village palette after defeating Carpainter."
+  of 0x00AE:
+    result.label = "Dusty Dunes mines"
+    result.description = "Changes the mine arrangements in Dusty Dunes Desert."
+  of 0x0174:
+    result.label = "Flashback house colors"
+    result.description = "Off: gray. On: lighting via $0205."
+  of 0x0205:
+    result.label = "House interior lighting"
+    result.description = "On: lit. Off: dark. Flashback needs $0174."
+  of 0x022B:
+    result.label = "Fourside store blackout"
+    result.description = "Department store blackout after Paula is kidnapped."
   of 0x01A6:
     result.label = "Onett daylight"
     result.description = "Set for the original daytime Onett palette; clear for its night palette."

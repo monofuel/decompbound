@@ -1,5 +1,5 @@
 import
-  std/[algorithm, monotimes, options, os, parseopt, sequtils, strformat, strutils, times],
+  std/[monotimes, options, os, parseopt, sequtils, strformat, strutils, times],
   paddy, pixie, windy,
   ../decompbound/[rom_pipeline, world_map, world_map_browser, world_map_view],
   ./glblit
@@ -43,16 +43,6 @@ proc traceState(app: AtlasApp, action: string) =
       flagLabel = if flags.len == 0: "-" else: flags
       panel = if browser.panel == WorldPanel: "world" else: "inspect"
     echo &"action={action} center={browser.centerX:.3f},{browser.centerY:.3f} zoom={browser.zoom} region={browser.selectedRegion} selected={browser.hasSelection}:{browser.selectedX},{browser.selectedY} grid={browser.grid} viewport={browser.viewportWidth}x{browser.viewportHeight} canvas={app.blit.nativeW}x{app.blit.nativeH} enabledFlags={flagLabel} stateRevision={app.atlas.stateRevision} worldpanel={panel} row={browser.worldRow} scroll={browser.worldScroll}"
-
-proc flagPresentationOrder(flag: WorldMapFlag): int =
-  ## Show verified named world changes before numerically ordered research conditions.
-  case flag.id
-  of 0x01A6: 0
-  of 0x011F: 1
-  of 0x0047: 2
-  of 0x0120: 3
-  of 0x0044: 4
-  else: flag.id + 5
 
 proc parseFlagOption(value: string): tuple[id: int, enabled: bool] =
   ## Parse a strict hexadecimal flag ID and explicit on/off setting.
@@ -124,7 +114,7 @@ proc main() =
     browser = newWorldMapBrowser(atlas.width, atlas.height, atlas.regionWidth,
       atlas.regionHeight, atlas.regionCount, MapViewport.w.int, MapViewport.h.int)
     view = newWorldMapView()
-    catalog = atlas.flagCatalog().sortedByIt(it.flagPresentationOrder())
+    catalog = atlas.flagCatalog()
   for flag in initialFlags:
     if not catalog.anyIt(it.id == flag.id):
       raise newException(ValueError, "Flag $" & flag.id.toHex(4) & " is not referenced by this map.")
@@ -249,7 +239,7 @@ proc main() =
       app.blit.draw()
       window.swapBuffers()
       inc frameCount
-      nextUi = getMonoTime() + initDuration(nanoseconds = UiFrameNs)
+      nextUi = now + initDuration(nanoseconds = UiFrameNs)
       if frameLimit > 0 and frameCount >= frameLimit: break
     sleep(PollSleepMs)
   if trace: echo &"uiFrames={frameCount} viewportRenders={viewportRenders}"

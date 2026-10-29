@@ -264,7 +264,7 @@ proc main() =
   doAssert state(trace).worldRow == 1
   display.tap(window, EnterKey)
   waitTrace(trace, "action=ToggleWorldFlag")
-  doAssert state(trace).enabledFlags == "011F"
+  doAssert state(trace).enabledFlags == "000E"
   doAssert state(trace).stateRevision == beforeFlags.stateRevision + 1
   doAssert state(trace).x == beforeFlags.x and state(trace).y == beforeFlags.y
   doAssert state(trace).zoom == beforeFlags.zoom

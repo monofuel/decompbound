@@ -49,12 +49,27 @@ names. Previous/next region follows atlas order, including stored interior and
 unused regions; this is not a door-connected tour of towns.
 
 The World tab controls the story flags referenced by the original palette and
-arrangement loaders. Named changes appear first: Onett daylight, Winters
-lighting, Threed / Saturn ladder, Deep Darkness revealed, and the Peaceful Rest
-Valley bridge. Threed's daytime palette and Saturn Valley's completed ladder
-share flag `$0047`; they are one control because that is how the game connects
-them. Other verified loader conditions retain numeric labels while their story
-meaning remains under investigation.
+arrangement loaders, ordered by hexadecimal flag ID. Threed's daytime palette
+and Saturn Valley's completed ladder share flag `$0047`; they are one control
+because that is how the game connects them. Named controls include:
+
+| Flag | Visible world change |
+|---|---|
+| `$000D` | Happy Happy Village after Carpainter. |
+| `$0044` | Peaceful Rest Valley bridge. |
+| `$0047` | Threed daylight / Saturn Valley ladder. |
+| `$00AE` | Dusty Dunes Desert mines. |
+| `$011F` | Winters lighting. |
+| `$0120` | Deep Darkness revealed. |
+| `$0174` | Color selection for flashback copies of Ness's house. |
+| `$01A6` | Onett daylight. |
+| `$0205` | House interior lighting. |
+| `$022B` | Fourside department store blackout after Paula's kidnapping. |
+
+The Happy Happy Village, mines, house and department-store identities were
+identified by monofuel during visual testing; the house's two-flag interaction
+was then checked against the original palette loader. Other verified loader conditions
+retain numeric labels while their story meaning remains under investigation.
 
 Click a checkbox to toggle it; the mouse wheel over the sidebar scrolls the
 list. Tab or Paddy Select switches tabs. In World, arrows / D-pad move the
@@ -79,6 +94,33 @@ Drawing resources are cached per ROM. The atlas retains compact placement IDs,
 sector metadata and decoded tilesets/palettes, never an atlas-sized RGBA image.
 Only the visible viewport is sampled, including at overview scales. The app
 reuses its display texture while idle and redraws scenery when the camera changes.
+
+Scenery rendering decodes eight-pixel tile rows and reuses them within each
+viewport draw. Its direct-mapped cache has 4,096 entries (160 KiB), plus a
+column lookup proportional to viewport width. Repeated source scanlines are
+copied at larger zooms. The cache is fresh for each draw, so story changes and
+resource edits cannot retain old rows. The UI caches only its static border
+strips, about 4.8 MiB at a 3840×2160 window, and rebuilds them after resizing.
+The 30 Hz presentation budget includes rendering time instead of adding a
+separate 33 ms wait after each render.
+
+The following CPU timings on `high-steel` use five panning frames per window
+and zoom, with the real World sidebar visible. They compare `d778828` with the
+optimized renderer; they exclude GPU upload/presentation and ROM loading.
+
+| Window / zoom | Scenery before → after | UI before → after |
+|---|---|---|
+| 1200×800 / 1× | 12.0 → 1.6 ms | 1.9 → 1.5 ms |
+| 1920×1080 / 1× | 32.4 → 4.4 ms | 3.2 → 2.5 ms |
+| 3840×2160 / 1× | 152.8 → 21.5 ms | 9.0 → 5.2 ms |
+| 3840×2160 / 2× | 153.4 → 8.5 ms | 9.6 → 5.2 ms |
+| 3840×2160 / 1/8× | 41.7 → 32.8 ms | 9.6 → 6.3 ms |
+
+Reproduce current timings without writing any game images or state:
+
+```sh
+nix develop --command nim r -d:danger tests/world_map/render_benchmark.nim
+```
 
 ## Independently derived storage
 
@@ -183,6 +225,44 @@ numbered event store. The viewer keeps that out-of-state bit clear and exposes
 only flags `$0001..$7FFF`. Original-loader calls with locally authored `$8000`
 conditions verified both edge cases; the synthetic palette regression retains
 the redirect case without a game-data fixture.
+
+### Ness's house: lighting and flashback copies
+
+The gray living room at `(1536..2047,8704..8831)` is a stored flashback copy,
+using logical tileset 11 / palette 7. Its first palette at file `0x1AA227`
+has inverted condition `$8174`. With `$0174` clear it stays gray, regardless
+of `$0205`. Setting `$0174` redirects to `0x1ABA27`, whose condition `$0205`
+selects between its bright interior colors and the dark palette at `0x1AAB27`.
+Thus toggling either flag alone from the cleared baseline cannot produce the
+bright version of this copy.
+
+| `$0174` | `$0205` | Flashback-copy palette |
+|---|---|---|
+| Off | Off | Gray, `0x1AA227`. |
+| Off | On | Gray, `0x1AA227`. |
+| On | Off | Dark, `0x1AAB27`. |
+| On | On | Lit, `0x1ABA27`. |
+
+The regular living room at `(7424..7935,256..383)` uses logical 16 / palette 3
+and starts directly at `0x1ABA27`; only `$0205` controls its lighting.
+The regular bedroom near `(8072,1088)` uses logical 12 / palette 6, selecting
+its own blue-walled lit palette at `0x1AA767`, or the shared dark palette.
+The flashback bedroom at `(5888,2048)` uses the living-room palette chain,
+so making that copy bright does not recreate the regular bedroom's blue walls.
+These are distinct stored room copies, not a missing global daytime palette.
+`$0205` describes interior lighting rather than the time outdoors.
+
+```sh
+# Bright flashback living-room copy.
+make map-app ARGS="--x:1792 --y:8768 --zoom:2 --flag:0174=on --flag:0205=on"
+# Normal house interior and bedroom, with their own lit palettes.
+make map-app ARGS="--x:7680 --y:320 --zoom:2 --flag:0205=on"
+make map-app ARGS="--x:8072 --y:1088 --zoom:2 --flag:0205=on"
+```
+
+The story integration gate checks all four assignments for all three selectors
+against original `$C007B6`, comparing every palette word as well as the resolved
+record. The general loader truth table already covers these dependencies.
 
 Animated graphics remain at their base uploaded frame. The World catalog
 covers all numbered conditions in the verified palette and arrangement loaders;

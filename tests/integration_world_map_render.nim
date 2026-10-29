@@ -1,5 +1,5 @@
 import
-  std/[algorithm, os, sets, strformat, tables],
+  std/[algorithm, math, os, sets, strformat, tables],
   pixie,
   decompbound/[cpu, png_state, ppu, rom_pipeline, save_state,
     snesbus, world_map, world_map_assets, world_map_layout],
@@ -210,6 +210,39 @@ proc verifyPrivateScene(rom: seq[uint8], atlas: WorldMapAtlas, path: string) =
   echo "Private map scene matched ", activePixels, " active-family pixels and ",
     maskedPixels, " original strip-masked pixels: ", path
 
+proc verifyViewport(atlas: WorldMapAtlas, x, y, zoom: float64,
+    width, height: int) =
+  ## Compare every viewport sample with the separately verified uncached pixel compositor.
+  let
+    image = atlas.renderViewport(x, y, zoom, width, height)
+    left = x - width.float64 / (2 * zoom)
+    top = y - height.float64 / (2 * zoom)
+  for py in 0 ..< height:
+    let worldY = floor(top + py.float64 / zoom).int
+    for px in 0 ..< width:
+      let worldX = floor(left + px.float64 / zoom).int
+      doAssert image[px, py] == atlas.pixel(worldX, worldY),
+        &"Viewport {width}x{height} camera={x},{y} zoom={zoom} pixel={px},{py}."
+
+proc verifyViewports(atlas: WorldMapAtlas) =
+  ## Exercise large output, repeated caches, subpixel cameras, margins and story invalidation.
+  for (x, y, zoom, width, height) in [
+      (4096.375, 5120.625, 0.0625, 317, 199),
+      (256.125, 128.875, 0.5, 517, 257),
+      (4096.375, 5120.625, 1.0, 1920, 1080),
+      (6000.25, 7500.5, 2.0, 3840, 2160),
+      (32.25, 32.75, 4.0, 129, 137),
+      (8192.5, 10239.5, 8.0, 65, 67)]:
+    atlas.verifyViewport(x, y, zoom, width, height)
+    atlas.verifyViewport(x + 0.5, y - 0.25, zoom, width, height)
+  for (flag, x, y) in [(0x0044, 4896.0, 1888.0), (0x011F, 256.0, 4900.0)]:
+    atlas.verifyViewport(x, y, 2, 321, 199)
+    atlas.assets.setStoryFlag(flag, true)
+    atlas.verifyViewport(x, y, 2, 321, 199)
+    atlas.assets.resetStoryFlags()
+    atlas.verifyViewport(x, y, 2, 321, 199)
+  echo "Viewport output matched uncached composition through 4K, repeated pans, margins and story changes."
+
 proc main() =
   ## Verify native map rendering through independently generated original-code PPU state.
   let
@@ -223,6 +256,7 @@ proc main() =
   echo "Original BG publisher and PPU matched all ", words,
     " referenced word/resource combinations at all 64 pixels."
   echo "Original palette and PPU matched complete placements for all ", palettes, " used palette selectors."
+  atlas.verifyViewports()
   for index in 1 .. paramCount():
     verifyPrivateScene(rom, atlas, paramStr(index))
 

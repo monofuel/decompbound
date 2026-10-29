@@ -15,6 +15,7 @@ type
   WorldMapView* = ref object
     image*: Image
     layout*: AtlasLayout
+    frame: seq[ColorRGBX]
     context: Context
     font: Font
 
@@ -119,6 +120,7 @@ proc resize*(view: WorldMapView, width, height: int) =
       view.layout.height == layout.height: return
   view.layout = layout
   view.image = newImage(layout.width, layout.height)
+  view.frame = @[]
   view.context = newContext(view.image)
 
 proc newWorldMapView*(width = AtlasWidth, height = AtlasHeight): WorldMapView =
@@ -203,6 +205,31 @@ proc drawSelection(view: WorldMapView, browser: WorldMapBrowser) =
       view.mapPixel(x + offset, y, color)
       view.mapPixel(x, y + offset, color)
 
+proc copyFrameBorder(view: WorldMapView, capture: bool) =
+  ## Cache only the static border strips, leaving the map area for its scenery copy.
+  let
+    width = view.layout.width
+    area = view.layout.viewport
+    left = area.x.int
+    right = (area.x + area.w).int
+    top = area.y.int
+    bottom = (area.y + area.h).int
+  var position = 0
+  template span(offset, count: int) =
+    if count > 0:
+      if capture:
+        copyMem(addr view.frame[position], addr view.image.data[offset],
+          count * sizeof(ColorRGBX))
+      else:
+        copyMem(addr view.image.data[offset], addr view.frame[position],
+          count * sizeof(ColorRGBX))
+      position += count
+  span(0, top * width)
+  for y in top ..< bottom:
+    span(y * width, left)
+    span(y * width + right, width - right)
+  span(bottom * width, (view.layout.height - bottom) * width)
+
 proc render*(view: WorldMapView, browser: WorldMapBrowser, scenery: Image,
     inspector: MapInspector, hover: Vec2, controllerCount: int,
     catalog: openArray[WorldMapFlag] = [], enabledFlags: openArray[int] = []): Image =
@@ -213,15 +240,20 @@ proc render*(view: WorldMapView, browser: WorldMapBrowser, scenery: Image,
     height = view.layout.height
   if scenery == nil or scenery.width != viewport.w.int or scenery.height != viewport.h.int:
     raise newException(ValueError, "Atlas scenery must match the logical map viewport.")
-  view.image.fill(parseHtmlColor(Background))
-  view.box(rect(16, 16, (width - 32).float32, (height - 44).float32), Frame, 25)
-  view.label("pocket atlas", 34, 29, 32)
-  view.label("the whole world, one little adventure", 36, 72, 14, Muted)
+  if view.frame.len == 0:
+    view.image.fill(parseHtmlColor(Background))
+    view.box(rect(16, 16, (width - 32).float32, (height - 44).float32), Frame, 25)
+    view.label("pocket atlas", 34, 29, 32)
+    view.label("the whole world, one little adventure", 36, 72, 14, Muted)
+    view.box(rect(26, 100, 268, (height - 140).float32), Cream, 18)
+    view.box(rect(29, 103, 262, (height - 146).float32), Panel, 15)
+    view.box(rect(viewport.x - 6, viewport.y - 6, viewport.w + 12, viewport.h + 12), Cream, 9)
+    view.frame = newSeq[ColorRGBX](width * height - scenery.width * scenery.height)
+    view.copyFrameBorder(capture = true)
+  else:
+    view.copyFrameBorder(capture = false)
   view.label(&"{browser.width} x {browser.height} WORLD PIXELS", (width - 366).float32, 45, 14, Muted)
   view.label(&"{browser.regionCount} regions / {controllerCount} pad(s)", (width - 366).float32, 70, 12, Muted)
-  view.box(rect(26, 100, 268, (height - 140).float32), Cream, 18)
-  view.box(rect(29, 103, 262, (height - 146).float32), Panel, 15)
-  view.box(rect(viewport.x - 6, viewport.y - 6, viewport.w + 12, viewport.h + 12), Cream, 9)
   for y in 0 ..< scenery.height:
     copyMem(addr view.image.data[(viewport.y.int + y) * width + viewport.x.int],
       unsafeAddr scenery.data[y * scenery.width], scenery.width * sizeof(ColorRGBX))

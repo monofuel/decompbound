@@ -53,6 +53,8 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 | Check | Run | Pass if |
 |---|---|---|
+| [ ] Large-window atlas performance | Run `make map-app`, enlarge to 1920×1080 or 3840×2160, and pan/zoom at 1× and 2×; also try the whole-world overview and story toggles. | Navigation responds smoothly at the larger sizes, repeated views retain sharp pixels, and story toggles update the map without stale tiles or palettes. |
+| [ ] House lighting and numeric flag order | Run `make map-app ARGS="--x:1792 --y:8768 --zoom:2"`. Open World, check ascending hexadecimal IDs and the new named flags. Toggle `$0174` and `$0205`, then visit the regular house with `--x:7680 --y:320 --flag:0205=on`. | The flashback copy stays gray with `$0174` off, becomes dark with only `$0174` on, and becomes bright with both on. The regular house becomes bright using `$0205` alone. Labels explain the interaction; all flags stay in numeric order. |
 | [ ] World flags and shared story changes | Run `make map-app`, open World with Tab / Select, and try every named toggle with mouse, keyboard and Paddy. Inspect the bridge at `(4896,1888)`, Saturn Valley ladder at `(528,7424)`, and the reported Winters entrance under both lighting states. Resize while the list is open; reset all flags. | Onett, Winters and Threed palettes change; the bridge repairs and returns; Threed lighting and the completed Saturn ladder switch together. Deep Darkness changes between shrouded and revealed states. The list scrolls, focus stays visible, and scenery updates without moving the camera. Reset restores the baseline, and leaving World with Escape / B does not exit or toggle the grid. |
 | [ ] Responsive map viewport | Run `make map-app`, zoom in, resize wider/taller and smaller, then toggle fullscreen. Also try Home before resizing. | The map fills the available area, larger windows reveal more scenery at the same zoom, and center/selection stay in place. Home keeps the whole atlas visible after resizing; small windows keep the controls accessible. Click, drag, and wheel zoom remain aligned with the visible map. |
 | [ ] Full-atlas browsing and physical input | Run `make map-app`; try `make map-app ARGS="--x:6782 --y:10064 --zoom:2"`. Browse outdoors/interiors with mouse, keyboard and Paddy; zoom at the pointer, resize/fullscreen, disconnect/reconnect the controller, and exit. | The entire base atlas fits initially, interiors stay in their original positions, terrain and borders are sharp at integer zoom, and pan/selection/inspection work after resizing. A wheel gesture zooms once, taps/clicks inspect rather than drag, region navigation stays in bounds, and unplugging the pad leaves mouse/keyboard usable. Palette/story variants and base-frame animation limits are described in `world-map.md`. |
@@ -450,6 +452,13 @@ Only when an agent points you here for a **tool** check:
 ---
 
 ## FOUND IN PLAY — new issues (human → agents)
+
+- **2026-10-29 · Pocket Atlas / large-window slowdown — fix ready for retry.**
+  Per-pixel tile decoding and repeated UI painting made large-window navigation
+  slow. Bounded tile-row reuse, static border reuse and corrected frame pacing
+  reduce 4K / 1× scenery work from about 153 ms to 21 ms on `high-steel`.
+  Pixel comparisons through 4K and the isolated window gate pass.
+  **Run / Pass if:** the large-window performance row above.
 
 - **2026-10-29 · Pocket Atlas / Deep Darkness — OPEN.** Assets incorrectly
   show through the darkness; monofuel confirms the game does not render them

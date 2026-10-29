@@ -1,5 +1,5 @@
 import
-  std/[math, strformat],
+  std/[hashes, math, strformat],
   pixie,
   ./[ppu, rom_pipeline, world_map_assets, world_map_layout, world_map_story]
 
@@ -14,6 +14,7 @@ type
     flags*: uint16
   RegionDrawing = object
     resource: WorldMapResource
+    paletteKey: int
     colors: array[128, ColorRGBX]
   WorldMapAtlas* = ref object
     ## Hold the verified atlas and its finite set of ROM-backed drawing resources.
@@ -33,6 +34,12 @@ const
   FlipHorizontal = 0x4000'u16
   FlipVertical = 0x8000'u16
   PriorityHigh = 0x2000'u16
+  PlanarTileBytes = 32
+  PlanePairBytes = 16
+  RegionPaletteCount = 8
+  TileWordBits = sizeof(uint16) * 8
+  ViewportRowCacheSlots = 4096
+    ## Use a power-of-two table capped at 160 KiB of composed rows per render.
   AtlasMargin = rgbx(10, 17, 31, 255)
 
 proc refreshDrawings(atlas: WorldMapAtlas) =
@@ -42,6 +49,8 @@ proc refreshDrawings(atlas: WorldMapAtlas) =
       resource = atlas.assets.resource(region.drawingTilesetId)
       palette = atlas.assets.palette(region.mapTilesetId, region.paletteId)
     atlas.drawings[region.index].resource = resource
+    atlas.drawings[region.index].paletteKey =
+      region.mapTilesetId * RegionPaletteCount + region.paletteId
     for index, color in palette.colors:
       atlas.drawings[region.index].colors[index] = bgr555ToColor(color).rgbx
   atlas.drawingRevision = atlas.assets.revision
@@ -112,7 +121,6 @@ proc regionOrigin*(atlas: WorldMapAtlas, index: int): tuple[x, y: int] =
 proc arrangementWord(atlas: WorldMapAtlas, x, y: int):
     tuple[region, arrangement: int, word: uint16] =
   ## Select the original 8-pixel tile word inside its 32-pixel map arrangement.
-  atlas.ensureDrawings()
   result.region = regionIndex(x, y)
   result.arrangement = atlas.layout.arrangements[
     (y div MapCellPixels) * MapColumns + x div MapCellPixels].int
@@ -123,6 +131,7 @@ proc arrangementWord(atlas: WorldMapAtlas, x, y: int):
 proc inspect*(atlas: WorldMapAtlas, x, y: int): MapCellInfo =
   ## Inspect valid world pixels while representing canvas margins as unselected.
   if x notin 0 ..< atlas.width or y notin 0 ..< atlas.height: return
+  atlas.ensureDrawings()
   let
     cell = atlas.arrangementWord(x, y)
     region = atlas.layout.regions[cell.region]
@@ -152,31 +161,123 @@ proc tileColorIndex*(resource: WorldMapResource, word: uint16, x, y: int): int =
 proc pixel*(atlas: WorldMapAtlas, x, y: int): ColorRGBX =
   ## Compose one base scenery pixel from the original placement and resource selectors.
   if x notin 0 ..< atlas.width or y notin 0 ..< atlas.height: return AtlasMargin
+  atlas.ensureDrawings()
   let
     cell = atlas.arrangementWord(x, y)
     drawing = addr atlas.drawings[cell.region]
     color = tileColorIndex(drawing.resource, cell.word, x mod TilePixels, y mod TilePixels)
   drawing.colors[color]
 
+proc tileRow(resource: WorldMapResource, tile, y: int,
+    indices: var array[TilePixels, uint8]) =
+  ## Decode a complete four-plane row with one read of each original plane byte.
+  if tile notin 0 ..< WorldChrTileCount:
+    raise newException(ValueError, "Map CHR tile is outside the original upload.")
+  let
+    offset = tile * PlanarTileBytes + y * 2
+    plane0 = resource.graphics[offset]
+    plane1 = resource.graphics[offset + 1]
+    plane2 = resource.graphics[offset + PlanePairBytes]
+    plane3 = resource.graphics[offset + PlanePairBytes + 1]
+  for x in 0 ..< TilePixels:
+    let shift = TilePixels - 1 - x
+    indices[x] = ((plane0 shr shift) and 1) or
+      (((plane1 shr shift) and 1) shl 1) or
+      (((plane2 shr shift) and 1) shl 2) or
+      (((plane3 shr shift) and 1) shl 3)
+
+proc compositeTileRow(drawing: ptr RegionDrawing, word: uint16, y: int,
+    colors: var array[TilePixels, ColorRGBX]) =
+  ## Compose both scenery planes once for an eight-pixel arrangement row.
+  let
+    tile = word.int and TileIndexMask
+    sy = if (word and FlipVertical) != 0: TilePixels - 1 - y else: y
+    palette = ((word.int shr PaletteShift) and PaletteMask) * ColorsPerPalette
+    high = (word and PriorityHigh) != 0
+    flip = (word and FlipHorizontal) != 0
+    hasOverlay = tile < WorldBg2TileCount
+  var main, overlay: array[TilePixels, uint8]
+  drawing.resource.tileRow(tile, sy, main)
+  if hasOverlay: drawing.resource.tileRow(tile + WorldBg2ChrTileOffset, sy, overlay)
+  for x in 0 ..< TilePixels:
+    let
+      sx = if flip: TilePixels - 1 - x else: x
+      foreground = main[sx].int
+      background = overlay[sx].int
+      index = if foreground != 0 and high: palette + foreground
+        elif hasOverlay and background != 0: palette + background
+        elif foreground != 0: palette + foreground else: 0
+    colors[x] = drawing.colors[index]
+
+type
+  ViewportTileRow = object
+    ## Cache one logical palette, tile word, and row only within a single render.
+    key: uint64
+    colors: array[TilePixels, ColorRGBX]
+
 proc renderViewport*(atlas: WorldMapAtlas, centerX, centerY, zoom: float64,
     width, height: int): Image =
-  ## Sample only the requested viewport at nearest-neighbor native pixel positions.
+  ## Sample visible tile rows at nearest-neighbor positions with a bounded per-call cache.
   if width <= 0 or height <= 0 or zoom <= 0 or zoom.classify in {fcNan, fcInf, fcNegInf}:
     raise newException(ValueError, "Map viewport dimensions and zoom must be finite and positive.")
   if centerX.classify in {fcNan, fcInf, fcNegInf} or
       centerY.classify in {fcNan, fcInf, fcNegInf}:
     raise newException(ValueError, "Map camera coordinates must be finite.")
   result = newImage(width, height)
-  result.fill(AtlasMargin)
   let
     left = centerX - width.float64 / (2 * zoom)
     top = centerY - height.float64 / (2 * zoom)
+  var
+    worldColumns = newSeq[int](width)
+    firstColumn = width
+    lastColumn = 0
+  for x in 0 ..< width:
+    let nativeX = left + x.float64 / zoom
+    if nativeX >= 0 and nativeX < atlas.width.float64:
+      worldColumns[x] = floor(nativeX).int
+      firstColumn = min(firstColumn, x)
+      lastColumn = x + 1
+  if firstColumn >= lastColumn:
+    result.fill(AtlasMargin)
+    return
+  let bottom = top + (height - 1).float64 / zoom
+  if firstColumn != 0 or lastColumn != width or
+      not (top >= 0 and bottom < atlas.height.float64):
+    result.fill(AtlasMargin)
+  atlas.ensureDrawings()
+  var
+    previousWorldY = -1
+    # A fresh cache observes story changes and direct public graphics mutations.
+    rows = newSeq[ViewportTileRow](ViewportRowCacheSlots)
   for y in 0 ..< height:
     let nativeY = top + y.float64 / zoom
     if not (nativeY >= 0 and nativeY < atlas.height.float64): continue
     let worldY = floor(nativeY).int
-    for x in 0 ..< width:
-      let nativeX = left + x.float64 / zoom
-      if not (nativeX >= 0 and nativeX < atlas.width.float64): continue
-      let worldX = floor(nativeX).int
-      result[x, y] = atlas.pixel(worldX, worldY)
+    if worldY == previousWorldY:
+      copyMem(addr result.data[y * width], addr result.data[(y - 1) * width],
+        width * sizeof(ColorRGBX))
+      continue
+    previousWorldY = worldY
+    var x = firstColumn
+    while x < lastColumn:
+      let
+        worldX = worldColumns[x]
+        cell = atlas.arrangementWord(worldX, worldY)
+        drawing = addr atlas.drawings[cell.region]
+        tileStart = (worldX div TilePixels) * TilePixels
+        tileEnd = tileStart + TilePixels
+        key = (((drawing.paletteKey.uint64 shl TileWordBits) or cell.word.uint64) *
+          TilePixels.uint64) + (worldY mod TilePixels).uint64 + 1
+        cached = addr rows[hash(key) and (ViewportRowCacheSlots - 1)]
+      if cached.key != key:
+        drawing.compositeTileRow(cell.word, worldY mod TilePixels, cached.colors)
+        cached.key = key
+      if zoom == 1:
+        let run = min(tileEnd - worldX, lastColumn - x)
+        copyMem(addr result.data[y * width + x], addr cached.colors[worldX - tileStart],
+          run * sizeof(ColorRGBX))
+        x += run
+      else:
+        while x < lastColumn and worldColumns[x] < tileEnd:
+          result.data[y * width + x] = cached.colors[worldColumns[x] - tileStart]
+          inc x

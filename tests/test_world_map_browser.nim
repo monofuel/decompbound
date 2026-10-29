@@ -1,7 +1,7 @@
 import
   std/[math, unittest],
   paddy, pixie, windy,
-  decompbound/[world_map_browser, world_map_view]
+  decompbound/[world_map_browser, world_map_story, world_map_view]
 
 const
   WorldWidth = 8192
@@ -275,3 +275,30 @@ suite "World atlas camera and controls":
     camera.perform(ToggleGrid)
     discard view.render(camera, scenery, MapInspector(), vec2(-1, -1), 1)
     check image[MapViewport.x.int - 1, MapViewport.y.int] == chrome
+
+  test "cached frame matches a fresh canvas after content changes and resizing":
+    let
+      view = newWorldMapView()
+      catalog = @[storyFlagMetadata(0x0174), storyFlagMetadata(0x0205)]
+    for (width, height) in [(1200, 800), (1920, 1080), (800, 800), (1200, 800)]:
+      view.resize(width, height)
+      let
+        area = view.layout.viewport
+        camera = newWorldMapBrowser(WorldWidth, WorldHeight, RegionWidth,
+          RegionHeight, RegionCount, area.w.int, area.h.int)
+        scenery = newImage(area.w.int, area.h.int)
+      camera.configureWorldFlags(catalog.len, worldListRows(view.layout.height))
+      for phase in 0 ..< 3:
+        scenery.fill(rgbx((50 + phase * 60).uint8, 90, 65, 255))
+        camera.showPanel(if phase == 1: WorldPanel else: InspectPanel)
+        camera.selectWorld((1000 + phase * 100).float64, 2000)
+        camera.grid = phase == 2
+        let
+          hover = if phase == 0: vec2(50, 230) else: vec2(-1, -1)
+          enabled = if phase == 1: @[0x0205] else: newSeq[int]()
+          inspector = MapInspector(valid: true, worldX: camera.selectedX,
+            worldY: camera.selectedY, regionIndex: camera.selectedRegion)
+          actual = view.render(camera, scenery, inspector, hover, phase, catalog, enabled)
+          fresh = newWorldMapView(width, height)
+          expected = fresh.render(camera, scenery, inspector, hover, phase, catalog, enabled)
+        check actual.data == expected.data
