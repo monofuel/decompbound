@@ -2,12 +2,14 @@
 
 This is the working reference for improving decompbound's libretro core on the
 RG DS Plus. Profiling tools, optional opaque XBGR transport and guarded CPU
-polling-loop batching are implemented. PPU optimizations remain future work. Other ideas below
-remain hypotheses until measurements and correctness checks support them.
-Initial profiling ran on the desktop while the handheld was unavailable, at
-monofuel's request. Subsequent handheld profiling confirms that CPU polling and
-PPU rendering dominate. The measured battle core alone exceeds the 60 Hz budget;
-see [the ARM/x86 comparison](#measured-rg-ds-plus-profile).
+polling-loop batching are implemented. Batching reduces fixed-clock ARM battle
+CPU time by **34.71%**; the optimized core is installed. Full-game sustained
+60 fps remains a human verification item. PPU rendering is now the largest
+measured core cost. Further optimizations below remain hypotheses until
+measurements and correctness checks support them. The original desktop and
+[ARM baselines](#measured-rg-ds-plus-profile) precede polling batching; use the
+[paired optimized results](#paired-arm-measurements-and-clock-control) for its
+current measured effect.
 
 The scope is the `.so`: CPU/bus execution, PPU rendering, APU/DSP audio, the DS
 companion, and libretro output preparation. Another agent owns
@@ -150,12 +152,11 @@ propagation or thread isolation is not an accepted shortcut.
 
 ### Conclusions and the 30% target
 
-1. **Implemented first experiment: verified wait-loop batching.** Preserve the remaining
+1. **Implemented: verified wait-loop batching.** The guarded batch preserves
    instruction-slot phase, accumulator/flags/PC, NMI handling and the existing
-   scanline/APU/HDMA cadence. Start within the existing CPU batch boundary,
-   rather than changing the instruction budget. The measured pure waits make
-   a 30% improvement plausible, not proven; an optimization still needs to
-   demonstrate its real savings and correctness, especially in battle.
+   scanline/APU/HDMA cadence. Subsequent fixed-clock ARM battle measurements
+   exceed the 30% CPU-reduction target, with independent correctness gates;
+   see the implementation and paired measurements below.
 2. **Next: the measured PPU hot paths.** Repeated scanline decode/composition
    and palette access have substantial headroom, with exact invalidation and
    scanline effects preserved.
@@ -166,9 +167,10 @@ propagation or thread isolation is not an accepted shortcut.
    of the measured audio cost is far short of 30%, before synchronization
    overhead. Reassess its share on ARM rather than treating PC ratios as universal.
 
-The baseline profiling itself claims no improvement. The original handheld
-target remains 17 → 11.9 ms for an equivalent workload. A measured ARM baseline
-is now available below; the next optimization needs a before/after device run.
+The original handheld target was 17 → 11.9 ms for an equivalent workload.
+Batching meets the relative target in the controlled ARM battle case; that
+does not establish the full frontend's frame-time distribution. The next
+optimization needs its own before/after measurements.
 
 ### Evidence and controls
 
@@ -457,6 +459,64 @@ launcher, ordinary SRAM and existing DS-test SRAM checksums are unchanged.
 Native test saves are isolated under `/tmp/decompbound-poll-batching/`.
 Logs, including the initial failure and baseline comparison, remain under
 ignored `bin/polling/`; visual/play acceptance stays in `human-verify.md`.
+
+## Next bounded experiment: background palette address lookup
+
+The optimized ARM profile attributes **7.540 ms / 60.91%** of battle wall time
+to `VideoScanline`, versus 0.092 ms to sprites and 0.116 ms to foreground
+restoration. These are instrumented, variable-clock measurements, not savings
+estimates. Evidence: ignored
+`bin/polling/arm-results/audit-battle-stage-summary.json`.
+
+Source inspection rules out one tempting duplicate-work claim: `BgDecode`
+already shares each layer's decoded line between main and subscreen composition,
+and records tile priority so low/high passes reuse that decode. Preserve this.
+
+A smaller candidate is repeated thread-local palette resolution in
+`bgScanlineInto`. The retained shipping PC optimized `.so` (SHA256 above)
+calls `__tls_get_addr` immediately before opaque-pixel palette loads, including
+unrolled consecutive pixels at native addresses `0x2e9c3`, `0x2ea28` and
+`0x2ea8d`. The palette symbol is at TLS offset `0x2a0`; these are separate from
+calls for Nim's error state. Reproduce locally without launching a frontend:
+
+```sh
+# LLVM objdump syntax; GNU objdump uses --disassemble=SYMBOL instead.
+objdump -d --no-show-raw-insn \
+  --disassemble-symbols=bgScanlineInto__OOZqrpbzcobhaqZcch_u363 \
+  bin/polling/pc/optimized.so
+```
+
+Hypothesis: resolve the current thread's palette address once per background
+scanline call and reuse it in the pixel loop. Keep the cache thread-local and
+leave `syncPalette` and its per-scanline CGRAM comparison unchanged. Do not
+retain the address across calls, threads or library unloads, copy a stale
+frame-level palette, or alter Nim's exception handling. The observed x86
+instruction sequence does not prove ARM uses the same lookup sequence or that
+this change improves either target.
+
+The acceptance sequence is:
+
+1. Build baseline/candidate separately and inspect emitted code to establish
+   whether the candidate removes those repeated palette resolutions. Reject
+   the hypothesis if the compiler emits equivalent work.
+2. Add synthetic behavior checks for CGRAM changes between scanlines,
+   sequential machines, reset/state import, tile transparency, flips, priority
+   and independent main/sub windows. Exercise actual callers, not a copy of
+   the palette lookup expression.
+3. Compare independently built cores over the private scene archive, then run
+   all existing replay goldens and libretro lifecycle/transport/state gates.
+   Require matching pixels, PCM and machine state. The existing
+   `tests/polling/corpus.nim` switches CPU stepping inside one renderer; rerunning
+   it alone cannot compare two PPU implementations. A PPU comparison must
+   actually execute both versions.
+4. Use the existing silent standalone host for three alternating PC pairs per
+   cave-walk/dialogue/battle workload, with unchanged input, warmup and frame
+   counts. Keep hashing out of timing runs; check it separately. Retain only
+   a measured improvement without correctness regressions. If promising,
+   repeat on ARM with controlled clocks using the same silent host before
+   deployment. All player runs remain muted unless freshly authorized.
+
+No renderer change or new speedup is claimed by this investigation.
 
 ## Implemented: opaque XBGR transport
 
