@@ -222,6 +222,20 @@ State import/drop support was added afterward; those checks remain open.
     sharp when switched, all SNES buttons respond, sound is clean and correctly
     paced, and exiting restores the launcher. Device saves remain separate from
     desktop saves.
+  - **Historical notes (2026-10-27):** monofuel confirmed launch/play, audio, L2
+    screen switching and Select+Start exit; early scaling/frame-wait improvements
+    helped but still lagged. Later core/GPU work resolved normal-play performance
+    (see DONE). This entry covers the earlier single-screen mode; current DS
+    defaults are above. In-game save/reload still needs a manual run without the
+    startup screenstate overriding the battery save.
+
+- [ ] **RG SP through mono-retro-player** · 2026-10-27
+  - **Run:** Choose Decompbound in the RG SP's mono-retro menu. Play with the
+    D-pad, face buttons and shoulders, listen to music/effects, then hold
+    Select+Start for two seconds to return. Make an in-game save and relaunch.
+  - **Pass if:** graphics are upright, sharp and centered with black borders;
+    controls and sound work; exiting restores the launcher; and the in-game
+    save survives restart. RG SP saves stay separate from DS Plus/desktop saves.
 
 - [ ] **Libretro core in mono-retro's desktop player** · 2026-10-27 · `master`
   - **Run:** `make libretro-play` ([setup and options](libretro.md#mono-retro)).
