@@ -43,4 +43,12 @@ const
   RetroMemorySaveRam* = 0.cuint
   RetroMemorySystemRam* = 2.cuint
   RetroRegionNtsc* = 0.cuint
+  RetroLogInfo* = 1.cuint
   RetroLogError* = 3.cuint
+
+const
+  MonoRetroEnvSetPixelFormat* = 0x00024D52.cuint
+    ## Negotiate the optional private uint32 transport described by mono-retro.
+  MonoRetroPixelFormatXbgr8888* = 0x34324258'u32
+    ## Private XB24 FourCC, separate from libretro's standard pixel-format enum.
+    ## Each pixel must contain opaque R, G, B, 255 bytes in memory.

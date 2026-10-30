@@ -13,12 +13,15 @@
 #define HEADER_SIZE 512u
 #define PIXEL_FORMAT_COMMAND 10u
 #define XRGB8888 1u
+#define PRIVATE_PIXEL_COMMAND 0x00024D52u
+#define OPAQUE_XBGR 0x34324258u
 #define DEVICE_NONE 0u
 #define DEVICE_JOYPAD 1u
 #define MEMORY_SAVE_RAM 0u
 #define MEMORY_SYSTEM_RAM 2u
 #define LOG_INTERFACE_COMMAND 27u
 #define ERROR_LOG_LEVEL 3u
+#define INFO_LOG_LEVEL 1u
 #define MAX_RETAINED_RSS_KIB 32768
 
 struct game_info { const char *path; const void *data; size_t size; const char *meta; };
@@ -63,22 +66,37 @@ static struct api open_api(void *handle) {
   return a;
 }
 static bool accept_pixels = true;
+static bool accept_private = false, opaque_pixels = false;
 static bool dual_screen = false;
-static unsigned pixel_requests, polls, videos, frames, samples, buttons;
+static unsigned pixel_requests, private_requests, polls, videos, frames, samples, buttons;
 static uint32_t pixel;
 static uint32_t first_card, second_card;
-static unsigned errors;
-static char last_error[256];
+static unsigned errors, infos;
+static char last_error[256], last_info[256];
 static void core_log(int level, const char *format, ...) {
-  CHECK(level == ERROR_LOG_LEVEL);
+  CHECK(level == ERROR_LOG_LEVEL || level == INFO_LOG_LEVEL);
   va_list arguments;
   va_start(arguments, format);
-  vsnprintf(last_error, sizeof(last_error), format, arguments);
+  if (level == ERROR_LOG_LEVEL) {
+    vsnprintf(last_error, sizeof(last_error), format, arguments);
+    errors++;
+  } else {
+    vsnprintf(last_info, sizeof(last_info), format, arguments);
+    infos++;
+  }
   va_end(arguments);
-  errors++;
 }
 static bool environment(unsigned command, void *data) {
-  if (command == PIXEL_FORMAT_COMMAND) { CHECK(data); CHECK(*(unsigned *)data == XRGB8888); pixel_requests++; return accept_pixels; }
+  if (command == PRIVATE_PIXEL_COMMAND) {
+    CHECK(data && *(uint32_t *)data == OPAQUE_XBGR); private_requests++;
+    if (accept_private) opaque_pixels = true;
+    return accept_private;
+  }
+  if (command == PIXEL_FORMAT_COMMAND) {
+    CHECK(data); CHECK(*(unsigned *)data == XRGB8888); pixel_requests++;
+    if (accept_pixels) opaque_pixels = false;
+    return accept_pixels;
+  }
   if (command == LOG_INTERFACE_COMMAND) { CHECK(data); ((struct log_callback *)data)->log = core_log; return true; }
   if (command == 16) {
     struct variable *v = data; CHECK(v && !strcmp(v[0].key, "decompbound_dual_screen"));
@@ -90,12 +108,23 @@ static bool environment(unsigned command, void *data) {
   }
   return false;
 }
+static uint32_t canonical_pixel(const void *data, size_t index) {
+  const uint8_t *bytes = (const uint8_t *)data + index * 4;
+  if (opaque_pixels) return ((uint32_t)bytes[0] << 16) | ((uint32_t)bytes[1] << 8) | bytes[2];
+  uint32_t word; memcpy(&word, bytes, sizeof(word)); return word;
+}
 static void video(const void *data, unsigned width, unsigned height, size_t pitch) {
   CHECK(data); CHECK(width == 256 && height == (dual_screen ? 448u : 224u) && pitch == 1024);
-  pixel = ((const uint32_t *)data)[0]; videos++;
+  pixel = canonical_pixel(data, 0); videos++;
+  if (opaque_pixels) {
+    const uint8_t *bytes = data;
+    for (unsigned y = 0; y < height; ++y)
+      for (unsigned x = 0; x < width; ++x) CHECK(bytes[y * pitch + x * 4 + 3] == 255);
+    CHECK(bytes[0] == (pixel >> 16) && bytes[1] == ((pixel >> 8) & 255) && bytes[2] == (pixel & 255));
+  }
   if (dual_screen) {
-    first_card = ((const uint32_t *)data)[(224 + 144) * 256 + 72];
-    second_card = ((const uint32_t *)data)[(224 + 144) * 256 + 128];
+    first_card = canonical_pixel(data, (224 + 144) * 256 + 72);
+    second_card = canonical_pixel(data, (224 + 144) * 256 + 128);
   }
 }
 static void sample(int16_t left, int16_t right) { (void)left; (void)right; samples++; }
@@ -225,11 +254,22 @@ static void check_companion(struct api a) {
   a.reset(); buttons = 0; run_frame(a, 533);
   CHECK(first_card == 0xff0000);
 }
+static void checked_load(struct api a, struct game_info *game) {
+  unsigned old_standard = pixel_requests, old_private = private_requests;
+  unsigned old_infos = infos, old_errors = errors;
+  CHECK(a.load_game(game));
+  CHECK(private_requests == old_private + 1);
+  CHECK(pixel_requests == old_standard + (accept_private ? 0u : 1u));
+  CHECK(opaque_pixels == accept_private);
+  CHECK(infos == old_infos + 1 && errors == old_errors);
+  CHECK(strstr(last_info, accept_private ? "XBGR" : "XRGB8888"));
+}
 int main(int argc, char **argv) {
   CHECK(argc == 2);
   long initial_peak = 0;
   for (unsigned cycle = 0; cycle < 22; ++cycle) {
     dual_screen = (cycle % 2) != 0;
+    accept_private = cycle % 4 >= 2; opaque_pixels = false;
     void *handle = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL); CHECK(handle);
     struct api a = open_api(handle); callbacks(a); a.init(); check_metadata(a);
     unsigned previous_errors = errors;
@@ -239,19 +279,24 @@ int main(int argc, char **argv) {
     unsigned char *rom = make_rom(cycle == 1 ? HEADER_SIZE : 0);
     struct game_info game = {NULL, rom, ROM_SIZE + (cycle == 1 ? HEADER_SIZE : 0), NULL};
     if (cycle == 0) {
+      unsigned before_info = infos, before_error = errors;
       accept_pixels = false; CHECK(!a.load_game(&game));
-      CHECK(strstr(last_error, "XRGB8888")); accept_pixels = true;
+      CHECK(strstr(last_error, "XRGB8888") && errors == before_error + 1 && infos == before_info);
+      unsigned before_video = videos; a.run(); CHECK(videos == before_video);
+      accept_pixels = true;
     }
-    unsigned old_requests = pixel_requests; CHECK(a.load_game(&game)); CHECK(pixel_requests > old_requests);
+    checked_load(a, &game);
+    unsigned load_infos = infos;
     struct av_info loaded_av; a.get_system_av_info(&loaded_av);
     CHECK(loaded_av.geometry.height == (dual_screen ? 448u : 224u));
     memset(rom, 0, game.size); free(rom);
-    if (cycle < 2) check_loaded(a); else { a.reset(); run_frame(a, 533); }
+    if (cycle < 4) check_loaded(a); else { a.reset(); run_frame(a, 533); }
     if (dual_screen) check_companion(a);
+    CHECK(infos == load_infos);
     if (cycle == 0) {
       uint8_t saved[8192]; memcpy(saved, a.get_memory_data(MEMORY_SAVE_RAM), sizeof(saved));
       a.unload_game(); rom = make_rom(0); game.data = rom; game.size = ROM_SIZE;
-      CHECK(a.load_game(&game)); free(rom);
+      accept_private = true; checked_load(a, &game); free(rom);
       uint8_t *sram = a.get_memory_data(MEMORY_SAVE_RAM); CHECK(sram);
       memcpy(sram, saved, sizeof(saved)); a.reset();
       CHECK(sram[0] == 0x5a && sram[8191] == 0xa5);
@@ -260,7 +305,8 @@ int main(int argc, char **argv) {
     CHECK(a.get_memory_data(MEMORY_SAVE_RAM) == NULL && a.get_memory_size(MEMORY_SAVE_RAM) == 0);
     CHECK(a.get_memory_data(1) == NULL && a.get_memory_size(1) == 0);
     a.deinit(); callbacks(a); a.init(); rom = make_rom(0); game.data = rom; game.size = ROM_SIZE;
-    CHECK(a.load_game(&game)); free(rom); buttons = 1; run_frame(a, 533);
+    accept_private = !accept_private;
+    checked_load(a, &game); free(rom); buttons = 1; run_frame(a, 533);
     CHECK(((uint8_t *)a.get_memory_data(MEMORY_SYSTEM_RAM))[1] == 0x80);
     a.set_controller_port_device(0, DEVICE_NONE);
     a.unload_game(); a.deinit(); CHECK(dlclose(handle) == 0);

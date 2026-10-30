@@ -16,7 +16,7 @@ const
   JoypadRight = 7.cuint
   NanosecondsPerSecond = 1_000_000_000'i64
   Usage = "libretro_profile --core:PATH --rom:PATH [--state:PATH] " &
-    "[--frames:N] [--warmup:N] [--ds] [--walk] [--hash] --out:bin/NAME.json"
+    "[--frames:N] [--warmup:N] [--ds] [--walk] [--hash] [--xbgr] --out:bin/NAME.json"
   CrcPolynomial = 0xEDB88320'u32
   CrcInitial = 0xFFFFFFFF'u32
 
@@ -24,7 +24,7 @@ type
   Options = object
     corePath, romPath, statePath, outPath: string
     frames, warmup: int
-    dualScreen, walk, hash: bool
+    dualScreen, walk, hash, xbgr: bool
   VoidProc = proc() {.cdecl.}
   ApiVersion = proc(): cuint {.cdecl.}
   SystemInfo = proc(info: ptr RetroSystemInfo) {.cdecl.}
@@ -39,7 +39,7 @@ type
   SetPoll = proc(callback: RetroInputPoll) {.cdecl.}
   SetInput = proc(callback: RetroInputState) {.cdecl.}
   CallbackState = object
-    dualScreen, walk, hashing: bool
+    dualScreen, walk, hashing, offerOpaque, opaqueAccepted: bool
     frame: int
     failure: string
     videoCalls, audioFrames, pollCalls, videoBytes: int64
@@ -73,8 +73,13 @@ proc checkCallbacks() =
 proc environment(command: cuint, data: pointer): bool {.cdecl.} =
   ## Negotiate the core's software pixel format and startup companion option.
   case command
+  of MonoRetroEnvSetPixelFormat:
+    result = cpuEndian == littleEndian and callbacks.offerOpaque and data != nil and
+      cast[ptr uint32](data)[] == MonoRetroPixelFormatXbgr8888
+    if result: callbacks.opaqueAccepted = true
   of RetroEnvSetPixelFormat:
     result = data != nil and cast[ptr cuint](data)[] == RetroPixelFormatXrgb8888
+    if result: callbacks.opaqueAccepted = false
   of RetroEnvSetVariables:
     result = true
   of RetroEnvGetVariable:
@@ -184,12 +189,13 @@ proc parseOptions(): Options =
     of "out": result.outPath = value
     of "frames": result.frames = parseInt(value)
     of "warmup": result.warmup = parseInt(value)
-    of "ds", "walk", "hash":
+    of "ds", "walk", "hash", "xbgr":
       if value.len != 0:
         raise newException(ValueError, "--" & key & " takes no value.")
       case key
       of "ds": result.dualScreen = true
       of "walk": result.walk = true
+      of "xbgr": result.xbgr = true
       else: result.hash = true
     of "help":
       echo Usage
@@ -265,6 +271,7 @@ proc profile(options: Options): JsonNode =
   var info: RetroSystemInfo
   symbol[SystemInfo](library, "retro_get_system_info")(addr info)
   callbacks = CallbackState(dualScreen: options.dualScreen, walk: options.walk,
+    offerOpaque: options.xbgr,
     videoCrc: CrcInitial, audioCrc: CrcInitial)
   symbol[SetEnvironment](library, "retro_set_environment")(environment)
   symbol[SetVideo](library, "retro_set_video_refresh")(video)
@@ -323,6 +330,8 @@ proc profile(options: Options): JsonNode =
     "frames": options.frames,
     "warmup_frames": options.warmup,
     "dual_screen": options.dualScreen,
+    "opaque_xbgr_offered": options.xbgr,
+    "opaque_xbgr_accepted": callbacks.opaqueAccepted,
     "walk": options.walk,
     "walk_period_frames": WalkPeriod,
     "state_imported": options.statePath.len > 0,

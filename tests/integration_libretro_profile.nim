@@ -20,7 +20,7 @@ proc main() =
   var
     previous: array[3, string]
     existed: array[3, bool]
-    reports: array[2, JsonNode]
+    reports: array[4, JsonNode]
   for index, name in variables:
     existed[index] = existsEnv(name)
     previous[index] = getEnv(name)
@@ -32,15 +32,21 @@ proc main() =
   putEnv(variables[0], stagePath)
   putEnv(variables[1], $Warmup)
   putEnv(variables[2], $Frames)
-  for index, core in cores:
+  for index in 0 ..< reports.len:
     let
+      core = cores[index mod cores.len]
+      offerOpaque = index >= cores.len
       path = directory / (&"host-{index}.json")
-      command = quoteShellCommand([host, "--core:" & core,
+      command = quoteShellCommand(@[host, "--core:" & core,
         "--rom:" & resolveGoldBaseromPath(), "--frames:" & $Frames,
-        "--warmup:" & $Warmup, "--ds", "--walk", "--hash", "--out:" & path])
+        "--warmup:" & $Warmup, "--ds", "--walk", "--hash", "--out:" & path] &
+        (if offerOpaque: @["--xbgr"] else: @[]))
       child = execCmdEx(command)
     doAssert child.exitCode == 0, child.output
     reports[index] = parseFile(path)
+    doAssert reports[index]["opaque_xbgr_offered"].getBool == offerOpaque
+    doAssert reports[index]["opaque_xbgr_accepted"].getBool ==
+      (offerOpaque and cpuEndian == littleEndian)
     doAssert reports[index]["frames"].getInt == Frames
     doAssert reports[index]["video_calls"].getInt == Frames
     doAssert reports[index]["video_width"].getInt == 256
@@ -55,6 +61,11 @@ proc main() =
     doAssert reports[index]["wall_summary_ns"]["p99"].getBiggestInt == times[63]
   doAssert reports[0]["hashes"] == reports[1]["hashes"],
     "Profiling changed video, PCM, WRAM or SRAM behavior."
+  doAssert reports[2]["hashes"] == reports[3]["hashes"],
+    "Profiling changed opaque transport behavior."
+  for key in ["pcm_crc32", "wram", "sram"]:
+    doAssert reports[0]["hashes"][key] == reports[2]["hashes"][key],
+      "Transport changed emulation: " & key
   let stages = parseFile(stagePath)
   doAssert stages["recordedFrames"].getInt == Frames
   doAssert stages["framesSeen"].getInt == Frames + Warmup

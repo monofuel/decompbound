@@ -1,8 +1,9 @@
 # Libretro core performance
 
 This is the working reference for improving decompbound's libretro core on the
-RG DS Plus. Profiling tools are available; emulation optimizations have not
-been implemented. Ideas below remain hypotheses until measurements and
+RG DS Plus. Profiling tools and an optional opaque XBGR transport are implemented;
+CPU/PPU emulation optimizations have not been implemented. Other ideas below
+remain hypotheses until measurements and
 correctness checks support them. Initial profiling runs on the desktop while
 the handheld is unavailable, at monofuel's request.
 
@@ -151,8 +152,8 @@ propagation or thread isolation is not an accepted shortcut.
    and palette access have substantial headroom, with exact invalidation and
    scanline effects preserved.
 3. **Small complementary work: transport packing.** It is about 0.065 ms per
-   DS frame on this PC. Mono-retro's optional opaque XBGR transport is queued
-   separately; eliminating this pass alone cannot deliver 30% core savings.
+   DS frame on this PC. Mono-retro's optional opaque XBGR transport is now
+   implemented (measurements below); this alone cannot deliver 30% core savings.
 4. **Defer audio threading as the first optimization.** Even perfect removal
    of the measured audio cost is far short of 30%, before synchronization
    overhead. Reassess its share on ARM rather than treating PC ratios as universal.
@@ -189,6 +190,63 @@ hash parity and pre-instrumentation controls. Binary SHA256 identities:
 Retain the PC-count probe while the wait-loop contract is being investigated;
 it is a reproduction tool for that open question, not a timing benchmark.
 
+## Implemented: opaque XBGR transport
+
+The core now negotiates mono-retro's optional private XB24 transport, copying
+opaque Pixie bytes into its existing output buffer. Older frontends retain the
+standard XRGB packing path. This changes video preparation only; CPU/PPU/APU
+execution and the combined game-above-party layout are unchanged. See
+[the transport contract](libretro.md#frontend-contract).
+
+The following comparison uses the **same new shipping core** with either
+negotiation result, alternating standard/XBGR in three serial pairs. Each run
+has 240 warmup and 2,000 measured cave-walking DS frames, pinned to CPU 2 on the
+same PC as the baseline, without hashing. Thus each row contains 6,000 samples.
+The host's callbacks discard output: this measures core savings, excluding any
+additional frontend conversion savings.
+
+| Transport | CPU mean | CPU p95 | CPU p99 | Wall mean | Wall max |
+|---|---:|---:|---:|---:|---:|
+| Standard XRGB8888 | 1.613 ms | 1.658 ms | 1.712 ms | 1.619 ms | 1.847 ms |
+| Private opaque XBGR | 1.560 ms | 1.615 ms | 1.875 ms | 1.567 ms | 2.478 ms |
+
+Mean core CPU work fell **3.25% (0.052 ms/frame)**. The XBGR runs had a worse
+combined p99/max, including a transient in the second run; these measurements
+do not demonstrate a tail-latency improvement. Separate instrumented runs put
+output preparation at **0.0635 ms → 0.0072 ms** per DS frame, consistent with
+replacing channel conversion by two contiguous copies. Those stage clocks
+perturb execution and are not substituted for the uninstrumented totals.
+The 30% target remains open, and no handheld gain is claimed.
+
+The independent C host checks exact negotiation payloads, successful startup
+logging, rejection/fallback, both-rejected failure, colors, every private filler
+byte, blanking, panel offsets, reset and load/unload lifecycle. ROM integration
+checks all normalized pixels, PCM, WRAM and SRAM for 1,200 frames in each of
+four mode/transport combinations, including an imported private screenstate.
+Normal/profile hash parity passes separately within each transport; raw video
+CRCs intentionally differ between transports because their byte layouts differ.
+
+The updated desktop mono-retro-player also passed its isolated X11 integration
+suite, including its older-player fallback fixture. It then ran this actual core
+for 180 paced frames in each screen mode from the private test state, selecting
+XBGR and reporting no audio underruns/overruns with the null audio driver.
+An older desktop player ran the same core/state in DS mode for 180 frames,
+selected standard XRGB8888 and also reported no audio underruns/overruns.
+The shipping ARM core cross-build passes (AArch64 ELF, standard runtime
+dependencies, no Nix store runpath). Device deployment/testing is pending
+while the handheld is off; the matching
+ARM player is `mono-retro-performance/build/player-xbgr-arm64`.
+
+Ignored numeric evidence is under `bin/profiles/pc-xbgr-6a532f6-worktree/`.
+These builds report source `6a532f6+dirty` plus the XBGR diff; SHA256 identities:
+
+- Normal `d598a738afb9f169bcc29e77bd368a7451dd07088b1668f204ade0aeee74a515`.
+- Instrumented `8005dbfbaf3d9c1fe761ca3afd07530f6968495be1d0b0d15b06f0932333024f`.
+
+To offer XBGR in the profiling host, add `--xbgr` to the commands below.
+Reports record both whether it was offered and whether the core selected it.
+The default host rejects the private request to retain an older frontend control.
+
 ## Ideal core and current execution
 
 The ideal core executes necessary game work once, reuses decoded data, avoids
@@ -202,7 +260,8 @@ The current path is `retro_run` in `src/libretro/core.nim`:
 1. Poll input and clear the native frame image.
 2. Call `stepReplayFrame`: CPU/PPU/APU scanline stepping plus audio top-up.
 3. Read party state and update the optional DS companion.
-4. Pack game and companion pixels into the persistent XRGB8888 output buffer.
+4. Copy opaque Pixie pixels or pack standard XRGB into the persistent output buffer,
+   according to the negotiated transport.
 5. Invoke the frontend's video and audio callbacks.
 
 `frame_step.nim` schedules 262 scanlines with up to 150 main-CPU instruction
@@ -265,7 +324,7 @@ the libretro adapter or DS companion, so they complement the `.so` baseline.
 | APU/DSP | Streamline SPC dispatch, timer handling, BRR/sample decoding and DSP loops where profiling finds cost. | Separate these costs first. Preserve feedback-dependent decoding, audio samples and CPU/APU interaction. |
 | DS state | Reduce repeated party/inventory construction, string work and allocations when relevant WRAM contents are unchanged. | Measure snapshot/read/compare cost separately from rendering; preserve roster order, HP/PP updates, palettes, input and inventory selection. |
 | Companion output | Repack its cached image into XRGB only when that image changes. | Provide a reliable image revision/invalidation path, including reset and state import. The image is cached now, but its pixels are still repacked every frame. |
-| Pixel packing | Improve the core's native-frame-to-XRGB conversion, including compiler vectorization or ARM SIMD if warranted. | Measure the loop on the target and inspect generated code; preserve colors, layout and pitch. Frontend conversion is separately owned. |
+| Pixel packing | Optional opaque XBGR now avoids conversion with updated mono-retro; improve the standard fallback only if worthwhile. | PC core mean improved 3.25% in the measured DS workload. Measure on ARM; frontend conversion is separately owned. |
 | Buffer writes | Investigate redundant frame clears and overwritten scratch/output buffers. | Prove coverage and forced-blank/transition behavior before removing initialization. `retro_run` clears before a stepper that may also fill the backdrop. |
 | Allocation and lifetime | Reuse transient storage and reduce unnecessary reference-management work in hot paths. | Measure allocations and correlate them with slow frames. Keep ORC/libc allocation and unload correctness unless evidence justifies a change. |
 | Compiler | Evaluate target CPU tuning and profile-guided optimization using representative scenes. | Verify the actual device ISA/toolchain, compare shipping builds and validate portability. Older Pi PGO gains are historical; ARC/LTO changes previously measured as noise there. |
@@ -310,7 +369,8 @@ A viable threaded design would need:
 The best-case model is `max(main work, audio work) + synchronization`, rather
 than their serial sum. For illustration only, if audio were 20% of 15.9 ms of
 exclusive core work, perfect overlap would bottom out around **12.7 ms** before
-synchronization overhead. The actual audio fraction is unknown. Additional
+synchronization overhead. The current PC measurements put audio at 7–10%; its
+share on the handheld is still unknown. Additional
 threads cannot remove a dominant serial bottleneck, and contention or frequent
 rendezvous can worsen tail latency.
 
@@ -345,8 +405,8 @@ a console. Record any required handheld play/audio check in
 assembly, codecs or extraction, following [GOAL.md](../GOAL.md).
 
 Wait-loop batching is the leading candidate from the PC evidence. It has not
-been implemented or credited with savings. Optional XBGR transport is a
-separate requested implementation following this baseline.
+been implemented or credited with savings. Optional XBGR transport is the first
+completed optimization, documented separately above.
 
 ## Profiling tools
 

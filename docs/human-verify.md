@@ -42,6 +42,7 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 | Check | Run | Pass if |
 |---|---|---|
 | [ ] Default shipping core and frontend | Open Decompbound from the RG DS Plus menu; it loads the existing mid-game screenstate in EarthBound DS mode. | Both screens, controls and audio work, performance is acceptable, and holding Select+Start returns to the menu. |
+| [ ] Opaque XBGR transport (device deployment pending) | When the handheld is available, install the matching shipping ARM core and mono-retro's `mono-retro-performance/build/player-xbgr-arm64`. Launch the existing `earthbound_20260818-022023.png` test state in DS mode; confirm one `private opaque XBGR8888` startup log. Repeat with the older player, expecting `standard XRGB8888`. | Colors and both panel positions match between players, there is no transparency/black-screen regression, and controls/audio still work. Record comparable frame timings; PC savings are not a handheld result. |
 
 ### README feature showcase (2026-10-29)
 
