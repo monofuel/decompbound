@@ -40,8 +40,9 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 ### RetroAchievements (2026-10-30)
 
 Core, synthetic SDK and desktop integration gates pass. RG DS Plus now has the
-player from `a14597b` and core from `fc0c09a`; binary checksums and silent loader
-checks pass. The user-provided account file was copied without inspecting it.
+player from `a3e5180` and core from `fc0c09a`; binary checksums, silent loader
+checks and muted synthetic native GPU/CPU runs pass. The user-provided account file
+was copied without inspecting it.
 Live account/unlock and device play acceptance remain manual. Follow mono-retro's
 `docs/retroachievements.md`.
 
@@ -502,6 +503,17 @@ Only when an agent points you here for a **tool** check:
 ---
 
 ## FOUND IN PLAY — new issues (human → agents)
+
+- **2026-10-30 · RG DS Plus startup crash after achievements deployment — fixed and deployed.**
+  Native DRM input queried desktop `mousePos`; CPU presentation also queried
+  desktop `minimized`. Windy correctly rejected these operations. Player
+  `a3e5180` guards the desktop calls and selects native touch independently.
+  The previous binary reproduced the error with a muted synthetic core; the
+  fixed binary completed 30 frames in all four GPU/CPU × single/DS combinations.
+  Desktop integration and native-contact regression tests pass. No account file
+  was inspected, no real service requests were made, and game-data checksums agree.
+  **Run / Pass if:** retry the existing EarthBound launcher and the browser row above;
+  startup and Menu/Home should work without the direct-display exception.
 
 - **RG DS Plus occasional audio crunch** · 2026-10-30 · `ab07a7a`
   - Monofuel says gameplay is good but thinks a little crunch remains. No new
