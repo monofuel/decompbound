@@ -8,7 +8,7 @@
 
 import
   std/strformat,
-  ./[cpu, memmap, apu]
+  ./[core_profile, cpu, memmap, apu]
 
 type
   ApuHandshakeState = enum
@@ -1134,4 +1134,5 @@ proc tickApu*(snes: SnesBus): tuple[left, right: int16] =
   ## play.nim streams it to the speakers. No-op (returns 0) if no live APU.
   if snes.apu == nil:
     return (0'i16, 0'i16)
-  snes.apu.runSample()
+  profileStage(ApuOther):
+    result = snes.apu.runSample()

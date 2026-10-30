@@ -481,6 +481,19 @@ libretro: nim.cfg
 
 libretro-test: libretro
 	nim r $(NIM_TEST_FLAGS) tests/test_libretro.nim
+	nim r $(NIM_TEST_FLAGS) tests/test_core_profile.nim
+	nim r -d:coreProfile $(NIM_TEST_FLAGS) tests/test_core_profile.nim
+
+.PHONY: libretro-profile libretro-profile-test
+libretro-profile: nim.cfg
+	@mkdir -p bin/libretro
+	nim c $(NIM_TEST_FLAGS) -d:coreProfile -o:bin/libretro/profile-instrumented.so src/libretro/core.nim
+	nim c $(NIM_TEST_FLAGS) -o:bin/libretro-profile src/tools/libretro_profile.nim
+
+libretro-profile-test: libretro libretro-profile
+	nim r $(NIM_TEST_FLAGS) tests/test_core_profile.nim
+	nim r -d:coreProfile $(NIM_TEST_FLAGS) tests/test_core_profile.nim
+	nim r $(NIM_TEST_FLAGS) tests/integration_libretro_profile.nim
 
 libretro-frontend-test: libretro
 	MONO_RETRO_ROOT="$(MONO_RETRO_ROOT)" nim r $(NIM_TEST_FLAGS) tests/mono_retro/check_core.nim

@@ -1,8 +1,10 @@
 # Libretro core performance
 
 This is the working reference for improving decompbound's libretro core on the
-RG DS Plus. Implementation has not started. Ideas below are hypotheses until
-measurements and correctness checks support them.
+RG DS Plus. Profiling tools are available; emulation optimizations have not
+been implemented. Ideas below remain hypotheses until measurements and
+correctness checks support them. Initial profiling runs on the desktop while
+the handheld is unavailable, at monofuel's request.
 
 The scope is the `.so`: CPU/bus execution, PPU rendering, APU/DSP audio, the DS
 companion, and libretro output preparation. Another agent owns
@@ -18,9 +20,12 @@ distribution still need to be recorded before treating these as exclusive
 core timings. These numbers are not a measured subsystem profile.
 
 The core currently advertises 60 Hz, giving a **16.67 ms** frame budget. If
-15.9 ms is required work on the critical path, only 0.77 ms remains. A working
-target is busy frames around **12–13 ms**, leaving room for scheduling and
-other work. This is a design target, not a predicted optimization result.
+15.9 ms is required work on the critical path, only 0.77 ms remains. The working
+target is **30% less core CPU time per emulated frame**: a 17 ms workload would
+become **11.9 ms**, leaving about 4.8 ms of frame budget. This means multiplying
+cost by 0.7 (about 1.43× throughput), not merely 30% higher throughput. An
+uncapped benchmark using an entire host core is not itself a regression in CPU
+usage; compare CPU time for the same emulated work.
 Tail latency matters alongside the mean; buffering can absorb some isolated
 spikes but cannot compensate for sustained excess work.
 
@@ -185,3 +190,49 @@ a console. Record any required handheld play/audio check in
 assembly, codecs or extraction, following [GOAL.md](../GOAL.md).
 
 No optimization has been selected or benchmarked in this investigation yet.
+
+## Profiling tools
+
+`make libretro libretro-profile` builds the normal `.so`, a separate
+`bin/libretro/profile-instrumented.so`, and the standalone
+`bin/libretro-profile` host. All use the shipping configuration by default.
+Only the instrumented core has `-d:coreProfile`; normal builds compile away the
+stage clocks and recording buffers. No frontend or device library is required.
+
+The host always installs video and audio callbacks, so packing and audio
+generation remain enabled even though output is discarded. It does not load
+or save battery SRAM. Optional state import uses the normal public API.
+Reports contain raw per-frame wall time, Linux calling-thread CPU time and
+quantiles, plus build information and callback counts. Output must be JSON
+beneath the current directory's ignored `bin/` tree. `--hash` checks video,
+PCM and final WRAM/SRAM without storing their contents; use it for correctness,
+not timing, since hashing is performed in timed callbacks.
+
+```sh
+make libretro libretro-profile
+taskset -c 2 bin/libretro-profile \
+  --core:bin/libretro/decompbound_libretro.so \
+  --rom:"bin/Earthbound (U) [!].smc" \
+  --state:/home/monofuel/Pictures/Screenshots/earthbound_20260818-022023.png \
+  --warmup:240 --frames:2000 --ds --walk --out:bin/profiles/normal.json
+
+DECOMPBOUND_PROFILE_OUT=bin/profiles/stages.json \
+DECOMPBOUND_PROFILE_WARMUP=240 DECOMPBOUND_PROFILE_FRAMES=2000 \
+taskset -c 2 bin/libretro-profile \
+  --core:bin/libretro/profile-instrumented.so \
+  --rom:"bin/Earthbound (U) [!].smc" \
+  --state:/home/monofuel/Pictures/Screenshots/earthbound_20260818-022023.png \
+  --warmup:240 --frames:2000 --ds --walk --out:bin/profiles/instrumented.json
+```
+
+Stage accounting is exclusive, including APU work nested inside main-CPU MMIO.
+`MainCpuWait` identifies complete CPU scanline batches beginning inside the
+verified `$C0875F/$C08762` wait loop with a zero event flag, appropriate branch
+state and no pending NMI. It is a lower bound on time in that polling loop;
+mixed batches remain in `MainCpu`. Classification does not skip instructions.
+The input/video/audio callback stages remain separate from core execution.
+
+Compare normal and instrumented runs to quantify timer overhead. Run benchmarks
+serially with the same affinity and input; do not overlap them on one CPU.
+`make libretro-profile-test` checks nested scopes, warmup/caps, normal-build
+behavior, host quantiles and actual shared-library output/memory hash parity.

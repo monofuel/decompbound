@@ -3,7 +3,7 @@
 ## point, feed port bytes, collect stereo samples (docs/audio.md Goal 2a).
 
 import
-  ./[dsp, spc700]
+  ./[core_profile, dsp, spc700]
 
 const
   CyclesPerSample* = 32  ## 1.024MHz / 32kHz.
@@ -123,13 +123,14 @@ proc runSample*(apu: Apu): tuple[left: int16, right: int16] =
   ## Run the SPC700 for one 32kHz sample worth of cycles, tick timers,
   ## and mix one output sample.
   let startCycles = apu.spc.cycles
-  while apu.spc.cycles - startCycles < CyclesPerSample and not apu.spc.stopped:
-    apu.spc.step()
-  # A stopped/sleeping core still lets timers advance.
-  if apu.spc.stopped:
-    apu.spc.cycles += CyclesPerSample
-  apu.tickTimers(CyclesPerSample)
-  result = apu.dsp.mixSample()
+  profileStage(SpcExecution):
+    while apu.spc.cycles - startCycles < CyclesPerSample and not apu.spc.stopped:
+      apu.spc.step()
+    # A stopped/sleeping core still lets timers advance.
+    if apu.spc.stopped:
+      apu.spc.cycles += CyclesPerSample
+    apu.tickTimers(CyclesPerSample)
+  profileStage(AudioDsp): result = apu.dsp.mixSample()
 
 proc resetTransient*(apu: Apu) =
   ## Clear mix state the v1/v2 save-state blob does not carry.

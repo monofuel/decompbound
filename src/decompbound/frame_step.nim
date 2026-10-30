@@ -4,7 +4,7 @@
 
 import
   pixie,
-  ./[cpu, ppu, snesbus]
+  ./[core_profile, cpu, ppu, snesbus]
 
 const
   InstrPerLine* {.intdefine.} = 150  # match play.nim's frame budget; at 40 the game is CPU-starved
@@ -14,6 +14,23 @@ const
 type
   FramePcm* = array[ApuSamplesPerFrame * 2, int16]
     ## One frame of interleaved stereo APU output (533 left/right pairs).
+
+when defined(coreProfile):
+  const
+    VblankPollBank = 0xC0'u8
+    VblankPollLoad = 0x875F'u16
+    VblankPollBranch = 0x8762'u16
+    VblankEventWram = 0x7E002B
+
+  proc cpuProfileStage(snes: SnesBus, state: Cpu): CoreProfileStage =
+    ## Classify whole instruction batches inside the verified C0875F/C08762 polling loop.
+    result = MainCpu
+    if state.pbr == VblankPollBank and state.dbr == 0 and
+        not state.nmiPending and not state.waiting and not state.stopped and
+        (state.pc == VblankPollLoad or
+          (state.pc == VblankPollBranch and (state.p and FlagZ) != 0)) and
+        snes.bus.mem[VblankEventWram] == 0 and snes.bus.mem[VblankEventWram + 1] == 0:
+      result = MainCpuWait
 
 proc readRomFile*(filepath: string): seq[uint8] =
   ## Read ROM file and return bytes, stripping a 512-byte copier header if present.
@@ -33,29 +50,35 @@ proc stepOneFrame*(snes: SnesBus, cpu: var Cpu, image: Image, render = true,
   ## in-frame APU samples are stored there (slots 0..523, interleaved L/R).
   let forceBlank = (snes.ppuRegs[0x00] and 0x80) != 0
   if render and not forceBlank:
-    let backdrop = ppu.bgr555ToColor(snes.cgram[0])
-    image.fill(backdrop)
+    profileStage(VideoScanline):
+      let backdrop = ppu.bgr555ToColor(snes.cgram[0])
+      image.fill(backdrop)
   var l = 0
   var smp = 0
   while l < 262:
-    snes.tickScanline(l)
+    profileStage(SystemTasks): snes.tickScanline(l)
     if l == 224:
       # Sprites must render from OAM as it stands at the END of the visible
       # frame, BEFORE the game's NMI handler DMAs next frame's positions in —
       # else sprites lead the background by one frame (1px ghost when moving).
       if render:
-        ppu.renderSprites(snes, image)
-        ppu.overlayForegroundBg(snes, image)
+        profileStage(VideoSprites): ppu.renderSprites(snes, image)
+        profileStage(VideoForeground): ppu.overlayForegroundBg(snes, image)
       if (snes.nmitimen and 0x80) != 0:
         cpu.nmiPending = true
-    for i in 0 ..< InstrPerLine:
-      cpu.step(snes.bus)
-      if cpu.stopped:
-        break
+    when defined(coreProfile):
+      let cpuStage = snes.cpuProfileStage(cpu)
+    else:
+      const cpuStage = MainCpu
+    profileStage(cpuStage):
+      for i in 0 ..< InstrPerLine:
+        cpu.step(snes.bus)
+        if cpu.stopped:
+          break
     if l < 224:
-      snes.runHdma()
+      profileStage(SystemTasks): snes.runHdma()
       if render and (snes.ppuRegs[0x00] and 0x80) == 0:
-        ppu.renderScanline(snes, image, l)
+        profileStage(VideoScanline): ppu.renderScanline(snes, image, l)
     for k in 0 ..< 2:
       let (left, right) = snes.tickApu()
       if pcm != nil:
@@ -64,5 +87,5 @@ proc stepOneFrame*(snes: SnesBus, cpu: var Cpu, image: Image, render = true,
         inc smp
     inc l
     if l >= 262:
-      snes.initHdma()
+      profileStage(SystemTasks): snes.initHdma()
       break
