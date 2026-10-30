@@ -56,6 +56,8 @@ proc profiledFrame(machine: SnesBus, state: var Cpu, image: Image,
       if (machine.nmitimen and 0x80) != 0:
         state.nmiPending = true
     for instruction in 0 ..< InstrPerLine:
+      if state.pbr == 0xC0 and state.pc == 0x875F and profile.counts[0xC0875F] == 0:
+        echo &"First poll context: DBR=${state.dbr:02X} P=${state.p:02X} emulation={state.emulation} eventLow={machine.bus.mem[0x7E002B]} eventHigh={machine.bus.mem[0x7E002C]}."
       profile.observe(state)
       state.step(machine.bus)
       if state.stopped: break

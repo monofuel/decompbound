@@ -2,6 +2,9 @@ import
   std/[json, os, tempfiles, unittest],
   decompbound/core_profile
 
+when defined(coreProfile):
+  import decompbound/[cpu, frame_step, snesbus]
+
 proc restoreEnvironment(name, previous: string, existed: bool) =
   ## Restore the caller's profiling configuration after a synthetic accounting test.
   if existed: putEnv(name, previous)
@@ -12,6 +15,35 @@ proc returnedStage(): int =
   profileStage(SpcExecution): return 7
 
 suite "Optional core profile accounting":
+  when defined(coreProfile):
+    test "wait classification respects WRAM banks, accumulator width, branch and NMI state":
+      let machine = SnesBus(bus: newBus())
+      var state = Cpu(pbr: 0xC0, dbr: 0x7E, pc: 0x875F, p: FlagM)
+      machine.bus.mem[0x7E002C] = 1
+      check machine.cpuProfileStage(state) == MainCpuWait
+      state.p = 0
+      check machine.cpuProfileStage(state) == MainCpu
+      machine.bus.mem[0x7E002C] = 0
+      check machine.cpuProfileStage(state) == MainCpuWait
+      for bank in [0'u8, 0x3F, 0x80, 0xBF]:
+        state.dbr = bank
+        check machine.cpuProfileStage(state) == MainCpuWait
+      state.dbr = 0x7F
+      check machine.cpuProfileStage(state) == MainCpu
+      state.dbr = 0x7E
+      state.pc = 0x8762
+      check machine.cpuProfileStage(state) == MainCpu
+      state.p = FlagZ
+      check machine.cpuProfileStage(state) == MainCpuWait
+      state.nmiPending = true
+      check machine.cpuProfileStage(state) == MainCpu
+      state.nmiPending = false
+      state.waiting = true
+      check machine.cpuProfileStage(state) == MainCpu
+      state.waiting = false
+      state.stopped = true
+      check machine.cpuProfileStage(state) == MainCpu
+
   test "nested scopes preserve behavior, restore ownership and bound recording":
     let
       directory = createTempDir("decompbound-profile-", "")

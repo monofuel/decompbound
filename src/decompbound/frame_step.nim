@@ -21,15 +21,23 @@ when defined(coreProfile):
     VblankPollLoad = 0x875F'u16
     VblankPollBranch = 0x8762'u16
     VblankEventWram = 0x7E002B
+    WramBank = (VblankEventWram shr 16).uint8
+    SystemBankFoldMask = 0x7F'u8
+    SystemBankLimit = 0x40'u8
 
-  proc cpuProfileStage(snes: SnesBus, state: Cpu): CoreProfileStage =
+  proc cpuProfileStage*(snes: SnesBus, state: Cpu): CoreProfileStage =
     ## Classify whole instruction batches inside the verified C0875F/C08762 polling loop.
     result = MainCpu
-    if state.pbr == VblankPollBank and state.dbr == 0 and
+    let
+      eventBank = state.dbr == WramBank or
+        (state.dbr and SystemBankFoldMask) < SystemBankLimit
+      byteAccumulator = state.emulation or (state.p and FlagM) != 0
+    if state.pbr == VblankPollBank and eventBank and
         not state.nmiPending and not state.waiting and not state.stopped and
         (state.pc == VblankPollLoad or
           (state.pc == VblankPollBranch and (state.p and FlagZ) != 0)) and
-        snes.bus.mem[VblankEventWram] == 0 and snes.bus.mem[VblankEventWram + 1] == 0:
+        snes.bus.mem[VblankEventWram] == 0 and
+        (byteAccumulator or snes.bus.mem[VblankEventWram + 1] == 0):
       result = MainCpuWait
 
 proc readRomFile*(filepath: string): seq[uint8] =
