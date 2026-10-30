@@ -4,7 +4,7 @@
 
 import
   pixie,
-  ./[core_profile, cpu, ppu, snesbus]
+  ./[core_profile, cpu, cpu_polling, ppu, snesbus]
 
 const
   InstrPerLine* {.intdefine.} = 150  # match play.nim's frame budget; at 40 the game is CPU-starved
@@ -51,7 +51,7 @@ proc readRomFile*(filepath: string): seq[uint8] =
     result[i] = data[start + i].uint8
 
 proc stepOneFrame*(snes: SnesBus, cpu: var Cpu, image: Image, render = true,
-    pcm: ptr FramePcm = nil) =
+    pcm: ptr FramePcm = nil, polling: CpuPollingContext = nil) =
   ## Advance the emulator by exactly one frame (262 scanlines).
   ## Mirrors play.nim (NMI at line 224, InstrPerLine=150). Pass render=false
   ## to skip PPU draws (headless TAS reports). When `pcm` is given, the 524
@@ -79,10 +79,13 @@ proc stepOneFrame*(snes: SnesBus, cpu: var Cpu, image: Image, render = true,
     else:
       const cpuStage = MainCpu
     profileStage(cpuStage):
-      for i in 0 ..< InstrPerLine:
-        cpu.step(snes.bus)
-        if cpu.stopped:
-          break
+      if polling != nil:
+        discard stepCpuBatch(snes, cpu, InstrPerLine, polling)
+      else:
+        for i in 0 ..< InstrPerLine:
+          cpu.step(snes.bus)
+          if cpu.stopped:
+            break
     if l < 224:
       profileStage(SystemTasks): snes.runHdma()
       if render and (snes.ppuRegs[0x00] and 0x80) == 0:

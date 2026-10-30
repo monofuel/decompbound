@@ -1,8 +1,8 @@
 # Libretro core performance
 
 This is the working reference for improving decompbound's libretro core on the
-RG DS Plus. Profiling tools and an optional opaque XBGR transport are implemented;
-CPU/PPU emulation optimizations have not been implemented. Other ideas below
+RG DS Plus. Profiling tools, optional opaque XBGR transport and guarded CPU
+polling-loop batching are implemented. PPU optimizations remain future work. Other ideas below
 remain hypotheses until measurements and correctness checks support them.
 Initial profiling ran on the desktop while the handheld was unavailable, at
 monofuel's request. Subsequent handheld profiling confirms that CPU polling and
@@ -92,9 +92,9 @@ CPU time there; it is not the dominant core bottleneck on this PC.
 
 ### Independent instruction counts and sampling
 
-`src/probes/probe_core_hotpcs.nim` preserves the frame step order, counts
-opcode fetches, then reruns the existing stepper and requires identical final
-serialized state and pixels. In 180-frame runs, two instructions dominate:
+The historical `probe_core_hotpcs.nim` at commit `f6b76f0` preserved frame order,
+counted opcode fetches, then reran the ordinary stepper and required identical
+final serialized state and pixels. In 180-frame runs, two instructions dominated:
 
 ```text
 file 0x00875F: LDA $002B
@@ -144,7 +144,7 @@ propagation or thread isolation is not an accepted shortcut.
 
 ### Conclusions and the 30% target
 
-1. **First experiment: verified wait-loop batching.** Preserve the remaining
+1. **Implemented first experiment: verified wait-loop batching.** Preserve the remaining
    instruction-slot phase, accumulator/flags/PC, NMI handling and the existing
    scanline/APU/HDMA cadence. Start within the existing CPU batch boundary,
    rather than changing the instruction budget. The measured pure waits make
@@ -160,7 +160,7 @@ propagation or thread isolation is not an accepted shortcut.
    of the measured audio cost is far short of 30%, before synchronization
    overhead. Reassess its share on ARM rather than treating PC ratios as universal.
 
-No 30% improvement is claimed by this profiling work. The original handheld
+The baseline profiling itself claims no improvement. The original handheld
 target remains 17 → 11.9 ms for an equivalent workload. A measured ARM baseline
 is now available below; the next optimization needs a before/after device run.
 
@@ -190,8 +190,9 @@ hash parity and pre-instrumentation controls. Binary SHA256 identities:
 - Normal `22d24fa247669898cbb8cd86abe503ae6b14772db6e50ffc3f02b84444b7cdba`.
 - Instrumented `9007cfc7d805cd5e31e20e6098ec36d6e392a0c46b0bbb3a4bdfec51d081be84`.
 
-Retain the PC-count probe while the wait-loop contract is being investigated;
-it is a reproduction tool for that open question, not a timing benchmark.
+The one-off PC-count probe is retired after preserving its offsets/counts here
+and replacing the wait-loop investigation with behavioral tests and full replay
+verification. Its historical source remains in Git; it was never a timing benchmark.
 
 ## Measured RG DS Plus profile
 
@@ -253,9 +254,9 @@ was 0.139 ms for single-screen XBGR versus 0.237–0.297 ms for two panels, and
 0.726 ms for the XRGB control. No precise handheld percentage gain is credited
 to switching options from these single runs.
 
-### Recommended next experiment
+### Polling-batch rationale and contract
 
-Implement a narrowly guarded polling-loop batch within the existing CPU
+The first optimization is a narrowly guarded polling-loop batch within the existing CPU
 instruction budget. In the instrumented ARM battle, pure waiting alone costs
 about 6.4 ms/frame. This makes a 30% improvement plausible, but is not a measured
 gain. Thirty percent less than the new 18.05 ms battle baseline is 12.64 ms of
@@ -271,7 +272,7 @@ final PC phase and every scanline, NMI, HDMA and APU boundary. The current
 profiling classifier is evidence, not a sufficient optimization guard:
 custom read hooks can observe or change every fetch. Use a verified canonical
 bus or a sealed core-only path; leave diagnostic/custom hooks on normal stepping.
-No polling fast path has been implemented.
+This fast path is now implemented; measurements and gates are recorded below.
 
 ### Build identity and correctness controls
 
@@ -311,6 +312,71 @@ Ignored raw samples and metadata are in `bin/profiles/rgds-d87c2e2/` and
 - ARM instrumented: `187e8a9c7c45968b7583215454838d4d4c8f8d73ad29a5a4a55faada13621503`.
 - PC normal: `38da180709717f61a7a19b73f8ca26e2ff5e016f284409a78e36dcdbf9aac7a4`.
 - PC instrumented: `ab216506e9eab999f033554f1b5ee72e635e3979f94dd17c343170ef90b98da6`.
+
+## Implemented: guarded CPU polling batches
+
+`cpu_polling.nim` creates a machine/context together and retains the canonical
+Bus, read/write closures and backing-buffer identity. Every candidate batch
+rechecks that identity plus the live `LDA $002B; BEQ -5` bytes, bank/PC, byte
+width, zero event and interrupt/wait/stop state. A custom hook or changed code
+uses ordinary stepping. Eligible batches execute two real instructions, omit
+only complete repeated pairs, then execute an odd remainder normally. This
+preserves CPU phase/flags, width invariants and the APU-handshake marker without
+crossing an existing device boundary.
+
+The core enables this by default; `-d:disableCpuPollingBatching` builds a
+control. Generic frame/replay/TAS APIs accept an optional context and default
+to ordinary interpretation. The benchmark opts in with `--cpu-poll-batching`;
+golden-writing/image-acceptance combinations are rejected before file I/O.
+Contexts survive in-place reset/import and are released before machine hooks.
+No frontend changes, public libretro ABI changes or state-format changes are needed.
+
+### Correctness gates
+
+- Checked differential tests cover budgets 0–301, both loop phases, flags and
+  width invariants, event changes/re-entry, bank mirrors, modified code, pending
+  NMI/wait/stop, nil/custom/foreign hooks, replaced memory and reset/import.
+  CPU fields, WRAM, handshake state and subsequent NMI stack effects match
+  repeated original instructions.
+- Shared-library ABI/lifecycle/state-import and profiling tests pass. The
+  1,200-frame ROM parity test passes in both screen modes and transports,
+  including batch, per-sample and discarded audio plus live state re-import.
+- The full private-capture sweep matches **3,480 captures × three frames**:
+  pixels, PCM, CPU and serialized machine state. It reports 3,336 image-only
+  files separately and zero incompatible captures. Hooks/context are released
+  after each case; captures remain outside Git.
+- All five full replay goldens pass with batching explicitly enabled:
+  **924,845 frames**, unchanged checkpoints/image/audio/WRAM references. Golden
+  checksums stayed unchanged. The vanilla ROM round trip remains byte-identical.
+
+### Paired PC measurements
+
+The same PC configuration/CPU 2 as earlier, shipping builds, DS/XBGR enabled,
+three pairs per workload, 240 warmup + 2,000 measured frames per variant/run.
+Order alternates disabled/optimized, optimized/disabled, disabled/optimized.
+Hashing is excluded from timed runs. Full replay gates run on CPUs 17 and 23;
+desktop background activity remains present.
+
+| Workload | Disabled CPU mean | Optimized CPU mean | Reduction | CPU p95 before → after | CPU p99 before → after |
+|---|---:|---:|---:|---:|---:|
+| Cave walking | 1.591 ms | 1.059 ms | 33.44% | 1.645 → 1.174 ms | 1.696 → 1.202 ms |
+| Dialogue | 1.260 ms | 0.624 ms | 50.50% | 1.304 → 0.648 ms | 1.333 → 0.668 ms |
+| Battle | 1.801 ms | 1.264 ms | 29.83% | 1.884 → 1.350 ms | 1.911 → 1.373 ms |
+
+All nine pairs improve mean CPU work and CPU p95/p99. The PC battle result is
+slightly below 30%; do not round it into a strict target pass. Separate
+64-frame/5-warmup hash runs match disabled/optimized/profile output for video,
+PCM and final WRAM/SRAM. Optimized instrumented pure-wait batches cost about
+0.011–0.012 ms/frame. Instrumented CPU overhead is about 7–12%; the table uses
+uninstrumented shipping builds.
+
+Ignored evidence is in `bin/polling/pc/`, `bin/polling/goldens/` and
+`bin/polling/corpus.tsv`. Timed builds report `3bbcc12+dirty` plus the frozen
+polling implementation. Critical source-file manifest identity:
+`a0f03996bc44b0ad0afd89ee3618dae01d63960504394dc8e9a2adfb5beba2ee`.
+PC disabled/optimized SHA256s are
+`9f501bdf5f050c47a7804c14ad9e2c4c1148b73e6b6456deb0d3c5154350b5a0` /
+`20f1fcf18a7782cbd21503cfbf96397af56129b0ffd18dbb4b62721ba51fe3ed`.
 
 ## Implemented: opaque XBGR transport
 
@@ -483,7 +549,7 @@ the libretro adapter or DS companion, so they complement the `.so` baseline.
 
 | Area | Idea | Evidence or decision needed |
 |---|---|---|
-| CPU waiting | Recognize proven polling loops and skip equivalent iterations until the next relevant event. | ARM pure-wait batches account for 35–54% of instrumented frame time. Preserve CPU results, hooks, scheduling and device progress; see the guarded batching contract above. |
+| CPU waiting | Guarded batching of the verified event-wait loop is implemented. | The original ARM pure-wait batches accounted for 35–54% of instrumented frame time. Expand coverage only with new profiling and equivalent CPU/hook/device proofs. |
 | CPU and bus | Reduce repeated decoding, dispatch and ordinary-memory lookup overhead; consider cached instruction blocks for hot code. | Profile actual instructions/accesses. Preserve generic hooks, MMIO and self-modifying RAM behavior; account for CPU width/mode changes. |
 | PPU | Reuse decoded tile indices across appropriate writes; retain useful intermediate composition instead of decoding again. | Identify the remaining repeated work. Invalidate for VRAM, palette and relevant register changes; retain scanline effects, windows, priority and color math. |
 | GPU acceleration | Investigate hardware scaling in the frontend and, later, GPU PPU rendering in the core. | Desired future direction; mobile OpenGL ES, driver/context support and correctness costs need a bounded device experiment. See below. |
@@ -505,9 +571,9 @@ and small packing savings should not substitute for finding wasted emulation.
 ### Future GPU acceleration
 
 Monofuel favors GPU acceleration as a future direction, while recognizing that
-mobile OpenGL ES and driver integration could be painful. Keep this option open;
-the next core experiment remains polling-loop batching, supported by the ARM
-measurements. No GPU implementation or measured GPU speedup is claimed here.
+mobile OpenGL ES and driver integration could be painful. Polling-loop batching
+is now implemented; GPU capability experiments remain a future direction.
+No GPU implementation or measured GPU speedup is claimed here.
 
 The current handheld path renders the SNES PPU and companion UI on the CPU.
 Mono-retro also scales images on the CPU and copies pixels to mapped DRM
@@ -656,9 +722,9 @@ a console. Record any required handheld play/audio check in
 [human-verify.md](human-verify.md). Maintain ROM rebuild identity when touching
 assembly, codecs or extraction, following [GOAL.md](../GOAL.md).
 
-Wait-loop batching is the leading candidate from the PC evidence. It has not
-been implemented or credited with savings. Optional XBGR transport is the first
-completed optimization, documented separately above.
+Wait-loop batching and optional XBGR transport are implemented, with separate
+measurements above. Further CPU/PPU changes need their own before/after evidence
+and the same independent correctness gates.
 
 ## Profiling tools
 

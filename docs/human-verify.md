@@ -42,6 +42,7 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 | Check | Run | Pass if |
 |---|---|---|
 | [ ] Sustained 60 fps and frame-time headroom | Open Decompbound from the RG DS Plus menu and play the existing DS test state, including movement and battles. Compare equivalent shipping builds using the profiling workflow in `libretro-performance.md`. | Playback sustains 60 fps with frame-time headroom. Monofuel confirmed the updated XBGR build works, but reported that maintaining 60 fps still needs work. |
+| [ ] Guarded CPU polling batches | After the optimized core is installed, open Decompbound from the RG DS Plus menu; walk, open menus, enter a battle, and hold Select+Start to exit. | Game timing, both screens, controls and audio remain correct; no new transition/menu/battle stalls appear, and exit restores the menu. Automated CPU savings do not replace this play check. |
 
 2026-10-29: shipping core `380b41b` and mono-retro's `player-xbgr-arm64`
 passed on the RG DS Plus ROCKNIX 7.0.2-r3 kernel: one private-XBGR startup

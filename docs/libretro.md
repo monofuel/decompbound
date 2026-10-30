@@ -31,6 +31,22 @@ The frontend contract and explicit ROM/state validation are unchanged.
 Core-side profiling, optimization ideas and threading tradeoffs are collected
 in [Libretro core performance](libretro-performance.md).
 
+The libretro core batches the verified EarthBound event-wait loop inside each
+existing CPU instruction budget. It requires the original bus/hooks, unchanged
+instruction bytes, byte-width WRAM polling and no pending interrupt. Other
+execution falls back to ordinary interpretation. Scanline, NMI, HDMA and audio
+scheduling are unchanged; generic frame/replay callers remain ordinary unless
+they explicitly supply a polling context. Reset/state import retain the
+context, and unload clears it before releasing machine hooks.
+
+For a shipping control build with batching disabled:
+
+```sh
+nim c -d:disableCpuPollingBatching -o:bin/libretro/polling-control.so src/libretro/core.nim
+```
+
+There is no new frontend option, libretro ABI entrypoint or save-state format.
+
 ## Frontend contract
 
 The core exports the standard [libretro v1 functions](https://docs.libretro.com/development/cores/developing-cores/), with C calling conventions.
@@ -105,6 +121,15 @@ The integration test requires the user's ROM and compares 1,200 cold-boot frames
 with the headless emulator in both screen modes and transports: every normalized
 RGB pixel, private opaque filler byte, PCM sample, WRAM byte, and SRAM byte.
 It switches between batch, per-sample, and discarded audio during that run.
+`make libretro-test` also compares polling batches against original instructions,
+including custom-hook fallback and NMI stack state. The optional private-capture
+sweep is `nim r -d:debug --opt:speed tests/polling/corpus.nim`; it reads local
+captures and writes only a text report beneath ignored `bin/polling/`.
+
+The replay benchmark's `--cpu-poll-batching` option exercises the optimized path
+against existing full-tape goldens. Its default remains ordinary interpretation;
+do not mistake a default benchmark run for optimization coverage. Batching cannot
+be combined with `--write-ref` or `--accept-image`.
 
 `make test` builds the library before the unit suite. `make integration-test`
 also builds it before the ROM-dependent suite. The existing replay goldens

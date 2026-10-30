@@ -2,8 +2,8 @@
 
 import
   pixie,
-  ../decompbound/[apu, build_info, common, core_profile, cpu, ds_companion, frame_step,
-    libretro_api, png_state, ppu, replay_run, save_state, snesbus]
+  ../decompbound/[apu, build_info, common, core_profile, cpu, cpu_polling, ds_companion,
+    frame_step, libretro_api, png_state, ppu, replay_run, save_state, snesbus]
 
 const
   Width = ppu.ScreenWidth
@@ -30,6 +30,7 @@ var
   inputState: RetroInputState
   logger: RetroLog
   machine: SnesBus
+  polling: CpuPollingContext
   cpuState: Cpu
   frameImage: Image
   pixels: seq[uint32]
@@ -73,6 +74,7 @@ proc releaseHooks(snes: SnesBus) =
 
 proc releaseMachine() =
   ## Release the loaded machine and all presentation storage.
+  polling = nil
   releaseHooks(machine)
   machine = nil
   frameImage = nil
@@ -182,7 +184,7 @@ proc retro_run() {.cdecl, exportc, dynlib.} =
         if pressed:
           machine.joy1 = machine.joy1 or (1'u16 shl (15 - id.int))
     frameImage.fill(rgbx(0, 0, 0, 255))
-    stepReplayFrame(machine, cpuState, frameImage, addr pcm)
+    stepReplayFrame(machine, cpuState, frameImage, addr pcm, polling)
     if dualScreen:
       var
         buttons: uint16
@@ -298,7 +300,10 @@ proc retro_load_game(info: ptr RetroGameInfo): bool {.cdecl, exportc, dynlib.} =
     let offset = if info.size == RomSize.csize_t: 0 else: CopierHeaderSize
     var rom = newSeq[uint8](RomSize)
     copyMem(addr rom[0], cast[pointer](cast[uint](info.data) + offset.uint), RomSize)
-    machine = newSnesBus(rom)
+    when defined(disableCpuPollingBatching):
+      machine = newSnesBus(rom)
+    else:
+      (machine, polling) = newPollingMachine(rom)
     cpuState = machine.resetCpu()
     frameImage = newImage(Width, Height)
     pixels = newSeq[uint32](Width * (if dualScreen: DsCombinedHeight else: Height))

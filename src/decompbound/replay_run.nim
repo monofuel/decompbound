@@ -4,7 +4,7 @@
 import
   std/[strformat, tables],
   pixie,
-  ./[cpu, frame_step, replay, snesbus]
+  ./[cpu, cpu_polling, frame_step, replay, snesbus]
 
 const
   PlayApuTopUp* = ReplayApuTicksPerFrame - 262 * 2
@@ -13,11 +13,12 @@ type
   ReplayFrameHook* = proc(snes: SnesBus, tasFrame: int) {.closure.}
 
 proc stepReplayFrame*(snes: SnesBus, cpu: var Cpu, image: Image = nil,
-    pcm: ptr FramePcm = nil) =
+    pcm: ptr FramePcm = nil, polling: CpuPollingContext = nil) =
   ## One headless TAS frame: policy stepper + APU top-up to 533. Renders into
   ## `image` when one is given and stores the frame's samples in `pcm` when
   ## one is given (top-up samples land in slots 524..532).
-  frame_step.stepOneFrame(snes, cpu, image, render = image != nil, pcm = pcm)
+  frame_step.stepOneFrame(snes, cpu, image, render = image != nil, pcm = pcm,
+    polling = polling)
   for i in 0 ..< PlayApuTopUp:
     let (left, right) = snes.tickApu()
     if pcm != nil:
@@ -41,7 +42,7 @@ proc verifyChk*(snes: SnesBus, frame: int, chks: seq[ReplayCheckpoint]) =
 proc applyTas*(snes: SnesBus, cpu: var Cpu, deltas: seq[ReplayDelta],
     maxTasFrame: int, stretch = 1, checkpoints: seq[ReplayCheckpoint] = @[],
     onFrame: ReplayFrameHook = nil, image: Image = nil,
-    pcm: ptr FramePcm = nil): int =
+    pcm: ptr FramePcm = nil, polling: CpuPollingContext = nil): int =
   ## Feed joy1 from `deltas` for TAS frames 0..maxTasFrame inclusive.
   ## Each TAS frame is held for `stretch` emu frames. Returns emu steps.
   ## `image` and `pcm` are passed to every frame step (see stepReplayFrame).
@@ -56,7 +57,7 @@ proc applyTas*(snes: SnesBus, cpu: var Cpu, deltas: seq[ReplayDelta],
       joy = sched[tf]
     for s in 1 .. stretch:
       snes.joy1 = joy
-      stepReplayFrame(snes, cpu, image, pcm)
+      stepReplayFrame(snes, cpu, image, pcm, polling)
       inc result
       if cpu.stopped:
         return

@@ -481,6 +481,7 @@ libretro: nim.cfg
 
 libretro-test: libretro
 	nim r $(NIM_TEST_FLAGS) tests/test_libretro.nim
+	nim r $(NIM_TEST_FLAGS) tests/test_cpu_polling.nim
 	nim r $(NIM_TEST_FLAGS) tests/test_core_profile.nim
 	nim r -d:coreProfile $(NIM_TEST_FLAGS) tests/test_core_profile.nim
 

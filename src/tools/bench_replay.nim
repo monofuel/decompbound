@@ -13,6 +13,7 @@
 ##     --accept-image    compare; image drift rewrites the ref, audio/wram drift fails
 ##     --no-ref          timing only
 ##     --no-render       skip PPU work (isolates render cost by subtraction)
+##     --cpu-poll-batching  batch verified CPU polling loops (default off)
 ##     --hash-every N    fold image/audio into the running hash every N frames (default 1)
 ##     --label NAME      label for the results row
 ##     --out FILE        append a TSV results row to FILE
@@ -26,14 +27,14 @@ import
   std/[monotimes, options, os, strformat, strutils, times],
   pixie,
   zippy/crc,
-  ../decompbound/[bench_ref, build_info, cpu, frame_step, png_state, ppu, replay,
-    replay_run, save_state, snesbus]
+  ../decompbound/[bench_ref, build_info, cpu, cpu_polling, frame_step, png_state, ppu,
+    replay, replay_run, save_state, snesbus]
 
 const
   RowEvery = ReplayChkInterval
   Usage = "Usage: nim r src/tools/bench_replay.nim <rom> <session-dir|tape.tas|start.png|start.state> " &
     "[--frames N] [--ref PATH] [--write-ref] [--accept-image] [--no-ref] " &
-    "[--no-render] [--hash-every N] [--label NAME] [--out FILE] [--frame-times FILE] [--state-at N FILE]"
+    "[--no-render] [--cpu-poll-batching] [--hash-every N] [--label NAME] [--out FILE] [--frame-times FILE] [--state-at N FILE]"
 
 type
   Options = object
@@ -45,6 +46,7 @@ type
     acceptImage: bool
     noRef: bool
     noRender: bool
+    cpuPollBatching: bool
     hashEvery: int
     label: string
     outPath: string
@@ -82,6 +84,8 @@ proc parseOptions(): Options =
       result.noRef = true
     elif arg == "--no-render":
       result.noRender = true
+    elif arg == "--cpu-poll-batching":
+      result.cpuPollBatching = true
     elif arg == "--hash-every" and i < paramCount():
       inc i
       result.hashEvery = parseInt(paramStr(i))
@@ -106,6 +110,9 @@ proc parseOptions(): Options =
     inc i
   if result.hashEvery < 1:
     echo "--hash-every must be >= 1"
+    quit(1)
+  if result.cpuPollBatching and (result.writeRef or result.acceptImage):
+    echo "--cpu-poll-batching cannot be combined with --write-ref or --accept-image"
     quit(1)
 
 proc pickSessionTape(sessionDir: string): string =
@@ -198,7 +205,20 @@ proc main() =
   if tapePath.len > 0 and header.romHash != 0 and header.romHash != romHash:
     echo &"ERROR: tape ROM hash 0x{header.romHash:08X} != ROM 0x{romHash:08X}"
     quit(1)
-  let snes = newSnesBus(rom)
+  var
+    snes: SnesBus
+    polling: CpuPollingContext
+  if opts.cpuPollBatching:
+    (snes, polling) = newPollingMachine(rom)
+  else:
+    snes = newSnesBus(rom)
+  defer:
+    polling = nil
+    snes.bus.readHook = nil
+    snes.bus.writeHook = nil
+    if snes.apu != nil:
+      snes.apu.spc.readHook = nil
+      snes.apu.spc.writeHook = nil
   var cpu = snes.resetCpu()
   snes.initHdma()
   loadStateFile(startPath, snes, cpu)
@@ -242,6 +262,7 @@ proc main() =
 
   echo &"ROM: {opts.romPath} hash=0x{romHash:08X}"
   echo &"tape: {tapeName} start: {startPath} frames: {frames} render: {not opts.noRender}"
+  echo &"CPU polling batching: {opts.cpuPollBatching}"
 
   var image: Image = nil
   if not opts.noRender:
@@ -296,7 +317,7 @@ proc main() =
 
   let t0 = getMonoTime()
   let steps = applyTas(snes, cpu, deltas, frames - 1, checkpoints = header.checkpoints,
-    onFrame = onFrame, image = image, pcm = addr pcm)
+    onFrame = onFrame, image = image, pcm = addr pcm, polling = polling)
   let wallS = (getMonoTime() - t0).inNanoseconds.float / 1e9
   let hashS = hashNs.float / 1e9
   if steps != frames:
