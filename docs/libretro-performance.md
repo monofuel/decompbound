@@ -483,9 +483,10 @@ the libretro adapter or DS companion, so they complement the `.so` baseline.
 
 | Area | Idea | Evidence or decision needed |
 |---|---|---|
-| CPU waiting | Recognize proven polling loops and skip equivalent iterations until the next relevant event. | Identify hot PCs and exact loop side effects; preserve CPU results, scheduling and device progress. Historical Pi work found substantial polling, not a current RG DS Plus percentage. |
+| CPU waiting | Recognize proven polling loops and skip equivalent iterations until the next relevant event. | ARM pure-wait batches account for 35–54% of instrumented frame time. Preserve CPU results, hooks, scheduling and device progress; see the guarded batching contract above. |
 | CPU and bus | Reduce repeated decoding, dispatch and ordinary-memory lookup overhead; consider cached instruction blocks for hot code. | Profile actual instructions/accesses. Preserve generic hooks, MMIO and self-modifying RAM behavior; account for CPU width/mode changes. |
 | PPU | Reuse decoded tile indices across appropriate writes; retain useful intermediate composition instead of decoding again. | Identify the remaining repeated work. Invalidate for VRAM, palette and relevant register changes; retain scanline effects, windows, priority and color math. |
+| GPU acceleration | Investigate hardware scaling in the frontend and, later, GPU PPU rendering in the core. | Desired future direction; mobile OpenGL ES, driver/context support and correctness costs need a bounded device experiment. See below. |
 | APU/DSP | Streamline SPC dispatch, timer handling, BRR/sample decoding and DSP loops where profiling finds cost. | Separate these costs first. Preserve feedback-dependent decoding, audio samples and CPU/APU interaction. |
 | DS state | Reduce repeated party/inventory construction, string work and allocations when relevant WRAM contents are unchanged. | Measure snapshot/read/compare cost separately from rendering; preserve roster order, HP/PP updates, palettes, input and inventory selection. |
 | Companion output | Repack its cached image into XRGB only when that image changes. | Provide a reliable image revision/invalidation path, including reset and state import. The image is cached now, but its pixels are still repacked every frame. |
@@ -500,6 +501,48 @@ the libretro adapter or DS companion, so they complement the `.so` baseline.
 These candidates are not a commitment to implement every approach. Start with
 the measured dominant cost and the smallest verifiable change; compiler tuning
 and small packing savings should not substitute for finding wasted emulation.
+
+### Future GPU acceleration
+
+Monofuel favors GPU acceleration as a future direction, while recognizing that
+mobile OpenGL ES and driver integration could be painful. Keep this option open;
+the next core experiment remains polling-loop batching, supported by the ARM
+measurements. No GPU implementation or measured GPU speedup is claimed here.
+
+The current handheld path renders the SNES PPU and companion UI on the CPU.
+Mono-retro also scales images on the CPU and copies pixels to mapped DRM
+buffers; the display controller scans those buffers out. There is currently no
+GPU shader rendering in that path. Two distinct candidates are:
+
+| Candidate | Owner and potential benefit | Main constraints |
+|---|---|---|
+| Hardware scaling and presentation | Mono-retro/Windy: keep native-resolution panels small and scale/place them in hardware on the two displays. | Investigate display-plane scaling where supported, or GPU textured quads. Preserve exact integer scaling, nearest-neighbor pixels, borders, panel order and touch mapping. This reduces frontend work; it does not remove the measured core PPU cost. |
+| GPU SNES PPU rendering | Decompbound, with frontend cooperation: offload tile drawing, layer composition and color math. ARM software PPU work measures about 4–8 ms/frame. | Preserve per-scanline state, HDMA, palette/VRAM changes, windows, sprite priority and SNES color arithmetic. Batch GPU work appropriately; hundreds of tiny submissions could erase the benefit. |
+
+[Shady](https://github.com/treeform/shady) could express shader logic in Nim and
+generate GLSL ES. It does not supply the missing native graphics backend.
+First establish a working device context/presentation path, such as EGL/GBM,
+and an explicit minimum GLES version and required texture/render-target formats.
+Verify generated shaders on the handheld driver; desktop OpenGL success alone
+does not establish mobile compatibility. Check precision and integer/color
+rounding against the software renderer.
+
+A GPU core should keep its rendered images on the GPU through presentation.
+Reading every finished frame back to CPU memory for the current software-video
+callback could consume the savings. Libretro's
+[hardware-rendering interface](https://docs.libretro.com/development/cores/opengl-cores/)
+lets the frontend own the graphics context and the core render to its supplied
+framebuffer. Mono-retro would need that interface and GPU handling for both
+panels, including resource lifetime, context reset and cleanup. Retain the
+software/XBGR fallback for unsupported frontends and devices.
+
+Start with a small native-device capability/performance probe before committing
+to a PPU rewrite. Measure uploads, synchronization and completed presentation,
+alongside core CPU time and p95/p99 frame times; timing command submission alone
+does not measure finished GPU work. Compare rendered pixels with the independent
+software reference and preserve emulation/audio/memory parity. Keep ordinary
+game rendering and optional display effects separate so performance work retains
+the original pixel appearance.
 
 ## Multithreading and the separate sound CPU
 
