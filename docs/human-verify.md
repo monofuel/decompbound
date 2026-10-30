@@ -41,8 +41,7 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 | Check | Run | Pass if |
 |---|---|---|
-| [ ] Default shipping core and frontend | Open Decompbound from the RG DS Plus menu; it loads the existing mid-game screenstate in EarthBound DS mode. | Both screens, controls and audio work, performance is acceptable, and holding Select+Start returns to the menu. |
-| [ ] Opaque XBGR transport: visual/play check | Open **Decompbound** from the RG DS Plus menu. The matching XBGR player/core are installed and still default to `earthbound_20260818-022023.png` in DS mode. | Colors, both panel positions and opaque UI look correct; controls/audio work, and Select+Start returns to the menu. Automated native transport/audio checks passed; comparable handheld performance measurements remain separate. |
+| [ ] Sustained 60 fps and frame-time headroom | Open Decompbound from the RG DS Plus menu and play the existing DS test state, including movement and battles. Compare equivalent shipping builds using the profiling workflow in `libretro-performance.md`. | Playback sustains 60 fps with frame-time headroom. Monofuel confirmed the updated XBGR build works, but reported that maintaining 60 fps still needs work. |
 
 2026-10-29: shipping core `380b41b` and mono-retro's `player-xbgr-arm64`
 passed on the RG DS Plus ROCKNIX 7.0.2-r3 kernel: one private-XBGR startup
@@ -50,8 +49,9 @@ selection, 300 video frames / 159,900 stereo frames, zero reported audio
 underruns/overruns. Both active 1024×768 DRM planes used XB24 buffers. The
 independent core ABI/color/opacity/lifecycle test and frontend XBGR color/row-copy/
 worker tests passed on ARM. Menu service was restored and the ordinary
-`decompbound/EarthBound.srm` checksum stayed unchanged. This does not replace
-the visual/play check above. Binary/rollback details are in
+`decompbound/EarthBound.srm` checksum stayed unchanged. Monofuel subsequently
+confirmed the installed build works; sustained 60 fps remains open above.
+Binary/rollback details are in
 [libretro-performance.md](libretro-performance.md#rg-ds-plus-deployment-check).
 
 ### README feature showcase (2026-10-29)
@@ -514,6 +514,10 @@ leave a short **OPEN** row here if you need a later eyeball on a fix.
 
 Move checked rows here so OPEN stays short. Prune freely.
 
+- **RG DS Plus opaque XBGR transport** · 2026-10-29 · `380b41b`
+  - Monofuel confirmed the installed player/core work after native transport,
+    color/opacity, dual-display and audio tests passed. Both channel-conversion
+    passes are bypassed. Sustained 60 fps remains an open performance task.
 - **Windowed TAS replay (`make play-tas`)** · 2026-08-16 · cadence emu
   - Confirmed: [sunrise TAS](2026-08-16-sunrise-tas.md) `20260816-223148`
     replays bedroom → leaving Pokey's house / sunrise. No desync.

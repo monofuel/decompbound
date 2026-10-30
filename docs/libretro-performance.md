@@ -284,10 +284,11 @@ backed up on the device under
 `bin/rgds-xbgr-380b41b/`, with device logs in
 `/tmp/decompbound-xbgr-380b41b/`. No states, images or game data were committed.
 
-This is a native transport/audio smoke test, not a handheld performance
-comparison or a replacement for the visual/control check in
-[human-verify.md](human-verify.md). The PC gain above is still the only measured
-before/after CPU improvement claimed here.
+Monofuel subsequently confirmed the installed build works in manual play, while
+reporting that sustained 60 fps still needs work. The native transport/audio
+test is not a handheld performance comparison. The PC gain above remains the
+only measured before/after CPU improvement claimed here; the remaining
+performance check is tracked in [human-verify.md](human-verify.md).
 
 ## Ideal core and current execution
 
