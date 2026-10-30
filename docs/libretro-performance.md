@@ -35,6 +35,160 @@ builds; tests default to checked builds. Verify the installed `.so` identity
 and build flags before comparing results. Build-profile selection is already
 implemented, not a proposed new optimization.
 
+## Measured PC baseline
+
+Measured on `high-steel`, Ryzen 9 7950X, Linux 6.18.54, Nim 2.2.4 and GCC
+15.3.0. The host and core use the shipping configuration, ORC and the core's
+existing libc allocator selection. Runs are serial and pinned to logical CPU
+2. The desktop's `powersave` governor and boost were left unchanged. Longer
+golden checks ran on CPUs 17 and 23, outside that CPU and its SMT sibling;
+ordinary desktop background activity was not stopped. These are desktop
+measurements, not predictions for the Cortex-A55 handheld.
+
+Each row combines **three runs of 2,000 measured frames**, each following 240
+warmup frames imported from the same private capture. Video packing and PCM
+generation are enabled, callbacks discard output, and hashing is disabled in
+timing runs. Walking alternates right/left every 30 frames. Percentiles are
+computed from all 6,000 individual samples, not averaged run percentiles.
+
+| Workload | CPU mean | CPU p95 | CPU p99 | Wall mean | Wall max |
+|---|---:|---:|---:|---:|---:|
+| Cave, idle, DS | 1.585 ms | 1.623 ms | 1.711 ms | 1.590 ms | 1.848 ms |
+| Cave, walking, DS | 1.611 ms | 1.659 ms | 1.723 ms | 1.616 ms | 1.975 ms |
+| Cave, walking, single screen | 1.568 ms | 1.615 ms | 1.689 ms | 1.573 ms | 2.036 ms |
+| Dialogue, DS | 1.308 ms | 1.333 ms | 1.416 ms | 1.312 ms | 1.579 ms |
+| Titanic Ant battle menu, DS | 1.855 ms | 1.944 ms | 1.991 ms | 1.861 ms | 2.166 ms |
+
+The captures are `earthbound_20260818-022023.png` for cave cases,
+`earthbound_20260708-011828.png` for dialogue, and
+`earthbound_20260706-213532.png` for the visually checked battle. All remain
+under `~/Pictures/Screenshots/`; no capture, memory or audio data is committed.
+The main capture matches the handheld's configured test state.
+
+### Where frame time goes
+
+One additional 2,000-frame instrumented run per workload separates exclusive
+stages. Numbers below are mean **wall milliseconds in the instrumented core**,
+including clock overhead; they are not exact uninstrumented CPU percentages.
+The instrumented host costs about 6–9% more than the normal host across these
+cases. Frontend callbacks add less than 0.0004 ms/frame here.
+
+| Workload | Pure wait batches | Other CPU/bus | PPU total | APU total | DS update | Pixel packing |
+|---|---:|---:|---:|---:|---:|---:|
+| Cave, idle, DS | 0.583 | 0.139 | 0.719 | 0.133 | 0.003 | 0.064 |
+| Cave, walking, DS | 0.563 | 0.199 | 0.734 | 0.138 | 0.003 | 0.065 |
+| Cave, walking, single screen | 0.551 | 0.199 | 0.722 | 0.132 | 0 | 0.032 |
+| Dialogue, DS | 0.672 | 0.035 | 0.464 | 0.146 | 0.004 | 0.065 |
+| Battle, DS | 0.576 | 0.163 | 0.969 | 0.136 | 0.024 | 0.064 |
+
+The remaining roughly 0.037–0.042 ms is adapter/system work. Pure polling
+accounts for **29–47%** of instrumented frame time, PPU work **33–49%**, and
+audio **7–10%**. Repacking the second panel matters more than its cached UI
+update in the cave. Disabling the companion saves about 0.043 ms of measured
+CPU time there; it is not the dominant core bottleneck on this PC.
+
+### Independent instruction counts and sampling
+
+`src/probes/probe_core_hotpcs.nim` preserves the frame step order, counts
+opcode fetches, then reruns the existing stepper and requires identical final
+serialized state and pixels. In 180-frame runs, two instructions dominate:
+
+```text
+file 0x00875F: LDA $002B
+file 0x008762: BEQ back to $875F
+```
+
+| Workload | Share of opcode fetches in those two instructions |
+|---|---:|
+| Cave, neutral | 85.606% |
+| Cave, held right | 82.422% |
+| Dialogue | 96.636% |
+| Battle | 81.594% |
+
+These are instruction counts, **not time percentages**. The timed pure-batch
+classification gives separate evidence that the loop is expensive. It must
+handle DBR `$7E` and an 8-bit accumulator: the neighboring byte is not part of
+that load. Tests cover mirrored WRAM banks, accumulator width, branch flags
+and pending NMI. Mixed CPU batches are not counted as pure waits.
+
+Original entry `$C08756` checks `$001E & $B0`, and has another path polling
+HVBJOY. NMI code at `$C08170` establishes its register context, then
+`$C0818E` increments the event at `$2B`. The poll-loop exit clears the event
+and samples input. By contrast, the battle's next hot block around `$C0AF40`
+writes M7B `$211C`, reads multiplication results starting at `$2135`, and
+fills `$3C46,Y`: its 9.692% instruction share is meaningful work, not an idle
+loop to discard.
+
+An independent `perf` run sampled the normal, uninstrumented core for 6,000
+walking frames (plus warmup/startup): 10,107 user-cycle samples, none lost.
+The largest flat symbol shares were:
+
+| Native function | Sample share |
+|---|---:|
+| CPU operand/address resolver | 26.31% |
+| PPU `bgScanlineInto` | 22.49% |
+| Main CPU `step` | 11.28% |
+| PPU `compositeScreen` | 10.90% |
+| PPU `renderScanline` | 6.59% |
+| Runtime `__tls_get_addr` | 4.88% |
+| Adapter `retro_run` body | 3.77% |
+
+This confirms the CPU/PPU ranking without the stage timer overhead. TLS access
+is pre-existing: generated code uses it for Nim exception state and the PPU's
+thread-local palette cache. Flat samples do not split those callers. Hoisting
+repeated palette-cache TLS access is another candidate; disabling error
+propagation or thread isolation is not an accepted shortcut.
+
+### Conclusions and the 30% target
+
+1. **First experiment: verified wait-loop batching.** Preserve the remaining
+   instruction-slot phase, accumulator/flags/PC, NMI handling and the existing
+   scanline/APU/HDMA cadence. Start within the existing CPU batch boundary,
+   rather than changing the instruction budget. The measured pure waits make
+   a 30% improvement plausible, not proven; an optimization still needs to
+   demonstrate its real savings and correctness, especially in battle.
+2. **Next: the measured PPU hot paths.** Repeated scanline decode/composition
+   and palette access have substantial headroom, with exact invalidation and
+   scanline effects preserved.
+3. **Small complementary work: transport packing.** It is about 0.065 ms per
+   DS frame on this PC. Mono-retro's optional opaque XBGR transport is queued
+   separately; eliminating this pass alone cannot deliver 30% core savings.
+4. **Defer audio threading as the first optimization.** Even perfect removal
+   of the measured audio cost is far short of 30%, before synchronization
+   overhead. Reassess its share on ARM rather than treating PC ratios as universal.
+
+No 30% improvement is claimed by this profiling work. The handheld target
+remains 17 → 11.9 ms for an equivalent workload and needs a later device run.
+
+### Evidence and controls
+
+Normal results use source `3316f4f`, with the instrumented stage classification
+corrected in `f6b76f0`. Both were built from clean source using the shipping
+configuration; instrumented JSON also records its flags. Profiling does not
+skip emulated instructions. Normal/profile video,
+PCM and final WRAM/SRAM hashes match for all five cases in separate 120-frame
+hash runs, after 30 warmup frames. Hashing overhead is excluded from the tables.
+
+A pre-instrumentation `fe60f0d` reference was also built with matching settings
+and compared in three paired walking runs. CPU means were 1.594 ms before and
+1.603 ms with profiling disabled (+0.5% in these controls). No stage clocks or
+recording remain in normal builds; one per-frame Nim error check survives.
+This is not a claim of byte-identical machine code or zero instruction overhead.
+
+The shared-library ABI/lifecycle tests, 1,200-frame parity in both screen modes,
+profiling accounting/integration tests, and all **five full replay goldens
+(924,845 frames)** pass. Existing goldens were not regenerated.
+
+Ignored local evidence is under `bin/profiles/pc-3316f4f/` for normal timings
+and native samples, and `bin/profiles/pc-f6b76f0/` for corrected stage timings,
+hash parity and pre-instrumentation controls. Binary SHA256 identities:
+
+- Normal `22d24fa247669898cbb8cd86abe503ae6b14772db6e50ffc3f02b84444b7cdba`.
+- Instrumented `9007cfc7d805cd5e31e20e6098ec36d6e392a0c46b0bbb3a4bdfec51d081be84`.
+
+Retain the PC-count probe while the wait-loop contract is being investigated;
+it is a reproduction tool for that open question, not a timing benchmark.
+
 ## Ideal core and current execution
 
 The ideal core executes necessary game work once, reuses decoded data, avoids
@@ -116,6 +270,7 @@ the libretro adapter or DS companion, so they complement the `.so` baseline.
 | Allocation and lifetime | Reuse transient storage and reduce unnecessary reference-management work in hot paths. | Measure allocations and correlate them with slow frames. Keep ORC/libc allocation and unload correctness unless evidence justifies a change. |
 | Compiler | Evaluate target CPU tuning and profile-guided optimization using representative scenes. | Verify the actual device ISA/toolchain, compare shipping builds and validate portability. Older Pi PGO gains are historical; ARC/LTO changes previously measured as noise there. |
 | Parallel work | Consider an APU worker, or later PPU work from consistent snapshots. | Measure the available parallel fraction and synchronization/ownership cost; see below. |
+| Runtime TLS | Reduce repeated thread-local palette/error-state access where safe. | Native sampling finds 4.88% in `__tls_get_addr`; establish the call sites and preserve exception behavior and isolation. |
 | Native execution | At the far end, compile understood game routines into native code rather than interpreting every instruction. | A substantial separate direction requiring contracts and decompilation evidence. Full native game reimplementation is outside the current five goals unless explicitly added. |
 
 These candidates are not a commitment to implement every approach. Start with
@@ -189,7 +344,9 @@ a console. Record any required handheld play/audio check in
 [human-verify.md](human-verify.md). Maintain ROM rebuild identity when touching
 assembly, codecs or extraction, following [GOAL.md](../GOAL.md).
 
-No optimization has been selected or benchmarked in this investigation yet.
+Wait-loop batching is the leading candidate from the PC evidence. It has not
+been implemented or credited with savings. Optional XBGR transport is a
+separate requested implementation following this baseline.
 
 ## Profiling tools
 
