@@ -39,9 +39,11 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 ### RetroAchievements (2026-10-30)
 
-Core, synthetic SDK and desktop integration gates pass. No live account or device
-play test has been performed for this feature; the currently installed player is
-not assumed to contain it. Follow mono-retro's `docs/retroachievements.md`.
+Core, synthetic SDK and desktop integration gates pass. RG DS Plus now has the
+player from `a14597b` and core from `fc0c09a`; binary checksums and silent loader
+checks pass. The user-provided account file was copied without inspecting it.
+Live account/unlock and device play acceptance remain manual. Follow mono-retro's
+`docs/retroachievements.md`.
 
 | Check | Run | Pass if |
 |---|---|---|
