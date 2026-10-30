@@ -43,7 +43,8 @@ Core, synthetic SDK and desktop integration gates pass. RG DS Plus now has the
 player from `a3e5180` and core from `fc0c09a`; binary checksums, silent loader
 checks and muted synthetic native GPU/CPU runs pass. The user-provided account file
 was copied without inspecting it.
-Live account/unlock and device play acceptance remain manual. Follow mono-retro's
+Monofuel confirms the Skyrunner achievement unlocked on the handheld. Service
+reconnection and the remaining browser/state checks remain manual. Follow mono-retro's
 `docs/retroachievements.md`.
 
 Current handheld test default: `earthbound_20260818-021632.png`, with Jeff just
@@ -52,6 +53,7 @@ reloads this capture; the earlier cave capture remains available on the device.
 
 | Check | Run | Pass if |
 |---|---|---|
+| [x] Handheld achievement trigger | Start from Jeff outside Dr. Andonuts's lab and play through the Skyrunner sequence. | Monofuel reported the Skyrunner achievement unlocking on 2026-10-30. This is user-confirmed live behavior; no account contents were inspected by the agent. |
 | [ ] Real Casual unlock and service reconnect | After automated gates pass, use `mono-retro-ra login` with your own account, then run the matching player/core with your ROM and an isolated test save directory. Earn a locked achievement; briefly disconnect/reconnect networking after the set loads, keeping the player open. | Popup, browser count/details and the account's Casual unlock agree. In-session submissions recover after reconnection. No token/password appears in logs or UI. Startup requires connectivity; pending submissions are not persisted across exit. |
 | [ ] Browser, state imports and handheld presentation | On desktop and then an explicitly updated RG DS Plus, open the browser with F1 / Menu / Home, select details with A / Enter, go back with B / Escape, and resume. Try mouse/touch, controller reconnect, DS and ordinary layouts, plus accepted and rejected state imports. Use an explicit `--ra-config:PATH` in any root-run player wrapper. | Gameplay/audio pause and resume cleanly, normal GPU output retains its appearance, each popup appears once, and closing restores the game/party layout. Accepted imports reset achievement deltas; rejected imports leave progress intact. Existing game saves and original screenstates are not overwritten. |
 
