@@ -2,7 +2,7 @@
 
 import
   pixie,
-  ../decompbound/[apu, build_info, common, cpu, ds_companion, frame_step,
+  ../decompbound/[apu, build_info, common, core_profile, cpu, ds_companion, frame_step,
     libretro_api, png_state, ppu, replay_run, save_state, snesbus]
 
 const
@@ -34,6 +34,7 @@ var
   frameImage: Image
   pixels: seq[uint32]
   dualScreen: bool
+  opaquePixieVideo: bool
   companion: DsCompanion
   pcm: FramePcm
   device = RetroDeviceJoypad
@@ -42,6 +43,17 @@ proc logError(message: string) =
   ## Send an error to the frontend when its logging interface is available.
   if logger != nil:
     logger(RetroLogError, "%s", message.cstring)
+
+proc logVideoTransport() =
+  ## Announce the selected transport once after each successful content load.
+  let message = if opaquePixieVideo:
+    "Video transport: private opaque XBGR8888 (R,G,B,255)."
+  else:
+    "Video transport: standard XRGB8888."
+  if logger != nil:
+    logger(RetroLogInfo, "%s", message.cstring)
+  else:
+    stderr.writeLine("Decompbound: " & message)
 
 proc shutdown(message: string) =
   ## Report a frame or reset failure and request frontend shutdown.
@@ -67,6 +79,7 @@ proc releaseMachine() =
   companion = nil
   pixels.setLen(0)
   dualScreen = false
+  opaquePixieVideo = false
   GC_fullCollect()
 
 proc retro_api_version(): cuint {.cdecl, exportc, dynlib.} =
@@ -112,6 +125,8 @@ proc retro_init() {.cdecl, exportc, dynlib.} =
 
 proc retro_deinit() {.cdecl, exportc, dynlib.} =
   ## Release machine resources before the frontend unloads the library.
+  writeCoreProfile()
+  clearCoreProfile()
   releaseMachine()
   logger = nil
 
@@ -155,13 +170,16 @@ proc retro_run() {.cdecl, exportc, dynlib.} =
   ## Poll input and submit one video frame and 533 stereo samples.
   if machine == nil:
     return
+  beginCoreProfile()
   try:
     if inputPoll != nil:
-      inputPoll()
+      profileStage(InputCallback): inputPoll()
     machine.joy1 = 0
     if device == RetroDeviceJoypad and inputState != nil:
       for id in 0.cuint .. 11.cuint:
-        if inputState(0, RetroDeviceJoypad, 0, id) != 0:
+        var pressed: bool
+        profileStage(InputCallback): pressed = inputState(0, RetroDeviceJoypad, 0, id) != 0
+        if pressed:
           machine.joy1 = machine.joy1 or (1'u16 shl (15 - id.int))
     frameImage.fill(rgbx(0, 0, 0, 255))
     stepReplayFrame(machine, cpuState, frameImage, addr pcm)
@@ -170,34 +188,48 @@ proc retro_run() {.cdecl, exportc, dynlib.} =
         buttons: uint16
         pointerInput: DsPointer
       if inputState != nil:
-        if device == RetroDeviceJoypad:
-          if inputState(0, RetroDeviceJoypad, 0, 12) != 0: buttons = buttons or PreviousMember
-          if inputState(0, RetroDeviceJoypad, 0, 13) != 0: buttons = buttons or NextMember
-        pointerInput = DsPointer(x: inputState(0, RetroDevicePointer, 0, 0),
-          y: inputState(0, RetroDevicePointer, 0, 1),
-          pressed: inputState(0, RetroDevicePointer, 0, 2) != 0)
-      companion.update(machine.bus.mem.toOpenArray(WramOffset, WramOffset + WramSize - 1),
-        buttons, pointerInput,
-        partyBattleVisible(machine.bus.mem.toOpenArray(WramOffset, WramOffset + WramSize - 1),
-          (machine.ppuRegs[BgModeRegister] and BgModeMask).int),
-        machine.cgram.toOpenArray(0, 31))
+        profileStage(InputCallback):
+          if device == RetroDeviceJoypad:
+            if inputState(0, RetroDeviceJoypad, 0, 12) != 0: buttons = buttons or PreviousMember
+            if inputState(0, RetroDeviceJoypad, 0, 13) != 0: buttons = buttons or NextMember
+          pointerInput = DsPointer(x: inputState(0, RetroDevicePointer, 0, 0),
+            y: inputState(0, RetroDevicePointer, 0, 1),
+            pressed: inputState(0, RetroDevicePointer, 0, 2) != 0)
+      profileStage(Companion):
+        companion.update(machine.bus.mem.toOpenArray(WramOffset, WramOffset + WramSize - 1),
+          buttons, pointerInput,
+          partyBattleVisible(machine.bus.mem.toOpenArray(WramOffset, WramOffset + WramSize - 1),
+            (machine.ppuRegs[BgModeRegister] and BgModeMask).int),
+          machine.cgram.toOpenArray(0, 31))
     if video != nil:
-      for i in 0 ..< frameImage.data.len:
-        let color = frameImage.data[i]
-        pixels[i] = (color.r.uint32 shl 16) or (color.g.uint32 shl 8) or color.b.uint32
-      if dualScreen:
-        for i, color in companion.image.data:
-          pixels[Width * Height + i] = (color.r.uint32 shl 16) or
-            (color.g.uint32 shl 8) or color.b.uint32
-      video(addr pixels[0], Width, (if dualScreen: DsCombinedHeight.cuint else: Height.cuint),
-        Width * sizeof(uint32))
+      profileStage(PixelPacking):
+        if opaquePixieVideo:
+          static: doAssert sizeof(ColorRGBX) == sizeof(uint32)
+          copyMem(addr pixels[0], addr frameImage.data[0], Width * Height * sizeof(ColorRGBX))
+          if dualScreen:
+            copyMem(addr pixels[Width * Height], addr companion.image.data[0],
+              Width * Height * sizeof(ColorRGBX))
+        else:
+          for i in 0 ..< frameImage.data.len:
+            let color = frameImage.data[i]
+            pixels[i] = (color.r.uint32 shl 16) or (color.g.uint32 shl 8) or color.b.uint32
+          if dualScreen:
+            for i, color in companion.image.data:
+              pixels[Width * Height + i] = (color.r.uint32 shl 16) or
+                (color.g.uint32 shl 8) or color.b.uint32
+      profileStage(VideoCallback):
+        video(addr pixels[0], Width, (if dualScreen: DsCombinedHeight.cuint else: Height.cuint),
+          Width * sizeof(uint32))
     if audioBatch != nil:
-      discard audioBatch(addr pcm[0], ApuSamplesPerFrame)
+      profileStage(AudioCallback): discard audioBatch(addr pcm[0], ApuSamplesPerFrame)
     elif audio != nil:
-      for i in 0 ..< ApuSamplesPerFrame:
-        audio(pcm[i * 2], pcm[i * 2 + 1])
+      profileStage(AudioCallback):
+        for i in 0 ..< ApuSamplesPerFrame:
+          audio(pcm[i * 2], pcm[i * 2 + 1])
   except CatchableError as error:
     shutdown("Frame failed: " & error.msg)
+  finally:
+    endCoreProfile()
 
 proc retro_serialize_size(): csize_t {.cdecl, exportc, dynlib.} =
   ## Indicate that state creation is unsupported; explicit imports are accepted separately.
@@ -250,12 +282,16 @@ proc retro_load_game(info: ptr RetroGameInfo): bool {.cdecl, exportc, dynlib.} =
   if environment == nil:
     logError("Frontend environment callback is unavailable.")
     return false
-  var format = RetroPixelFormatXrgb8888
-  if not environment(RetroEnvSetPixelFormat, addr format):
-    logError("Frontend does not support XRGB8888 video.")
-    return false
+  var privateFormat = MonoRetroPixelFormatXbgr8888
+  let useOpaquePixie = environment(MonoRetroEnvSetPixelFormat, addr privateFormat)
+  if not useOpaquePixie:
+    var format = RetroPixelFormatXrgb8888
+    if not environment(RetroEnvSetPixelFormat, addr format):
+      logError("Frontend does not support private XBGR8888 or standard XRGB8888 video.")
+      return false
   try:
     releaseMachine()
+    opaquePixieVideo = useOpaquePixie
     var setting = RetroVariable(key: DualScreenOption)
     dualScreen = environment(RetroEnvGetVariable, addr setting) and
       setting.value != nil and $setting.value == "enabled"
@@ -267,6 +303,8 @@ proc retro_load_game(info: ptr RetroGameInfo): bool {.cdecl, exportc, dynlib.} =
     frameImage = newImage(Width, Height)
     pixels = newSeq[uint32](Width * (if dualScreen: DsCombinedHeight else: Height))
     if dualScreen: companion = newDsCompanion(rom)
+    resetCoreProfile()
+    logVideoTransport()
     result = true
   except CatchableError as error:
     releaseMachine()
@@ -280,6 +318,7 @@ proc retro_load_game_special(gameType: cuint, info: ptr RetroGameInfo,
 
 proc retro_unload_game() {.cdecl, exportc, dynlib.} =
   ## Release loaded game resources.
+  writeCoreProfile()
   releaseMachine()
 
 proc retro_get_region(): cuint {.cdecl, exportc, dynlib.} =

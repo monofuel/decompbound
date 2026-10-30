@@ -14,13 +14,15 @@ the frontend. The existing desktop player and ROM rebuild remain separate.
 For an AArch64 Linux handheld, put the cross compiler on PATH and run:
 
 ```sh
-DECOMPBOUND_TARGET=arm64 nim c src/libretro/core.nim
+DECOMPBOUND_TARGET=arm64 nim c --nimcache:bin/nimcache/libretro-arm64 src/libretro/core.nim
 ```
 
 `DECOMPBOUND_CC` selects the compiler (default `aarch64-unknown-linux-gnu-gcc`).
 The output is `bin/libretro/decompbound_libretro-arm64.so`; the desktop core is
 preserved. With Nix's cross compiler, set `NIX_DONT_SET_RPATH=1` and
 `NIX_DONT_SET_RPATH_aarch64_unknown_linux_gnu=1` to omit store-specific runpaths.
+Keep the ARM cache separate from desktop/profile builds to avoid mixing target
+object files when building concurrently.
 Desktop and ARM cores use the shipping profile by default (`danger`, with
 compiler runtime checks disabled). Use `nim c -d:debug src/libretro/core.nim`
 for a checked developer build; the same selection applies to the ARM command.
@@ -39,7 +41,7 @@ unsupported pixel format is rejected through the API and optional frontend log.
 
 | Interface | Value |
 |---|---|
-| Video | 256x224, XRGB8888 (`0x00RRGGBB` words), 1,024-byte pitch |
+| Video | 256x224, standard XRGB8888 or negotiated opaque XBGR, 1,024-byte pitch |
 | Aspect | 8:7 square pixels, matching the existing desktop player |
 | Timing | 60 frames/sec, 533 stereo samples/frame, 31,980 samples/sec |
 | Audio | Interleaved signed 16-bit stereo; batch callback preferred, per-sample fallback |
@@ -56,6 +58,23 @@ Pixel and PCM buffers remain core-owned; a frontend retaining output should copy
 it during the callback. SRAM and WRAM pointers remain stable until game unload.
 The frontend loads and persists SRAM, using the same raw 8 KiB layout as the
 existing player. Reset preserves SRAM. The core performs no save-file I/O.
+
+During each content load, the core first offers mono-retro's optional private
+transport: environment command `0x00024D52`, with a pointer to native `uint32`
+FourCC `0x34324258` (`XB24`). If accepted, video contains opaque **R,G,B,255**
+bytes copied unchanged from Pixie. The game image and optional companion image
+are copied into the persistent combined buffer, with the game above the companion.
+There is no per-pixel channel conversion on this path. Rendered output is opaque,
+including forced blanking; the frontend must copy borrowed rows before returning.
+
+Rejection falls back to standard environment command `10`, format `1`, with
+the existing `0x00RRGGBB` packing. If both requests fail, content loading fails.
+The private FourCC is separate from the standard enum and is never passed to
+command `10`. A successful load logs the selected path once; reset and state
+import retain it, while unload/deinit clear it and the next load negotiates again.
+The private path requires an updated mono-retro-player; older frontends continue
+through XRGB8888. See mono-retro's `docs/libretro-extensions.md` for its complete
+little-endian transport contract.
 
 State creation, cheats, special-content loading, other controller ports, and
 hardware rendering are unsupported. Serialization reports size zero and returns
@@ -79,10 +98,12 @@ make compare
 
 The unit test runs independent C and Nim hosts against the actual shared library.
 It checks the exported ABI, native dependencies, synthetic ROM/header loading,
-controller mapping, video colors and blanking, audio callback modes, SRAM,
+controller mapping, both pixel transports, opaque filler bytes, colors and blanking,
+negotiation rejection/fallback, audio callback modes, SRAM,
 reinitialization, and repeated `dlopen`/`dlclose` with bounded memory growth.
 The integration test requires the user's ROM and compares 1,200 cold-boot frames
-with the headless emulator: every pixel, PCM sample, WRAM byte, and SRAM byte.
+with the headless emulator in both screen modes and transports: every normalized
+RGB pixel, private opaque filler byte, PCM sample, WRAM byte, and SRAM byte.
 It switches between batch, per-sample, and discarded audio during that run.
 
 `make test` builds the library before the unit suite. `make integration-test`

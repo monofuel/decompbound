@@ -32,12 +32,18 @@ var
   buttons: uint16
   failure: string
   videoCalls, audioFrames, pollCalls, nonzeroAudio, coloredPixels: int
-  dualScreen: bool
+  dualScreen, opaqueTransport: bool
+  privateRequests, standardRequests: int
   companionInputCalls: int
 
 proc environment(command: cuint, data: pointer): bool {.cdecl.} =
   ## Negotiate software pixels and retain errors until the callback returns.
-  if command == RetroEnvSetPixelFormat:
+  if command == MonoRetroEnvSetPixelFormat:
+    inc privateRequests
+    result = opaqueTransport and data != nil and
+      cast[ptr uint32](data)[] == MonoRetroPixelFormatXbgr8888
+  elif command == RetroEnvSetPixelFormat:
+    inc standardRequests
     result = data != nil and cast[ptr cuint](data)[] == RetroPixelFormatXrgb8888
   elif command == RetroEnvShutdown:
     failure = "Core requested shutdown."
@@ -50,6 +56,19 @@ proc environment(command: cuint, data: pointer): bool {.cdecl.} =
       setting.value = if dualScreen: "enabled" else: "disabled"
       result = true
 
+proc deliveredPixel(data: pointer, index: int): uint32 =
+  ## Normalize negotiated RGB while checking every opaque transport filler byte.
+  if opaqueTransport:
+    let
+      bytes = cast[ptr UncheckedArray[uint8]](data)
+      offset = index * 4
+    if bytes[offset + 3] != 255:
+      failure = &"Opaque pixel {index} has filler {bytes[offset + 3]}, expected 255."
+    result = (bytes[offset].uint32 shl 16) or
+      (bytes[offset + 1].uint32 shl 8) or bytes[offset + 2].uint32
+  else:
+    result = cast[ptr UncheckedArray[uint32]](data)[index]
+
 proc video(data: pointer, width, height: cuint, pitch: csize_t) {.cdecl.} =
   ## Compare every output pixel with the independent headless frame.
   inc videoCalls
@@ -58,18 +77,19 @@ proc video(data: pointer, width, height: cuint, pitch: csize_t) {.cdecl.} =
       pitch != (width * 4).csize_t:
     failure = "Invalid video buffer or geometry."
     return
-  let pixels = cast[ptr UncheckedArray[uint32]](data)
   for index, color in expectedImage.data:
-    let expected = (color.r.uint32 shl 16) or (color.g.uint32 shl 8) or color.b.uint32
-    if pixels[index] != expected:
-      failure = &"Pixel {index}: {pixels[index]:08X} != {expected:08X}."
+    let
+      expected = (color.r.uint32 shl 16) or (color.g.uint32 shl 8) or color.b.uint32
+      actual = deliveredPixel(data, index)
+    if actual != expected:
+      failure = &"Pixel {index}: {actual:08X} != {expected:08X}."
       return
     if expected != 0:
       inc coloredPixels
   if dualScreen:
     for index, color in expectedCompanion.image.data:
       let expected = (color.r.uint32 shl 16) or (color.g.uint32 shl 8) or color.b.uint32
-      if pixels[ppu.ScreenWidth * ppu.ScreenHeight + index] != expected:
+      if deliveredPixel(data, ppu.ScreenWidth * ppu.ScreenHeight + index) != expected:
         failure = &"Companion pixel {index} differs from the live WRAM/CGRAM snapshot."
         return
 
@@ -110,9 +130,12 @@ proc symbol[T](library: LibHandle, name: string): T =
   doAssert address != nil, "Missing symbol: " & name
   cast[T](address)
 
-proc checkMode(enabled: bool) =
+proc checkMode(enabled, opaque: bool) =
   ## Compare actual shared-library execution with cold-boot ROM emulation.
   dualScreen = enabled
+  opaqueTransport = opaque
+  privateRequests = 0
+  standardRequests = 0
   failure = ""
   coloredPixels = 0
   nonzeroAudio = 0
@@ -201,7 +224,11 @@ proc checkMode(enabled: bool) =
   doAssert coloredPixels > 0, "The ROM never produced a colored frame."
   doAssert nonzeroAudio > 0, "The ROM never produced audible samples."
   doAssert companionInputCalls == (if dualScreen: Frames * 2 else: 0)
-  echo &"libretro ROM parity (dual={dualScreen}): {Frames} frames, pixels/PCM/WRAM/SRAM matched; muted and per-sample paths included."
+  doAssert privateRequests == 1
+  doAssert standardRequests == (if opaqueTransport: 0 else: 1)
+  echo &"libretro ROM parity (dual={dualScreen}, opaqueXBGR={opaqueTransport}): {Frames} frames, pixels/PCM/WRAM/SRAM matched; muted and per-sample paths included."
 
-checkMode(false)
-checkMode(true)
+checkMode(false, false)
+checkMode(true, false)
+checkMode(false, true)
+checkMode(true, true)
