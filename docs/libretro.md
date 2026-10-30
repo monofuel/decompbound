@@ -130,6 +130,18 @@ including custom-hook fallback and NMI stack state. The optional private-capture
 sweep is `nim r -d:debug --opt:speed tests/polling/corpus.nim`; it reads local
 captures and writes only a text report beneath ignored `bin/polling/`.
 
+Palette tests and renderer-comparison negative controls also run through
+`make libretro-test`. For a renderer change, compile the identical
+`tests/ppu/worker.nim` against reference and candidate source trees, using
+`-d:danger --mm:orc -d:useMalloc` and separate caches/output paths for both.
+Then run `nim r tests/ppu/corpus.nim REFERENCE_WORKER CANDIDATE_WORKER`.
+The optional private sweep compares every pixel, PCM byte, serialized CPU/machine
+state byte and handshake marker for three frames per capture. It streams data
+through pipes, keeps only text under ignored `bin/ppu-palette/`, and bounds each
+worker's lifetime with the system `timeout` utility. It does not open audio or
+display devices. Both workers must really import their respective renderer;
+the older CPU-polling sweep alone cannot validate two renderer versions.
+
 The replay benchmark's `--cpu-poll-batching` option exercises the optimized path
 against existing full-tape goldens. Its default remains ordinary interpretation;
 do not mistake a default benchmark run for optimization coverage. Batching cannot

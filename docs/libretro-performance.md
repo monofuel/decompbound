@@ -1,8 +1,10 @@
 # Libretro core performance
 
 This is the working reference for improving decompbound's libretro core on the
-RG DS Plus. Profiling tools, optional opaque XBGR transport and guarded CPU
-polling-loop batching are implemented. Batching reduces fixed-clock ARM battle
+RG DS Plus. Profiling tools, optional opaque XBGR transport, guarded CPU
+polling-loop batching and borrowed background palette access are implemented.
+Palette borrowing reduces core CPU time by **9.40–16.42%** in the new fixed-clock
+ARM comparisons below. Batching reduces fixed-clock ARM battle
 CPU time by **34.71%**; the optimized core is installed. Full-game sustained
 60 fps remains a human verification item. PPU rendering is now the largest
 measured core cost. Further optimizations below remain hypotheses until
@@ -157,9 +159,10 @@ propagation or thread isolation is not an accepted shortcut.
    scanline/APU/HDMA cadence. Subsequent fixed-clock ARM battle measurements
    exceed the 30% CPU-reduction target, with independent correctness gates;
    see the implementation and paired measurements below.
-2. **Next: the measured PPU hot paths.** Repeated scanline decode/composition
-   and palette access have substantial headroom, with exact invalidation and
-   scanline effects preserved.
+2. **PPU work: palette lookup implemented; decode/composition next.** The
+   borrowed palette removes repeated address resolution without changing
+   invalidation. Fresh sampling below still ranks background decode/composition
+   first; investigate their remaining work before another optimization.
 3. **Small complementary work: transport packing.** It is about 0.065 ms per
    DS frame on this PC. Mono-retro's optional opaque XBGR transport is now
    implemented (measurements below); this alone cannot deliver 30% core savings.
@@ -460,63 +463,106 @@ Native test saves are isolated under `/tmp/decompbound-poll-batching/`.
 Logs, including the initial failure and baseline comparison, remain under
 ignored `bin/polling/`; visual/play acceptance stays in `human-verify.md`.
 
-## Next bounded experiment: background palette address lookup
+## Implemented: borrowed background palette
 
-The optimized ARM profile attributes **7.540 ms / 60.91%** of battle wall time
-to `VideoScanline`, versus 0.092 ms to sprites and 0.116 ms to foreground
-restoration. These are instrumented, variable-clock measurements, not savings
-estimates. Evidence: ignored
-`bin/polling/arm-results/audit-battle-stage-summary.json`.
+`compositeScreen` passes the current thread's palette address into the private
+`bgScanlineInto` decoder. The pixel loop borrows the live array; no copy or
+persistent pointer is retained. `syncPalette` still compares CGRAM before each
+scanline, preserving HDMA changes, alternating machines, reset and state import.
+`BgDecode` already shares layer decoding across main/subscreens and priority
+passes; that existing reuse remains unchanged. There is no public or libretro
+ABI change.
 
-Source inspection rules out one tempting duplicate-work claim: `BgDecode`
-already shares each layer's decoded line between main and subscreen composition,
-and records tile priority so low/high passes reuse that decode. Preserve this.
+The original shipping x86 decoder resolves TLS immediately before palette
+loads, including unrolled pixels at `0x2e9c3`, `0x2ea28`, `0x2ea8d` in the
+earlier polling artifact, with palette TLS offset `0x2a0`. Merely taking a local
+pointer inside the decoder fails: GCC reconstructs those lookups. Passing it
+across the private call boundary removes the palette lookup sequence on both
+x86 and ARM. Static TLS call sites in the decoder drop **32 → 2**; the remaining
+sites access error state. Exception handling and thread isolation are retained.
+Disassembly and the rejected expression's evidence are in ignored
+`bin/ppu-palette/{pc,arm}/`, with source baseline `7cb2769`.
 
-A smaller candidate is repeated thread-local palette resolution in
-`bgScanlineInto`. The retained shipping PC optimized `.so` (SHA256 above)
-calls `__tls_get_addr` immediately before opaque-pixel palette loads, including
-unrolled consecutive pixels at native addresses `0x2e9c3`, `0x2ea28` and
-`0x2ea8d`. The palette symbol is at TLS offset `0x2a0`; these are separate from
-calls for Nim's error state. Reproduce locally without launching a frontend:
+### Palette correctness gates
 
-```sh
-# LLVM objdump syntax; GNU objdump uses --disassemble=SYMBOL instead.
-objdump -d --no-show-raw-insn \
-  --disassemble-symbols=bgScanlineInto__OOZqrpbzcobhaqZcch_u363 \
-  bin/polling/pc/optimized.so
-```
+Seven checked synthetic cases call the real renderer and independently verify
+CGRAM updates, alternating machines, reset/import, 2/4/8bpp palette boundaries,
+transparency/flips, priority and independent main/subscreen windows. They pass
+on both source versions. The palette tests and byte-comparison negative controls
+are registered in `make libretro-test`.
 
-Hypothesis: resolve the current thread's palette address once per background
-scanline call and reuse it in the pixel loop. Keep the cache thread-local and
-leave `syncPalette` and its per-scanline CGRAM comparison unchanged. Do not
-retain the address across calls, threads or library unloads, copy a stale
-frame-level palette, or alter Nim's exception handling. The observed x86
-instruction sequence does not prove ARM uses the same lookup sequence or that
-this change improves either target.
+The new optional `tests/ppu/corpus.nim` driver compares identical worker source
+compiled against the two renderer trees, both explicitly shipping danger/ORC/
+libc builds. It streams complete pixels, PCM, serialized CPU/machine state and
+the separate handshake flag through pipes. All **3,480 captures × three frames**
+match; 3,336 image-only files are excluded explicitly, with zero incompatible
+states. Worker shutdown and final process exit pass. No buffers are saved.
+The older polling sweep uses one renderer and is not a substitute for this gate.
+Build/run instructions are in [libretro.md](libretro.md#verification).
 
-The acceptance sequence is:
+Libretro lifecycle, colors, transports, state import and profile accounting pass,
+as does 1,200-frame actual-library parity in each single/dual-screen and
+XRGB/XBGR combination. The unchanged replay goldens are checked with polling
+batching enabled, and the vanilla ROM rebuild remains byte-identical.
 
-1. Build baseline/candidate separately and inspect emitted code to establish
-   whether the candidate removes those repeated palette resolutions. Reject
-   the hypothesis if the compiler emits equivalent work.
-2. Add synthetic behavior checks for CGRAM changes between scanlines,
-   sequential machines, reset/state import, tile transparency, flips, priority
-   and independent main/sub windows. Exercise actual callers, not a copy of
-   the palette lookup expression.
-3. Compare independently built cores over the private scene archive, then run
-   all existing replay goldens and libretro lifecycle/transport/state gates.
-   Require matching pixels, PCM and machine state. The existing
-   `tests/polling/corpus.nim` switches CPU stepping inside one renderer; rerunning
-   it alone cannot compare two PPU implementations. A PPU comparison must
-   actually execute both versions.
-4. Use the existing silent standalone host for three alternating PC pairs per
-   cave-walk/dialogue/battle workload, with unchanged input, warmup and frame
-   counts. Keep hashing out of timing runs; check it separately. Retain only
-   a measured improvement without correctness regressions. If promising,
-   repeat on ARM with controlled clocks using the same silent host before
-   deployment. All player runs remain muted unless freshly authorized.
+### Paired palette measurements
 
-No renderer change or new speedup is claimed by this investigation.
+Both platforms use three alternating reference/candidate pairs per workload,
+240 warmup and 2,000 measured frames per run, CPU 2, DS/XBGR, and no timed
+hashing. Each variant contributes 6,000 samples per scene. Shipping flags,
+compiler and inputs match; baseline already includes polling batching.
+
+| PC workload | Reference CPU mean | Candidate | Reduction | CPU p95 before → after | CPU p99 before → after |
+|---|---:|---:|---:|---:|---:|
+| Cave walking | 1.069 ms | 1.039 ms | 2.78% | 1.195 → 1.174 ms | 1.361 → 1.302 ms |
+| Dialogue | 0.638 ms | 0.610 ms | 4.40% | 0.716 → 0.669 ms | 0.756 → 0.739 ms |
+| Battle | 1.310 ms | 1.250 ms | 4.60% | 1.467 → 1.385 ms | 1.830 → 1.553 ms |
+
+The ARM run holds minimum and maximum clocks at **1.416 GHz**. All **486 clock
+samples** report 1.416 GHz, spaced 1–2 seconds apart and covering all timed
+phases. Temperatures range 44.375–50.000°C. The menu remains running; no player,
+audio device or display diagnostic is launched. Original 408 MHz/1.992 GHz
+limits are restored afterward, and installed core/player/launcher and both
+ordinary/test SRAM checksums remain unchanged during measurement.
+
+| ARM workload | Reference CPU mean | Candidate | Reduction | CPU p95 before → after | CPU p99 before → after |
+|---|---:|---:|---:|---:|---:|
+| Cave walking | 10.878 ms | 9.855 ms | **9.40%** | 12.316 → 11.288 ms | 12.527 → 11.498 ms |
+| Dialogue | 6.989 ms | 5.841 ms | **16.42%** | 7.159 → 6.017 ms | 7.252 → 6.082 ms |
+| Battle | 13.493 ms | 11.646 ms | **13.68%** | 14.703 → 12.862 ms | 14.886 → 13.057 ms |
+
+All nine pairs on each platform improve CPU mean by over 2%. ARM pair means,
+p95 and p99 improve throughout; PC cave pair 3 p99 regresses 1.82%, within the
+2% tolerance, while aggregate tails improve everywhere. PC dialogue/battle wall
+maxima increase, so this is not a universal maximum-latency improvement. The
+candidate passes the preselected 2% gain/no reproducible >2% regression rule.
+
+Separate 64-frame/5-warmup reference/candidate/profile controls match video, PCM,
+WRAM and SRAM hashes across both architectures; exclusive stage totals sum
+exactly. Compiler metadata, library checksums, all raw samples and assertion-
+enabled audits are retained under ignored `bin/ppu-palette/pc/` and
+`bin/ppu-palette/arm-results/`. Measured ARM candidate SHA256:
+`0daedb3c50993ec33584a591273d0366a459860b2dd81a7e46e24456b66418f3`.
+These artifacts report the frozen implementation on top of `7cb2769`.
+
+### Remaining measured target
+
+Fresh instrumented ARM PPU totals are 5.699 ms cave, 3.586 ms dialogue and
+7.545 ms battle, respectively **53.17%, 55.17%, 59.20%** of instrumented wall
+work. Scanline rendering alone is 48.63–57.26%. Instrumentation increases CPU
+cost by about 6.2–8.6%; improvement claims use the uninstrumented tables above.
+
+A separate normal-core x86 walking sample (6,000 measured frames, 997 Hz user
+cycles, 6,788 samples, zero lost) ranks `bgScanlineInto` at **32.02%**,
+`compositeScreen` at **17.45%**, and `renderScanline` at **10.87%**. TLS still
+accounts for 3.46% across all callers; it is not all palette lookup. Evidence:
+`bin/ppu-palette/pc/candidate-perf{.data,-report.txt}`.
+
+The next bounded investigation is tile-row decoding and BG priority/window
+composition, now ranked by the new profile. No second optimization is included.
+The exact inventory → Bad Key Machine sequence has no recorded input tape and
+has not been profiled; residual crunch and full-player sustained 60 fps remain
+open. Do not infer that either is fixed from these core-only measurements.
 
 ## Implemented: opaque XBGR transport
 

@@ -195,7 +195,7 @@ proc bgLineSetup(snes: SnesBus, py: int, bg: int, sizeBits: var int,
 
 proc bgScanlineInto(snes: SnesBus, buf: var openArray[ColorRGBA],
                     drawn: var openArray[bool], py: int, bg: int, bpp: int,
-                    paletteBase: int, prio: int = -1,
+                    paletteBase: int, palette: ptr typeof(palCache), prio: int = -1,
                     prioOut: ptr array[ScreenWidth, uint8] = nil) =
   ## Fill a 256-wide line buffer with one BG layer's pixels for scanline py,
   ## marking which pixels were opaque. Honors latched scroll and map size.
@@ -206,6 +206,7 @@ proc bgScanlineInto(snes: SnesBus, buf: var openArray[ColorRGBA],
   ## caller can apply the split itself from a single decode.
   ## Works one tile run (up to 8 pixels) at a time: the map entry and the
   ## tile's plane words are read once per run.
+  ## Borrow the caller's current-thread palette for this decode.
   var sizeBits, chrBase, hofs, rowBase, subY: int
   snes.bgLineSetup(py, bg, sizeBits, chrBase, hofs, rowBase, subY)
   let colorsPerPal = 1 shl bpp
@@ -231,7 +232,7 @@ proc bgScanlineInto(snes: SnesBus, buf: var openArray[ColorRGBA],
       let sx = if flipX: 7 - (sub + i) else: sub + i
       let index = idx[sx].int
       if index != 0:
-        buf[px + i] = palCache[(palBase + index) and 0xFF]
+        buf[px + i] = palette[][(palBase + index) and 0xFF]
         drawn[px + i] = true
         if prioOut != nil:
           prioOut[px + i] = tilePrio.uint8
@@ -416,8 +417,10 @@ proc compositeScreen(snes: SnesBus, py: int, mask: uint8, winReg: uint8,
   ## is then applied from the recorded per-pixel tile priority bit, so a
   ## layer that appears twice in the ladder (low then high tiles) costs one
   ## decode.
-  let mode = (snes.ppuRegs[0x05] and 0x07).int
-  let bg3prio = (snes.ppuRegs[0x05] and 0x08) != 0
+  let
+    mode = (snes.ppuRegs[0x05] and 0x07).int
+    bg3prio = (snes.ppuRegs[0x05] and 0x08) != 0
+    palette: ptr typeof(palCache) = addr palCache
   const BackdropMathBit = 0x20'u8  ## CGADSUB bit 5.
   for px in 0..<ScreenWidth:
     buf[px] = backdrop
@@ -434,7 +437,7 @@ proc compositeScreen(snes: SnesBus, py: int, mask: uint8, winReg: uint8,
       dec.decoded[bg] = true
       for px in 0 ..< ScreenWidth: dec.lineDrawn[bg][px] = false
       snes.bgScanlineInto(dec.lines[bg], dec.lineDrawn[bg], py, bg, layer.bpp,
-                          layer.pal, -1, addr dec.linePrio[bg])
+                          layer.pal, palette, -1, addr dec.linePrio[bg])
     if not winDone[bg]:
       winDone[bg] = true
       let wp = bgWindowParams(bg)
