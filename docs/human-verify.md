@@ -37,6 +37,17 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 ## OPEN — please check
 
+### RetroAchievements (2026-10-30)
+
+Core, synthetic SDK and desktop integration gates pass. No live account or device
+play test has been performed for this feature; the currently installed player is
+not assumed to contain it. Follow mono-retro's `docs/retroachievements.md`.
+
+| Check | Run | Pass if |
+|---|---|---|
+| [ ] Real Casual unlock and service reconnect | After automated gates pass, use `mono-retro-ra login` with your own account, then run the matching player/core with your ROM and an isolated test save directory. Earn a locked achievement; briefly disconnect/reconnect networking after the set loads, keeping the player open. | Popup, browser count/details and the account's Casual unlock agree. In-session submissions recover after reconnection. No token/password appears in logs or UI. Startup requires connectivity; pending submissions are not persisted across exit. |
+| [ ] Browser, state imports and handheld presentation | On desktop and then an explicitly updated RG DS Plus, open the browser with F1 / Menu / Home, select details with A / Enter, go back with B / Escape, and resume. Try mouse/touch, controller reconnect, DS and ordinary layouts, plus accepted and rejected state imports. Use an explicit `--ra-config:PATH` in any root-run player wrapper. | Gameplay/audio pause and resume cleanly, normal GPU output retains its appearance, each popup appears once, and closing restores the game/party layout. Accepted imports reset achievement deltas; rejected imports leave progress intact. Existing game saves and original screenstates are not overwritten. |
+
 ### RG DS Plus shipping build
 
 | Check | Run | Pass if |

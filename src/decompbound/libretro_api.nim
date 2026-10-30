@@ -36,6 +36,8 @@ const
   RetroEnvGetVariable* = 15.cuint
   RetroEnvSetVariables* = 16.cuint
   RetroEnvGetLogInterface* = 27.cuint
+  RetroEnvSetSupportAchievements* = (42 or 0x10000).cuint
+    ## Standard experimental libretro command carrying a C boolean capability.
   RetroPixelFormatXrgb8888* = 1.cuint
   RetroDeviceNone* = 0.cuint
   RetroDeviceJoypad* = 1.cuint

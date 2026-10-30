@@ -95,6 +95,8 @@ proc retro_set_environment(callback: RetroEnvironment) {.cdecl, exportc, dynlib.
     var variables = [RetroVariable(key: DualScreenOption, value: DualScreenDescription),
       RetroVariable()]
     discard environment(RetroEnvSetVariables, addr variables[0])
+    var supportsAchievements = true
+    discard environment(RetroEnvSetSupportAchievements, addr supportsAchievements)
 
 proc retro_set_video_refresh(callback: RetroVideoRefresh) {.cdecl, exportc, dynlib.} =
   ## Store the frontend video callback.

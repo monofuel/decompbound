@@ -153,6 +153,29 @@ remain independent and are checked with `make bench-check`.
 
 ## Mono-retro
 
+### RetroAchievements frontend integration
+
+The core advertises libretro `SET_SUPPORT_ACHIEVEMENTS` (`42 | 0x10000`) and
+exports the RAM/SRAM sizes listed above. Achievement authentication, ROM hashing,
+evaluation and UI belong to mono-retro-player; the core does not link the SDK or
+contact the service. The frontend's Decompbound integration uses the SDK's SNES
+memory mapper with system RAM and save RAM, and hashes a retained copy of the
+original ROM bytes without patching them. It supports Casual achievements only.
+
+The matching frontend adds unlock popups and a paused browser
+(F1 / Menu / Home; B / Escape goes back). It defaults to achievements enabled
+when configured; `--achievements:off` disables evaluation. Use `mono-retro-ra login`
+to create the private `~/.mono-retro-ra.json` token file; root launch wrappers
+must pass the intended `--ra-config:/absolute/path` explicitly to the player.
+See mono-retro's `docs/retroachievements.md` for setup, controls and network limits.
+
+Legacy state imports keep their existing format. After a successful import, the
+frontend resets SDK progress deltas and refreshes memory pointers; rejection
+preserves achievement progress. Core, synthetic SDK and desktop integration gates
+pass; real-account and handheld acceptance remain on the human verification list.
+
+### Gameplay and state imports
+
 The optional [EarthBound DS companion](earthbound-ds.md) adds a live party and
 inventory screen through the same core. Use `make libretro-ds-play` with the
 matching mono-retro-player branch; ordinary mode remains the default.

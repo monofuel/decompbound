@@ -20,6 +20,7 @@
 #define MEMORY_SAVE_RAM 0u
 #define MEMORY_SYSTEM_RAM 2u
 #define LOG_INTERFACE_COMMAND 27u
+#define ACHIEVEMENTS_COMMAND (42u | 0x10000u)
 #define ERROR_LOG_LEVEL 3u
 #define INFO_LOG_LEVEL 1u
 #define MAX_RETAINED_RSS_KIB 32768
@@ -68,6 +69,8 @@ static struct api open_api(void *handle) {
 static bool accept_pixels = true;
 static bool accept_private = false, opaque_pixels = false;
 static bool dual_screen = false;
+static bool accept_achievements = false;
+static unsigned achievement_declarations;
 static unsigned pixel_requests, private_requests, polls, videos, frames, samples, buttons;
 static uint32_t pixel;
 static uint32_t first_card, second_card;
@@ -87,6 +90,11 @@ static void core_log(int level, const char *format, ...) {
   va_end(arguments);
 }
 static bool environment(unsigned command, void *data) {
+  if (command == ACHIEVEMENTS_COMMAND) {
+    CHECK(data && *(bool *)data);
+    achievement_declarations++;
+    return accept_achievements;
+  }
   if (command == PRIVATE_PIXEL_COMMAND) {
     CHECK(data && *(uint32_t *)data == OPAQUE_XBGR); private_requests++;
     if (accept_private) opaque_pixels = true;
@@ -268,10 +276,13 @@ int main(int argc, char **argv) {
   CHECK(argc == 2);
   long initial_peak = 0;
   for (unsigned cycle = 0; cycle < 22; ++cycle) {
+    accept_achievements = cycle % 2 != 0;
+    unsigned previous_declarations = achievement_declarations;
     dual_screen = (cycle % 2) != 0;
     accept_private = cycle % 4 >= 2; opaque_pixels = false;
     void *handle = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL); CHECK(handle);
     struct api a = open_api(handle); callbacks(a); a.init(); check_metadata(a);
+    CHECK(achievement_declarations == previous_declarations + 1);
     unsigned previous_errors = errors;
     CHECK(!a.load_game(NULL)); CHECK(errors == previous_errors + 1 && strstr(last_error, "3 MiB"));
     struct game_info invalid = {0}; CHECK(!a.load_game(&invalid));
