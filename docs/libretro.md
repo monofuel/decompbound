@@ -26,6 +26,9 @@ compiler runtime checks disabled). Use `nim c -d:debug src/libretro/core.nim`
 for a checked developer build; the same selection applies to the ARM command.
 The frontend contract and explicit ROM/state validation are unchanged.
 
+Core-side profiling, optimization ideas and threading tradeoffs are collected
+in [Libretro core performance](libretro-performance.md).
+
 ## Frontend contract
 
 The core exports the standard [libretro v1 functions](https://docs.libretro.com/development/cores/developing-cores/), with C calling conventions.

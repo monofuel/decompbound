@@ -248,6 +248,7 @@ input, and battery SRAM for mono-retro and other libretro frontends.
 |-----|------|
 | [GOAL.md](GOAL.md) | Goals, completion criteria, investigation loop |
 | [docs/libretro.md](docs/libretro.md) | Shared core and mono-retro-player integration |
+| [docs/libretro-performance.md](docs/libretro-performance.md) | Core performance ideas, measurement and threading tradeoffs |
 | [docs/earthbound-ds.md](docs/earthbound-ds.md) | Dual-screen party and inventory companion |
 | [docs/jukebox.md](docs/jukebox.md) | Pocket Jukebox |
 | [docs/battle-backgrounds.md](docs/battle-backgrounds.md) | Pocket Backgrounds and encounter presets |
