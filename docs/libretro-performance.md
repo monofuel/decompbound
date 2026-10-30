@@ -527,22 +527,66 @@ Verify generated shaders on the handheld driver; desktop OpenGL success alone
 does not establish mobile compatibility. Check precision and integer/color
 rounding against the software renderer.
 
+#### Shady compute and possible Hippo backends
+
+Keep two useful tracks: **Shady with OpenGL ES compute as the likely smallest
+first experiment**, and **Hippo backend development as a broader Nim GPU library
+investment**. Monofuel enjoys working on Hippo; that reusable-library value can
+justify pursuing it beyond whichever path delivers the first emulator speedup.
+These are future options, not additional dependencies or implementation work
+already accepted into this core.
+
+| Path | Possible role | Work to establish first |
+|---|---|---|
+| Shady + OpenGL ES compute | Express tile decoding, palette lookup or composition kernels in Nim, then dispatch them through a native GLES context. | Verify ES compute shader generation, buffer/image access and synchronization on the actual handheld. This could share resources with GLES presentation and avoid a separate compute runtime. |
+| Hippo + OpenCL | Add an OpenCL compute backend behind Hippo's buffer/dispatch interface. | Define kernel compilation/lowering as well as runtime calls, check the installed OpenCL device/driver, and establish output sharing with the display path. OpenCL compute alone does not provide presentation. |
+| Hippo + Vulkan compute | Add a Vulkan compute backend, potentially using Shady-generated shader code and SPIR-V. | Define kernel semantics, memory layouts, pipelines, queues and synchronization, then coordinate image ownership and presentation with mono-retro. Vulkan capability and interoperability need device tests. |
+
+The GLES compute path needs **OpenGL ES 3.1 / GLSL ES 3.10 or later**;
+[Khronos introduced compute in ES 3.1](https://www.khronos.org/news/press/khronos-releases-opengl-es-3.1-specification).
+The inspected Shady checkout (`e6b643a`) exposes an ES 3.0 graphics target, while
+its `shady/compute.nim` helper requests a desktop OpenGL 4.5 window. A GLES
+compute target/runtime needs verification or adaptation; importing that helper
+is not yet evidence of a working handheld compute path. The same checkout also
+contains `vulkanGlsl450` and `compileSpirvShader` code-generation pieces worth
+evaluating before writing another shader compiler. Those pieces do not establish
+a working Vulkan runtime or device support.
+
+[Hippo](https://github.com/monofuel/hippo) currently selects HIP, CUDA, HIP-CPU
+or SIMPLE runtimes in the inspected source (`ae6b506`). OpenCL/Vulkan would be
+new backend work; its README already lists a chipStar/OpenCL experiment as an
+untested stretch goal. Investigate whether Shady can generate device code for a
+shared kernel subset while Hippo handles buffers, dispatch and synchronization.
+This is a proposed integration: existing Hippo kernels and Shady shaders have
+different execution interfaces. Define thread indexing, integer operations,
+memory layout and barriers explicitly. Vulkan SPIR-V and OpenCL kernel targets
+also need their own valid compilation environments; sharing a binary format
+does not establish interchangeable kernels.
+
+Begin with one small integer kernel, such as palette lookup or a tile row,
+against tiny synthetic data and an independent CPU reference. Compare GLES
+compute with an optional Hippo backend using identical work, including uploads,
+completion and display integration, core CPU time and p95/p99 frame times.
+Timing command submission alone does not measure finished GPU work. Record the
+actual device/driver selected.
+Prefer a bounded experiment that reveals the compiler/runtime gaps before
+committing to a shared abstraction or porting the full PPU. Preserve the
+software reference and GPU-resident output goal across all of these options.
+
 A GPU core should keep its rendered images on the GPU through presentation.
 Reading every finished frame back to CPU memory for the current software-video
 callback could consume the savings. Libretro's
 [hardware-rendering interface](https://docs.libretro.com/development/cores/opengl-cores/)
 lets the frontend own the graphics context and the core render to its supplied
 framebuffer. Mono-retro would need that interface and GPU handling for both
-panels, including resource lifetime, context reset and cleanup. Retain the
+panels, including resource lifetime, context reset and cleanup. A Vulkan route
+would need libretro's corresponding Vulkan image/queue integration; a working
+compute backend alone would not add that frontend support. Retain the
 software/XBGR fallback for unsupported frontends and devices.
 
-Start with a small native-device capability/performance probe before committing
-to a PPU rewrite. Measure uploads, synchronization and completed presentation,
-alongside core CPU time and p95/p99 frame times; timing command submission alone
-does not measure finished GPU work. Compare rendered pixels with the independent
-software reference and preserve emulation/audio/memory parity. Keep ordinary
-game rendering and optional display effects separate so performance work retains
-the original pixel appearance.
+Compare rendered pixels with the independent software reference and preserve
+emulation/audio/memory parity. Keep ordinary game rendering and optional display
+effects separate so performance work retains the original pixel appearance.
 
 ## Multithreading and the separate sound CPU
 
