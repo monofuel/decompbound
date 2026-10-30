@@ -69,6 +69,10 @@ hang, Saturn Valley corruption, half-speed music) are tracked together in
   Reported reproduction: load the configured savestate, open inventory, use
   the Bad Key Machine on the door. GC, changing clocks, bursts of emulation
   work and frontend scheduling remain uncorrelated hypotheses.
+  After the combined palette-core/GPU-player update, Monofuel reports overall
+  gameplay is flawless. A separate retest of this exact item-use sequence and
+  its counter correlation is not supplied; this issue now concerns that narrow
+  remaining reproduction rather than general play performance.
   Evidence and rollout details: [libretro-performance.md](libretro-performance.md#shipping-rollout-and-native-audio-observations).
 
 - **Pocket Atlas / Deep Darkness assets show through darkness

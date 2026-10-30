@@ -41,7 +41,7 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 | Check | Run | Pass if |
 |---|---|---|
-| [ ] Sustained 60 fps and frame-time headroom | Open Decompbound from the RG DS Plus menu and play the existing DS test state, including movement and battles. Compare equivalent shipping builds using the profiling workflow in `libretro-performance.md`. | Playback sustains 60 fps with frame-time headroom. Monofuel confirmed the updated XBGR build works, but reported that maintaining 60 fps still needs work. |
+| [ ] Measured full-player frame-time headroom | Profile the combined core/GPU player during movement and battles using the workflow in `libretro-performance.md`. | Whole-player timing distributions establish sustained 60 fps and remaining headroom. Monofuel accepts normal gameplay as flawless; this remaining check is quantitative profiling. |
 | [ ] Guarded CPU polling batches | Open Decompbound from the RG DS Plus menu using the installed `2880e7d` core, which includes polling batching; walk, open menus, enter a battle, and hold Select+Start to exit. | Game timing, both screens, controls and audio remain correct; no new transition/menu/battle stalls appear, and exit restores the menu. Automated CPU savings do not replace this play check. |
 | [ ] Borrowed background palette | Open Decompbound (`2880e7d`) from the RG DS Plus menu; inspect the cave, inventory, a battle and a fade/scene transition. | Both screens retain their original colors, windows, transparency and priority, with normal game behavior. Silent parity/timing tests pass; sustained full-player speed and residual audio crunch remain separate open checks. |
 | [ ] Residual native audio underrun | Launch the same DS test state several times with the existing mono-retro player, listen for dropouts, and inspect its final underrun counter. | No audible interruptions or sustained underruns occur. An intermittent single counter increment was observed in both previous and optimized cores; its timing/cause remains unresolved. |
@@ -63,6 +63,11 @@ capture comparisons and 924,845 golden frames match. The concurrent player
 update is preserved, and both
 save-directory checksums are unchanged. New manual palette/play acceptance is
 pending; the inventory/Bad Key Machine crunch is not claimed fixed.
+
+Subsequent manual acceptance: Monofuel tests the combined optimized core and
+GPU-upscaling player and reports that EarthBound now runs flawlessly. General
+play performance is accepted (see DONE). Full-player numerical headroom and a
+separate retest of the earlier Bad Key Machine reproduction are not supplied.
 
 2026-10-29: shipping core `380b41b` and mono-retro's `player-xbgr-arm64`
 passed on the RG DS Plus ROCKNIX 7.0.2-r3 kernel: one private-XBGR startup
@@ -546,6 +551,12 @@ leave a short **OPEN** row here if you need a later eyeball on a fix.
 
 Move checked rows here so OPEN stays short. Prune freely.
 
+- **RG DS Plus combined optimized core and GPU player** · 2026-10-30
+  - Monofuel manually tests the combined build and reports: "Earthbound now
+    runs flawlessly!" He highlights removal of extra pixel conversions and GPU
+    upscaling. This accepts normal play performance on the physical handheld;
+    it is user observation, not a new numerical benchmark or separate audio-
+    counter/Bad Key Machine reproduction test.
 - **RG DS Plus opaque XBGR transport** · 2026-10-29 · `380b41b`
   - Monofuel confirmed the installed player/core work after native transport,
     color/opacity, dual-display and audio tests passed. Both channel-conversion

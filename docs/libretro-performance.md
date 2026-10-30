@@ -5,8 +5,9 @@ RG DS Plus. Profiling tools, optional opaque XBGR transport, guarded CPU
 polling-loop batching and borrowed background palette access are implemented.
 Palette borrowing reduces core CPU time by **9.40–16.42%** in the new fixed-clock
 ARM comparisons below. Batching reduces fixed-clock ARM battle
-CPU time by **34.71%**; the optimized core is installed. Full-game sustained
-60 fps remains a human verification item. PPU rendering is now the largest
+CPU time by **34.71%**; the optimized core is installed. Monofuel accepts the
+combined core and GPU-upscaling player as flawless in manual play; quantitative
+full-player frame-time headroom remains unmeasured. PPU rendering is the largest
 measured core cost. Further optimizations below remain hypotheses until
 measurements and correctness checks support them. The original desktop and
 [ARM baselines](#measured-rg-ds-plus-profile) precede polling batching; use the
@@ -585,8 +586,10 @@ accounts for 3.46% across all callers; it is not all palette lookup. Evidence:
 The next bounded investigation is tile-row decoding and BG priority/window
 composition, now ranked by the new profile. No second optimization is included.
 The exact inventory → Bad Key Machine sequence has no recorded input tape and
-has not been profiled; residual crunch and full-player sustained 60 fps remain
-open. Do not infer that either is fixed from these core-only measurements.
+has not been profiled. Monofuel subsequently reports flawless gameplay with
+the combined core/GPU-player update, accepting general play performance. That
+observation is separate from these core-only measurements; full-player numeric
+headroom and a dedicated retest of the earlier item-use crunch remain unmeasured.
 
 ## Implemented: opaque XBGR transport
 
