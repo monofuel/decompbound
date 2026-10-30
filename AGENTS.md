@@ -12,6 +12,20 @@ scoped to the task and never weaken the referee to obtain a passing result.
 - Earthbound (SNES) decompilation project in Nim.
 - This will be a complex and open ended progress, you will need to get creative and may have to make tools to help.
 
+## Audible tests — immediate permission required
+
+**Never produce audible output on monofuel's devices without his explicit,
+immediate permission for that specific run.** This includes game playback,
+music, tones and alarms during tests. General authorization to implement,
+profile, test or deploy does not authorize speaker output. Earlier audio
+permission does not carry forward to later runs.
+
+Default automated player tests to `--mute` or a verified null audio backend.
+Core PCM generation, capture and hash comparison can run without speakers.
+Human-verify launch instructions are for monofuel; agents must not treat them
+as permission to run audible checks. Stop approved audible runs promptly and
+restore the menu afterward.
+
 ## Vanilla ROM gate (phase 2)
 
 `generated/*` bank modules are **gone** (M2.5). Vanilla rebuild is:

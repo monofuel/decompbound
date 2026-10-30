@@ -56,6 +56,15 @@ hang, Saturn Valley corruption, half-speed music) are tracked together in
 
 ## OPEN (not yet assigned)
 
+- **RG DS Plus residual native audio underrun (2026-10-29).** Repeated
+  300-frame cave tests reported one underrun with both the previous `380b41b`
+  core and optimized `ab07a7a`; later paired runs reported zero for both.
+  Battle improves from 28–29 previous to 0–1 optimized. Core PCM hashes match
+  exactly across ordinary/batched execution and ARM/x86. The remaining
+  intermittent counter increment's timing/cause and audible impact are not
+  isolated; investigate player/device pacing without weakening emulation gates.
+  Evidence and rollout details: [libretro-performance.md](libretro-performance.md#shipping-rollout-and-native-audio-observations).
+
 - **Pocket Atlas / Deep Darkness assets show through darkness
   (2026-10-29).** Human-reported visibility discrepancy: scenery assets appear
   through the shroud where they are expected to stay hidden in normal play.

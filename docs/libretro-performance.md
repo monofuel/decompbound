@@ -15,6 +15,12 @@ mono-retro-player. Frontend scaling, display presentation, audio-device output
 and frontend threading belong to that work, not this document's implementation
 scope. The [libretro contract](libretro.md) remains the boundary.
 
+Automated runs must remain muted or use a null audio backend. Audible output
+on monofuel's devices requires his explicit, immediate permission for that
+specific run; general profiling/testing/deployment approval is insufficient.
+The historical native-audio observations below do not authorize repeating them.
+Core PCM generation and hash comparison continue without speaker output.
+
 ## Baseline and target
 
 Monofuel reports about **15.9 ms/frame average**, with occasional **17.1 ms**
@@ -377,6 +383,80 @@ polling implementation. Critical source-file manifest identity:
 PC disabled/optimized SHA256s are
 `9f501bdf5f050c47a7804c14ad9e2c4c1148b73e6b6456deb0d3c5154350b5a0` /
 `20f1fcf18a7782cbd21503cfbf96397af56129b0ffd18dbb4b62721ba51fe3ed`.
+
+### Paired ARM measurements and clock control
+
+On the RG DS Plus, three alternating shipping-build pairs per workload use the
+same 240 warmup / 2,000 measured frames, DS/XBGR, CPU 2 and no timed hashing.
+The menu is stopped during measurements. Each variant contributes 6,000 samples:
+
+| Workload | Disabled CPU mean | Optimized CPU mean | Observed reduction | CPU p95 before → after | CPU p99 before → after |
+|---|---:|---:|---:|---:|---:|
+| Cave walking | 15.495 ms | 9.428 ms | 39.15% | 16.459 → 10.824 ms | 17.627 → 11.535 ms |
+| Dialogue | 14.097 ms | 6.403 ms | 54.58% | 15.290 → 7.299 ms | 16.261 → 7.742 ms |
+| Battle | 18.649 ms | 12.114 ms | 35.04% | 21.382 → 13.736 ms | 22.753 → 15.070 ms |
+
+All nine pairs improve CPU mean, p95 and p99. However, sampled clocks vary
+between 1.416/1.608/1.800/1.992 GHz despite the performance governor, with CPU
+temperatures 48.888–70.555°C. These are observed device results, not fixed-clock
+causal estimates. Separate hash runs match disabled/optimized/profile on ARM
+and all corresponding PC outputs; stage accounting remains exact.
+
+To resolve that clock uncertainty, a further battle comparison temporarily
+sets both minimum and maximum frequency to **1.416 GHz**. Three alternating
+pairs use 120 warmup / 1,000 measured frames per run, 3,000 samples per variant.
+All **123 continuous one-second clock samples** remain at 1.416 GHz; temperatures
+stay between 59.444 and 60.555°C.
+
+| Fixed-clock battle metric | Disabled | Optimized | Reduction |
+|---|---:|---:|---:|
+| CPU mean | 21.470 ms | 14.018 ms | **34.71%** |
+| CPU p95 | 22.892 ms | 15.370 ms | 32.86% |
+| CPU p99 | 23.196 ms | 15.823 ms | 31.79% |
+| Wall mean | 21.747 ms | 14.209 ms | 34.66% |
+
+Every fixed-clock pair improves CPU and wall mean/p95/p99. Optimized CPU time
+stays under the 60 Hz budget in all 3,000 samples; wall time misses it twice.
+This controlled battle case exceeds the 30% CPU-reduction target. It does not
+establish sustained 60 fps for the full frontend. Original CPU frequency limits
+(408 MHz minimum / 1.992 GHz maximum) are restored afterward.
+
+After batching, the instrumented PPU accounts for about 55–63% of ARM wall
+work, while pure wait batches fall to about 1.5–3.2%. PPU rendering is now the
+largest measured follow-up target. Clock variation prevents treating profile
+versus normal differences here as isolated instrumentation overhead.
+
+ARM timing artifacts report `3bbcc12+dirty`, with critical source identical to
+the implementation committed as `ab07a7a`. Raw samples, clock traces and audits
+are under ignored `bin/polling/arm-results/`. Disabled/optimized SHA256s:
+`7dc8f083d9e32681635512637f76141c6f9277e87e0bbf25bd80cbe147adf913` /
+`a3182f5f269e701fe76ce166c59923a9a0d6a4eae0b861ea2ff0b8af9c36449c`.
+
+### Shipping rollout and native audio observations
+
+The clean shipping ARM core from `ab07a7a` is installed at
+`/usr/local/lib/libretro/decompbound_libretro.so`, SHA256
+`87fd548cd7e5798f35f9977f42802e176d0e438aa99a6f317c54e30f7ac7489d`.
+Its cave/dialogue/battle output hashes match the measured optimized artifacts;
+the independent ARM C ABI/color/lifecycle test also passes. Desktop shipping
+output hashes match too. Previous core backup:
+`/var/backups/mono-retro/cpu-polling-ab07a7a-LTmtWS/`.
+
+The initial native cave test reported one underrun and triggered rollback.
+Paired diagnostic runs then showed one cave underrun in both previous and
+optimized cores, including repeats; battle reported 28 previous versus one
+optimized. PCM remained identical, so this is tracked as a residual native
+audio/pacing observation, not a demonstrated emulation regression. Its precise
+timing/root cause has not been isolated; no frontend code was changed.
+
+The final paired installation check completes **300 frames / 159,900 stereo
+frames per scene** in DS/XBGR mode. Cave reports zero underruns in both builds;
+battle reports **29 previous versus zero optimized**. Both optimized scenes
+report zero overruns and exit successfully. The menu is restored, and player,
+launcher, ordinary SRAM and existing DS-test SRAM checksums are unchanged.
+Native test saves are isolated under `/tmp/decompbound-poll-batching/`.
+Logs, including the initial failure and baseline comparison, remain under
+ignored `bin/polling/`; visual/play acceptance stays in `human-verify.md`.
 
 ## Implemented: opaque XBGR transport
 

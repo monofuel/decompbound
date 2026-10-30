@@ -106,6 +106,10 @@ across library unloads. Lifecycle tests retain the memory-growth check.
 
 ## Verification
 
+Agent-run checks must use muted/null audio by default. Audible device playback
+requires monofuel's explicit, immediate permission for that specific run, as
+specified in `AGENTS.md`. PCM parity checks do not require speaker output.
+
 ```sh
 make libretro-test
 nim r -d:release tests/integration_libretro.nim

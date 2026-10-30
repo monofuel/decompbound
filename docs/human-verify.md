@@ -42,7 +42,14 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 | Check | Run | Pass if |
 |---|---|---|
 | [ ] Sustained 60 fps and frame-time headroom | Open Decompbound from the RG DS Plus menu and play the existing DS test state, including movement and battles. Compare equivalent shipping builds using the profiling workflow in `libretro-performance.md`. | Playback sustains 60 fps with frame-time headroom. Monofuel confirmed the updated XBGR build works, but reported that maintaining 60 fps still needs work. |
-| [ ] Guarded CPU polling batches | After the optimized core is installed, open Decompbound from the RG DS Plus menu; walk, open menus, enter a battle, and hold Select+Start to exit. | Game timing, both screens, controls and audio remain correct; no new transition/menu/battle stalls appear, and exit restores the menu. Automated CPU savings do not replace this play check. |
+| [ ] Guarded CPU polling batches | Open Decompbound from the RG DS Plus menu using the installed `ab07a7a` core; walk, open menus, enter a battle, and hold Select+Start to exit. | Game timing, both screens, controls and audio remain correct; no new transition/menu/battle stalls appear, and exit restores the menu. Automated CPU savings do not replace this play check. |
+| [ ] Residual native audio underrun | Launch the same DS test state several times with the existing mono-retro player, listen for dropouts, and inspect its final underrun counter. | No audible interruptions or sustained underruns occur. An intermittent single counter increment was observed in both previous and optimized cores; its timing/cause remains unresolved. |
+
+Polling-batch rollout: fixed-clock ARM battle CPU mean improves **34.71%**.
+Final paired 300-frame native checks report zero optimized underruns/overruns
+in cave and battle (previous battle: 29 underruns). Earlier runs reported one
+underrun in both cores, so the residual observation above remains open.
+Player, launcher, ordinary saves and existing DS-test saves are unchanged.
 
 2026-10-29: shipping core `380b41b` and mono-retro's `player-xbgr-arm64`
 passed on the RG DS Plus ROCKNIX 7.0.2-r3 kernel: one private-XBGR startup
