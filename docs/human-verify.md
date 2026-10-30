@@ -482,6 +482,10 @@ Only when an agent points you here for a **tool** check:
     previously observed underruns is unconfirmed. Keep the residual audio
     issue open in [issues.md](issues.md). Do not interrupt his play session
     or launch audible tests to reproduce it.
+  - Reproduction reported afterward: start from the configured savestate,
+    open the inventory, and use the Bad Key Machine on the door; a tiny crunch
+    occurs during that sequence. Monofuel then closed the game. GC and CPU
+    frequency changes are hypotheses, not established causes.
 
 - **2026-10-29 · Pocket Atlas / large-window slowdown — fix ready for retry.**
   Per-pixel tile decoding and repeated UI painting made large-window navigation

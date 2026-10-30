@@ -66,6 +66,9 @@ hang, Saturn Valley corruption, half-speed music) are tracked together in
   On 2026-10-30 Monofuel reports that gameplay is good but thinks slight audio
   crunch remains. No concurrent timing/counter evidence establishes whether
   that sound coincides with these underruns; audio acceptance remains open.
+  Reported reproduction: load the configured savestate, open inventory, use
+  the Bad Key Machine on the door. GC, changing clocks, bursts of emulation
+  work and frontend scheduling remain uncorrelated hypotheses.
   Evidence and rollout details: [libretro-performance.md](libretro-performance.md#shipping-rollout-and-native-audio-observations).
 
 - **Pocket Atlas / Deep Darkness assets show through darkness
