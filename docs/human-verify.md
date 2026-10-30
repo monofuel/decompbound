@@ -51,6 +51,10 @@ in cave and battle (previous battle: 29 underruns). Earlier runs reported one
 underrun in both cores, so the residual observation above remains open.
 Player, launcher, ordinary saves and existing DS-test saves are unchanged.
 
+2026-10-30: Monofuel reports the installed polling build plays well during
+manual use, but thinks there is still a little audio crunch. Audio acceptance
+and sustained frame-time headroom remain open; this report is not a timed run.
+
 2026-10-29: shipping core `380b41b` and mono-retro's `player-xbgr-arm64`
 passed on the RG DS Plus ROCKNIX 7.0.2-r3 kernel: one private-XBGR startup
 selection, 300 video frames / 159,900 stereo frames, zero reported audio
@@ -471,6 +475,13 @@ Only when an agent points you here for a **tool** check:
 ---
 
 ## FOUND IN PLAY — new issues (human → agents)
+
+- **RG DS Plus occasional audio crunch** · 2026-10-30 · `ab07a7a`
+  - Monofuel says gameplay is good but thinks a little crunch remains. No new
+    timing/counter capture accompanies the report; the relationship to the
+    previously observed underruns is unconfirmed. Keep the residual audio
+    issue open in [issues.md](issues.md). Do not interrupt his play session
+    or launch audible tests to reproduce it.
 
 - **2026-10-29 · Pocket Atlas / large-window slowdown — fix ready for retry.**
   Per-pixel tile decoding and repeated UI painting made large-window navigation

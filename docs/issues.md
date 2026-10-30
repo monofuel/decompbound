@@ -63,6 +63,9 @@ hang, Saturn Valley corruption, half-speed music) are tracked together in
   exactly across ordinary/batched execution and ARM/x86. The remaining
   intermittent counter increment's timing/cause and audible impact are not
   isolated; investigate player/device pacing without weakening emulation gates.
+  On 2026-10-30 Monofuel reports that gameplay is good but thinks slight audio
+  crunch remains. No concurrent timing/counter evidence establishes whether
+  that sound coincides with these underruns; audio acceptance remains open.
   Evidence and rollout details: [libretro-performance.md](libretro-performance.md#shipping-rollout-and-native-audio-observations).
 
 - **Pocket Atlas / Deep Darkness assets show through darkness
