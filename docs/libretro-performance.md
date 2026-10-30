@@ -3,9 +3,9 @@
 This is the working reference for improving decompbound's libretro core on the
 RG DS Plus. Profiling tools and an optional opaque XBGR transport are implemented;
 CPU/PPU emulation optimizations have not been implemented. Other ideas below
-remain hypotheses until measurements and
-correctness checks support them. Initial profiling runs on the desktop while
-the handheld is unavailable, at monofuel's request.
+remain hypotheses until measurements and correctness checks support them.
+Initial profiling ran on the desktop while the handheld was unavailable, at
+monofuel's request. Subsequent native transport checks are recorded below.
 
 The scope is the `.so`: CPU/bus execution, PPU rendering, APU/DSP audio, the DS
 companion, and libretro output preparation. Another agent owns
@@ -233,9 +233,9 @@ XBGR and reporting no audio underruns/overruns with the null audio driver.
 An older desktop player ran the same core/state in DS mode for 180 frames,
 selected standard XRGB8888 and also reported no audio underruns/overruns.
 The shipping ARM core cross-build passes (AArch64 ELF, standard runtime
-dependencies, no Nix store runpath). Device deployment/testing is pending
-while the handheld is off; the matching
-ARM player is `mono-retro-performance/build/player-xbgr-arm64`.
+dependencies, no Nix store runpath). The matching
+`mono-retro-performance/build/player-xbgr-arm64` is now deployed with this core;
+native validation is recorded below.
 
 Ignored numeric evidence is under `bin/profiles/pc-xbgr-6a532f6-worktree/`.
 These builds report source `6a532f6+dirty` plus the XBGR diff; SHA256 identities:
@@ -246,6 +246,48 @@ These builds report source `6a532f6+dirty` plus the XBGR diff; SHA256 identities
 To offer XBGR in the profiling host, add `--xbgr` to the commands below.
 Reports record both whether it was offered and whether the core selected it.
 The default host rejects the private request to retain an older frontend control.
+
+### RG DS Plus deployment check
+
+2026-10-29, actual RG DS Plus running `7.0.2-mono-rgdsplus-rocknix-r3`:
+
+- Installed shipping core `380b41b` at
+  `/usr/local/lib/libretro/decompbound_libretro.so`, SHA256
+  `e1307dadc6cc1cb7c03f767381a077af065ff7f8ed9370c871b121db1533eaba`.
+- Installed mono-retro's supplied `player-xbgr-arm64` at both
+  `/usr/local/bin/mono-retro-player` and the active ROCKNIX path
+  `/usr/local/libexec/mono-retro-rocknix/mono-retro-player`, SHA256
+  `f6593096c10503b13d677e7dd535a7a4be75c8a235f96ef7985f1d66c6cf9a58`.
+- Ran the installed DS launcher with `--frames:300 --no-input`, real OpenAL/
+  ALSA audio and its existing private `earthbound_20260818-022023.png` default.
+  Exactly one startup message selected private opaque XBGR; 300 video frames
+  and 159,900 stereo frames completed, with zero reported audio underruns or
+  overruns. Both active DRM planes were 1024×768 XB24 buffers owned by the player.
+- Ran the independent C core ABI/color/opacity/lifecycle host and mono-retro's
+  ARM XBGR color/padded-row/ownership/worker tests on the device. Both passed.
+- The previous ROCKNIX player also ran the updated core for 180 DS frames,
+  selected standard XRGB8888 and delivered 95,940 stereo frames, with zero
+  reported audio underruns/overruns.
+
+Successful private negotiation selects the core's `opaquePixieVideo` branch in
+`src/libretro/core.nim`, which copies main/companion images and skips its XRGB
+packing loops. The frontend stores `PixelXbgr8888`; its `copyFrame` in
+`src/retro/playervideo.nim` copies rows and returns before `convertXrgbRow`.
+Thus **both transport channel conversions are bypassed**. Buffer ownership
+copies, screen splitting/scaling and display presentation still occur.
+
+The menu service was restored. Ordinary
+`/var/lib/mono-retro/saves/decompbound/EarthBound.srm` stayed byte-identical;
+test saves remain separate. Previous binaries and the unchanged DS wrapper are
+backed up on the device under
+`/var/backups/mono-retro/xbgr-380b41b-fqtsGx/`. Local ignored evidence is in
+`bin/rgds-xbgr-380b41b/`, with device logs in
+`/tmp/decompbound-xbgr-380b41b/`. No states, images or game data were committed.
+
+This is a native transport/audio smoke test, not a handheld performance
+comparison or a replacement for the visual/control check in
+[human-verify.md](human-verify.md). The PC gain above is still the only measured
+before/after CPU improvement claimed here.
 
 ## Ideal core and current execution
 

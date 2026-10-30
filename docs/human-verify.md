@@ -42,7 +42,17 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 | Check | Run | Pass if |
 |---|---|---|
 | [ ] Default shipping core and frontend | Open Decompbound from the RG DS Plus menu; it loads the existing mid-game screenstate in EarthBound DS mode. | Both screens, controls and audio work, performance is acceptable, and holding Select+Start returns to the menu. |
-| [ ] Opaque XBGR transport (device deployment pending) | When the handheld is available, install the matching shipping ARM core and mono-retro's `mono-retro-performance/build/player-xbgr-arm64`. Launch the existing `earthbound_20260818-022023.png` test state in DS mode; confirm one `private opaque XBGR8888` startup log. Repeat with the older player, expecting `standard XRGB8888`. | Colors and both panel positions match between players, there is no transparency/black-screen regression, and controls/audio still work. Record comparable frame timings; PC savings are not a handheld result. |
+| [ ] Opaque XBGR transport: visual/play check | Open **Decompbound** from the RG DS Plus menu. The matching XBGR player/core are installed and still default to `earthbound_20260818-022023.png` in DS mode. | Colors, both panel positions and opaque UI look correct; controls/audio work, and Select+Start returns to the menu. Automated native transport/audio checks passed; comparable handheld performance measurements remain separate. |
+
+2026-10-29: shipping core `380b41b` and mono-retro's `player-xbgr-arm64`
+passed on the RG DS Plus ROCKNIX 7.0.2-r3 kernel: one private-XBGR startup
+selection, 300 video frames / 159,900 stereo frames, zero reported audio
+underruns/overruns. Both active 1024×768 DRM planes used XB24 buffers. The
+independent core ABI/color/opacity/lifecycle test and frontend XBGR color/row-copy/
+worker tests passed on ARM. Menu service was restored and the ordinary
+`decompbound/EarthBound.srm` checksum stayed unchanged. This does not replace
+the visual/play check above. Binary/rollback details are in
+[libretro-performance.md](libretro-performance.md#rg-ds-plus-deployment-check).
 
 ### README feature showcase (2026-10-29)
 
