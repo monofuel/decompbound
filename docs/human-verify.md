@@ -46,6 +46,10 @@ was copied without inspecting it.
 Live account/unlock and device play acceptance remain manual. Follow mono-retro's
 `docs/retroachievements.md`.
 
+Current handheld test default: `earthbound_20260818-021632.png`, with Jeff just
+outside Dr. Andonuts's lab, for manual Skyrunner achievement testing. Each launch
+reloads this capture; the earlier cave capture remains available on the device.
+
 | Check | Run | Pass if |
 |---|---|---|
 | [ ] Real Casual unlock and service reconnect | After automated gates pass, use `mono-retro-ra login` with your own account, then run the matching player/core with your ROM and an isolated test save directory. Earn a locked achievement; briefly disconnect/reconnect networking after the set loads, keeping the player open. | Popup, browser count/details and the account's Casual unlock agree. In-session submissions recover after reconnection. No token/password appears in logs or UI. Startup requires connectivity; pending submissions are not persisted across exit. |
@@ -133,7 +137,7 @@ State import/drop support was added afterward; those checks remain open.
 
 | Check | Run | Pass if |
 |---|---|---|
-| [x] Installed RG DS Plus DS test | Select **Decompbound** in the handheld menu; hold Select+Start for two seconds to return. | The cave scene from `earthbound_20260818-022023.png` appears on the physical top screen, with original Goods/status UI below. Ness, Paula, and Jeff appear in roster order; taps and L2/R2 switch the selected inventory. Game controls and audio work, and exit restores the menu. Each launch currently reloads the test capture, while ordinary game saves remain separate. |
+| [x] Installed RG DS Plus DS test | Select **Decompbound** in the handheld menu; hold Select+Start for two seconds to return. | Accepted using the cave scene from `earthbound_20260818-022023.png` on the physical top screen, with original Goods/status UI below. Ness, Paula, and Jeff appear in roster order; taps and L2/R2 switch the selected inventory. Game controls and audio work, and exit restores the menu. Current startup capture is listed in the RetroAchievements section above; ordinary game saves remain separate. |
 | [ ] Solo-party membership and order | Restart the player with the updated core and load `earthbound_20260818-021632.png`; also try a multi-member state. | Only Jeff appears in the Winters capture. Other captures match the game's party order, and removing the selected member switches its inventory to a remaining active character. |
 | [ ] Resume a screenstate | Run `make libretro-ds-play STATE="$HOME/Pictures/Screenshots/earthbound_20260818-021941.png"`, then drop that capture onto each running desktop window. | The captured scene/party/inventory resume, audio follows the loaded state, and gameplay continues. A plain or wrong-ROM PNG is rejected without closing the app or changing its state. The source PNG stays untouched. |
 | [ ] Original UI at 2× | Run `make libretro-ds-play STATE="$HOME/Pictures/Screenshots/earthbound_20260818-021632.png"`; also load a multi-member battle and open the original Goods menu for comparison. | Goods above and native HP/PP panels below use the original fonts, borders, equipment symbol, condition graphics and rolling digits. Items fill across rows, with no missing item at slot 14. Selecting a lower panel raises it and switches its Goods. The top game view stays complete. |
