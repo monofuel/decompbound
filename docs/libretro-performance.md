@@ -5,7 +5,9 @@ RG DS Plus. Profiling tools and an optional opaque XBGR transport are implemente
 CPU/PPU emulation optimizations have not been implemented. Other ideas below
 remain hypotheses until measurements and correctness checks support them.
 Initial profiling ran on the desktop while the handheld was unavailable, at
-monofuel's request. Subsequent native transport checks are recorded below.
+monofuel's request. Subsequent handheld profiling confirms that CPU polling and
+PPU rendering dominate. The measured battle core alone exceeds the 60 Hz budget;
+see [the ARM/x86 comparison](#measured-rg-ds-plus-profile).
 
 The scope is the `.so`: CPU/bus execution, PPU rendering, APU/DSP audio, the DS
 companion, and libretro output preparation. Another agent owns
@@ -158,8 +160,9 @@ propagation or thread isolation is not an accepted shortcut.
    of the measured audio cost is far short of 30%, before synchronization
    overhead. Reassess its share on ARM rather than treating PC ratios as universal.
 
-No 30% improvement is claimed by this profiling work. The handheld target
-remains 17 → 11.9 ms for an equivalent workload and needs a later device run.
+No 30% improvement is claimed by this profiling work. The original handheld
+target remains 17 → 11.9 ms for an equivalent workload. A measured ARM baseline
+is now available below; the next optimization needs a before/after device run.
 
 ### Evidence and controls
 
@@ -189,6 +192,125 @@ hash parity and pre-instrumentation controls. Binary SHA256 identities:
 
 Retain the PC-count probe while the wait-loop contract is being investigated;
 it is a reproduction tool for that open question, not a timing benchmark.
+
+## Measured RG DS Plus profile
+
+Measured 2026-10-29 local time (2026-10-30 UTC) on the actual RK3568/Cortex-A55
+handheld, ROCKNIX kernel `7.0.2-mono-rgdsplus-rocknix-r3`. Runs were serial,
+pinned to CPU 2, with the menu stopped and restored afterward. The existing
+`performance` governor was retained; sampled CPU frequency was 1.992 GHz.
+All 36 frequency samples stayed at that value; CPU temperature samples ranged
+from 41.25 to 65.63°C. Kernel/background activity was not disabled.
+No frontend scaling, presentation or audio-device output is included: the host
+still requests video and PCM, then discards the prepared buffers. Thus these
+numbers measure the `.so`, with the same boundary as the desktop controls.
+
+Each normal row combines **three runs of 2,000 measured frames**, following
+240 warmup frames per run. DS and opaque XBGR are enabled. Hashing is disabled
+in timing runs. Captures and input are the same cave walking, dialogue and
+Titanic Ant battle cases described above. Fresh PC controls use the current
+code and the same XBGR negotiation, rather than the earlier XRGB baseline.
+
+| Workload | ARM CPU mean | ARM CPU p95 | ARM CPU p99 | ARM wall mean | ARM wall max | Fresh PC CPU mean |
+|---|---:|---:|---:|---:|---:|---:|
+| Cave, walking, DS | 14.813 ms | 15.156 ms | 15.295 ms | 14.909 ms | 15.923 ms | 1.567 ms |
+| Dialogue, DS | 13.040 ms | 13.357 ms | 13.453 ms | 13.140 ms | 15.145 ms | 1.283 ms |
+| Titanic Ant battle menu, DS | 18.050 ms | 19.257 ms | 19.781 ms | 18.326 ms | 39.967 ms | 1.798 ms |
+
+The ARM core costs roughly **9.5–10.2×** as much CPU time for these workloads.
+Cave walking leaves about 1.85 ms of the 16.67 ms budget before frontend work.
+All 6,000 battle samples exceeded the CPU budget; none of the cave/dialogue
+samples did. The largest battle wall sample was 39.967 ms but used 19.491 ms of
+calling-thread CPU: 20.476 ms was not charged to that thread. Off-CPU delays
+and emulation work must remain separate measurements. These results establish a core-side bottleneck;
+they do not measure the player's total frame time.
+
+One additional instrumented run of 2,000 frames per workload separates
+exclusive **wall milliseconds/frame**, including timer overhead and run variance:
+
+| Workload | Pure wait batches | Other CPU/bus | PPU total | APU total | DS update | XBGR copy |
+|---|---:|---:|---:|---:|---:|---:|
+| Cave, walking, DS | 6.057 | 2.134 | 5.436 | 1.172 | 0.084 | 0.237 |
+| Dialogue, DS | 7.547 | 0.440 | 4.021 | 1.388 | 0.094 | 0.297 |
+| Battle, DS | 6.416 | 1.996 | 7.674 | 1.350 | 0.336 | 0.286 |
+
+Pure wait batches are **35–54%** of the instrumented ARM frame, versus about
+30–50% in the fresh PC controls. PPU work is **29–42%** on ARM, audio **7–10%**.
+The ranking agrees with x86, and polling is an even stronger target on ARM.
+The stage shares are not exact uninstrumented CPU percentages. Mixed CPU
+batches still contain uncounted polling, so the pure-wait classification is a
+lower bound on time spent in the identified loop.
+
+Observed instrumented CPU cost was about 3.0%, 6.3% and 1.0% above the normal
+cave/dialogue/battle means, respectively, including run variance. Fresh PC
+controls were about 6–9% higher with instrumentation.
+
+Additional single-run, 2,000-frame controls measured cave idle DS at 15.307 ms
+CPU, walking single-screen at 15.148 ms and walking XRGB DS at 15.833 ms.
+They were run later and are exploratory, not paired estimates of option costs:
+even single-screen was slower than the earlier DS mean. Stage output preparation
+was 0.139 ms for single-screen XBGR versus 0.237–0.297 ms for two panels, and
+0.726 ms for the XRGB control. No precise handheld percentage gain is credited
+to switching options from these single runs.
+
+### Recommended next experiment
+
+Implement a narrowly guarded polling-loop batch within the existing CPU
+instruction budget. In the instrumented ARM battle, pure waiting alone costs
+about 6.4 ms/frame. This makes a 30% improvement plausible, but is not a measured
+gain. Thirty percent less than the new 18.05 ms battle baseline is 12.64 ms of
+core CPU time; frontend work must still fit afterward. Audio threading cannot
+deliver that reduction from a measured 7–10% audio share.
+
+The candidate contract is deliberately small: validate the live original
+`$C0875F LDA $002B / $C08762 BEQ -5` loop, its bank/width/event state and lack
+of pending NMI. Execute two ordinary instructions to establish accumulator,
+flags, width invariants and the APU-handshake marker, then skip only complete
+two-instruction pairs and execute any odd remainder normally. Preserve the
+final PC phase and every scanline, NMI, HDMA and APU boundary. The current
+profiling classifier is evidence, not a sufficient optimization guard:
+custom read hooks can observe or change every fetch. Use a verified canonical
+bus or a sealed core-only path; leave diagnostic/custom hooks on normal stepping.
+No polling fast path has been implemented.
+
+### Build identity and correctness controls
+
+ARM normal timings use the **installed** shipping core `380b41b0da`. ARM
+instrumentation and both fresh PC libraries use clean source `d87c2e2088`;
+the intervening diff contains only documentation, so emulator/configuration
+source is identical. All use Nim 2.2.4, GCC 15.3.0, shipping `danger`, ORC and
+the existing core libc allocator. ARM uses the existing generic AArch64 target;
+no new CPU tuning flags or runtime dependencies were introduced. Profiling
+artifacts have separate output/cache paths and do not replace installed binaries.
+
+For each of the three cases, separate 64-frame/5-warmup hash runs match between
+normal and instrumented builds **and across ARM/x86**: raw XBGR video, PCM and
+final exposed WRAM/SRAM. Stage totals equal frame wall time exactly, recording
+counts and build flags are checked, and timing samples contain no hash work.
+No ROM, screenstate, SRAM or other game data is added to Git.
+All 18 timing runs and six hash runs completed. The menu service was restored;
+installed player/core and ordinary SRAM checksums stayed unchanged. Native
+sampling with `perf` was not run on ARM; its function percentages above are
+PC evidence, separate from these ARM stage measurements.
+
+To repeat the cave workload with the staged ARM tools, pause the menu, run this
+from the device's `/tmp/decompbound-profile-d87c2e2/`, then restore the menu:
+
+```sh
+sudo taskset -c 2 ./libretro-profile-arm64 \
+  --core:/usr/local/lib/libretro/decompbound_libretro.so \
+  --rom:/var/lib/mono-retro/roms/EarthBound.smc \
+  --state:/var/lib/mono-retro/states/decompbound/earthbound_20260818-022023.png \
+  --ds --xbgr --walk --frames:2000 --warmup:240 --out:bin/repeat-cave.json
+```
+
+Ignored raw samples and metadata are in `bin/profiles/rgds-d87c2e2/` and
+`bin/profiles/pc-d87c2e2/`. Binary SHA256 identities:
+
+- ARM installed normal: `e1307dadc6cc1cb7c03f767381a077af065ff7f8ed9370c871b121db1533eaba`.
+- ARM instrumented: `187e8a9c7c45968b7583215454838d4d4c8f8d73ad29a5a4a55faada13621503`.
+- PC normal: `38da180709717f61a7a19b73f8ca26e2ff5e016f284409a78e36dcdbf9aac7a4`.
+- PC instrumented: `ab216506e9eab999f033554f1b5ee72e635e3979f94dd17c343170ef90b98da6`.
 
 ## Implemented: opaque XBGR transport
 
