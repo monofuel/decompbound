@@ -439,9 +439,10 @@ are under ignored `bin/polling/arm-results/`. Disabled/optimized SHA256s:
 
 ### Shipping rollout and native audio observations
 
-The clean shipping ARM core from `ab07a7a` is installed at
+The polling rollout installed the clean shipping ARM core from `ab07a7a` at
 `/usr/local/lib/libretro/decompbound_libretro.so`, SHA256
 `87fd548cd7e5798f35f9977f42802e176d0e438aa99a6f317c54e30f7ac7489d`.
+The later palette rollout below supersedes this installed artifact.
 Its cave/dialogue/battle output hashes match the measured optimized artifacts;
 the independent ARM C ABI/color/lifecycle test also passes. Desktop shipping
 output hashes match too. Previous core backup:
@@ -503,7 +504,8 @@ Build/run instructions are in [libretro.md](libretro.md#verification).
 Libretro lifecycle, colors, transports, state import and profile accounting pass,
 as does 1,200-frame actual-library parity in each single/dual-screen and
 XRGB/XBGR combination. The unchanged replay goldens are checked with polling
-batching enabled, and the vanilla ROM rebuild remains byte-identical.
+batching enabled: all five tapes, **924,845 frames**, pass in full and the
+reference checksums are unchanged. The vanilla ROM rebuild remains byte-identical.
 
 ### Paired palette measurements
 
@@ -544,6 +546,28 @@ enabled audits are retained under ignored `bin/ppu-palette/pc/` and
 `bin/ppu-palette/arm-results/`. Measured ARM candidate SHA256:
 `0daedb3c50993ec33584a591273d0366a459860b2dd81a7e46e24456b66418f3`.
 These artifacts report the frozen implementation on top of `7cb2769`.
+
+### Palette shipping rollout
+
+Clean source `2880e7db3b` produces the installed shipping ARM library, SHA256
+`5ebc62fd6fef69321cb6c50d757ac51e49c5fbeb2829c65e7dd14f7e6e2bcd66`, at
+`/usr/local/lib/libretro/decompbound_libretro.so`. Its three separate 64-frame
+DS/XBGR controls match the measured candidate before and after atomic
+installation. The independent ARM C lifecycle/color/transport host passes too.
+Clean desktop shipping output also matches all three scene controls.
+
+The first install passes core checks but detects a concurrent player-binary
+update in its protected checksums, and rolls back only the core. The player
+update is preserved. A new idle-device run snapshots the updated player,
+repeats the same unchanged checks and completes successfully. Final backup:
+`/var/backups/mono-retro/ppu-palette-2880e7d-WkTxPt/`.
+
+The final player SHA256 is
+`d7434db7f3ec27ca9d6208ec41a159487023bd9a2eb78ebf5d6afa2856e9bfa3`;
+this core task did not replace it. Launcher and both ordinary/DS-test saves
+retain their checksums. The menu stays running, original frequency limits are
+restored, and no audible/device-player launch is used. Evidence, including the
+first rollback: `bin/ppu-palette/shipping/{install,install-retry,post-install}.log`.
 
 ### Remaining measured target
 

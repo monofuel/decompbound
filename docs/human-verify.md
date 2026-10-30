@@ -42,8 +42,8 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 | Check | Run | Pass if |
 |---|---|---|
 | [ ] Sustained 60 fps and frame-time headroom | Open Decompbound from the RG DS Plus menu and play the existing DS test state, including movement and battles. Compare equivalent shipping builds using the profiling workflow in `libretro-performance.md`. | Playback sustains 60 fps with frame-time headroom. Monofuel confirmed the updated XBGR build works, but reported that maintaining 60 fps still needs work. |
-| [ ] Guarded CPU polling batches | Open Decompbound from the RG DS Plus menu using the installed `ab07a7a` core; walk, open menus, enter a battle, and hold Select+Start to exit. | Game timing, both screens, controls and audio remain correct; no new transition/menu/battle stalls appear, and exit restores the menu. Automated CPU savings do not replace this play check. |
-| [ ] Borrowed background palette | Open the updated Decompbound core from the RG DS Plus menu; inspect the cave, inventory, a battle and a fade/scene transition. | Both screens retain their original colors, windows, transparency and priority, with normal game behavior. Silent parity/timing tests pass; sustained full-player speed and residual audio crunch remain separate open checks. |
+| [ ] Guarded CPU polling batches | Open Decompbound from the RG DS Plus menu using the installed `2880e7d` core, which includes polling batching; walk, open menus, enter a battle, and hold Select+Start to exit. | Game timing, both screens, controls and audio remain correct; no new transition/menu/battle stalls appear, and exit restores the menu. Automated CPU savings do not replace this play check. |
+| [ ] Borrowed background palette | Open Decompbound (`2880e7d`) from the RG DS Plus menu; inspect the cave, inventory, a battle and a fade/scene transition. | Both screens retain their original colors, windows, transparency and priority, with normal game behavior. Silent parity/timing tests pass; sustained full-player speed and residual audio crunch remain separate open checks. |
 | [ ] Residual native audio underrun | Launch the same DS test state several times with the existing mono-retro player, listen for dropouts, and inspect its final underrun counter. | No audible interruptions or sustained underruns occur. An intermittent single counter increment was observed in both previous and optimized cores; its timing/cause remains unresolved. |
 
 Polling-batch rollout: fixed-clock ARM battle CPU mean improves **34.71%**.
@@ -55,6 +55,14 @@ Player, launcher, ordinary saves and existing DS-test saves are unchanged.
 2026-10-30: Monofuel reports the installed polling build plays well during
 manual use, but thinks there is still a little audio crunch. Audio acceptance
 and sustained frame-time headroom remain open; this report is not a timed run.
+
+Later on 2026-10-30, palette core `2880e7d` is installed after silent validation.
+At fixed 1.416 GHz, core CPU means improve 9.40% cave, 16.42% dialogue and
+13.68% battle; battle averages 11.646 ms with 13.057 ms p99. All 3,480 × three
+capture comparisons and 924,845 golden frames match. The concurrent player
+update is preserved, and both
+save-directory checksums are unchanged. New manual palette/play acceptance is
+pending; the inventory/Bad Key Machine crunch is not claimed fixed.
 
 2026-10-29: shipping core `380b41b` and mono-retro's `player-xbgr-arm64`
 passed on the RG DS Plus ROCKNIX 7.0.2-r3 kernel: one private-XBGR startup
