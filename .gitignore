@@ -33,6 +33,7 @@ bin/*
 /docs/images/*
 !/docs/images/README.md
 !/docs/images/emulator.png
+!/docs/images/expanded-viewport.png
 !/docs/images/earthbound_20260818-022023-ds.png
 !/docs/images/music-jukebox.png
 !/docs/images/battle-background-viewer.png

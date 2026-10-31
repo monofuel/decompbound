@@ -1,6 +1,6 @@
 # Curated README illustrations
 
-These six images illustrate working project features in the root
+These seven images illustrate working project features in the root
 [README](../../README.md). They are selected documentation examples, not a game
 asset collection. Game imagery remains the property of its rightsholders; the
 project's source-code license does not grant rights to that artwork.
@@ -8,6 +8,7 @@ project's source-code license does not grant rights to that artwork.
 | Image | Purpose |
 |-------|---------|
 | `emulator.png` | EarthBound gameplay rendered by the Nim emulator, shown at 3× nearest-neighbor scale. |
+| `expanded-viewport.png` | Experimental 336×256 viewport in Winters, showing additional scenery at 3× nearest-neighbor scale. Rendered headlessly from the private `earthbound_20260818-021632.png` after 16 frames; exported from decoded pixels with no state or metadata. |
 | `earthbound_20260818-022023-ds.png` | The libretro core's complete game and original-UI party companion, stacked vertically at 3×. |
 | `music-jukebox.png` | Pocket Jukebox's original procedural cassette UI during offline playback of track 24. |
 | `battle-background-viewer.png` | Pocket Backgrounds' actual control and preview canvases placed side by side, with New Age Retro Hippie selected at animation frame 180. |
