@@ -141,14 +141,15 @@ time; the gold ROM is always the referee.
 
 See **[GOAL.md](GOAL.md)** for the canonical goals, completion criteria, and
 investigation loop. The current game-source target is annotated 65816 assembly;
-Nim implements the tools and emulator.
+Nim implements the tools and emulator. The [assembly style guide](docs/assembly-style.md)
+explains how routine contracts, code comments and research evidence fit together.
 
 ## Goals
 
 | | Goal | Status |
 |---|------|--------|
 | **1** | Rebuild the original ROM byte-identically | **Met; maintain** — extraction + assembly + copied residual regions |
-| **2** | Understand all game code | **Early** — 55 explained assembly regions, plus further research in tools/docs |
+| **2** | Understand all game code | **Early** — 77 explained assembly regions, plus further research in tools/docs |
 | **3** | Understand scripting | **Partial** — text decoding and action-script machinery; complete semantics remain open |
 | **4** | Understand graphics, including the game map | **Partial** — complete base world atlas, enemy portraits, battle backgrounds, and original UI; animation/story variants and the full asset catalog remain open |
 | **5** | Understand audio | **Partial** — standalone music playback and upload/song-loader knowledge; complete driver/sequence understanding remains open |
@@ -158,8 +159,8 @@ Nim implements the tools and emulator.
 - **Vanilla rebuild:** `make compare` extracts the user's ROM into ignored
   `extracted/` files and rebuilds it using `manifest.json` and `asm/`. The output
   must be byte-identical. Copied bytes do not count as understood code or assets.
-- **Explained regions:** the current manifest contains 4,145 explained and
-  reproduced bytes (0.1318% of the whole 3 MiB ROM). Other knowledge lives in
+- **Explained regions:** the current manifest contains 6,592 explained and
+  reproduced bytes (0.2096% of the whole 3 MiB ROM). Other knowledge lives in
   subsystem docs and tools; there is no complete code-only denominator yet.
 - **Emulator:** the repo records a complete human EarthBound playthrough through
   Giygas on the Nim SNES core. Remaining fidelity issues are tracked in

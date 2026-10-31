@@ -3,6 +3,11 @@
 Read [GOAL.md](GOAL.md) for the canonical five goals, completion criteria, and
 investigation loop. Older goal numbering in topic docs is historical.
 
+For `asm/*.asm`, follow [the assembly coding and documentation style](docs/assembly-style.md):
+compact entry contracts, explanations beside logical code blocks, and detailed
+evidence in the existing topic reference. The Nim proc-comment rules below apply
+to Nim, not assembly labels.
+
 **Leave the code better than you found it.** Follow the
 [maintenance rules in GOAL.md](GOAL.md#leave-the-code-better-than-you-found-it):
 consolidate stale docs, retire completed probes after preserving their evidence,

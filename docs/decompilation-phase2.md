@@ -569,8 +569,8 @@ From the repo root (gold at `bin/Earthbound (U) [!].smc` or `DECOMPBOUND_ROM`).
 | Manifest tile | `nim r tests/test_manifest.nim` |
 | Extract | `nim r src/tools/rom_extract.nim` → `extracted/` |
 | Rebuild + gold cmp | `nim r src/tools/rom_rebuild.nim` (or `make compare`) — `BYTE-IDENTICAL` |
-| Adopted asm | `nim r tests/test_rng.nim` / `tests/test_action_script_fetch.nim` |
-| Assembler front end | `nim r tests/test_asm_parse.nim` |
+| Adopted asm | `nim r tests/integration_rng.nim` / `nim r tests/integration_action_script_fetch.nim` |
+| Assembler front end | `nim r tests/integration_asm_parse.nim` |
 | Axes report | `nim r src/tools/progress_report.nim` → `report.md` |
 | View path | `nim r src/tools/view_export.nim` → `extracted/view/` |
 | Full suite | `make test` |
@@ -578,6 +578,8 @@ From the repo root (gold at `bin/Earthbound (U) [!].smc` or `DECOMPBOUND_ROM`).
 Committed: `manifest.json`, `asm/*.asm`. Gitignored: `extracted/` (blobs + view).
 
 ## Related
+
+- Source readability and contracts: [assembly style guide](assembly-style.md).
 
 - Phase 1: [`goal-1.md`](goal-1.md), [`goal-1.5.md`](goal-1.5.md) (both need
   revision — see *What this closes*)
