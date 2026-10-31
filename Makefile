@@ -515,7 +515,7 @@ libretro-ds-play: libretro
 .PHONY: libretro-viewport-play libretro-viewport-test
 libretro-viewport-play: libretro
 	@test -x "$(MONO_RETRO_PLAYER)" || { echo "Build mono-retro's player-desktop target first, or set MONO_RETRO_PLAYER." >&2; exit 1; }
-	"$(MONO_RETRO_PLAYER)" --core:"$(CURDIR)/bin/libretro/decompbound_libretro.so" --rom:"$(ROM)" --save-dir:"$(LIBRETRO_VIEWPORT_SAVE_DIR)" --earthbound-ds --earthbound-viewport:"$(VIEWPORT)" --earthbound-scale:"$(VIEWPORT_SCALE)" --mute --achievements:off $(LIBRETRO_STATE_ARGS) $(MONO_RETRO_ARGS)
+	"$(MONO_RETRO_PLAYER)" --core:"$(CURDIR)/bin/libretro/decompbound_libretro.so" --rom:"$(ROM)" --save-dir:"$(LIBRETRO_VIEWPORT_SAVE_DIR)" --earthbound-ds --earthbound-viewport:"$(VIEWPORT)" --earthbound-scale:"$(VIEWPORT_SCALE)" --achievements:off $(LIBRETRO_STATE_ARGS) $(MONO_RETRO_ARGS)
 
 libretro-viewport-test: libretro
 	@test -n "$(STATE)" || { echo "Set STATE to the private Winters outdoor screenstate." >&2; exit 1; }

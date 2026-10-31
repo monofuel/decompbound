@@ -39,9 +39,15 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 ### Expanded viewport desktop prototype
 
+Monofuel confirms that the desktop prototype works. He reports a visible
+"vsync vertical tear" during play; its precise location/cause and the full
+preset/input matrix are not yet isolated. Manual launches use normal audio;
+automated checks remain muted or use null audio.
+
 | Check | Run | Pass if |
 |---|---|---|
-| [ ] Winters terrain at every viewport size | On the matching branches in both repos, build mono-retro with `make player-desktop`, then run decompbound's `make libretro-viewport-play STATE="$HOME/Pictures/Screenshots/earthbound_20260818-021632.png" VIEWPORT=336x256`. Repeat with `256x224`, `320x240`, `448x252`, `512x384` and custom `257x225`. The target is muted and disables achievements. | Original game pixels and Jeff remain correctly positioned; supported Winters scenery extends on every added side without seams as you walk. Objects outside the original frame are intentionally not added in this phase. The companion keeps its original appearance. |
+| [ ] Winters terrain at every viewport size | On the matching branches in both repos, build mono-retro with `make player-desktop`, then run decompbound's `make libretro-viewport-play STATE="$HOME/Pictures/Screenshots/earthbound_20260818-021632.png" VIEWPORT=336x256`. Repeat with `256x224`, `320x240`, `448x252`, `512x384` and custom `257x225`. The target uses normal audio and disables achievements; add `MONO_RETRO_ARGS=--mute` to request silence. | Original game pixels and Jeff remain correctly positioned; supported Winters scenery extends on every added side without seams as you walk. Objects outside the original frame are intentionally not added in this phase. The companion keeps its original appearance. |
+| [ ] Desktop presentation tearing | Manually run the viewport target, walk vertically/horizontally, and compare `VIEWPORT=336x256` with `VIEWPORT=256x224`. After a presentation fix is available, repeat on the same desktop. | Moving scenery has no visible tear, both windows retain normal pacing, and the original center joins the extended terrain without a fixed seam. |
 | [ ] Unequal windows and companion input | Resize both windows separately; compare automatic scaling with `VIEWPORT_SCALE=2`. Use keyboard/controller character selection and click status cards where multiple members are available. Drop a private state onto either window. | Each panel stays sharp and centered at integer scales. The companion remains 256×224 logically; clicks select the intended card, padding clicks do nothing, and state imports clear old scenery. |
 | [ ] Unsupported scene padding | From the prototype, enter the lab or load local interior/battle screenstates. Return to the Winters outdoor reference. | Unsupported scenes retain the complete original image centered on black, with no stale outdoor terrain. Verified Winters scenery resumes after returning. No new actors or effects are claimed outside the original view. |
 
@@ -531,6 +537,14 @@ Only when an agent points you here for a **tool** check:
 ---
 
 ## FOUND IN PLAY — new issues (human → agents)
+
+- **Expanded viewport desktop tearing — OPEN.** Monofuel confirms the prototype
+  works but reports a "vsync vertical tear". The handheld's DRM tearing fix is
+  separate from desktop presentation. Mono-retro opens X11 windows with vsync
+  disabled, and the compiled `useCpu` Windy X11 path uploads with `XPutImage` /
+  `XFlush` rather than a synchronized GLX buffer swap. This is a concrete
+  unsynchronized presentation path, not yet a visual isolation of the reported
+  defect. See [issues.md](issues.md) and the desktop presentation row above.
 
 - **2026-10-30 · RG DS Plus startup crash after achievements deployment — fixed and deployed.**
   Native DRM input queried desktop `mousePos`; CPU presentation also queried

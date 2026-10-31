@@ -26,6 +26,12 @@ Human-verify launch instructions are for monofuel; agents must not treat them
 as permission to run audible checks. Stop approved audible runs promptly and
 restore the menu afterward.
 
+Human manual tests use normal game audio unless monofuel requests silence. An
+explicit request for a particular manual playback session authorizes its normal
+audio; general implementation or automated-test requests do not. Human-run launch
+targets and instructions must not force mute. Agents running automated checks
+must select `--mute` or a verified null backend themselves.
+
 ## Vanilla ROM gate (phase 2)
 
 `generated/*` bank modules are **gone** (M2.5). Vanilla rebuild is:

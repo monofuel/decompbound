@@ -56,6 +56,19 @@ hang, Saturn Valley corruption, half-speed music) are tracked together in
 
 ## OPEN (not yet assigned)
 
+- **Expanded viewport / desktop presentation tearing.** Monofuel confirms the
+  outdoor prototype works but reports a "vsync vertical tear". Its orientation,
+  position and behavior at the original viewport size are not yet isolated.
+  Mono-retro's `src/player.nim` enables window vsync only for DRM. Its desktop
+  build defines `useCpu`; Windy's X11 `presentPixels` uses `XPutImage` and
+  `XFlush`, bypassing GLX buffer swapping. Windy's GLX swap-interval setup is
+  excluded from this build, so changing the window's vsync boolean alone would
+  not synchronize this pixel-upload path. This points to frontend/X11 presentation;
+  it does not yet prove the reported defect's cause. The earlier Anbernic fix
+  used DRM double buffering/vblank page flips and paired GPU atomic presentation,
+  which are separate from X11. Reproduction and acceptance live in
+  [human-verify.md](human-verify.md), Expanded viewport desktop prototype.
+
 - **RG DS Plus residual native audio underrun (2026-10-29).** Repeated
   300-frame cave tests reported one underrun with both the previous `380b41b`
   core and optimized `ab07a7a`; later paired runs reported zero for both.

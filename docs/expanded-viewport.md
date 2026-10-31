@@ -1,7 +1,8 @@
 # Expanded EarthBound viewport
 
 Status: experimental Winters outdoor prototype, with headless verification and
-desktop manual verification pending. All listed sizes and validated custom
+basic desktop play confirmed by monofuel. Desktop tearing remains open, and the
+complete manual preset/input matrix is not yet confirmed. All listed sizes and validated custom
 dimensions are selectable. The first implementation targets local desktop testing
 through mono-retro-player; RG DS Plus deployment is deferred. The existing
 [EarthBound DS companion](earthbound-ds.md) remains the default baseline.
@@ -135,7 +136,7 @@ document their behavior without presenting them as supported coverage.
 ### Desktop launch and transport
 
 Build mono-retro's `monofuel/expanded-viewport` branch with its normal
-`make player-desktop` environment. From decompbound, the muted manual test is:
+`make player-desktop` environment. From decompbound, the manual test is:
 
 ```sh
 make libretro-viewport-play \
@@ -146,10 +147,10 @@ make libretro-viewport-play \
 Select `VIEWPORT=256x224`, `320x240`, `336x256`, `448x252` or `512x384` to
 compare presets. Custom dimensions use the same syntax, for example `257x225`.
 `VIEWPORT_SCALE=2` fixes the game scale for comparison; `auto` is the default.
-The target disables achievements, mutes audio and uses a separate ignored
-`bin/libretro/earthbound-viewport-saves/` directory. Manual use may override
-player arguments with `MONO_RETRO_ARGS`; agents must keep tests muted and must
-not launch desktop windows.
+The target uses normal audio, disables achievements and uses a separate ignored
+`bin/libretro/earthbound-viewport-saves/` directory. Add
+`MONO_RETRO_ARGS=--mute` to request silence. Automated checks must explicitly
+select mute/null audio; agents must not launch desktop windows.
 
 The player arguments are `--earthbound-ds --earthbound-viewport:WIDTHxHEIGHT`
 and optional `--earthbound-scale:auto|N`. Core options
@@ -207,8 +208,8 @@ mode still works. This establishes transport, not correct expanded game scenery.
 legacy DS and overlay tests pass. Default dimensions need only the original
 companion option, preserving the updated player's compatibility with older cores.
 Explicit game scaling uses CPU presentation and rejects an explicit GPU request;
-resizing below the requested scale raises a clear error. Desktop visual acceptance
-and native device testing remain pending.
+resizing below the requested scale raises a clear error. Monofuel confirms basic
+desktop play; the full matrix, desktop tearing and native device testing remain open.
 
 ### Stage 2 — Camera and base scenery
 
@@ -331,7 +332,8 @@ ones rather than counting both as completed expansion.
 **Findings and remaining gaps:** original UI/battle pixels remain centered and the
 companion is unchanged. ABI tests cover both transports, companion pixels and
 state imports; frontend synthetic tests cover overlay crops and input mapping.
-UI relocation, expanded battle backgrounds and manual acceptance remain pending.
+UI relocation and expanded battle backgrounds remain pending. Basic desktop play
+is confirmed; the full UI/input matrix is not independently confirmed.
 
 ### Stage 7 — Device performance and coverage
 
@@ -349,7 +351,8 @@ experimentation. Link profiling evidence to [libretro-performance.md](libretro-p
 cover idle/walking at every suggested preset. Walking CPU mean rises from
 0.844 ms at 256×224 to 1.536 ms at 336×256 and 3.719 ms at 512×384 on the
 Ryzen 9 7950X. The unmodified default also passes the 3,480-capture × three-frame
-reference corpus. Handheld timing and desktop visual acceptance remain pending.
+reference corpus. Basic desktop play is confirmed; handheld timing and a tearing
+fix remain pending. See [the presentation issue](issues.md#open-not-yet-assigned).
 
 Later stages remain future work. Derive engine claims from our own traces and
 tooling; external projects are references, not evidence for EarthBound's behavior
