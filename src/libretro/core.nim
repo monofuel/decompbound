@@ -89,6 +89,7 @@ proc releaseHooks(snes: SnesBus) =
 proc releaseMachine() =
   ## Release the loaded machine and all presentation storage.
   polling = nil
+  if expandedView != nil: expandedView.detachSprites()
   releaseHooks(machine)
   machine = nil
   frameImage = nil
@@ -105,12 +106,14 @@ proc releaseMachine() =
 
 proc resetPresentation() =
   ## Recreate read-only scene resources after a machine discontinuity.
+  if expandedView != nil: expandedView.detachSprites()
   expandedView = nil
   visibleHook = nil
   scanlineHook = nil
   presentationDescription = ""
   if geometry.expanded:
     expandedView = newExpandedViewport(machine.rom, geometry.width, geometry.height)
+    expandedView.attachSprites(machine)
     visibleHook = proc(snes: SnesBus) =
       ## Sample the scene before next-frame NMI uploads.
       profileStage(ExpandedScenery): expandedView.capture(snes)

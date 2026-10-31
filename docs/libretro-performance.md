@@ -277,6 +277,41 @@ measurements, not ARM or full-player timing. The unexpanded default avoids the
 observer entirely. The first implementation renders fixed-width PPU chunks even
 for narrow margins; decoding only the needed spans is a future optimization.
 
+### Ordinary NPC extension desktop check
+
+Measured 2026-10-31 on the Ryzen 9 7950X, comparing `7c9b414` with the ordinary
+NPC extension. Both shared cores use the default shipping build (`-d:danger`),
+DS/XBGR, private `earthbound_20260818-021806.png`, the profile host's alternating
+walking input, CPU 2 affinity, 120 warmup and 600 measured frames. Three serial
+old/new pairs per size; each cell is the median of the three run summaries.
+Other local regression processes were running on the desktop. Times are
+core-thread CPU, including in-memory callbacks, without speakers, a frontend
+window, GPU presentation or capture recording.
+
+| Game viewport | Before mean | NPC mean | Added mean | Before p99 | NPC p99 |
+|---|---:|---:|---:|---:|---:|
+| 256×224 | 0.853 ms | 0.860 ms | 0.007 ms | 1.026 ms | 1.032 ms |
+| 336×256 | 1.668 ms | 1.751 ms | 0.083 ms | 1.947 ms | 2.056 ms |
+| 512×384 | 4.411 ms | 4.705 ms | 0.294 ms | 5.056 ms | 5.378 ms |
+
+The unexpanded mode does not attach NPC observers. The expanded path adds
+publication decoding, private animation textures, sprite rasterization and
+foreground composition. It sparsely clears/repaints the actor plane and caches
+immutable ROM-backed texture patches. The larger preset remains dominated by
+the existing map pixel work. These are short PC measurements, not an ARM claim.
+Local numeric reports are
+`bin/expanded-sprites-profile-{reference,candidate}-{WIDTH}x{HEIGHT}-{1,2,3}.json`.
+
+Reproduce one candidate run (the reference uses a separately built old `.so`):
+
+```sh
+taskset -c 2 bin/libretro-profile \
+  --core:bin/libretro/decompbound_libretro.so --rom:'bin/Earthbound (U) [!].smc' \
+  --state:"$HOME/Pictures/Screenshots/earthbound_20260818-021806.png" \
+  --ds --xbgr --viewport:336x256 --walk --warmup:120 --frames:600 \
+  --out:bin/expanded-sprites-profile-candidate-336x256-1.json
+```
+
 ## Measured RG DS Plus profile
 
 Measured 2026-10-29 local time (2026-10-30 UTC) on the actual RK3568/Cortex-A55

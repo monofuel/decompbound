@@ -90,6 +90,8 @@ proc main() =
     effectsChecked = false
     families: set[0 .. 31]
     reasons = initCountTable[string]()
+    spriteReasons = initCountTable[string]()
+    actorFrames = 0
   if paramCount() > 0:
     paths = commandLineParams()
   else:
@@ -112,6 +114,9 @@ proc main() =
     defer: machine.release()
     var cpu: Cpu
     deserializeState(state, machine, cpu)
+    view.attachSprites(machine)
+    for warmup in 0 ..< 2:
+      stepReplayFrame(machine, cpu)
     let hook: VisibleFrameHook = proc(snes: SnesBus) =
       ## Preserve the source snapshot while isolating map layers from original actors and UI.
       let before = serializeState(snes, cpu)
@@ -142,6 +147,10 @@ proc main() =
       for x in 0 ..< ScreenWidth:
         doAssert composed[x + left, y + top] == original[x, y], name & ": original changed"
     doAssert serializeState(machine, cpu) == before, name & ": compose changed machine"
+    if view.presentation == "extended map":
+      spriteReasons.inc(view.spriteStatus)
+      if view.spritePixels > 0: inc actorFrames
+    view.detachSprites()
     if view.presentation == "extended battle":
       inc battles
       continue
@@ -167,10 +176,13 @@ proc main() =
         &"atlas={view.sceneryPixel(origin.x + first.x, origin.y + first.y)} ppu={background[first.x, first.y]}"
   echo &"Corpus: maps={accepted}, battles={battles}, padded={rejected}, imageOnly={noState}, " &
     &"families={families}, mismatched={mismatched}; fallback={reasons}"
+  echo &"Actors: visibleFrames={actorFrames}; publication={spriteReasons}"
   doAssert accepted > 0, "No map scene was exercised."
   doAssert effectsChecked, "Static lighting and windows were not exercised."
   if paramCount() == 0:
     doAssert card(families) > 1, "The archive sweep must cover more than one logical family."
   doAssert mismatched == 0, "Expanded scenery disagrees with original PPU background."
+  if paramCount() == 0:
+    doAssert actorFrames > 0, "No actor raster was exercised in the archive"
 
 main()

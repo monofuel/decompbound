@@ -4,7 +4,8 @@
 import
   std/[options, strformat],
   pixie,
-  ./[battle_viewport, cpu, ppu, snesbus, viewport_geometry, world_map, world_map_assets, world_map_layout]
+  ./[battle_viewport, cpu, expanded_sprite_raster, expanded_sprite_tracker, ppu,
+    snesbus, viewport_geometry, world_map, world_map_assets, world_map_layout]
 
 type
   ExpandedViewport* = ref object
@@ -22,6 +23,9 @@ type
     registers: array[0x100, uint8]
     fixedColor: ColorRGBA
     output: Image
+    spriteTracker: ExpandedSpriteTracker
+    spriteMachine: SnesBus
+    spriteRaster: ExpandedSpriteRaster
 
 const
   PublishedCameraX = 0x0041
@@ -71,6 +75,7 @@ const
   PriorityHigh = 0x2000'u16
   TilemapScreenWords = 0x400
   OpaqueBlack = rgbx(0, 0, 0, 255)
+  ObjectLayer = 0x10'u8
   PresentationNone = "padded no-capture"
   PresentationExtended = "extended map"
 
@@ -109,9 +114,33 @@ proc newExpandedViewport*(rom: seq[uint8], width, height: int): ExpandedViewport
   let atlas = newWorldMapAtlas(rom)
   result = ExpandedViewport(width: width, height: height, atlas: atlas,
     battle: newBattleViewport(width, height, rom),
+    spriteTracker: newExpandedSpriteTracker(),
+    spriteRaster: newExpandedSpriteRaster(width, height),
     originX: (width - ScreenWidth) div 2, originY: (height - ScreenHeight) div 2,
     reason: "no-capture", output: newImage(width, height))
   result.output.fill(OpaqueBlack)
+
+proc detachSprites*(view: ExpandedViewport) =
+  ## Release owned observers before changing machines or presentation geometry.
+  if view.spriteMachine != nil:
+    view.spriteTracker.detach(view.spriteMachine)
+    view.spriteMachine = nil
+  view.spriteRaster.clear()
+
+proc attachSprites*(view: ExpandedViewport, snes: SnesBus) =
+  ## Observe future publications without retaining callbacks through the owning view.
+  if view.spriteMachine == snes: return
+  view.detachSprites()
+  view.spriteTracker.attach(snes)
+  view.spriteMachine = snes
+
+proc spriteStatus*(view: ExpandedViewport): string =
+  ## Expose publication matching diagnostics without changing map eligibility.
+  view.spriteTracker.status()
+
+proc spritePixels*(view: ExpandedViewport): int =
+  ## Count nontransparent prepared object pixels before foreground composition.
+  view.spriteRaster.touched.len
 
 proc presentation*(view: ExpandedViewport): string =
   ## Describe the current extended or padded policy for stable log transitions.
@@ -212,6 +241,8 @@ proc capture*(view: ExpandedViewport, snes: SnesBus) =
   ## Snapshot pre-NMI camera, flags, and live map resources; never write the machine.
   view.captured = true
   view.extended = false
+  view.attachSprites(snes)
+  view.spriteRaster.clear()
   view.battle.finishCapture(snes)
   if view.battle.ready: return
   view.syncStoryFlags(snes)
@@ -234,6 +265,9 @@ proc capture*(view: ExpandedViewport, snes: SnesBus) =
     return
   view.extended = true
   view.reason = "map"
+  let sprites = view.spriteTracker.displayed(snes, cameraX, cameraY)
+  if sprites != nil and ((view.registers[TmReg] or view.registers[TsReg]) and ObjectLayer) != 0:
+    view.spriteRaster.draw(snes, sprites.elements, sprites.textures)
 
 proc captureScanline*(view: ExpandedViewport, snes: SnesBus, line: int) =
   ## Record battle background HDMA at the row actually displayed by the PPU.
@@ -329,6 +363,57 @@ proc sceneryPixel*(view: ExpandedViewport, worldX, worldY: int): ColorRGBX =
       (cgadsub and 0x40) != 0 and sub.drawn)
   applyMasterBrightness(color, view.registers[InidispReg]).rgbx
 
+proc actorPixel*(view: ExpandedViewport, worldX, worldY: int): Option[ColorRGBX] =
+  ## Compose a prepared world actor with the native map's windows, priority and lighting.
+  if not view.extended: return none(ColorRGBX)
+  let
+    x = worldX - view.cameraX + view.originX
+    y = worldY - view.cameraY + view.originY
+  if x < 0 or x >= view.width or y < 0 or y >= view.height: return none(ColorRGBX)
+  let pixel = view.spriteRaster.pixels[y * view.width + x]
+  if pixel.colorIndex == 0: return none(ColorRGBX)
+  let
+    screenX = worldX - view.cameraX
+    colorWindow = view.windowAt(view.registers[WobjSelReg], 4,
+      (view.registers[WobjlogReg].int shr 2) and 3, screenX)
+    cgwsel = view.registers[CgwselReg]
+    black = case (cgwsel.int shr 6) and 3
+      of 1: not colorWindow
+      of 2: colorWindow
+      of 3: true
+      else: false
+    objectWindowed = (view.registers[TmwReg] and ObjectLayer) != 0 and
+      view.windowAt(view.registers[WobjSelReg], 0,
+        view.registers[WobjlogReg].int and 3, screenX)
+  if black or objectWindowed: return none(ColorRGBX)
+  let
+    word = view.sceneryWord(worldX, worldY)
+    main = view.mapSample(word, worldX and 7, worldY and 7, screenX,
+      view.registers[TmReg], view.registers[TmwReg], view.liveColors[0])
+    priority = (pixel.attributes.int shr 4) and 3
+    backgroundHigh = (main.source == 1 and (word and PriorityHigh) != 0) or
+      (main.source == 2 and (word and TileIndexMask).int < WorldBg2TileCount)
+  if priority <= 2 and backgroundHigh: return none(ColorRGBX)
+  let
+    cgadsub = view.registers[CgadsubReg]
+    palette = (pixel.attributes.int shr 1) and 7
+    mathEnabled = case (cgwsel.int shr 4) and 3
+      of 1: colorWindow
+      of 2: not colorWindow
+      of 3: false
+      else: true
+  var color = view.liveColors[pixel.colorIndex.int]
+  if (cgadsub and ObjectLayer) != 0 and (cgwsel and 2) == 0 and palette >= 4 and mathEnabled:
+    color = colorMathBlend(color, view.fixedColor, (cgadsub and 0x80) != 0,
+      (cgadsub and 0x40) != 0)
+  some(applyMasterBrightness(color, view.registers[InidispReg]).rgbx)
+
+proc scenePixel*(view: ExpandedViewport, worldX, worldY: int): ColorRGBX =
+  ## Return the map and world-actor composite for independent native-area comparisons.
+  let actor = view.actorPixel(worldX, worldY)
+  if actor.isSome: actor.get()
+  else: view.sceneryPixel(worldX, worldY)
+
 proc blitOriginal(dest, original: Image, originX, originY: int) =
   ## Copy the original 256x224 presentation, including actors and UI, onto the center.
   for y in 0 ..< ScreenHeight:
@@ -358,5 +443,13 @@ proc compose*(view: ExpandedViewport, original: Image): Image =
         if x >= originX and x < right and y >= originY and y < bottom: continue
         view.output.data[y * view.width + x] = view.sceneryPixel(
           view.cameraX + x - originX, worldY)
+    for index in view.spriteRaster.touched:
+      let
+        x = index mod view.width
+        y = index div view.width
+      if x >= originX and x < right and y >= originY and y < bottom: continue
+      let color = view.actorPixel(view.cameraX + x - originX,
+        view.cameraY + y - originY)
+      if color.isSome: view.output.data[index] = color.get()
   view.output.blitOriginal(original, view.originX, view.originY)
   view.output

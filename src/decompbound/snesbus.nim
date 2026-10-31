@@ -11,6 +11,13 @@ import
   ./[core_profile, cpu, memmap, apu]
 
 type
+  OamDmaEvent* = object
+    ## Describe a completed DMA request that could write the OAM data port.
+    source*: uint32
+    length*, firstAddress*: int
+    mode*: uint8
+    executed*: bool
+
   ApuHandshakeState = enum
     ahsIdle       ## Waiting for the CC kick-off.
     ahsTransfer   ## Echoing transfer counter bytes.
@@ -19,6 +26,15 @@ type
   SnesBus* = ref object
     bus*: Bus
     rom*: seq[uint8]
+    observedWramBytes*: set[uint16]
+    wramWriteObserver*: proc(snes: SnesBus, address: uint16, value: uint8)
+      ## Observe the selected physical WRAM byte immediately before its CPU write.
+    oamDmaObserver*: proc(snes: SnesBus, event: OamDmaEvent)
+      ## Observe completed OAM DMA without changing emulated registers or timing.
+    resetObserver*: proc(snes: SnesBus)
+      ## Invalidate presentation-only observers on machine resets and state imports.
+    oamWriteSerial*: uint64
+      ## Detect OAM port writes after a presentation snapshot was associated with DMA.
     ## Live audio: the real SPC700 + S-DSP, driven over the $2140-$2143 ports
     ## exactly as on hardware (via the IPL boot ROM). When present it supersedes
     ## the legacy HLE handshake below, so music sequence + samples stay coherent.
@@ -341,6 +357,7 @@ proc ppuPortWrite(snes: SnesBus, offset: uint32, value: uint8): bool =
     snes.oamAddr = ((value.uint16 and 1) shl 9) or (snes.oamAddr and 0x1FF)
     true
   of 0x2104:
+    inc snes.oamWriteSerial
     if snes.oamAddr < 544:
       snes.oam[snes.oamAddr] = value
     snes.oamAddr = (snes.oamAddr + 1) and 0x3FF
@@ -470,6 +487,9 @@ proc runDma(snes: SnesBus, channels: uint8) =
     if size == 0:
       size = 0x10000
     let transferSize = size
+    let
+      originalSource = (aBank shl 16) or aAddr
+      originalOamAddress = snes.oamAddr.int
     let fixed = (dmap and 0x08) != 0
     let decrement = (dmap and 0x10) != 0
     let toA = (dmap and 0x80) != 0
@@ -546,6 +566,15 @@ proc runDma(snes: SnesBus, channels: uint8) =
     snes.dmaRegs[base + 5] = 0
     snes.dmaRegs[base + 6] = 0
     snes.dmaTransfers += 1
+    if snes.oamDmaObserver != nil and not toA:
+      let pattern = DmaPatterns[(dmap and 0x07).int]
+      var touchesOam = false
+      for index in 0 ..< min(pattern.len, transferSize):
+        if bbad.int + pattern.off[index].int == 4: touchesOam = true
+      if touchesOam:
+        snes.oamDmaObserver(snes, OamDmaEvent(source: originalSource,
+          length: transferSize, firstAddress: originalOamAddress, mode: dmap,
+          executed: not storm and not spray64k))
 
 proc tickScanline*(snes: SnesBus, l: int) =
   ## Per-line frame-phase bookkeeping for the timing registers: every frame
@@ -934,9 +963,14 @@ proc newSnesBus*(rom: seq[uint8]): SnesBus =
     let bank = address shr 16
     let offset = address and 0xFFFF
     if bank == 0x7E or bank == 0x7F:
+      if bank == 0x7E and snes.wramWriteObserver != nil and
+          offset.uint16 in snes.observedWramBytes:
+        snes.wramWriteObserver(snes, offset.uint16, value)
       return false  # WRAM, flat.
     if (bank <= 0x3F) or (bank >= 0x80 and bank <= 0xBF):
       if offset < 0x2000:
+        if snes.wramWriteObserver != nil and offset.uint16 in snes.observedWramBytes:
+          snes.wramWriteObserver(snes, offset.uint16, value)
         snes.bus.mem[(0x7E0000'u32 or offset).int] = value
         return true
       if isMmio(offset):
@@ -961,6 +995,8 @@ proc resetChipState(snes: SnesBus) =
   ## that the console /RES line leaves alone (soft reset), or that a fresh
   ## bus already has zeroed (cold newSnesBus). Shared by newSnesBus and softReset.
   snes.bus.cpuInApuHandshake = false
+  if snes.resetObserver != nil: snes.resetObserver(snes)
+  snes.oamWriteSerial = 0
   snes.nmitimen = 0
   snes.mulOperandA = 0
   snes.divDividend = 0
@@ -1042,6 +1078,8 @@ proc resetUnserialized*(snes: SnesBus) =
   ## Deserialize calls this before restoring serialized fields. Leftover DSP
   ## voices / PPU latches from a previous walk would otherwise leak into TAS
   ## replay and make serialize(start+inputs) depend on who ran last.
+  if snes.resetObserver != nil: snes.resetObserver(snes)
+  snes.oamWriteSerial = 0
   snes.bus.cpuInApuHandshake = false
   snes.mulOperandA = 0
   snes.divDividend = 0

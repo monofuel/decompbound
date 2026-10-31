@@ -37,6 +37,9 @@ type
                         ## and the source of the rare realloc-copy frame stutter.
     readHook*: proc(address: uint32): int
     writeHook*: proc(address: uint32, value: uint8): bool
+    observeStoreInstructions*: bool
+    storeInstructionAddress*: uint32
+      ## Optional presentation provenance, valid only during STA/STZ writes.
     cpuInApuHandshake*: bool
       ## Set each instruction from CPU PBR:PC when inside APU handshake
       ## helpers (uploadApuPackages, waitApuIdleClearSong, readApuPort0).
@@ -632,8 +635,12 @@ proc step*(cpu: var Cpu, bus: Bus) =
     cpu.y = if cpu.x8: v and 0xFF else: v
     if cpu.x8: cpu.setNZ8((v and 0xFF).uint8) else: cpu.setNZ16(v)
   of mnSTA:
+    if bus.observeStoreInstructions:
+      bus.storeInstructionAddress = (cpu.pbr.uint32 shl 16) or
+        ((cpu.pc.uint32 - 1) and 0xFFFF)
     let op = dataOp()
     cpu.storeValue(bus, op, cpu.a, not cpu.m8)
+    bus.storeInstructionAddress = 0
   of mnSTX:
     let op = dataOp()
     cpu.storeValue(bus, op, cpu.x, not cpu.x8)
@@ -641,8 +648,12 @@ proc step*(cpu: var Cpu, bus: Bus) =
     let op = dataOp()
     cpu.storeValue(bus, op, cpu.y, not cpu.x8)
   of mnSTZ:
+    if bus.observeStoreInstructions:
+      bus.storeInstructionAddress = (cpu.pbr.uint32 shl 16) or
+        ((cpu.pc.uint32 - 1) and 0xFFFF)
     let op = dataOp()
     cpu.storeValue(bus, op, 0, not cpu.m8)
+    bus.storeInstructionAddress = 0
 
   # Register transfers.
   of mnTAX:

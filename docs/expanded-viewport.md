@@ -188,8 +188,9 @@ make libretro-viewport-test \
 
 Solve and document the layers below incrementally. Stage 1 has headless coverage;
 Stage 2 covers ordinary map-mode scenes across logical families; static lighting
-and window handling also cover part of Stage 5. Actors, full room isolation and
-scanline effects remain incomplete. A working earlier stage remains available. Completion
+and window handling also cover part of Stage 5. Stage 3 now extends ordinary
+active NPC bodies. Special actor effects, full room isolation and scanline
+effects remain incomplete. A working earlier stage remains available. Completion
 applies to the recorded scenes and dimensions, not automatically the whole game.
 
 For each stage, replace its findings placeholder with the hypothesis, routine
@@ -332,9 +333,83 @@ position, animation and ordering. Identical input replays from the same initial
 state preserve relevant game-memory, RNG and event behavior against vanilla.
 Any unavailable actor resources or unverified activation rules remain explicit.
 
-**Findings and remaining gaps:** the prototype preserves original actors only.
-Its 2,400-frame differential route proves presentation isolation, including CPU,
-memory and PCM; preparation and rendering of new offscreen actors remain planned.
+**Status: verified for ordinary active bodies in the recorded desktop scenes.**
+Static and moving NPCs now render beyond the original rectangle, including
+bodies rejected before native OAM preparation. The native simulation still owns
+the active list: this does not spawn distant actors or increase activation,
+collision, script, encounter or enemy-loading ranges.
+
+The independently traced contracts (US ROM file offsets equal the low address
+for these `$C0` routines) are:
+
+- `$C0A023/$C0A03A` project world coordinates into `$0B16/$0B52`; the latter
+  subtracts elevation `$0C06`. Neither callback clips.
+- `$C0DB0F`, especially file `$00DB35/$00DB46`, skips draw callbacks outside
+  X −64..319 or Y −64..255. Raw group one is sorted by descending unsigned
+  world Y, with stable active-list ties; other groups draw first.
+- `$C0A3A4` selects `$112E/$116A`, adding `$2916` when retained graphics entry
+  `$341A` has bit zero set. Two byte counts at `$2BE7/$2BE6` and flags `$2BAA`
+  select OBJ priority. `$C0A416` doubles an indirect queue's entity ID;
+  `$C0A429` can then clear the actor's original queue field. Published entries
+  therefore own the queue for bodies actually drawn by the game.
+- `$C08CD5` applies a second, element-level clip while emitting OAM. Decode the
+  five-byte definitions before this clip, including signed offsets, redirects,
+  size, flips, palettes and tile addresses.
+- `$C08B26` publishes selector `$002C` only after the chosen OAM and camera lane
+  are ready. `$C081C0` starts the 544-byte OAM DMA, followed by a zero
+  acknowledgment. Freeze each publication separately and use the buffer actually
+  transferred (`$0500` or `$0800`), validating all native OAM bytes. Later OAM
+  writes, unsupported transfers and resets retire the corresponding metadata.
+- `$C09491/$C09494` store the raw current entity ID in `$1A42`; `$1A44` is its
+  doubled array offset. `$C0A4A8/$C0A4B5` request animation phases zero/one,
+  but `$C0C711` can reject their graphics upload outside the original view.
+  Reconstruct `$C0A4C4/$C0A56E` into private texture patches from the observed
+  request and the user's ROM. This includes fixed fills at `$C40BE8` and the
+  split-row VRAM placement, without modifying live VRAM, `$341A`, or DMA queues.
+  Keep native textures when any part of the body touches the original frame.
+- Released resources (`$2CD6=FFFF`) and hidden definitions/frames stay hidden.
+  Synthesize an absent body only outside `$DB0F`'s draw window during ordinary
+  world rendering, with a verified world-coordinate projection.
+
+Implementation: [publication decoder](../src/decompbound/expanded_sprite_frame.nim),
+[tracker](../src/decompbound/expanded_sprite_tracker.nim),
+[private upload](../src/decompbound/expanded_sprite_texture.nim) and
+[rasterizer](../src/decompbound/expanded_sprite_raster.nim). The map compositor
+applies OBJ windows, foreground priority, static lighting and palette math, then
+copies the original 256×224 image unchanged. Scenery retains existing map-family
+clipping and actor loading remains native; no guessed room bounds or additional
+actor simulation were introduced.
+
+Headless reproduction (no display or audio device):
+
+```sh
+make libretro-sprites-test
+make libretro-viewport-corpus-test
+make bench-check
+```
+
+The live comparison covers 768 frames in the private `20260818-021806`,
+`021923`, `021632` and `021941` captures at 336×256 and 512×384, with identical
+CPU/machine state, original pixels and PCM. It checks actor colours against
+native pixels directly, rather than relying only on the unchanged center blit.
+The full archive covers 1,287 state captures plus seven image-only captures;
+776 maps, 91 battles and 420 padded cases retain zero scenery mismatches across
+31 logical families. Publication matched 773 maps; three had not published a
+new generation, so correctly omitted added actors. Further coverage and manual
+edge-crossing checks remain in [human-verify.md](human-verify.md).
+Synthetic actor windows, brightness and fixed-colour math also match the native
+PPU across 24 configurations. Private texture preparation matches original ROM
+uploads across 2,563 cases. Unit tests cover sprite sizes, flips, tile wrapping,
+transparency, overlap precedence, signed edges and sparse clearing.
+The 38-file unit suite passes in `nix develop --command make test`, and all five
+existing replay goldens match in full (924,845 frames). The vanilla ROM rebuild
+remains byte-identical. Automated runs did not use a display or speaker output.
+
+**Remaining gaps:** only native-loaded ordinary `$A3A4` bodies with `$A023/$A03A`
+projection are extended. Screen-fixed UI and unusual draw callbacks stay native.
+`$AC43` effects have their own script timers and are not synthesized; executing
+that callback would alter game behavior. HDMA/mosaic and unsupported map modes
+retain the previous fallback. Exact room bounds remain a separate Stage 4 issue.
 
 ### Stage 4 — Room boundaries and transitions
 
@@ -375,7 +450,8 @@ by PPU comparisons across the archive and synthetic configurations. Overworld HD
 mosaic remain excluded: end-of-frame registers cannot describe their scanline
 history. Captured Skyrunner cloud/landing scenes now pass; other portions with
 unsupported effects may still pad. This does not resolve the independent Deep
-Darkness emulator bug or add offscreen actors.
+Darkness emulator bug. Ordinary offscreen bodies are covered by Stage 3;
+scripted actor effects remain separate.
 
 ### Stage 6 — Original UI and battle presentation
 
@@ -461,6 +537,9 @@ cover idle/walking at every suggested preset. Walking CPU mean rises from
 Ryzen 9 7950X. The unmodified default also passes the 3,480-capture × three-frame
 reference corpus. Basic desktop play is confirmed; handheld timing and a tearing
 fix remain pending. See [the presentation issue](issues.md#open-not-yet-assigned).
+The [NPC extension comparison](libretro-performance.md#ordinary-npc-extension-desktop-check)
+adds 0.083 ms mean core-thread CPU at 336×256 and 0.294 ms at 512×384 on a
+separate walking scene. No handheld deployment or timing is claimed for it.
 
 Later stages remain future work. Derive engine claims from our own traces and
 tooling; external projects are references, not evidence for EarthBound's behavior
