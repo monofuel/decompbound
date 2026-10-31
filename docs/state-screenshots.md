@@ -5,10 +5,13 @@ file onto the play window to restore. Code: `png_state.nim`, `save_state.nim`,
 `play.nim`.
 
 Mono-retro-player also creates compatible `ebSt` captures with F12 and on clean
-exit, including the combined image in DS mode. Its sessions live under the
-selected save directory's `captures/`, rather than the standalone archive below;
-the player prints the session path at startup. Five-second images link to input
-replays and do not embed state. See [libretro integration](libretro.md).
+exit, including the combined image in DS mode. F12/controller Share and exit
+screenstates also appear in **`~/Pictures/Screenshots/`**, matching the standalone
+player. Session originals, sidecars and recordings stay under the selected save
+directory's `captures/`; the player prints both locations at startup. Five-second
+images stay session-only, link to input replays and do not embed state. Existing
+archive files are preserved with a numeric filename suffix on collisions.
+See [libretro integration](libretro.md).
 
 ## Where monofuel’s shots live
 

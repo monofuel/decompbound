@@ -114,6 +114,9 @@ run between frames on the core owner thread. The ABI remains single-instance.
 Updated mono-retro-player provides F12 screenstates, five-second image captures,
 always-on input recording, and a final screenstate on orderly exit. PNGs store
 canonical DBST without libretro padding, so they also load in standalone play.
+F12/controller Share and exit screenstates appear in `~/Pictures/Screenshots/`
+as well as their session directory. Periodic images and replay files stay in
+the session directory; existing archive files are never overwritten.
 Compression and file writes run on a frontend writer thread; exporting the
 machine state itself remains synchronous. See its README-player.md for capture
 paths, overrides, and replay commands. Screenstates and recordings stay local.
