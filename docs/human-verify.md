@@ -73,6 +73,7 @@ automated checks remain muted or use null audio.
 | [ ] Tunnel scenery framing — deferred | At `VIEWPORT=336x256`, approach the Threed tunnels and inspect the scenery behind/beyond their visible edges. Other towns are optional follow-up coverage. | Extra trees do not appear where tunnel walls or framing should conceal them. This is recorded for a future repair; no change is currently ready to verify. |
 | [ ] Ghost pushback framing — deferred, low priority | At `VIEWPORT=336x256`, talk to the tunnel ghosts and let them push the party back to Threed. Compare the dialogue animation with the pushback itself. | A future extended version keeps coherent framing through the pushback. The current black-border fallback is accepted for now; dialogue sprite animation is already human-confirmed working. |
 | [ ] Winters daytime / falling-leaves flash — deferred | At `VIEWPORT=336x256`, play through Winters becoming daytime and the start of falling leaves. Watch the margins at the transition. | The framing stays coherent without a one-frame black-border flash. Currently reported and deferred; its exact fallback condition remains unverified. |
+| [ ] Photoman shutter framing — deferred | At `VIEWPORT=336x256`, trigger a Photoman photo and watch the margins as the shutter closes and opens. | Extended scenery does not remain exposed outside the shutter effect. Temporary original framing with black borders during the animation is an acceptable candidate workaround; no fix is currently implemented. |
 | [ ] Desktop presentation tearing | Manually run the viewport target using the rebuilt GPU player. Check startup says `X11 GPU textures; vsync on`. Walk vertically/horizontally and compare `VIEWPORT=336x256` with `VIEWPORT=256x224`. Resize, minimize and restore each window; compare `MONO_RETRO_ARGS=--video:cpu` if needed. | Moving scenery has no visible tear, both windows retain normal pacing, restored panels show current pixels, and the original center joins extended terrain without a fixed seam. |
 | [ ] Unequal windows and companion input | Resize both windows separately; compare automatic scaling with `VIEWPORT_SCALE=2`. Use keyboard/controller character selection and click status cards where multiple members are available. Drop a private state onto either window. | Each panel stays sharp and centered at integer scales. The companion remains 256×224 logically; clicks select the intended card, padding clicks do nothing, and state imports clear old scenery. |
 | [ ] Towns, flight and interiors | Use the viewport target with private `earthbound_20260818-021755.png` (Skyrunner clouds), `earthbound_20260818-021923.png` (Threed landing), `earthbound_20260818-022023.png` (cave), and `earthbound_20260818-021941.png` (lab). Start at `VIEWPORT=336x256`, then try `512x384`. | Extra terrain aligns with the original center, lighting and masks remain consistent, room surroundings stay appropriate, and transitions clear previous scenery. Record any unrelated neighboring rooms visible at larger sizes. Ordinary active NPC bodies extend with their scenery. |
@@ -578,6 +579,13 @@ Only when an agent points you here for a **tool** check:
 ---
 
 ## FOUND IN PLAY — new issues (human → agents)
+
+- **2026-10-31 · Photoman shutter — deferred, record only.**
+  Monofuel reports that the extended viewport remains visible outside the
+  shutter effect during a photo. Temporarily restoring black borders during
+  the animation is a suggested workaround; its timing and detection remain
+  unverified. **Run / Pass if:** use the deferred Photoman row above. No
+  rendering change is requested or claimed.
 
 - **2026-10-31 · Winters daytime / falling leaves — deferred, record only.**
   Monofuel reports a distracting, approximately one-frame black-border blip as
