@@ -35,9 +35,44 @@ or simulation need separate justification.
 
 | Issue / gap | Evidence | Disposition |
 |---|---|---|
+| Winters daytime / falling-leaves border flash | Monofuel reports that the black border briefly appears for about one frame when Winters becomes daytime and the leaves start falling. The flash is distracting; no frame-level reproduction or fallback reason has been captured yet. | **Deferred; record only for now.** Correlate the transition with the selected presentation/fallback reason before changing clipping or effect support. |
+| Trees exposed behind Threed tunnels | Monofuel reports trees visible beyond/behind the tunnels in the extended margins, where normal framing conceals them. Other towns may have the same issue, but that has not been confirmed. | **Deferred; record only for now.** A presentation-only continuation of tunnel tiles/walls or a verified mask could conceal the extra scenery. No tunnel hack is implemented. |
+| Ghost tunnel pushback snaps to black borders | Monofuel confirms the tunnel ghosts animate correctly while speaking, but the pushback to Threed abruptly switches to original framing with black borders. The specific fallback condition has not been traced. | **Deferred, low priority; record only for now.** Extending the pushback cutscene would be desirable, but the current fallback is acceptable pending investigation. |
+| Thin background-coloured line through edge sprites | Human-reported intermittent seam. Silent replay of the current private session reproduces a one-pixel gap at the original top edge; details below. | **Open, reproduced.** Validate native edge clipping and unused OAM handling before choosing a repair; no rendering fix is implemented. |
+| Rare pop-in at the 336×256 target | Monofuel reports intermittent pop-in involving an enemy on the left edge and the “do not enter” sign near the Threed graveyard. It usually works and is not yet reliably reproduced. | **Open.** Keep separate from the accepted larger-preset loading limit; clipping, resources and native loading remain possible causes. |
+| Battle backgrounds appear unextended during current play | Monofuel reports missing extension. Mode-0 battle-background extension is implemented and previously passed captured-scene tests; the affected live battle and fallback condition are not yet isolated. | **Open.** Investigate as a possible regression or unsupported battle path; do not describe the feature as unimplemented or assume all letterboxing is a bug. |
+| Skyrunner sky/cloud cutscene exposes blue fill | Monofuel reports unwanted blue background along the bottom and right of the extended cloud scene. The existing native-area comparisons do not verify intended framing in the added margins. | **Open, bounded workaround acceptable.** Either keep original framing for this scene or derive a scene-specific cloud/mask fix. Neither rule is implemented yet. |
+| Battle swirl retains a black border | Monofuel observes that the battle-entry swirl uses original framing and considers that acceptable. | **Accepted limitation.** Extending the swirl is optional and low priority. |
 | NPC pop-in at larger viewport sizes | On 2026-10-31, Monofuel confirms the NPC extension works at 336×256, but reports NPCs appearing near that visible range when using 512×384. The renderer has no 336×256 cutoff. Native actor loading is a suspected cause; the exact activation boundary has not been traced. | **Accepted limitation for the current milestone.** Polish 336×256 first; increasing native loading/activation ranges is not part of the current fix. |
-| Special scripted actor effects are not extended | Implementation limitation: ordinary active `$A3A4` bodies are extended, while `$AC43` effects and unusual draw callbacks remain native. No specific additional broken cutscene has been reported here. | **Deferred.** Investigate individual scenes when useful; a presentation workaround or original framing may be sufficient. |
+| Special scripted actor effects are not extended | Implementation limitation: ordinary active `$A3A4` bodies are extended, while `$AC43` effects and unusual draw callbacks remain native. This is not an established cause of the individual scene reports above. | **Deferred.** Investigate individual scenes when useful; a presentation workaround or original framing may be sufficient. |
 | Exact room isolation at larger sizes is unverified | Map-family clipping is implemented, but a logical family can contain several disconnected rooms. Specific unwanted neighboring-room exposures still need a scene report; this is a coverage gap, not a confirmed room-specific bug. | **Deferred unless encountered.** Avoid a broad room-boundary rewrite without a concrete case. |
+
+### Reproduced sprite seam evidence
+
+At 336×256, the original image starts at output `(40,16)`. Replaying private
+`bin/libretro/earthbound-viewport-saves/captures/session-IKqDCGIn/segment_0001.json`
+reproduces 13 missing actor pixels at original Y=0 (output Y=16), X=146..158,
+on zero-based replay frame 501. Further cases occur on frames 513, 569, 581
+and 593. A native OAM element at X=144, Y=240 has size 16: the existing
+`ppu.renderSprites` parked-sprite heuristic skips `Y + size <= 256`, omitting
+its wrapped final row. The unwrapped viewport raster includes that row, then
+the original-image blit replaces it with the native background. This is a
+concrete top-edge case; other reported edge artifacts may have separate causes.
+
+Reproduce silently with the retained diagnostic:
+
+```sh
+nim r src/probes/probe_viewport_sprite_seam.nim \
+  bin/libretro/earthbound-viewport-saves/captures/session-IKqDCGIn
+```
+
+The probe uses the private checkpoint and recorded inputs, stops after five
+mismatching frames, and writes an image-only preview to ignored
+`bin/viewport-seam-first.png`. It opens no windows or audio devices and leaves
+the source session untouched. No checkpoint or image is committed. Changing
+the general parked-sprite heuristic needs care: unused OAM slots also use
+offscreen Y values, so removing the guard without validation could reintroduce
+top-row garbage. Keep the report open until a repair is verified visually.
 
 HDMA/mosaic and other unsupported configurations already use deliberate black
 padding; extending every effect is optional. Desktop tearing is tracked under

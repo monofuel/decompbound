@@ -67,6 +67,12 @@ automated checks remain muted or use null audio.
 |---|---|---|
 | [ ] Winters terrain at every viewport size | On the matching branches in both repos, build mono-retro with `MONO_RETRO_WINDY=../windy-gpu-player nix-shell shell-player.nix --run 'make player-desktop'`, then run decompbound's `make libretro-viewport-play STATE="$HOME/Pictures/Screenshots/earthbound_20260818-021632.png" VIEWPORT=336x256`. Repeat with `256x224`, `320x240`, `448x252`, `512x384` and custom `257x225`. The target uses normal audio and disables achievements; add `MONO_RETRO_ARGS=--mute` to request silence. | Original game pixels and Jeff remain correctly positioned; supported Winters scenery extends on every added side without seams as you walk. The companion keeps its original appearance. |
 | [ ] Static and moving NPCs across expanded edges | Run `make libretro-viewport-play STATE="$HOME/Pictures/Screenshots/earthbound_20260818-021806.png" VIEWPORT=336x256`; also try `021923` (Threed landing) and `021941` (lab). Walk to bring NPCs across each original edge; pause to watch their animation, open/close menus, enter another room, and drop a different state onto the window. Normal manual audio is enabled. Optionally stress-test `512x384`, where larger-view pop-in is a known limitation. | At 336×256, loaded NPCs remain aligned and animate in the added area without popping at the original boundary. Trees/buildings still occlude them correctly. Hidden/released NPCs stay absent, transitions/restores clear previous actors, and native gameplay, center image and companion stay unchanged. Distant unloaded actors and special scripted effects are not claimed. |
+| [ ] Thin line through edge sprites | During ordinary play at `VIEWPORT=336x256`, watch actors crossing the old 256×224 boundary, especially its top edge (output Y=16). The current private replay has a diagnostic reproduction in the issue entry. | Actor bodies remain continuous across the boundary, with no one-pixel background-coloured stripe. This is currently an open bug. |
+| [ ] Intermittent target-size pop-in | At `VIEWPORT=336x256`, watch enemies entering from the left and the “do not enter” sign near the Threed graveyard while approaching and leaving. | Already-loaded actors and signs enter smoothly; any abrupt appearance is captured with its scene and viewport size. This report is separate from the accepted 512×384 loading limitation. |
+| [ ] Skyrunner cloud framing | Run the viewport target with private `earthbound_20260818-021755.png` at `VIEWPORT=336x256`, or play through the Skyrunner flight. Watch the bottom and right margins. | No unwanted blue rectangle appears beyond the clouds. A scene-specific repair or intentional original framing with black borders is acceptable; the current report is open. |
+| [ ] Tunnel scenery framing — deferred | At `VIEWPORT=336x256`, approach the Threed tunnels and inspect the scenery behind/beyond their visible edges. Other towns are optional follow-up coverage. | Extra trees do not appear where tunnel walls or framing should conceal them. This is recorded for a future repair; no change is currently ready to verify. |
+| [ ] Ghost pushback framing — deferred, low priority | At `VIEWPORT=336x256`, talk to the tunnel ghosts and let them push the party back to Threed. Compare the dialogue animation with the pushback itself. | A future extended version keeps coherent framing through the pushback. The current black-border fallback is accepted for now; dialogue sprite animation is already human-confirmed working. |
+| [ ] Winters daytime / falling-leaves flash — deferred | At `VIEWPORT=336x256`, play through Winters becoming daytime and the start of falling leaves. Watch the margins at the transition. | The framing stays coherent without a one-frame black-border flash. Currently reported and deferred; its exact fallback condition remains unverified. |
 | [ ] Desktop presentation tearing | Manually run the viewport target using the rebuilt GPU player. Check startup says `X11 GPU textures; vsync on`. Walk vertically/horizontally and compare `VIEWPORT=336x256` with `VIEWPORT=256x224`. Resize, minimize and restore each window; compare `MONO_RETRO_ARGS=--video:cpu` if needed. | Moving scenery has no visible tear, both windows retain normal pacing, restored panels show current pixels, and the original center joins extended terrain without a fixed seam. |
 | [ ] Unequal windows and companion input | Resize both windows separately; compare automatic scaling with `VIEWPORT_SCALE=2`. Use keyboard/controller character selection and click status cards where multiple members are available. Drop a private state onto either window. | Each panel stays sharp and centered at integer scales. The companion remains 256×224 logically; clicks select the intended card, padding clicks do nothing, and state imports clear old scenery. |
 | [ ] Towns, flight and interiors | Use the viewport target with private `earthbound_20260818-021755.png` (Skyrunner clouds), `earthbound_20260818-021923.png` (Threed landing), `earthbound_20260818-022023.png` (cave), and `earthbound_20260818-021941.png` (lab). Start at `VIEWPORT=336x256`, then try `512x384`. | Extra terrain aligns with the original center, lighting and masks remain consistent, room surroundings stay appropriate, and transitions clear previous scenery. Record any unrelated neighboring rooms visible at larger sizes. Ordinary active NPC bodies extend with their scenery. |
@@ -78,6 +84,7 @@ automated checks remain muted or use null audio.
 |---|---|---|
 | [ ] Fullscreen and letterboxed backgrounds | Run `make libretro-viewport-play STATE="$HOME/Pictures/Screenshots/earthbound_20260706-213532.png" VIEWPORT=336x256`; repeat with `earthbound_20260706-214420.png`, then `VIEWPORT=512x384` and `257x225`. Normal manual audio is enabled. | The animated background continues into the side margins with matching colours/phase. Fullscreen backgrounds also continue above/below when their scroll model is verified. Existing letterbox bands stay aligned across the width; enemies, menus and status cards remain centered and unchanged. |
 | [ ] Restore and transitions | Drop a private battle PNG into the running player, hold/release fast-forward, enter/leave the command menu, then load an ordinary map state. | No animation restart in the added area, stale battle pixels or changed controls. Map expansion resumes after leaving battle. Unsupported graphics paths retain safe padding. |
+| [ ] Extension during battles reached in live play | Enter an ordinary battle while playing at `VIEWPORT=336x256`. Compare the animated background's side margins with the original frame; existing top/bottom letterbox bands may remain. | Supported backgrounds animate into the side margins. Missing side extension is currently reported and needs the affected battle identified. The battle-entry swirl's black border is accepted separately. |
 
 ### Player fast-forward
 
@@ -571,6 +578,33 @@ Only when an agent points you here for a **tool** check:
 ---
 
 ## FOUND IN PLAY — new issues (human → agents)
+
+- **2026-10-31 · Winters daytime / falling leaves — deferred, record only.**
+  Monofuel reports a distracting, approximately one-frame black-border blip as
+  Winters becomes daytime and leaves begin falling. No exact frame or renderer
+  fallback reason has been isolated. **Run / Pass if:** use the deferred
+  Winters transition row above; the margins should not flash to original
+  framing for a single frame. No rendering change is claimed.
+
+- **2026-10-31 · Viewport extension feedback — mixed open bugs and accepted limits.**
+  Monofuel reports a thin background-coloured line through edge sprites, rare
+  pop-in involving a left-edge enemy and the Threed graveyard sign, missing
+  battle-background extension, and blue fill below/right of the Skyrunner cloud
+  cutscene. A top-edge one-pixel seam is reproduced silently from the private
+  input recording; the other cases remain to be isolated. The battle swirl's
+  black border is explicitly acceptable. Evidence, dispositions and the
+  distinction between 336×256 and larger-preset pop-in live in
+  [Known viewport extension bugs](issues.md#known-viewport-extension-bugs).
+  **Run / Pass if:** use the viewport and live-battle rows above. Difficult
+  cases may retain original framing or remain accepted limitations.
+
+- **2026-10-31 · Threed tunnel scenery and ghost pushback — deferred, no fix requested yet.**
+  Extra trees appear behind the tunnels; similar behavior in other towns is
+  only suspected. Monofuel suggests extending tunnel tiles into the added
+  margins as a possible future workaround. Ghost dialogue animation looks
+  good, but the pushback cutscene snaps to black borders. Keeping that cutscene
+  extended would be useful, with low priority. Both are recorded in the viewport
+  issue table and the deferred Run/Pass-if rows above; no repair is claimed.
 
 - **Expanded viewport desktop tearing — OPEN.** Monofuel confirms the prototype
   works but reports a "vsync vertical tear". The handheld's DRM tearing fix is

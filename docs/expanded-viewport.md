@@ -191,6 +191,11 @@ stress tests and may reveal additional loading or framing limitations. Monofuel
 confirms the NPC extension works at 336×256; reported larger-view pop-in and
 other gaps are tracked in
 [Known viewport extension bugs](issues.md#known-viewport-extension-bugs).
+Subsequent play found occasional edge seams/pop-in at 336×256, unwanted blue
+fill in the Skyrunner cloud margins, and missing background extension in live
+battles. These reports remain open; the battle swirl's original framing is
+accepted. Existing native-area comparisons do not establish that every added
+margin has the intended scene composition.
 That list permits accepted limitations, scene-specific workarounds and original
 framing; completing every possible extension is not a release requirement.
 
