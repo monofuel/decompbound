@@ -52,6 +52,12 @@ automated checks remain muted or use null audio.
 | [ ] Unequal windows and companion input | Resize both windows separately; compare automatic scaling with `VIEWPORT_SCALE=2`. Use keyboard/controller character selection and click status cards where multiple members are available. Drop a private state onto either window. | Each panel stays sharp and centered at integer scales. The companion remains 256×224 logically; clicks select the intended card, padding clicks do nothing, and state imports clear old scenery. |
 | [ ] Unsupported scene padding | From the prototype, enter the lab or load local interior/battle screenstates. Return to the Winters outdoor reference. | Unsupported scenes retain the complete original image centered on black, with no stale outdoor terrain. Verified Winters scenery resumes after returning. No new actors or effects are claimed outside the original view. |
 
+### Player fast-forward
+
+| Check | Run | Pass if |
+|---|---|---|
+| [ ] Hold R2 to fast-forward | Use the rebuilt mono-retro-player with the normal manual launch command. Hold/release controller R2 or keyboard Tab during gameplay; try focus loss and the achievement menu. | Playback accelerates up to 4× while held, with audio silent during acceleration and normal audio/speed restored on release. No stuck fast-forward after focus/menu changes. In EarthBound DS, Page Down and touch still select party members; R2 no longer changes the selected member. |
+
 ### RetroAchievements (2026-10-30)
 
 Core, synthetic SDK and desktop integration gates pass. RG DS Plus now has the

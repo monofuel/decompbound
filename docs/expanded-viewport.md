@@ -7,6 +7,10 @@ dimensions are selectable. The first implementation targets local desktop testin
 through mono-retro-player; RG DS Plus deployment is deferred. The existing
 [EarthBound DS companion](earthbound-ds.md) remains the default baseline.
 
+Manual play reached Threed via the Skyrunner: neither the cutscene nor Threed
+extends the viewport yet. This matches the current Winters-only scene gate;
+both need separate renderer coverage before expansion can be enabled there.
+
 The aim is to reveal more of the world while retaining sharp integer-scaled
 pixels. On the handheld's 4:3 panels, expanding both dimensions is a useful
 alternative to a conventional 16:9 widescreen view. This is an optional emulator
