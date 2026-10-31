@@ -64,8 +64,9 @@ proc agrees(model: BattleScrollModel, sine: array[256, int],
   true
 
 proc fitScroll*(sine: array[256, int], rows: array[ScreenHeight, BattleScroll],
-    snapshots: openArray[DistortionState]): BattleScrollModel =
+    snapshots: openArray[DistortionState], generationScrollY = -1): BattleScrollModel =
   ## Resolve current or queued driver state against observed HDMA, preserving restore-time phase.
+  ## A negative generationScrollY means the working WRAM scroll was not captured.
   for parameters in snapshots:
     if parameters.kind notin 1 .. 4: continue
     for previous in 0 .. 1:
@@ -74,19 +75,22 @@ proc fitScroll*(sine: array[256, int], rows: array[ScreenHeight, BattleScroll],
         amplitude = ((parameters.amplitude - previous * parameters.amplitudeStep) and WordMask) shr 8
         compression = (parameters.compression - previous * parameters.compressionStep) and WordMask
         angle = (parameters.angle - previous * parameters.angleStep) and ByteMask
-        phase = ((angle + (if parameters.kind <= 2: rows[0].y else: 0)) and ByteMask) shl 8
-      for bias in -1 .. 1:
-        for lag in 0 .. 1:
-          # C2CF02 routes only kind 3 to VOFS; kind 4's vertical generator goes to HOFS.
-          # Verify the published axis as well, allowing scripts to replace that routing.
-          for targetX in [parameters.kind != 3, parameters.kind == 3]:
-            var candidate = BattleScrollModel(valid: true, kind: parameters.kind,
-              frequency: frequency, amplitude: amplitude, compression: compression,
-              phase: phase, bias: bias, lag: lag, targetX: targetX,
-              baseX: rows[0].x, baseY: rows[0].y)
-            let first = candidate.valueAt(sine, 0)
-            let delta = if targetX: rows[0].x - first.x else: rows[0].y - first.y
-            candidate.sourceBase = delta and (if parameters.kind <= 2: ScrollMask else: ByteMask)
-            if candidate.agrees(sine, rows): return candidate
+      # C0AEA8 seeds horizontal phase from working WRAM scroll, which can lead latched VOFS.
+      for scrollY in [generationScrollY, rows[0].y]:
+        if scrollY < 0: continue
+        let phase = ((angle + (if parameters.kind <= 2: scrollY else: 0)) and ByteMask) shl 8
+        for bias in -1 .. 1:
+          for lag in 0 .. 1:
+            # C2CF02 routes only kind 3 to VOFS; kind 4's vertical generator goes to HOFS.
+            # Verify the published axis as well, allowing scripts to replace that routing.
+            for targetX in [parameters.kind != 3, parameters.kind == 3]:
+              var candidate = BattleScrollModel(valid: true, kind: parameters.kind,
+                frequency: frequency, amplitude: amplitude, compression: compression,
+                phase: phase, bias: bias, lag: lag, targetX: targetX,
+                baseX: rows[0].x, baseY: rows[0].y)
+              let first = candidate.valueAt(sine, 0)
+              let delta = if targetX: rows[0].x - first.x else: rows[0].y - first.y
+              candidate.sourceBase = delta and (if parameters.kind <= 2: ScrollMask else: ByteMask)
+              if candidate.agrees(sine, rows): return candidate
   let constant = BattleScrollModel(valid: true, baseX: rows[0].x, baseY: rows[0].y)
   if constant.agrees(sine, rows): result = constant

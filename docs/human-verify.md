@@ -74,6 +74,7 @@ automated checks remain muted or use null audio.
 | [ ] Ghost pushback framing — deferred, low priority | At `VIEWPORT=336x256`, talk to the tunnel ghosts and let them push the party back to Threed. Compare the dialogue animation with the pushback itself. | A future extended version keeps coherent framing through the pushback. The current black-border fallback is accepted for now; dialogue sprite animation is already human-confirmed working. |
 | [ ] Winters daytime / falling-leaves flash — deferred | At `VIEWPORT=336x256`, play through Winters becoming daytime and the start of falling leaves. Watch the margins at the transition. | The framing stays coherent without a one-frame black-border flash. Currently reported and deferred; its exact fallback condition remains unverified. |
 | [ ] Photoman shutter framing — deferred | At `VIEWPORT=336x256`, trigger a Photoman photo and watch the margins as the shutter closes and opens. | Extended scenery does not remain exposed outside the shutter effect. Temporary original framing with black borders during the animation is an acceptable candidate workaround; no fix is currently implemented. |
+| [ ] Flash-back circular shutter — deferred | Load private `earthbound_20260728-045735.png` at `VIEWPORT=336x256` and watch the shutter effect. | The circular border and viewport edges form coherent framing. Cropped borders currently conflict with the circle; record only, no fix implemented. |
 | [ ] Desktop presentation tearing | Manually run the viewport target using the rebuilt GPU player. Check startup says `X11 GPU textures; vsync on`. Walk vertically/horizontally and compare `VIEWPORT=336x256` with `VIEWPORT=256x224`. Resize, minimize and restore each window; compare `MONO_RETRO_ARGS=--video:cpu` if needed. | Moving scenery has no visible tear, both windows retain normal pacing, restored panels show current pixels, and the original center joins extended terrain without a fixed seam. |
 | [ ] Unequal windows and companion input | Resize both windows separately; compare automatic scaling with `VIEWPORT_SCALE=2`. Use keyboard/controller character selection and click status cards where multiple members are available. Drop a private state onto either window. | Each panel stays sharp and centered at integer scales. The companion remains 256×224 logically; clicks select the intended card, padding clicks do nothing, and state imports clear old scenery. |
 | [ ] Towns, flight and interiors | Use the viewport target with private `earthbound_20260818-021755.png` (Skyrunner clouds), `earthbound_20260818-021923.png` (Threed landing), `earthbound_20260818-022023.png` (cave), and `earthbound_20260818-021941.png` (lab). Start at `VIEWPORT=336x256`, then try `512x384`. | Extra terrain aligns with the original center, lighting and masks remain consistent, room surroundings stay appropriate, and transitions clear previous scenery. Record any unrelated neighboring rooms visible at larger sizes. Ordinary active NPC bodies extend with their scenery. |
@@ -85,6 +86,9 @@ automated checks remain muted or use null audio.
 |---|---|---|
 | [ ] Fullscreen and letterboxed backgrounds | Run `make libretro-viewport-play STATE="$HOME/Pictures/Screenshots/earthbound_20260706-213532.png" VIEWPORT=336x256`; repeat with `earthbound_20260706-214420.png`, then `VIEWPORT=512x384` and `257x225`. Normal manual audio is enabled. | The animated background continues into the side margins with matching colours/phase. Fullscreen backgrounds also continue above/below when their scroll model is verified. Existing letterbox bands stay aligned across the width; enemies, menus and status cards remain centered and unchanged. |
 | [ ] Restore and transitions | Drop a private battle PNG into the running player, hold/release fast-forward, enter/leave the command menu, then load an ordinary map state. | No animation restart in the added area, stale battle pixels or changed controls. Map expansion resumes after leaving battle. Unsupported graphics paths retain safe padding. |
+| [ ] Top/bottom battle flicker — fix ready | Restart with the rebuilt core, then load private `earthbound_20261031-154410_2.png` and `earthbound_20260817-011526.png` at `VIEWPORT=336x256`. Watch each background animate for several seconds. | Added top/bottom scenery stays visible without flashing black borders. Existing native letterboxing remains intact. |
+| [ ] Sanctuary boss repetition — deferred | Load private `earthbound_20260818-005528.png` at `VIEWPORT=336x256`. | The reported vertical fit and odd horizontal looping remain understood as an unpolished composition quirk; no change is requested yet. |
+| [ ] PSI effect polish — deferred | Load private `earthbound_20260725-190159.png` and watch PSI Starstorm at `VIEWPORT=336x256`; note other PSI effects encountered in play. | Treat the reported effect quirks as expected and acceptable for now. Future polish should keep their framing coherent with the added area; no fix is implemented or requested yet. |
 | [ ] Extension during battles reached in live play — fix ready | Restart the player with the rebuilt core. Run `make libretro-viewport-play STATE="$HOME/Pictures/Screenshots/earthbound_20261031-154410_2.png" VIEWPORT=336x256`, then try different fullscreen and letterboxed battles through results dialogue. Normal manual audio is enabled. | Four-bit BG2 and two-bit BG3/BG4 backgrounds extend left/right; existing top/bottom bands, menus, HP cards and enemies remain correctly framed. The reproduced mode-1 capture now passes silent pixel/state checks and awaits this manual check. The battle-entry swirl's black border stays accepted separately. |
 
 ### Player fast-forward
@@ -579,6 +583,28 @@ Only when an agent points you here for a **tool** check:
 ---
 
 ## FOUND IN PLAY — new issues (human → agents)
+
+- **2026-10-31 · PSI effect quirks — deferred, acceptable for now.**
+  Monofuel reports expected quirks with effects such as PSI Starstorm in
+  `earthbound_20260725-190159.png`. Polishing them could be worthwhile later;
+  no fix is requested now. **Run / Pass if:** use the PSI effect polish row above.
+
+- **2026-10-31 · Battle top/bottom flicker — fix ready for retry.**
+  Monofuel reports flicker in `earthbound_20261031-154410_2.png` and
+  `earthbound_20260817-011526.png`. Silent replay reproduces intermittent
+  vertical model rejection; horizontal scenery stays extended. The generator
+  uses working WRAM scroll rather than the differently timed displayed VOFS.
+  **Run / Pass if:** use the top/bottom battle flicker row above.
+
+- **2026-10-31 · Sanctuary boss repetition — deferred, record only.**
+  `earthbound_20260818-005528.png` fits vertically but repeats horizontally in
+  a visually odd way. This is not critical; no adjustment is requested yet.
+  **Run / Pass if:** use the sanctuary boss repetition row above.
+
+- **2026-10-31 · Flash-back circular shutter — deferred, record only.**
+  `earthbound_20260728-045735.png` has cropped borders at odds with its circular
+  shutter border. Keep separate from the Photoman report until the effect is
+  identified. **Run / Pass if:** use the flash-back circular shutter row above.
 
 - **2026-10-31 · Photoman shutter — deferred, record only.**
   Monofuel reports that the extended viewport remains visible outside the

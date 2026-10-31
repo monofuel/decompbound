@@ -349,6 +349,34 @@ suite "Live battle viewport":
         check routed.valid
         for line in 0 ..< ScreenHeight:
           doAssert routed.valueAt(background.sine, line) == rows[line]
+  test "horizontal phase follows working scroll while displayed VOFS lags across frames":
+    var background: BattleBg
+    for i in 0 ..< 256:
+      background.sine[i] = clamp((if i < 64: i * 2
+        elif i < 192: 256 - i * 2 else: i * 2 - 512), -128, 127)
+    for kind in [1, 2]:
+      for frame in 0 ..< 180:
+        let
+          generationY = 240 + frame div 3
+          displayedY = generationY - 1 - frame mod 2
+          segment = DistortSegment(kind: kind, frequency: 0x400,
+            amplitude: 0x2000, angle: (232 + frame * 2) and 255)
+          lines = distortionLines(background, @[segment], 0, 37, generationY, ScreenHeight)
+          parameters = DistortionState(kind: kind, frequency: segment.frequency,
+            amplitude: segment.amplitude, angle: segment.angle, angleStep: 2)
+        var rows: array[ScreenHeight, BattleScroll]
+        for line in 0 ..< ScreenHeight:
+          rows[line] = (lines.dx[line] and 1023, displayedY)
+        let model = fitScroll(background.sine, rows, [parameters], generationY)
+        doAssert model.valid, "Working-scroll phase lost vertical extension"
+        var shifted = segment
+        shifted.angle = (segment.angle - 16 * 4) and 255
+        let extended = distortionLines(background, @[shifted], 0, 37, generationY, 256)
+        for line in -16 .. 239:
+          doAssert model.valueAt(background.sine, line) ==
+            (extended.dx[line + 16] and 1023, displayedY)
+        rows[112].x = rows[112].x xor 1
+        check not fitScroll(background.sine, rows, [parameters], generationY).valid
   test "static battle textures fill every added row and column at integer and odd sizes":
     let machine = fixture()
     defer: machine.release()

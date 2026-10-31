@@ -42,8 +42,12 @@ or simulation need separate justification.
 | Thin background-coloured line through edge sprites | Human-reported intermittent seam. Silent replay of the current private session reproduces a one-pixel gap at the original top edge; details below. | **Open, reproduced.** Validate native edge clipping and unused OAM handling before choosing a repair; no rendering fix is implemented. |
 | Rare pop-in at the 336×256 target | Monofuel reports intermittent pop-in involving an enemy on the left edge and the “do not enter” sign near the Threed graveyard. It usually works and is not yet reliably reproduced. | **Open.** Keep separate from the accepted larger-preset loading limit; clipping, resources and native loading remain possible causes. |
 | Battle backgrounds do not extend left/right in many fights | Missing mode-1 four-bit BG2 support explained the reproduced `earthbound_20261031-154410_2.png` failure. Both the common four-bit path and the existing two-bit path now extend horizontally; normal top/bottom framing stays intact. Evidence below. | **Fix ready for manual retry.** Rebuilt core passes side-pixel, animation, native-center, PCM and complete machine-state checks. Keep any remaining exceptions open rather than assuming every fight is verified. |
+| Added battle top/bottom rows flicker black | Monofuel reports flickering borders in `earthbound_20261031-154410_2.png` and `earthbound_20260817-011526.png`. Silent replay reproduced intermittent vertical model rejection while horizontal extension remained active. | **Fix ready for manual retry.** Match animation phase against captured working WRAM scroll as well as displayed VOFS; require agreement with all native rows before extending. Details below. |
 | Skyrunner sky/cloud cutscene exposes blue fill | Monofuel reports unwanted blue background along the bottom and right of the extended cloud scene. The existing native-area comparisons do not verify intended framing in the added margins. | **Open, bounded workaround acceptable.** Either keep original framing for this scene or derive a scene-specific cloud/mask fix. Neither rule is implemented yet. |
 | Battle swirl retains a black border | Monofuel observes that the battle-entry swirl uses original framing and considers that acceptable. | **Accepted limitation.** Extending the swirl is optional and low priority. |
+| Sanctuary boss backgrounds repeat horizontally | In private `earthbound_20260818-005528.png`, Monofuel reports that the sanctuary boss background fits vertically but loops across the extended horizontal area. The repeated pattern looks odd. | **Deferred; record only.** A scene-specific composition adjustment may be desirable, but this is not a critical issue and no change is requested yet. |
+| Flash-back shutter conflicts with extended framing | In private `earthbound_20260728-045735.png`, Monofuel reports that the cropped borders look at odds with the shutter's circular border. | **Deferred; record only.** The circular effect and viewport framing need a coordinated policy; no rendering adjustment is requested yet. |
+| PSI effects retain viewport quirks | Monofuel reports quirks with some PSI effects, including PSI Starstorm in private `earthbound_20260725-190159.png`. Exact effect bounds and masking have not been diagnosed. | **Deferred; expected, acceptable for now.** Polishing these effects for the extended viewport is optional future work, not part of the battle-border repair. |
 | NPC pop-in at larger viewport sizes | On 2026-10-31, Monofuel confirms the NPC extension works at 336×256, but reports NPCs appearing near that visible range when using 512×384. The renderer has no 336×256 cutoff. Native actor loading is a suspected cause; the exact activation boundary has not been traced. | **Accepted limitation for the current milestone.** Polish 336×256 first; increasing native loading/activation ranges is not part of the current fix. |
 | Special scripted actor effects are not extended | Implementation limitation: ordinary active `$A3A4` bodies are extended, while `$AC43` effects and unusual draw callbacks remain native. This is not an established cause of the individual scene reports above. | **Deferred.** Investigate individual scenes when useful; a presentation workaround or original framing may be sufficient. |
 | Exact room isolation at larger sizes is unverified | Map-family clipping is implemented, but a logical family can contain several disconnected rooms. Specific unwanted neighboring-room exposures still need a scene report; this is a coverage gap, not a confirmed room-specific bug. | **Deferred unless encountered.** Avoid a broad room-boundary rewrite without a concrete case. |
@@ -109,6 +113,32 @@ The diagnostic probes have been retired into the renderer and regression tests.
 The failing capture has visible pixels in both 40-pixel side strips after
 restore, including 6,400 coloured pixels per side in the sampled 160-row body
 region at replay frames 2 and 15. This repair awaits manual acceptance.
+
+The follow-up top/bottom flicker is a different failure: continuation fitting
+seeded horizontal-wave phase from displayed VOFS. Original `$C0AEA8..$C0AEB1`
+instead reads working vertical scroll at `$0033 + (backgroundId - 1) * 4` and
+adds the angle before generating the wave. For BG2 this is `$0037`, already
+captured by the viewport. Working scroll can lead or lag displayed VOFS:
+in the first capture at replay frame 3, angle 238 and working Y=90 generate
+the observed phase, while the displayed Y is still 88. Using displayed Y
+alone intermittently rejected the current frame and left the added rows black.
+
+Fitting now tries the captured working scroll, retaining displayed-scroll
+matching for queued states, and still verifies every visible row. It does not
+reuse the previous frame's model. A synthetic regression varies the two scroll
+values independently through phase/scroll wrapping; explicit replay option
+`--continuous-vertical` checks 360 frames at every preset and fails when either
+added vertical band goes black after the initial restore frame.
+Both reported captures pass that check at all five presets, including unchanged
+native pixels, PCM and complete CPU/machine state. The 10 battle unit tests and
+the 373-capture battle archive also pass; 306 archive captures extend and the
+remaining cases retain their existing fallback. Manual confirmation is pending.
+
+```sh
+nim r --opt:speed tests/integration_battle_viewport.nim --continuous-vertical \
+  "$HOME/Pictures/Screenshots/earthbound_20261031-154410_2.png" \
+  "$HOME/Pictures/Screenshots/earthbound_20260817-011526.png"
+```
 
 HDMA/mosaic and other unsupported configurations already use deliberate black
 padding; extending every effect is optional. Desktop tearing is tracked under

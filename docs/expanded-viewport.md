@@ -524,6 +524,10 @@ Live source evidence and continuation rules:
 - Driver fields can already describe a queued frame after restore. Current and
   one-update-earlier snapshots are checked against the recorded scroll, rather
   than guessing an animation frame number.
+- `$C0AEA8` seeds horizontal-wave phase from working vertical scroll at
+  `$0033 + (backgroundId - 1) * 4`, not latched PPU VOFS. The two values can
+  belong to different updates. Continuation checks the captured working scroll
+  too, preventing intermittent top/bottom fallback as ordinary scrolling runs.
 - In private `earthbound_20260818-015713.png` (group 446, pair 215+214), BG3
   matches the generated wave for 184 rows, then a CPU-written constant suffix
   follows the published base scroll. Side rendering preserves that actual suffix.

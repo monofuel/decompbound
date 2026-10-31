@@ -238,7 +238,7 @@ proc finishCapture*(view: BattleViewport, snes: SnesBus) =
       observed[line] = (view.rows[line].scroll[bg * 2].int,
         view.rows[line].scroll[bg * 2 + 1].int)
     view.models[layer] = fitScroll(view.sine, observed,
-      [view.parameters[layer], snes.distortionState(layer)])
+      [view.parameters[layer], snes.distortionState(layer)], view.published[layer].y)
     if not view.models[layer].valid and view.waveAxis[layer] >= 0:
       let axis = view.waveAxis[layer]
       var generated = observed
@@ -261,7 +261,7 @@ proc finishCapture*(view: BattleViewport, snes: SnesBus) =
       # Preserve those actual rows; continue only a fully verified original generator.
       if compatible and prefix > 0:
         view.models[layer] = fitScroll(view.sine, generated,
-          [view.parameters[layer], snes.distortionState(layer)])
+          [view.parameters[layer], snes.distortionState(layer)], view.published[layer].y)
   view.output.fill(OpaqueBlack)
   for line in 0 ..< ScreenHeight:
     let y = line + view.originY

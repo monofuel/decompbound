@@ -13,7 +13,8 @@ proc release(machine: SnesBus) =
   machine.apu.spc.readHook = nil
   machine.apu.spc.writeHook = nil
 
-proc checkState(rom, state: seq[uint8], name: string, width, height, frames: int): int =
+proc checkState(rom, state: seq[uint8], name: string, width, height, frames: int,
+    continuousVertical = false): int =
   ## Verify expanded rendering against an unhooked machine, including original pixels and PCM.
   let
     reference = newSnesBus(rom)
@@ -50,6 +51,7 @@ proc checkState(rom, state: seq[uint8], name: string, width, height, frames: int
       output = view.compose(original)
       left = (width - ScreenWidth) div 2
       top = (height - ScreenHeight) div 2
+    var topPixels, bottomPixels: int
     doAssert serializeState(candidate, candidateCpu) == before
     for y in 0 ..< height:
       for x in 0 ..< width:
@@ -61,6 +63,16 @@ proc checkState(rom, state: seq[uint8], name: string, width, height, frames: int
           if pixel.r != 0 or pixel.g != 0 or pixel.b != 0:
             if x < left: inc leftPixels
             elif x >= left + ScreenWidth: inc rightPixels
+        else:
+          let pixel = output[x, y]
+          if pixel.r != 0 or pixel.g != 0 or pixel.b != 0:
+            if y < top: inc topPixels
+            else: inc bottomPixels
+    if continuousVertical and frame > 0:
+      if top > 0:
+        doAssert topPixels > 0, name & ": top extension disappeared at frame " & $frame
+      if height - ScreenHeight - top > 0:
+        doAssert bottomPixels > 0, name & ": bottom extension disappeared at frame " & $frame
     if view.presentation == "extended battle": inc result
   if frames > 1:
     if (width - ScreenWidth) div 2 > 0:
@@ -74,8 +86,11 @@ proc main() =
   var
     paths: seq[string]
     battles, extended: int
+    continuousVertical: bool
   if paramCount() > 0:
-    paths = commandLineParams()
+    for argument in commandLineParams():
+      if argument == "--continuous-vertical": continuousVertical = true
+      else: paths.add(argument)
   else:
     for path in walkPattern(getHomeDir() / "Pictures/Screenshots/earthbound_*.png"):
       paths.add(path)
@@ -105,7 +120,9 @@ proc main() =
     extended += first
     if paramCount() > 0:
       for (width, height) in [(320, 240), (336, 256), (448, 252), (512, 384), (257, 225)]:
-        doAssert checkState(rom, state, path.extractFilename, width, height, 30) > 0,
+        let frames = if continuousVertical: 360 else: 30
+        doAssert checkState(rom, state, path.extractFilename, width, height, frames,
+            continuousVertical) > 0,
           path.extractFilename & ": battle never extended"
   echo &"Battle corpus: {extended}/{battles} captures extended; original pixels, PCM and machine/CPU matched."
   doAssert battles > 0 and extended > 0, "No live battle was exercised."
