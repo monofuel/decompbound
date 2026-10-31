@@ -615,9 +615,119 @@
     {
       "name": "blob_009D12",
       "offset": 40210,
-      "length": 977,
+      "length": 694,
       "kind": "blob",
       "source": "blobs/blob_009D12.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "advanceEntityXY",
+      "offset": 40904,
+      "length": 41,
+      "kind": "code",
+      "source": "asm/advanceEntityXY.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: entity motion/projection; integration_entity_motion"
+    },
+    {
+      "name": "blob_009FF1",
+      "offset": 40945,
+      "length": 27,
+      "kind": "blob",
+      "source": "blobs/blob_009FF1.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "advanceEntityXYZ",
+      "offset": 40972,
+      "length": 23,
+      "kind": "code",
+      "source": "asm/advanceEntityXYZ.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: entity motion/projection; integration_entity_motion"
+    },
+    {
+      "name": "projectEntityPosition",
+      "offset": 40995,
+      "length": 23,
+      "kind": "code",
+      "source": "asm/projectEntityPosition.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: entity motion/projection; integration_entity_motion"
+    },
+    {
+      "name": "projectElevatedEntityPosition",
+      "offset": 41018,
+      "length": 27,
+      "kind": "code",
+      "source": "asm/projectElevatedEntityPosition.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: entity motion/projection; integration_entity_motion"
+    },
+    {
+      "name": "projectEntityAlternatePosition",
+      "offset": 41045,
+      "length": 23,
+      "kind": "code",
+      "source": "asm/projectEntityAlternatePosition.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: entity motion/projection; integration_entity_motion"
+    },
+    {
+      "name": "rebaseEntityPosition",
+      "offset": 41068,
+      "length": 29,
+      "kind": "code",
+      "source": "asm/rebaseEntityPosition.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: entity motion/projection; integration_entity_motion"
+    },
+    {
+      "name": "restoreEntityPositionOrigin",
+      "offset": 41097,
+      "length": 23,
+      "kind": "code",
+      "source": "asm/restoreEntityPositionOrigin.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: entity motion/projection; integration_entity_motion"
+    },
+    {
+      "name": "projectAlternateElevatedEntityPosition",
+      "offset": 41120,
+      "length": 27,
+      "kind": "code",
+      "source": "asm/projectAlternateElevatedEntityPosition.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: entity motion/projection; integration_entity_motion"
+    },
+    {
+      "name": "copyEntityPositionToRender",
+      "offset": 41147,
+      "length": 15,
+      "kind": "code",
+      "source": "asm/copyEntityPositionToRender.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: entity motion/projection; integration_entity_motion"
+    },
+    {
+      "name": "blob_00A0CA",
+      "offset": 41162,
+      "length": 25,
+      "kind": "blob",
+      "source": "blobs/blob_00A0CA.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
@@ -715,9 +825,29 @@
     {
       "name": "blob_00A360",
       "offset": 41824,
-      "length": 356,
+      "length": 68,
       "kind": "blob",
       "source": "blobs/blob_00A360.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "drawEntityDefault",
+      "offset": 41892,
+      "length": 159,
+      "kind": "code",
+      "source": "asm/drawEntityDefault.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md: default drawing/effects; integration_sprite_priority, integration_sprite_effects"
+    },
+    {
+      "name": "blob_00A443",
+      "offset": 42051,
+      "length": 129,
+      "kind": "blob",
+      "source": "blobs/blob_00A443.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
@@ -835,9 +965,39 @@
     {
       "name": "blob_00AC2C",
       "offset": 44076,
-      "length": 371,
+      "length": 23,
       "kind": "blob",
       "source": "blobs/blob_00AC2C.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "enqueueEntityEffects",
+      "offset": 44099,
+      "length": 275,
+      "kind": "code",
+      "source": "asm/enqueueEntityEffects.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md: default drawing/effects; integration_sprite_priority, integration_sprite_effects"
+    },
+    {
+      "name": "advanceEntityEffectSequence",
+      "offset": 44374,
+      "length": 52,
+      "kind": "code",
+      "source": "asm/advanceEntityEffectSequence.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md: default drawing/effects; integration_sprite_priority, integration_sprite_effects"
+    },
+    {
+      "name": "blob_00AD8A",
+      "offset": 44426,
+      "length": 21,
+      "kind": "blob",
+      "source": "blobs/blob_00AD8A.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
