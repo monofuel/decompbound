@@ -1,15 +1,17 @@
 # Expanded EarthBound viewport
 
-Status: experimental Winters outdoor prototype, with headless verification and
-basic desktop play confirmed by monofuel. Desktop tearing remains open, and the
+Status: experimental live map expansion for towns, outdoor cutscenes and ordinary
+interiors. Winters has manual confirmation; broader scenes have headless
+verification and await manual checks. Desktop tearing remains open, and the
 complete manual preset/input matrix is not yet confirmed. All listed sizes and validated custom
 dimensions are selectable. The first implementation targets local desktop testing
 through mono-retro-player; RG DS Plus deployment is deferred. The existing
 [EarthBound DS companion](earthbound-ds.md) remains the default baseline.
 
-Manual play reached Threed via the Skyrunner: neither the cutscene nor Threed
-extends the viewport yet. This matches the current Winters-only scene gate;
-both need separate renderer coverage before expansion can be enabled there.
+The Winters-only tileset gate has been removed. Captured Skyrunner clouds,
+landing in Threed and cave interiors now extend through the shared map renderer.
+There is no town or indoor allowlist. Unsupported rendering effects still use
+the original screen centered on black; this does not promise every cutscene frame.
 
 The aim is to reveal more of the world while retaining sharp integer-scaled
 pixels. On the handheld's 4:3 panels, expanding both dimensions is a useful
@@ -106,6 +108,10 @@ experimental presets can remain available even when some scenes are unpolished.
 
 ## First phase — Desktop outdoor prototype
 
+The initial milestone below used Winters to establish the camera and map
+contracts. The current renderer generalizes those contracts; see Stage 2 for
+the broader coverage and remaining effect restrictions.
+
 The first phase combines Stage 1 with a bounded part of Stage 2, so the
 result demonstrates actual extra scenery rather than only a larger output image.
 Implementation spans decompbound and mono-retro-player geometry handling. Initial
@@ -180,8 +186,9 @@ make libretro-viewport-test \
 ## Implementation layers and staged verification
 
 Solve and document the layers below incrementally. Stage 1 has headless coverage;
-Stage 2 is partial, with Winters base scenery covered. Later rendering layers are
-planned. A working earlier stage remains available while later stages are incomplete. Completion
+Stage 2 covers ordinary map-mode scenes across logical families; static lighting
+and window handling also cover part of Stage 5. Actors, full room isolation and
+scanline effects remain incomplete. A working earlier stage remains available. Completion
 applies to the recorded scenes and dimensions, not automatically the whole game.
 
 For each stage, replace its findings placeholder with the hypothesis, routine
@@ -237,9 +244,9 @@ at each preset. Actor and effect coverage remain separate claims.
 **Findings and remaining gaps:** the renderer is
 [expanded_viewport.nim](../src/decompbound/expanded_viewport.nim). The reference
 screenstate has logical tileset 13, drawing resource 17, and Winters lighting
-flag `$011F` set. The ROM identifies this logical family through its palette-0
-condition; it occupies 94 atlas sectors. This identifies the family, not a claim
-that all 94 sectors have been tested.
+flag `$011F` set. This logical family occupies 94 atlas sectors. Its lighting
+condition is no longer an eligibility test: other towns and interiors use the
+same map-engine contracts.
 
 Original scroll publication matters for frame alignment:
 
@@ -262,13 +269,31 @@ storage. The restored reference has 227 CHR bytes different from ROM-decoded CHR
 so ROM defaults alone are insufficient. Relevant map event bits are read from
 `$9C08` using the existing one-based flag codec. No game state is written.
 
-Original strip loaders `$C00B82/$C00C92` reject neighboring logical families;
-the extension uses the same family boundary and black outside the atlas.
-Eligibility is conservative: Winters family, matching camera region, mode 1,
-full brightness, expected CHR bases, tilemap registers `$39/$59` (64×32 maps at
-VRAM word bases `$3800/$5800`), equal BG1/BG2 scroll, both scenery layers enabled, and no mosaic,
-windows, color math, subscreen or HDMA. Other scenes use the original center on
-black. Coverage beyond the documented Winters route and lighting state is unverified.
+Original strip loaders `$C00B82/$C00C92` compare each sector's logical family
+with `$436E`. Mismatches and atlas bounds use **arrangement zero** at
+`$C00B9D/$C00CAD`, rather than a hard-coded black pixel. Arrangement zero is
+blank in sampled interior drawing resources but has opaque pixels in outdoor
+resources, including Winters. The extension now follows this rule. It also
+permits a camera origin outside the active family when the visible area crosses
+its boundary, as the original loaders do.
+
+`$C00F35/$C00F8E` publish the ordinary BG tilemaps at word bases `$3800/$5800`;
+`$C00ED6` publishes an arrangement word to BG1 and `word|$2000` to BG2 for tile
+IDs below `$180`, otherwise zero. These are shared map contracts, verified in
+interior captures too. A BG2 zero **word** still samples tile zero with palette
+zero; it is not necessarily transparent when live CHR has changed.
+
+Eligibility requires a matched published camera, mode 1 with eight-pixel map
+tiles, shared map/CHR bases and equal BG1/BG2 scroll. Every visible map tile must
+match both published VRAM planes before extension. A pending streaming update
+or map-specific edit that cannot be reconstructed from the live arrangements
+uses `padded map-publication`. This checks compatibility without hard-coding a
+location. Mosaic, HDMA, non-map subscreen layers, other BG modes, force blank
+and unmatched camera configurations still use padding.
+
+Static layer windows, fixed/subscreen colour math and master brightness are
+supported. Windows retain their original-screen coordinates in the extra margins
+without wrapping at 256 pixels. The original center remains untouched.
 
 `tests/integration_expanded_viewport.nim` compares every original background
 pixel with a separate PPU snapshot, in addition to preserving the complete game
@@ -279,6 +304,21 @@ Forced blank, battle-mode, independent BG scrolling, changed tilemap-base and
 ambiguous-camera fixtures clear the added scenery.
 Temporary investigation/preview probes are retired into these retained checks
 and the evidence above; no captured pixels or states are tracked.
+
+The retained `tests/integration_expanded_viewport_corpus.nim` sweeps the private
+F12 archive against an independent PPU background renderer. On 2026-10-30 it
+processed 1,287 state captures plus seven image-only files: **776 extended,
+511 safely padded, 31 logical families, zero background mismatches**. Before
+generalization only 16 of those captures extended. The test also verifies complete
+machine/CPU preservation around capture and composition, original-center pixels,
+and 31 synthetic brightness, window, layer and colour-math configurations.
+Only files with no embedded state are excluded; invalid payloads fail.
+
+Reproduce with `make libretro-viewport-corpus-test`, or supply specific private
+PNG paths directly to `nim r tests/integration_expanded_viewport_corpus.nim`.
+Manual references include `earthbound_20260818-021755.png` (Skyrunner clouds),
+`earthbound_20260818-021923.png` (Threed landing), and
+`earthbound_20260818-022023.png` (cave interior). All remain outside the repository.
 
 ### Stage 3 — Characters, objects and gameplay isolation
 
@@ -305,11 +345,17 @@ transitions, fades, teleports and cutscene camera movement.
 valid framing at every preset, with no unrelated rooms or stale previous-scene
 pixels exposed. Record which room and transition types have actually been tested.
 
-**Findings and remaining gaps:** unsupported scene configurations use black
-padding with the original image intact. Synthetic transition/battle-mode checks
-verify that old terrain clears; full room-boundary and transition expansion remain
-planned. Private `earthbound_20260818-022023.png` takes the `padded color-math`
-path, with exposed memory and PCM hashes matching the original viewport.
+**Findings and remaining gaps:** ordinary interiors now use the same renderer,
+including arrangement-zero boundary fill, static masks and lighting. Private
+`earthbound_20260818-022023.png` now extends and matches the PPU background.
+Unsupported configurations retain the original image on black, and transition
+checks verify that old terrain clears.
+
+Family clipping is a streaming rule, not a proven room identifier. Interior
+logical families span multiple disconnected atlas islands (sampled families
+11/12/15/16 have 10–18 islands). Camera locks and exact room bounds still need
+tracing before claiming isolation at every large viewport size. Strip loaders
+do not read `$D7B200`; its attributes are not used as guessed room bounds.
 
 ### Stage 5 — Composition, animation and special effects
 
@@ -322,9 +368,13 @@ remains relevant; do not substitute a guessed extension mask for missing evidenc
 area and cover the expanded area consistently. Record coverage per effect and
 story state; ordinary outdoor scenery passing does not verify these effects.
 
-**Findings and remaining gaps:** live CHR, arrangements and palette snapshots are
-covered by the Winters background comparison. Special effects are conservatively
-excluded from expansion; this does not resolve the independent Deep Darkness bug.
+**Findings and remaining gaps:** live CHR, arrangements and palettes, static
+windows, layer priority, fixed/subscreen colour math and brightness are covered
+by PPU comparisons across the archive and synthetic configurations. HDMA and
+mosaic remain excluded: end-of-frame registers cannot describe their scanline
+history. Captured Skyrunner cloud/landing scenes now pass; other portions with
+unsupported effects may still pad. This does not resolve the independent Deep
+Darkness emulator bug or add offscreen actors.
 
 ### Stage 6 — Original UI and battle presentation
 

@@ -208,8 +208,9 @@ verification. Its historical source remains in Git; it was never a timing benchm
 
 ## Measured desktop expanded-viewport prototype
 
-The [expanded viewport prototype](expanded-viewport.md) adds Winters base scenery
-around the original image. These are **desktop core timings**, not handheld or
+The [expanded viewport prototype](expanded-viewport.md) adds live map scenery
+around the original image. The initial table below measures the Winters-only
+implementation. These are **desktop core timings**, not handheld or
 full-player results. The original 256×224 mode remains the default.
 
 Measured on the Ryzen 9 7950X, Linux 6.18.54, Nim 2.2.4, shipping `danger`/ORC
@@ -256,6 +257,15 @@ Omit `--walk` for idle. Replace dimensions for other presets. Numeric local
 reports are `bin/expanded-viewport/{WIDTH}x{HEIGHT}-{idle,walk}.json`; the
 instrumented report is `stages.json` with its host report `stages-host.json`.
 They contain timings/metadata, not memory captures. All remain ignored.
+
+The broader map renderer adds publication validation, static windows, colour
+math and lighting. A follow-up serial old/new pair with the same pinned CPU,
+Winters walking state, 336×256, DS/XBGR, 120 warmup and 600 measured frames gave
+mean core-thread CPU **1.538 → 1.743 ms** and p99 **1.723 → 1.873 ms**.
+The measured increase is about 0.205 ms/frame on this PC; it is not an ARM or
+full-player result. Reports are `bin/viewport-{before,after}-general.json`.
+Further scene coverage should retain the publication checks; tile-row caching
+remains a candidate for reducing the additional per-pixel work.
 
 ## Measured RG DS Plus profile
 

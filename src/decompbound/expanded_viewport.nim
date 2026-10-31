@@ -1,5 +1,4 @@
-## Optional expanded outdoor scenery around the original 256x224 frame.
-## Stage 2 of docs/expanded-viewport.md: Winters outdoor base terrain only.
+## Optional expanded live map scenery around the original 256x224 frame.
 ## Capture is read-only and must run at the end of the visible frame, before NMI.
 
 import
@@ -9,17 +8,18 @@ import
 
 type
   ExpandedViewport* = ref object
-    ## Own decoded atlas resources plus a per-frame live Winters scenery snapshot.
+    ## Own decoded atlas resources plus a per-frame live map scenery snapshot.
     width*, height*: int
     atlas: WorldMapAtlas
-    wintersLogicals: seq[int]
     originX, originY: int
     captured: bool
     extended: bool
     reason: string
     cameraX, cameraY, logicalTileset: int
     liveResource: WorldMapResource
-    liveColors: array[256, ColorRGBX]
+    liveColors: array[256, ColorRGBA]
+    registers: array[0x100, uint8]
+    fixedColor: ColorRGBA
     output: Image
 
 const
@@ -35,14 +35,10 @@ const
   ArrangementWram = 0x7F8000'u32
     ## C41A9E arrangement destination; C0035B indexes 32-byte records here.
   WramBase = 0x7E0000'u32
-  WintersLightingFlag = 0x011F
-    ## Palette-0 condition for the Winters outdoor logical family.
   MapModeOne = 1
   MapChrNba = 0x20'u8
     ## BG1 CHR at VRAM $0000, BG2 at byte $4000, matching C00ED6.
-  FullBrightness = 15
   ForceBlankBit = 0x80'u8
-  BrightnessMask = 0x0F'u8
   BgModeMask = 0x07'u8
   Bg1Bg2Mask = 0x03'u8
   InidispReg = 0x00
@@ -50,22 +46,32 @@ const
   MosaicReg = 0x06
   Bg1MapReg = 0x07
   Bg2MapReg = 0x08
-  WintersBg1Map = 0x39'u8
-  WintersBg2Map = 0x59'u8
-    ## Verified Winters 64×32 tilemaps use VRAM word bases $3800/$5800.
+  MapBg1 = 0x39'u8
+  MapBg2 = 0x59'u8
+    ## C00F35/C00F8E publish the map at VRAM word bases $3800/$5800 with 64×32 maps.
   Bg12NbaReg = 0x0B
   W12SelReg = 0x23
-  W34SelReg = 0x24
   WobjSelReg = 0x25
+  Window1LeftReg = 0x26
+  Window2LeftReg = 0x28
+  WbglogReg = 0x2A
+  WobjlogReg = 0x2B
   TmReg = 0x2C
   TsReg = 0x2D
+  TmwReg = 0x2E
+  TswReg = 0x2F
   CgwselReg = 0x30
   CgadsubReg = 0x31
   TilePixels = 8
   ArrangementColumns = MapCellPixels div TilePixels
+  MapBg1WordBase = 0x3800
+  MapBg2WordBase = 0x5800
+  TileIndexMask = 0x03FF'u16
+  PriorityHigh = 0x2000'u16
+  TilemapScreenWords = 0x400
   OpaqueBlack = rgbx(0, 0, 0, 255)
   PresentationNone = "padded no-capture"
-  PresentationExtended = "extended winters-outdoor"
+  PresentationExtended = "extended map"
 
 proc wram8(snes: SnesBus, offset: int): uint8 =
   ## Read one WRAM byte at $7E0000+offset.
@@ -96,22 +102,11 @@ proc worldOrigin*(view: ExpandedViewport): tuple[x, y: int] =
   ## Expose the captured original-screen world origin for scene-comparison tools.
   (view.cameraX, view.cameraY)
 
-proc deriveWintersLogicals(atlas: WorldMapAtlas): seq[int] =
-  ## Collect logical tilesets whose palette 0 is gated by Winters lighting $011F.
-  for logical in 0 ..< WorldLogicalTilesetCount:
-    let pal = atlas.assets.palette(logical, 0)
-    if (pal.storyFlag and 0x7FFF) == WintersLightingFlag:
-      result.add(logical)
-  if result.len == 0:
-    raise newException(ValueError,
-      "ROM palette table has no logical tileset gated by Winters lighting $011F.")
-
 proc newExpandedViewport*(rom: seq[uint8], width, height: int): ExpandedViewport =
   ## Decode reusable atlas resources and bind an output size of at least 256x224.
   discard viewportGeometry(width, height)
   let atlas = newWorldMapAtlas(rom)
   result = ExpandedViewport(width: width, height: height, atlas: atlas,
-    wintersLogicals: atlas.deriveWintersLogicals(),
     originX: (width - ScreenWidth) div 2, originY: (height - ScreenHeight) div 2,
     reason: "no-capture", output: newImage(width, height))
   result.output.fill(OpaqueBlack)
@@ -129,31 +124,57 @@ proc syncStoryFlags(view: ExpandedViewport, snes: SnesBus) =
 
 proc padReason(view: ExpandedViewport, snes: SnesBus, cameraX, cameraY,
     logical: int): string =
-  ## Return the first conservative reject reason, or empty when Winters outdoor may extend.
+  ## Reject unsupported rendering configurations independently of town or indoor status.
   let
     inidisp = snes.ppuRegs[InidispReg]
     mode = snes.ppuRegs[BgModeReg]
   if (inidisp and ForceBlankBit) != 0: return "force-blank"
   if (mode and BgModeMask).int != MapModeOne: return &"bg-mode={mode and BgModeMask}"
-  if (inidisp and BrightnessMask).int != FullBrightness:
-    return &"brightness={inidisp and BrightnessMask}"
+  if (mode and 0x30) != 0: return "large-map-tiles"
   if snes.ppuRegs[MosaicReg] != 0: return "mosaic"
-  if snes.ppuRegs[W12SelReg] != 0 or snes.ppuRegs[W34SelReg] != 0 or
-      snes.ppuRegs[WobjSelReg] != 0: return "windows"
-  if snes.ppuRegs[CgwselReg] != 0 or snes.ppuRegs[CgadsubReg] != 0: return "color-math"
   if snes.hdmaen != 0: return "hdma"
-  if snes.ppuRegs[TsReg] != 0: return "subscreen"
+  if (snes.ppuRegs[TsReg] and not Bg1Bg2Mask) != 0: return "subscreen-non-map"
   if snes.ppuRegs[Bg12NbaReg] != MapChrNba: return "chr-base"
-  if snes.ppuRegs[Bg1MapReg] != WintersBg1Map or snes.ppuRegs[Bg2MapReg] != WintersBg2Map:
+  if snes.ppuRegs[Bg1MapReg] != MapBg1 or snes.ppuRegs[Bg2MapReg] != MapBg2:
     return "tilemap-base"
   if snes.bgScroll[0] != snes.bgScroll[2] or snes.bgScroll[1] != snes.bgScroll[3]:
     return "independent-bg-scroll"
-  if (snes.ppuRegs[TmReg] and Bg1Bg2Mask) != Bg1Bg2Mask: return "missing-bg"
+  if ((snes.ppuRegs[TmReg] or snes.ppuRegs[TsReg]) and Bg1Bg2Mask) == 0:
+    return "missing-bg"
   if cameraX notin 0 ..< WorldWidth or cameraY notin 0 ..< WorldHeight:
     return "camera-oob"
-  if logical notin view.wintersLogicals: return &"tileset={logical}"
-  let region = view.atlas.layout.regionAt(cameraX, cameraY)
-  if region.mapTilesetId != logical: return "tileset-mismatch"
+  if logical notin 0 ..< WorldLogicalTilesetCount: return &"tileset={logical}"
+
+proc sceneryWord(view: ExpandedViewport, worldX, worldY: int): uint16 =
+  ## Reproduce C00B9D/C00CAD's arrangement-zero fill beyond the active logical family.
+  var arrangement = 0
+  if worldX in 0 ..< WorldWidth and worldY in 0 ..< WorldHeight and
+      view.atlas.layout.regionAt(worldX, worldY).mapTilesetId == view.logicalTileset:
+    arrangement = view.atlas.layout.arrangements[
+      (worldY div MapCellPixels) * MapColumns + worldX div MapCellPixels].int
+  if arrangement >= view.liveResource.arrangements.len:
+    raise newException(ValueError, "Live map arrangement is outside its loaded resource.")
+  let tile = ((worldY and (MapCellPixels - 1)) div TilePixels) * ArrangementColumns +
+    ((worldX and (MapCellPixels - 1)) div TilePixels)
+  view.liveResource.arrangements[arrangement][tile]
+
+proc publishedMapMatches(view: ExpandedViewport, snes: SnesBus): bool =
+  ## Require current map publication to agree before extending streamed or edited scenes.
+  let
+    left = view.cameraX and not (TilePixels - 1)
+    top = view.cameraY and not (TilePixels - 1)
+  for y in countup(top, view.cameraY + ScreenHeight - 1, TilePixels):
+    for x in countup(left, view.cameraX + ScreenWidth - 1, TilePixels):
+      let
+        word = view.sceneryWord(x, y)
+        offset = ((x div 256) and 1) * TilemapScreenWords +
+          ((y div TilePixels) and 31) * 32 + ((x div TilePixels) and 31)
+        second = if (word and TileIndexMask).int < WorldBg2TileCount:
+            word or PriorityHigh else: 0'u16
+      if snes.vram[MapBg1WordBase + offset] != word or
+          snes.vram[MapBg2WordBase + offset] != second:
+        return false
+  true
 
 proc ensureLiveResource(view: ExpandedViewport, drawing: int) =
   ## Rebuild the live overlay resource when the drawing family changes.
@@ -179,7 +200,10 @@ proc copyLiveResources(view: ExpandedViewport, snes: SnesBus, drawing: int) =
       view.liveResource.arrangements[arrangement][tile] = snes.bus.read16(
         ArrangementWram + (arrangement * WorldArrangementCells * 2 + tile * 2).uint32)
   for index, color in snes.cgram:
-    view.liveColors[index] = bgr555ToColor(color).rgbx
+    view.liveColors[index] = bgr555ToColor(color)
+  view.registers = snes.ppuRegs
+  view.fixedColor = bgr555ToColor(snes.fixedColorR.uint16 or
+    (snes.fixedColorG.uint16 shl 5) or (snes.fixedColorB.uint16 shl 10))
 
 proc capture*(view: ExpandedViewport, snes: SnesBus) =
   ## Snapshot pre-NMI camera, flags, and live map resources; never write the machine.
@@ -200,28 +224,101 @@ proc capture*(view: ExpandedViewport, snes: SnesBus) =
   view.reason = view.padReason(snes, cameraX, cameraY, logical)
   if view.reason.len > 0: return
   view.copyLiveResources(snes, view.atlas.assets.drawingTileset(logical))
+  if not view.publishedMapMatches(snes):
+    view.reason = "map-publication"
+    return
   view.extended = true
-  view.reason = "winters-outdoor"
+  view.reason = "map"
+
+proc windowAt(view: ExpandedViewport, selector: uint8, shift, combine, x: int): bool =
+  ## Evaluate static SNES windows in original-screen coordinates without wrapping new margins.
+  let
+    oneEnabled = (selector and (2'u8 shl shift)) != 0
+    twoEnabled = (selector and (8'u8 shl shift)) != 0
+    one = (x >= view.registers[Window1LeftReg].int and
+      x <= view.registers[Window1LeftReg + 1].int) xor
+      ((selector and (1'u8 shl shift)) != 0)
+    two = (x >= view.registers[Window2LeftReg].int and
+      x <= view.registers[Window2LeftReg + 1].int) xor
+      ((selector and (4'u8 shl shift)) != 0)
+  if oneEnabled and twoEnabled:
+    case combine
+    of 1: one and two
+    of 2: one xor two
+    of 3: one == two
+    else: one or two
+  elif oneEnabled: one
+  elif twoEnabled: two
+  else: false
+
+proc mapSample(view: ExpandedViewport, word: uint16, sx, sy, screenX: int,
+    mask, windowMask: uint8, backdrop: ColorRGBA):
+    tuple[color: ColorRGBA, source: uint8, drawn: bool] =
+  ## Compose the map's two planes with independent layer enables, priority and window masks.
+  let
+    tile = (word and TileIndexMask).int
+    x = if (word and 0x4000) != 0: TilePixels - 1 - sx else: sx
+    y = if (word and 0x8000) != 0: TilePixels - 1 - sy else: sy
+    palette = ((word.int shr 10) and 7) * 16
+    first = view.liveResource.pixelIndex(tile, x, y).int
+    secondWord = if tile < WorldBg2TileCount: word or PriorityHigh else: 0'u16
+    secondX = if (secondWord and 0x4000) != 0: TilePixels - 1 - sx else: sx
+    secondY = if (secondWord and 0x8000) != 0: TilePixels - 1 - sy else: sy
+    second = view.liveResource.pixelIndex((secondWord and TileIndexMask).int +
+      WorldBg2ChrTileOffset, secondX, secondY).int
+    secondPalette = ((secondWord.int shr 10) and 7) * 16
+    firstVisible = first != 0 and (mask and 1) != 0 and not
+      ((windowMask and 1) != 0 and view.windowAt(view.registers[W12SelReg],
+        0, view.registers[WbglogReg].int and 3, screenX))
+    secondVisible = second != 0 and (mask and 2) != 0 and not
+      ((windowMask and 2) != 0 and view.windowAt(view.registers[W12SelReg],
+        4, (view.registers[WbglogReg].int shr 2) and 3, screenX))
+  result = (backdrop, 0x20'u8, false)
+  if firstVisible and ((word and PriorityHigh) != 0 or
+      (secondWord and PriorityHigh) == 0 or not secondVisible):
+    result = (view.liveColors[palette + first], 1'u8, true)
+  elif secondVisible:
+    result = (view.liveColors[secondPalette + second], 2'u8, true)
 
 proc sceneryPixel*(view: ExpandedViewport, worldX, worldY: int): ColorRGBX =
-  ## Compose one extra scenery pixel from live CHR/arrangements/CGRAM and C00B82 clipping.
-  if not view.extended or worldX notin 0 ..< WorldWidth or worldY notin 0 ..< WorldHeight:
-    return OpaqueBlack
-  let region = view.atlas.layout.regionAt(worldX, worldY)
-  if region.mapTilesetId != view.logicalTileset:
-    return OpaqueBlack
+  ## Compose live map planes, static windows, fixed/subscreen color math and master brightness.
+  if not view.extended: return OpaqueBlack
   let
-    arrangement = view.atlas.layout.arrangements[
-      (worldY div MapCellPixels) * MapColumns + worldX div MapCellPixels].int
-  if arrangement < 0 or arrangement >= view.liveResource.arrangements.len:
-    return OpaqueBlack
-  let
-    tile = ((worldY mod MapCellPixels) div TilePixels) * ArrangementColumns +
-      (worldX mod MapCellPixels) div TilePixels
-    word = view.liveResource.arrangements[arrangement][tile]
-    index = tileColorIndex(view.liveResource, word,
-      worldX mod TilePixels, worldY mod TilePixels)
-  view.liveColors[index]
+    word = view.sceneryWord(worldX, worldY)
+    sx = worldX and (TilePixels - 1)
+    sy = worldY and (TilePixels - 1)
+    screenX = worldX - view.cameraX
+    main = view.mapSample(word, sx, sy, screenX, view.registers[TmReg],
+      view.registers[TmwReg], view.liveColors[0])
+    cgadsub = view.registers[CgadsubReg]
+    cgwsel = view.registers[CgwselReg]
+    useSubscreen = (cgwsel and 2) != 0
+    colorWindow = view.windowAt(view.registers[WobjSelReg], 4,
+      (view.registers[WobjlogReg].int shr 2) and 3, screenX)
+    black = case (cgwsel.int shr 6) and 3
+      of 1: not colorWindow
+      of 2: colorWindow
+      of 3: true
+      else: false
+    mathEnabled = case (cgwsel.int shr 4) and 3
+      of 1: colorWindow
+      of 2: not colorWindow
+      of 3: false
+      else: true
+  if view.registers[TmReg] == 0 and useSubscreen and (cgadsub and 0x3F) != 0 and
+      view.registers[TsReg] != 0:
+    let sub = view.mapSample(word, sx, sy, screenX, view.registers[TsReg],
+      view.registers[TswReg], view.fixedColor)
+    return applyMasterBrightness(sub.color, view.registers[InidispReg]).rgbx
+  var color = if black: rgba(0, 0, 0, 255) else: main.color
+  if (cgadsub and main.source) != 0 and mathEnabled:
+    let sub = if useSubscreen:
+        view.mapSample(word, sx, sy, screenX, view.registers[TsReg],
+          view.registers[TswReg], view.fixedColor)
+      else: (color: view.fixedColor, source: 0'u8, drawn: true)
+    color = colorMathBlend(color, sub.color, (cgadsub and 0x80) != 0,
+      (cgadsub and 0x40) != 0 and sub.drawn)
+  applyMasterBrightness(color, view.registers[InidispReg]).rgbx
 
 proc blitOriginal(dest, original: Image, originX, originY: int) =
   ## Copy the original 256x224 presentation, including actors and UI, onto the center.
