@@ -124,7 +124,7 @@ bound. The constructor doubles both bounds **in place** before searching;
 callers must re-establish ID units before another call.
 
 There are separate entity and script-state free lists. Initialization at
-`$C09282..92BD` establishes 30 entity slots and 70 script-state slots.
+`$C09282..92F4` establishes 30 entity slots and 70 script-state slots.
 List values are byte offsets (twice the slot index), with `$FFFF` terminators:
 
 | Field | Role |
@@ -171,6 +171,33 @@ checking preservation of list/record memory. This does not inventory all script
 selectors or execute scripts. The complete graphics spawn wrapper `$C01E49`
 has a separate integration check described in [graphics.md](graphics.md).
 
+These routines are reproduced from annotated assembly: `initializeEntitySystem`,
+`createEntityDefaults`, `createEntity`, `allocateEntity`, and
+`allocateScriptState`. Initialization requires decimal arithmetic clear because
+its free-list links are formed with ADC. It also clears `$280C..2848` through
+the same-bank helper at `$C00000`; entry through the `$80` mirror would reach
+RAM at `$800000` instead and is outside this contract. The convenience entry
+`$C092F5` clears constructor templates, establishes the full ID range, and falls
+through into `$C09321`.
+
+The constructor assembly also contains three script-replacement entries.
+`$C093B9` takes a selector in A and entity offset in X, returns the old state
+chain, and installs the selected script with reset frame/motion fields.
+`$C093F9` instead takes an entity ID in X and a raw pointer/bank in A/Y;
+`$C09403` takes the already-doubled entity offset. The raw-pointer entries
+preserve the existing script selector and frame/motion fields, but replace
+the state chain, clear `$1372/$12E6`, mask the bank to eight bits, and
+reset the far callback. They require an active entity; `$C0940A` spins on an
+inactive script ID. The shared RTL at `$C0943B` is also the default far callback.
+
+`tests/integration_entity_system.nim` checks initialization against dirty RAM,
+all 70 direct state allocations and exhaustion, the default constructor, and
+27 replacement cases: three entities, chain lengths 1/2/70, and all three
+replacement entries. Each case verifies returned storage, installed pointers,
+callback reset and register/stack results. The constructor failure checks also
+assert that both range globals remain doubled. These checks use synthetic WRAM
+and the user's ROM; no game script bodies or captured states are fixtures.
+
 ### Entity scheduler order and pause flags
 
 `$C09466..9505` schedules two passes over the active entity list. Entry first
@@ -216,6 +243,12 @@ These tests establish scheduling mechanics, not the gameplay effects of the
 installed production callbacks or safety of second-pass mutation. The 160-byte
 scheduler region is reproduced from `asm/scheduleEntities.asm` and directly
 byte-checked in the scheduler test.
+
+The pause/resume helpers are reproduced as `pauseEntityScripts.asm` and
+`resumeEntityScripts.asm`. The entity-system integration check exercises eight
+flag words in both forward and reverse three-entity lists, preserving all low
+14 bits and every inactive entity, plus empty-list calls. A and X are scratch;
+Y, D, DBR and stack depth are preserved.
 
 ### A verified script-driven removal sequence
 
@@ -313,23 +346,20 @@ ROM by the conductor):** the dispatch is **two tables**, split by opcode value a
   the addressed value (re-check assign-style ops against gold before relying on
   older “XOR + assign” notes).
 
-#### Declared in the decomp registry (engine + tables, not script content)
+#### Reproduced interpreter code and dispatch tables
 
-The action-script **fetch/dispatch loop** is hand-adopted snesAsm at
-[`src/decompbound/snes_src/action_script_fetch.nim`](../src/decompbound/snes_src/action_script_fetch.nim)
-(Goal 1.5 `ckImplementedCode`). The jump tables remain **project-owned declared
-data** in
-[`src/decompbound/snes_src/action_script_tables.nim`](../src/decompbound/snes_src/action_script_tables.nim)
-(`ckImplementedMeta` — pointer tables into our decompiled code, **not** dialogue
-or event bytes). Both are registered via `adopted.nim` / `rom_chunks.nim` and
-gold-gated like header/vectors.
+The fetch loop and explained handlers are annotated `asm/*.asm`, registered in
+`manifest.json` as `reproduce` / `explained`. The compatibility inventory in
+`adopted.nim` contains the same source regions; `tests/test_lint.nim` checks
+their names, offsets and assembled lengths against the manifest. This is
+interpreter code and structural pointer metadata, not dialogue or event bodies.
 
 | Name | File offset | Len | SNES | Role |
 |------|-------------|-----|------|------|
 | `actionScriptFetch` | `0x9506` | 82 | `$C09506` | Entity tick: wait DEC or fetch/dispatch loop through RTS |
 | `actionScriptDispatchTable` | `0x9558` | 154 (77×u16) | `$C09558` | Low-path opcode → handler words (high-path `$C095E2` = last 8 words) |
-| `jmpTable8C65` | `0x8C65` | 8 (4×u16) | `$C08C65` | Companion jump table (convert_all seed) |
-| `jmpTableA1AE` | `0xA1AE` | 32 | `$C0A1AE` | Stride-4 word+pad table |
+| `jmpTable8C65` | `0x8C65` | 8 (4×u16) | `$C08C65` | OAM queue append dispatch; see graphics reference |
+| `jmpTableA1AE` | `0xA1AE` | 32 | `$C0A1AE` | World-map packed high-bit extraction dispatch; see world-map reference |
 | `jmpTableA350` | `0xA350` | 16 (8×u16) | `$C0A350` | Eight code pointers |
 
 **Fetch loop** (file `0x9506`–`0x9557`, adopted): entry loads the script-state byte offset from DP
@@ -417,7 +447,9 @@ in the test. The exploratory probe was replaced by this integration check.
 
 #### Operand widths (handler disasm, ✅ static)
 
-Verified from gold-gated `code_bank00` disasm of the dispatch targets (M/X=16).
+Originally derived from disassembly of the dispatch targets (M/X=16).
+The retired `code_bank00` scaffold is not the current build source; use the
+local ROM and `src/tools/disasm.nim` to reproduce those observations.
 Instruction bytes reconstructed from the project opcode table (same encodings the
 assembler emits against gold).
 

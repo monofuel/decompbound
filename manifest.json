@@ -113,14 +113,14 @@
       "evidence": "docs/graphics.md Slot release and ownership transfer; tests/integration_sprite_slot_tags.nim checks original bytes, tag selection, allocation reuse, and the spawn retag fragment"
     },
     {
-      "name": "blob_001C52",
+      "name": "allocateAndClearSpriteTiles",
       "offset": 7250,
       "length": 230,
-      "kind": "blob",
-      "source": "blobs/blob_001C52.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "kind": "code",
+      "source": "asm/allocateAndClearSpriteTiles.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md; integration_sprite_allocation, integration_sprite_spawn, integration_sprite_dma and integration_engine_lifecycle verify ownership, transfer placement and reuse"
     },
     {
       "name": "buildSpriteDefinitions",
@@ -133,11 +133,51 @@
       "evidence": "docs/graphics.md Runtime-definition builder; tests/integration_sprite_layout.nim checks original bytes and 32000 synthetic layout cases"
     },
     {
-      "name": "blob_001DED",
+      "name": "readSpriteResourceHeader",
       "offset": 7661,
-      "length": 26281,
+      "length": 92,
+      "kind": "code",
+      "source": "asm/readSpriteResourceHeader.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md; integration_sprite_allocation, integration_sprite_spawn, integration_sprite_dma and integration_engine_lifecycle verify ownership, transfer placement and reuse"
+    },
+    {
+      "name": "spawnSpriteEntity",
+      "offset": 7753,
+      "length": 680,
+      "kind": "code",
+      "source": "asm/spawnSpriteEntity.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md; integration_sprite_allocation, integration_sprite_spawn, integration_sprite_dma and integration_engine_lifecycle verify ownership, transfer placement and reuse"
+    },
+    {
+      "name": "releaseCurrentSpriteGraphics",
+      "offset": 8433,
+      "length": 79,
+      "kind": "code",
+      "source": "asm/releaseCurrentSpriteGraphics.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md; integration_sprite_allocation, integration_sprite_spawn, integration_sprite_dma and integration_engine_lifecycle verify ownership, transfer placement and reuse"
+    },
+    {
+      "name": "removeSpriteEntity",
+      "offset": 8512,
+      "length": 84,
+      "kind": "code",
+      "source": "asm/removeSpriteEntity.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md; integration_sprite_allocation, integration_sprite_spawn, integration_sprite_dma and integration_engine_lifecycle verify ownership, transfer placement and reuse"
+    },
+    {
+      "name": "blob_002194",
+      "offset": 8596,
+      "length": 25346,
       "kind": "blob",
-      "source": "blobs/blob_001DED.bin",
+      "source": "blobs/blob_002194.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
@@ -213,14 +253,24 @@
       "evidence": "docs/graphics.md Queue-to-buffer publication; tests/integration_oam_publish.nim verifies original bytes and full synthetic pipeline"
     },
     {
-      "name": "blob_008B8E",
+      "name": "drainOamQueues",
       "offset": 35726,
-      "length": 215,
-      "kind": "blob",
-      "source": "blobs/blob_008B8E.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "length": 198,
+      "kind": "code",
+      "source": "asm/drainOamQueues.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md; integration_entity_sprite, integration_entity_system and integration_oam_publish verify configuration, dispatch branches, queue ordering and publication"
+    },
+    {
+      "name": "enqueueOamDefinition",
+      "offset": 35924,
+      "length": 17,
+      "kind": "code",
+      "source": "asm/enqueueOamDefinition.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md; integration_entity_sprite, integration_entity_system and integration_oam_publish verify configuration, dispatch branches, queue ordering and publication"
     },
     {
       "name": "jmpTable8C65",
@@ -233,14 +283,14 @@
       "evidence": "adopted jmpTable8C65 from asm/"
     },
     {
-      "name": "blob_008C6D",
+      "name": "appendOamQueues",
       "offset": 35949,
       "length": 104,
-      "kind": "blob",
-      "source": "blobs/blob_008C6D.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "kind": "code",
+      "source": "asm/appendOamQueues.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md; integration_entity_sprite, integration_entity_system and integration_oam_publish verify configuration, dispatch branches, queue ordering and publication"
     },
     {
       "name": "emitSpriteElements",
@@ -355,12 +405,62 @@
     {
       "name": "blob_009086",
       "offset": 36998,
-      "length": 992,
+      "length": 508,
       "kind": "blob",
       "source": "blobs/blob_009086.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
+    },
+    {
+      "name": "initializeEntitySystem",
+      "offset": 37506,
+      "length": 115,
+      "kind": "code",
+      "source": "asm/initializeEntitySystem.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md; integration_entity_create, integration_entity_system, integration_entity_scheduler and integration_entity_remove execute original lifecycle contracts"
+    },
+    {
+      "name": "createEntityDefaults",
+      "offset": 37621,
+      "length": 44,
+      "kind": "code",
+      "source": "asm/createEntityDefaults.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md; integration_entity_create, integration_entity_system, integration_entity_scheduler and integration_entity_remove execute original lifecycle contracts"
+    },
+    {
+      "name": "createEntity",
+      "offset": 37665,
+      "length": 283,
+      "kind": "code",
+      "source": "asm/createEntity.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md; integration_entity_create, integration_entity_system, integration_entity_scheduler and integration_entity_remove execute original lifecycle contracts"
+    },
+    {
+      "name": "pauseEntityScripts",
+      "offset": 37948,
+      "length": 21,
+      "kind": "code",
+      "source": "asm/pauseEntityScripts.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md; integration_entity_create, integration_entity_system, integration_entity_scheduler and integration_entity_remove execute original lifecycle contracts"
+    },
+    {
+      "name": "resumeEntityScripts",
+      "offset": 37969,
+      "length": 21,
+      "kind": "code",
+      "source": "asm/resumeEntityScripts.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md; integration_entity_create, integration_entity_system, integration_entity_scheduler and integration_entity_remove execute original lifecycle contracts"
     },
     {
       "name": "scheduleEntities",
@@ -425,12 +525,62 @@
     {
       "name": "blob_0096E3",
       "offset": 38627,
-      "length": 1362,
+      "length": 1130,
       "kind": "blob",
       "source": "blobs/blob_0096E3.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
+    },
+    {
+      "name": "actionScriptSetGraphics",
+      "offset": 39757,
+      "length": 20,
+      "kind": "code",
+      "source": "asm/actionScriptSetGraphics.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md; integration_entity_sprite, integration_entity_system and integration_oam_publish verify configuration, dispatch branches, queue ordering and publication"
+    },
+    {
+      "name": "blob_009B61",
+      "offset": 39777,
+      "length": 131,
+      "kind": "blob",
+      "source": "blobs/blob_009B61.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "actionScriptSetRenderCallback",
+      "offset": 39908,
+      "length": 10,
+      "kind": "code",
+      "source": "asm/actionScriptSetRenderCallback.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md; integration_entity_sprite, integration_entity_system and integration_oam_publish verify configuration, dispatch branches, queue ordering and publication"
+    },
+    {
+      "name": "blob_009BEE",
+      "offset": 39918,
+      "length": 20,
+      "kind": "blob",
+      "source": "blobs/blob_009BEE.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "allocateEntity",
+      "offset": 39938,
+      "length": 51,
+      "kind": "code",
+      "source": "asm/allocateEntity.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md; integration_entity_create, integration_entity_system, integration_entity_scheduler and integration_entity_remove execute original lifecycle contracts"
     },
     {
       "name": "entityListLifecycle",
@@ -445,9 +595,59 @@
     {
       "name": "blob_009CD7",
       "offset": 40151,
-      "length": 1093,
+      "length": 44,
       "kind": "blob",
       "source": "blobs/blob_009CD7.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "allocateScriptState",
+      "offset": 40195,
+      "length": 15,
+      "kind": "code",
+      "source": "asm/allocateScriptState.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md; integration_entity_create, integration_entity_system, integration_entity_scheduler and integration_entity_remove execute original lifecycle contracts"
+    },
+    {
+      "name": "blob_009D12",
+      "offset": 40210,
+      "length": 977,
+      "kind": "blob",
+      "source": "blobs/blob_009D12.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "dispatchEntityGraphics",
+      "offset": 41187,
+      "length": 23,
+      "kind": "code",
+      "source": "asm/dispatchEntityGraphics.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md; integration_entity_sprite, integration_entity_system and integration_oam_publish verify configuration, dispatch branches, queue ordering and publication"
+    },
+    {
+      "name": "enqueueEntityFrame",
+      "offset": 41210,
+      "length": 33,
+      "kind": "code",
+      "source": "asm/enqueueEntityFrame.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md; integration_entity_sprite, integration_entity_system and integration_oam_publish verify configuration, dispatch branches, queue ordering and publication"
+    },
+    {
+      "name": "blob_00A11B",
+      "offset": 41243,
+      "length": 1,
+      "kind": "blob",
+      "source": "blobs/blob_00A11B.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
@@ -515,9 +715,49 @@
     {
       "name": "blob_00A360",
       "offset": 41824,
-      "length": 1958,
+      "length": 356,
       "kind": "blob",
       "source": "blobs/blob_00A360.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "uploadSpriteFrame",
+      "offset": 42180,
+      "length": 123,
+      "kind": "code",
+      "source": "asm/uploadSpriteFrame.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md; integration_sprite_allocation, integration_sprite_spawn, integration_sprite_dma and integration_engine_lifecycle verify ownership, transfer placement and reuse"
+    },
+    {
+      "name": "readSpriteGraphicsEntry",
+      "offset": 42303,
+      "length": 47,
+      "kind": "code",
+      "source": "asm/readSpriteGraphicsEntry.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md; integration_sprite_allocation, integration_sprite_spawn, integration_sprite_dma and integration_engine_lifecycle verify ownership, transfer placement and reuse"
+    },
+    {
+      "name": "transferSpriteChunk",
+      "offset": 42350,
+      "length": 157,
+      "kind": "code",
+      "source": "asm/transferSpriteChunk.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md; integration_sprite_allocation, integration_sprite_spawn, integration_sprite_dma and integration_engine_lifecycle verify ownership, transfer placement and reuse"
+    },
+    {
+      "name": "blob_00A60B",
+      "offset": 42507,
+      "length": 1275,
+      "kind": "blob",
+      "source": "blobs/blob_00A60B.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"

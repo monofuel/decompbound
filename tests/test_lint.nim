@@ -1,8 +1,8 @@
 ## Phase-2 structural lint: no resurrected generated bank tree; asm/ manifest ok.
 
 import
-  std/[os, strutils],
-  decompbound/manifest
+  std/[os, strutils, tables],
+  decompbound/[adopted, manifest]
 
 block noGeneratedBanks:
   ## M2.5 deleted the bank-monster tree; it must stay gone.
@@ -23,5 +23,18 @@ block codeSpansLightweight:
   doAssert "import" notin body.splitLines()[0 .. min(20, body.splitLines().len-1)].join("\n") or
     "code_bank" notin body
   doAssert "code_bank" notin body
+
+block adoptionInventoryMatchesManifest:
+  let layout = parseManifestFile("manifest.json")
+  var expected = initTable[string, tuple[offset, length: int]]()
+  for region in layout.regions:
+    if region.build == blReproduce:
+      doAssert region.source == asmPath(region.name)
+      expected[region.name] = (region.offset, region.length)
+  for region in allAdoptedRegions():
+    doAssert expected.hasKey(region.name), "Unexpected or duplicate adoption: " & region.name
+    doAssert (region.offset, region.data.len) == expected[region.name], region.name
+    expected.del(region.name)
+  doAssert expected.len == 0, "Compatibility inventory omits manifest adoptions: " & $expected
 
 echo "[test_lint] ok"
