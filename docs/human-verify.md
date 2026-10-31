@@ -81,6 +81,7 @@ automated checks remain muted or use null audio.
 | [x] Autoplay intro circular framing | Let the autoplay intro scenes run at the extended size. | Monofuel confirms they look fine: native circular borders conceal the extra area, with no visible viewport change. Preserve this behavior. |
 | [x] Sound Stone screen — acceptable, optional polish | Load private `earthbound_20260707-015742.png` at `VIEWPORT=336x256`. | Monofuel considers the current quirks acceptable and the screen fine as it is; polishing it is optional future work. |
 | [ ] Scaraba sailing border flicker — fix ready | Restart with the rebuilt core and load private `earthbound_20261031-165947.png` at `VIEWPORT=336x256`; let the ship sail. | Scenery stays extended as the camera crosses X=0, without alternating original framing and black borders. Human confirmation pending. |
+| [ ] Scaraba sailing map edge — deferred | Watch the sailing scene at `VIEWPORT=336x256`; earlier scene reference: private `earthbound_20261031-165947.png`. | Added scenery should eventually have a coherent map continuation or deliberate black borders. The reported off-map view is acceptable for now; no approach selected or fix implemented. |
 | [ ] Desktop presentation tearing | Manually run the viewport target using the rebuilt GPU player. Check startup says `X11 GPU textures; vsync on`. Walk vertically/horizontally and compare `VIEWPORT=336x256` with `VIEWPORT=256x224`. Resize, minimize and restore each window; compare `MONO_RETRO_ARGS=--video:cpu` if needed. | Moving scenery has no visible tear, both windows retain normal pacing, restored panels show current pixels, and the original center joins extended terrain without a fixed seam. |
 | [ ] Unequal windows and companion input | Resize both windows separately; compare automatic scaling with `VIEWPORT_SCALE=2`. Use keyboard/controller character selection and click status cards where multiple members are available. Drop a private state onto either window. | Each panel stays sharp and centered at integer scales. The companion remains 256×224 logically; clicks select the intended card, padding clicks do nothing, and state imports clear old scenery. |
 | [ ] Towns, flight and interiors | Use the viewport target with private `earthbound_20260818-021755.png` (Skyrunner clouds), `earthbound_20260818-021923.png` (Threed landing), `earthbound_20260818-022023.png` (cave), and `earthbound_20260818-021941.png` (lab). Start at `VIEWPORT=336x256`, then try `512x384`. | Extra terrain aligns with the original center, lighting and masks remain consistent, room surroundings stay appropriate, and transitions clear previous scenery. Record any unrelated neighboring rooms visible at larger sizes. Ordinary active NPC bodies extend with their scenery. |
@@ -589,6 +590,12 @@ Only when an agent points you here for a **tool** check:
 ---
 
 ## FOUND IN PLAY — new issues (human → agents)
+
+- **2026-10-31 · Scaraba sailing map edge — deferred, record only.**
+  Monofuel reports that the extended sailing viewport goes off the map. This
+  is not a major issue; tweaking the map continuation or using black borders
+  remain possible approaches. Keep separate from the border-flicker repair.
+  **Run / Pass if:** use the Scaraba sailing map-edge row above.
 
 - **2026-10-31 · Scaraba sailing border flicker — fix ready.**
   The sailing scene in `earthbound_20261031-165947.png` switched framing when

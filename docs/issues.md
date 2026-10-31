@@ -53,6 +53,7 @@ or simulation need separate justification.
 | Initial title cards retain original framing | Monofuel reports that the initial title cards do not use the extended viewport. | **Deferred, low priority.** Wider title-card composition would be desirable future polish. |
 | Sound Stone screen polish | In private `earthbound_20260707-015742.png`, Monofuel considers the current extended presentation a little quirky but fine as it is. | **Accepted for now; optional future polish.** No repair is requested. |
 | Scaraba sailing switches to bordered framing | Private `earthbound_20261031-165947.png` repeatedly crosses camera X=0. The published word for X=-19 was read as 65517 and rejected as outside the atlas; crossing zero briefly re-enabled expansion. | **Fix ready for manual retry.** Decode signed camera words, preserve arrangement-zero fill outside the atlas, and retain native publication checks. Evidence below. |
+| Scaraba sailing exposes the map edge | Monofuel reports that the extended sailing viewport goes off the map. The earlier scene reference is `earthbound_20261031-165947.png`; the exact exposed boundary has not been diagnosed. | **Deferred, low priority; record only.** Consider a presentation-only map continuation or deliberate black borders. Neither approach is selected or implemented. Keep separate from the border-flicker repair. |
 | NPC pop-in at larger viewport sizes | On 2026-10-31, Monofuel confirms the NPC extension works at 336×256, but reports NPCs appearing near that visible range when using 512×384. The renderer has no 336×256 cutoff. Native actor loading is a suspected cause; the exact activation boundary has not been traced. | **Accepted limitation for the current milestone.** Polish 336×256 first; increasing native loading/activation ranges is not part of the current fix. |
 | Special scripted actor effects are not extended | Implementation limitation: ordinary active `$A3A4` bodies are extended, while `$AC43` effects and unusual draw callbacks remain native. This is not an established cause of the individual scene reports above. | **Deferred.** Investigate individual scenes when useful; a presentation workaround or original framing may be sufficient. |
 | Exact room isolation at larger sizes is unverified | Map-family clipping is implemented, but a logical family can contain several disconnected rooms. Specific unwanted neighboring-room exposures still need a scene report; this is a coverage gap, not a confirmed room-specific bug. | **Deferred unless encountered.** Avoid a broad room-boundary rewrite without a concrete case. |
@@ -85,6 +86,12 @@ fixtures retain rejection at X=-256/Y=-224 and for ambiguous scroll lanes.
 The full scene archive reports 779 maps, 306 battles, 206 padded states, seven
 image-only captures and zero background mismatches. A 900-frame diagnostic
 also stays extended and has been retired into these tests and docs.
+
+Follow-up manual feedback reports that the extended sailing view goes off the
+map. Matching the original renderer does not establish that the newly exposed
+edge looks appropriate. This is a low-priority composition issue: a map
+continuation or deliberate black borders could be suitable, with no approach
+chosen and no further rendering change requested yet.
 
 ```sh
 nim r --opt:speed tests/integration_expanded_viewport.nim --sailing \
