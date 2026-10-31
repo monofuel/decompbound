@@ -3,7 +3,8 @@
 import
   pixie,
   ../decompbound/[apu, build_info, common, core_profile, cpu, cpu_polling, ds_companion,
-    frame_step, libretro_api, png_state, ppu, replay_run, save_state, snesbus]
+    expanded_viewport, frame_step, libretro_api, png_state, ppu, replay_run, save_state,
+    snesbus, viewport_geometry]
 
 const
   Width = ppu.ScreenWidth
@@ -16,10 +17,16 @@ const
   FramesPerSecond = 60.0
   BgModeRegister = 0x05
   BgModeMask = 0x07
+  OpaqueBlack = 0xFF000000'u32
+    ## XB24 stores opaque black as R,G,B,255 on the negotiated little-endian transport.
   DualScreenOption = "decompbound_dual_screen"
   DualScreenDescription = "EarthBound DS companion (restart required); disabled|enabled"
   Version = (if BuildCommit.len > 0: BuildCommit else: "unknown") &
     (if BuildDirty: "+dirty" else: "")
+
+let
+  widthDescription = dimensionOptions("Experimental world width", OriginalWidth)
+  heightDescription = dimensionOptions("Experimental world height", OriginalHeight)
 
 var
   environment: RetroEnvironment
@@ -34,6 +41,10 @@ var
   cpuState: Cpu
   frameImage: Image
   pixels: seq[uint32]
+  geometry = viewportGeometry()
+  expandedView: ExpandedViewport
+  visibleHook: VisibleFrameHook
+  presentationDescription: string
   dualScreen: bool
   opaquePixieVideo: bool
   companion: DsCompanion
@@ -82,7 +93,29 @@ proc releaseMachine() =
   pixels.setLen(0)
   dualScreen = false
   opaquePixieVideo = false
+  expandedView = nil
+  visibleHook = nil
+  geometry = viewportGeometry()
+  presentationDescription = ""
   GC_fullCollect()
+
+proc resetPresentation() =
+  ## Recreate read-only scene resources after a machine discontinuity.
+  expandedView = nil
+  visibleHook = nil
+  presentationDescription = ""
+  if geometry.expanded:
+    expandedView = newExpandedViewport(machine.rom, geometry.width, geometry.height)
+    visibleHook = proc(snes: SnesBus) =
+      ## Sample the scene before next-frame NMI uploads.
+      profileStage(ExpandedScenery): expandedView.capture(snes)
+
+proc readDimension(key: cstring, fallback: int): int =
+  ## Read a startup-only option, preserving defaults on older frontends.
+  var setting = RetroVariable(key: key)
+  result = fallback
+  if environment(RetroEnvGetVariable, addr setting) and setting.value != nil:
+    result = parseDimension($setting.value, fallback)
 
 proc retro_api_version(): cuint {.cdecl, exportc, dynlib.} =
   ## Return the supported libretro interface version.
@@ -93,6 +126,8 @@ proc retro_set_environment(callback: RetroEnvironment) {.cdecl, exportc, dynlib.
   environment = callback
   if environment != nil:
     var variables = [RetroVariable(key: DualScreenOption, value: DualScreenDescription),
+      RetroVariable(key: ViewportWidthOption, value: widthDescription.cstring),
+      RetroVariable(key: ViewportHeightOption, value: heightDescription.cstring),
       RetroVariable()]
     discard environment(RetroEnvSetVariables, addr variables[0])
     var supportsAchievements = true
@@ -141,13 +176,13 @@ proc retro_get_system_info(info: ptr RetroSystemInfo) {.cdecl, exportc, dynlib.}
       validExtensions: "smc|sfc", needFullpath: false, blockExtract: false)
 
 proc retro_get_system_av_info(info: ptr RetroSystemAvInfo) {.cdecl, exportc, dynlib.} =
-  ## Describe the fixed video and audio timing.
+  ## Describe the selected startup geometry and fixed audio timing.
   if info != nil:
     info[] = RetroSystemAvInfo(
-      geometry: RetroGameGeometry(baseWidth: Width,
-        baseHeight: (if dualScreen: DsCombinedHeight.cuint else: Height.cuint),
-        maxWidth: Width, maxHeight: (if dualScreen: DsCombinedHeight.cuint else: Height.cuint),
-        aspectRatio: (if dualScreen: Width.float32 / DsCombinedHeight.float32 else: 8.0 / 7.0)),
+      geometry: RetroGameGeometry(baseWidth: geometry.width.cuint,
+        baseHeight: geometry.outputHeight(dualScreen).cuint,
+        maxWidth: geometry.width.cuint, maxHeight: geometry.outputHeight(dualScreen).cuint,
+        aspectRatio: geometry.width.float32 / geometry.outputHeight(dualScreen).float32),
       timing: RetroSystemTiming(fps: FramesPerSecond,
         sampleRate: FramesPerSecond * ApuSamplesPerFrame.float))
 
@@ -166,6 +201,7 @@ proc retro_reset() {.cdecl, exportc, dynlib.} =
         machine.apu.spc.writeHook = nil
       cpuState = machine.softReset()
       if dualScreen: companion = newDsCompanion(machine.rom)
+      resetPresentation()
       GC_fullCollect()
     except CatchableError as error:
       shutdown("Reset failed: " & error.msg)
@@ -186,7 +222,7 @@ proc retro_run() {.cdecl, exportc, dynlib.} =
         if pressed:
           machine.joy1 = machine.joy1 or (1'u16 shl (15 - id.int))
     frameImage.fill(rgbx(0, 0, 0, 255))
-    stepReplayFrame(machine, cpuState, frameImage, addr pcm, polling)
+    stepReplayFrame(machine, cpuState, frameImage, addr pcm, polling, visibleHook)
     if dualScreen:
       var
         buttons: uint16
@@ -200,6 +236,7 @@ proc retro_run() {.cdecl, exportc, dynlib.} =
             y: inputState(0, RetroDevicePointer, 0, 1),
             pressed: inputState(0, RetroDevicePointer, 0, 2) != 0)
       profileStage(Companion):
+        if geometry.expanded: pointerInput = geometry.companionPointer(pointerInput)
         companion.update(machine.bus.mem.toOpenArray(WramOffset, WramOffset + WramSize - 1),
           buttons, pointerInput,
           partyBattleVisible(machine.bus.mem.toOpenArray(WramOffset, WramOffset + WramSize - 1),
@@ -207,23 +244,36 @@ proc retro_run() {.cdecl, exportc, dynlib.} =
           machine.cgram.toOpenArray(0, 31))
     if video != nil:
       profileStage(PixelPacking):
-        if opaquePixieVideo:
-          static: doAssert sizeof(ColorRGBX) == sizeof(uint32)
-          copyMem(addr pixels[0], addr frameImage.data[0], Width * Height * sizeof(ColorRGBX))
-          if dualScreen:
-            copyMem(addr pixels[Width * Height], addr companion.image.data[0],
-              Width * Height * sizeof(ColorRGBX))
-        else:
-          for i in 0 ..< frameImage.data.len:
-            let color = frameImage.data[i]
-            pixels[i] = (color.r.uint32 shl 16) or (color.g.uint32 shl 8) or color.b.uint32
-          if dualScreen:
-            for i, color in companion.image.data:
-              pixels[Width * Height + i] = (color.r.uint32 shl 16) or
-                (color.g.uint32 shl 8) or color.b.uint32
+        var gameImage = frameImage
+        if expandedView != nil:
+          profileStage(ExpandedScenery): gameImage = expandedView.compose(frameImage)
+        if expandedView != nil and expandedView.presentation != presentationDescription:
+          presentationDescription = expandedView.presentation
+          let message = "Viewport " & $geometry.width & "x" & $geometry.height & ": " & presentationDescription
+          if logger != nil: logger(RetroLogInfo, "%s", message.cstring)
+          else: stderr.writeLine("Decompbound: " & message)
+        template pack(image: Image, left, top: int) =
+          if opaquePixieVideo and image.width == geometry.width:
+            static: doAssert sizeof(ColorRGBX) == sizeof(uint32)
+            copyMem(addr pixels[top * geometry.width], unsafeAddr image.data[0],
+              image.data.len * sizeof(ColorRGBX))
+          else:
+            for row in 0 ..< image.height:
+              let destination = (top + row) * geometry.width + left
+              if opaquePixieVideo:
+                copyMem(addr pixels[destination], unsafeAddr image.data[row * image.width],
+                  image.width * sizeof(ColorRGBX))
+              else:
+                for column in 0 ..< image.width:
+                  let color = image.data[row * image.width + column]
+                  pixels[destination + column] = (color.r.uint32 shl 16) or
+                    (color.g.uint32 shl 8) or color.b.uint32
+        pack(gameImage, 0, 0)
+        if dualScreen:
+          pack(companion.image, (geometry.width - Width) div 2, geometry.height)
       profileStage(VideoCallback):
-        video(addr pixels[0], Width, (if dualScreen: DsCombinedHeight.cuint else: Height.cuint),
-          Width * sizeof(uint32))
+        video(addr pixels[0], geometry.width.cuint, geometry.outputHeight(dualScreen).cuint,
+          (geometry.width * sizeof(uint32)).csize_t)
     if audioBatch != nil:
       profileStage(AudioCallback): discard audioBatch(addr pcm[0], ApuSamplesPerFrame)
     elif audio != nil:
@@ -259,6 +309,7 @@ proc retro_unserialize(data: pointer, size: csize_t): bool {.cdecl, exportc, dyn
     deserializeState(bytes, staged, stagedCpu)
     deserializeState(bytes, machine, cpuState)
     if dualScreen: companion = newDsCompanion(machine.rom)
+    resetPresentation()
     frameImage.fill(rgbx(0, 0, 0, 255))
     pcm = default(FramePcm)
     result = true
@@ -299,6 +350,8 @@ proc retro_load_game(info: ptr RetroGameInfo): bool {.cdecl, exportc, dynlib.} =
     var setting = RetroVariable(key: DualScreenOption)
     dualScreen = environment(RetroEnvGetVariable, addr setting) and
       setting.value != nil and $setting.value == "enabled"
+    geometry = viewportGeometry(readDimension(ViewportWidthOption, Width),
+      readDimension(ViewportHeightOption, Height))
     let offset = if info.size == RomSize.csize_t: 0 else: CopierHeaderSize
     var rom = newSeq[uint8](RomSize)
     copyMem(addr rom[0], cast[pointer](cast[uint](info.data) + offset.uint), RomSize)
@@ -308,8 +361,11 @@ proc retro_load_game(info: ptr RetroGameInfo): bool {.cdecl, exportc, dynlib.} =
       (machine, polling) = newPollingMachine(rom)
     cpuState = machine.resetCpu()
     frameImage = newImage(Width, Height)
-    pixels = newSeq[uint32](Width * (if dualScreen: DsCombinedHeight else: Height))
+    pixels = newSeq[uint32](geometry.width * geometry.outputHeight(dualScreen))
+    if opaquePixieVideo:
+      for pixel in pixels.mitems: pixel = OpaqueBlack
     if dualScreen: companion = newDsCompanion(rom)
+    resetPresentation()
     resetCoreProfile()
     logVideoTransport()
     result = true

@@ -4,6 +4,10 @@ The optional dual-screen libretro mode keeps the complete SNES game above a
 read-only party companion. It runs the user's original ROM through decompbound;
 it does not patch the ROM or replace the game's menus.
 
+For configurable experimental game-view dimensions and desktop testing, see
+[expanded viewport design](expanded-viewport.md). The companion retains its
+original 256×224 layout.
+
 The lower panel uses the game's actual bitmap fonts, window graphics and
 palettes. A Goods window above the status panels shows the selected member's
 items in the original two-column, seven-row order, with the original equipped
@@ -14,7 +18,7 @@ Character artwork, maps and touch-driven item/PSI actions remain outside scope.
 
 ## Build and launch
 
-Build mono-retro-player from its `monofuel/ds` branch using that repository's
+Build mono-retro-player from the matching feature branch using that repository's
 normal development environment (`nix-shell shell-player.nix` on this machine):
 
 ```sh
@@ -110,8 +114,11 @@ battle actions. Hold Select+Start for two seconds to exit on the handheld.
 disabled is the default, including when a frontend does not implement options.
 Reload the content to change modes. The same shared library supports both.
 
-Enabled output is one XRGB8888 256×448 frame, with the complete original game
+Default enabled output is one 256×448 frame, with the complete original game
 in rows 0–223 and the companion in rows 224–447. Pitch remains 1024 bytes.
+Both the negotiated opaque XBGR and standard XRGB8888 transports are supported.
+Experimental viewport options change game and combined geometry as described in
+[expanded-viewport.md](expanded-viewport.md#desktop-launch-and-transport).
 Audio timing, SRAM, WRAM exposure, and normal RetroPad input are unchanged.
 RetroPad IDs 12/13 control selection; `RETRO_DEVICE_POINTER` is normalized
 against the full combined frame. The frontend transforms bottom-panel input

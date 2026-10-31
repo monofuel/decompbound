@@ -76,6 +76,16 @@ static uint32_t pixel;
 static uint32_t first_card, second_card;
 static unsigned errors, infos;
 static char last_error[256], last_info[256];
+static const char *dimension_override;
+static void check_dimension_options(const char *description, unsigned minimum) {
+  const char *cursor = strstr(description, "; "); CHECK(cursor); cursor += 2;
+  for (unsigned expected = minimum; expected <= 1024; ++expected) {
+    char *end = NULL;
+    CHECK(strtoul(cursor, &end, 10) == expected && end != cursor);
+    CHECK(*end == (expected == 1024 ? '\0' : '|'));
+    cursor = end + (expected == 1024 ? 0 : 1);
+  }
+}
 static void core_log(int level, const char *format, ...) {
   CHECK(level == ERROR_LOG_LEVEL || level == INFO_LOG_LEVEL);
   va_list arguments;
@@ -108,10 +118,20 @@ static bool environment(unsigned command, void *data) {
   if (command == LOG_INTERFACE_COMMAND) { CHECK(data); ((struct log_callback *)data)->log = core_log; return true; }
   if (command == 16) {
     struct variable *v = data; CHECK(v && !strcmp(v[0].key, "decompbound_dual_screen"));
-    CHECK(strstr(v[0].value, "disabled|enabled") && !v[1].key); return true;
+    CHECK(strstr(v[0].value, "disabled|enabled"));
+    CHECK(v[1].key && !strcmp(v[1].key, "decompbound_viewport_width"));
+    CHECK(v[2].key && !strcmp(v[2].key, "decompbound_viewport_height"));
+    check_dimension_options(v[1].value, 256); check_dimension_options(v[2].value, 224);
+    CHECK(!v[3].key); return true;
   }
   if (command == 15) {
-    struct variable *v = data; CHECK(v && !strcmp(v->key, "decompbound_dual_screen"));
+    struct variable *v = data; CHECK(v && v->key);
+    if (!strcmp(v->key, "decompbound_viewport_width")) {
+      if (!dimension_override) return false;
+      v->value = dimension_override; return true;
+    }
+    if (!strcmp(v->key, "decompbound_viewport_height")) return false;
+    CHECK(!strcmp(v->key, "decompbound_dual_screen"));
     v->value = dual_screen ? "enabled" : "disabled"; return true;
   }
   return false;
@@ -295,6 +315,13 @@ int main(int argc, char **argv) {
       CHECK(strstr(last_error, "XRGB8888") && errors == before_error + 1 && infos == before_info);
       unsigned before_video = videos; a.run(); CHECK(videos == before_video);
       accept_pixels = true;
+      const char *invalid_dimensions[] = {"255", "1025", "enabled", "999999999999999999999999"};
+      for (unsigned i = 0; i < sizeof(invalid_dimensions) / sizeof(invalid_dimensions[0]); ++i) {
+        dimension_override = invalid_dimensions[i]; before_error = errors; before_video = videos;
+        CHECK(!a.load_game(&game) && errors == before_error + 1);
+        a.run(); CHECK(videos == before_video);
+      }
+      dimension_override = NULL;
     }
     checked_load(a, &game);
     unsigned load_infos = infos;

@@ -206,6 +206,57 @@ The one-off PC-count probe is retired after preserving its offsets/counts here
 and replacing the wait-loop investigation with behavioral tests and full replay
 verification. Its historical source remains in Git; it was never a timing benchmark.
 
+## Measured desktop expanded-viewport prototype
+
+The [expanded viewport prototype](expanded-viewport.md) adds Winters base scenery
+around the original image. These are **desktop core timings**, not handheld or
+full-player results. The original 256×224 mode remains the default.
+
+Measured on the Ryzen 9 7950X, Linux 6.18.54, Nim 2.2.4, shipping `danger`/ORC
+core and host, with private opaque XBGR and the companion enabled. Each run is
+pinned to logical CPU 2, uses 120 warmup frames followed by 600 measured frames,
+and imports private `earthbound_20260818-021632.png`. Runs are serial; governor
+remains `powersave` and boost/frequency are not fixed. Idle uses neutral input;
+walking uses the profiler's alternating left/right input. No audio/display
+device is opened. All values below are milliseconds of core thread CPU time.
+
+| Game viewport | Idle mean | Idle p99 | Walk mean | Walk p95 | Walk p99 |
+|---|---:|---:|---:|---:|---:|
+| 256×224 | 0.821 | 0.891 | 0.844 | 0.920 | 0.937 |
+| 320×240 | 1.243 | 1.289 | 1.294 | 1.369 | 1.388 |
+| 336×256 | 1.429 | 1.473 | 1.536 | 2.153 | 2.324 |
+| 448×252 | 1.983 | 2.224 | 2.026 | 2.108 | 2.290 |
+| 512×384 | 3.644 | 3.947 | 3.719 | 3.824 | 3.896 |
+
+Walk wall-time p99 ranges from 0.940 ms at the original size to 3.954 ms at
+512×384. The latter's idle wall p99 is 3.970 ms. Tails need not scale monotonically
+across these short runs with uncontrolled CPU frequency. These measurements do not
+predict ARM timings or include frontend window scaling/presentation.
+
+The 336×256 walking prototype adds about 0.691 ms of core CPU relative to the
+original view in these runs. A separate instrumented 600-frame walk attributes
+0.633 ms/frame, 40.0% of its instrumented wall time, to `ExpandedScenery`
+(capture plus composition). Do not mix instrumented totals with the normal-run
+table. Additional pixels currently use direct per-pixel decoding. Reusing the
+atlas's tile-row approach is a future optimization candidate, not an implemented
+or benchmarked speedup.
+
+Reproduction, after `make libretro libretro-profile`:
+
+```sh
+taskset -c 2 bin/libretro-profile \
+  --core:bin/libretro/decompbound_libretro.so \
+  '--rom:bin/Earthbound (U) [!].smc' \
+  --state:"$HOME/Pictures/Screenshots/earthbound_20260818-021632.png" \
+  --ds --xbgr --viewport:336x256 --walk --warmup:120 --frames:600 \
+  --out:bin/expanded-viewport/336x256-walk.json
+```
+
+Omit `--walk` for idle. Replace dimensions for other presets. Numeric local
+reports are `bin/expanded-viewport/{WIDTH}x{HEIGHT}-{idle,walk}.json`; the
+instrumented report is `stages.json` with its host report `stages-host.json`.
+They contain timings/metadata, not memory captures. All remain ignored.
+
 ## Measured RG DS Plus profile
 
 Measured 2026-10-29 local time (2026-10-30 UTC) on the actual RK3568/Cortex-A55

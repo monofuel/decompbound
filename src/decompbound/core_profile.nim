@@ -7,7 +7,7 @@ type
   CoreProfileStage* = enum
     CoreOther, MainCpu, MainCpuWait, VideoScanline, VideoSprites, VideoForeground,
     ApuOther, SpcExecution, AudioDsp, Companion, PixelPacking,
-    InputCallback, VideoCallback, AudioCallback, SystemTasks
+    InputCallback, VideoCallback, AudioCallback, SystemTasks, ExpandedScenery
 
 when defined(coreProfile):
   type

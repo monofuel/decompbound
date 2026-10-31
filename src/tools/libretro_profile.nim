@@ -3,7 +3,7 @@
 
 import
   std/[algorithm, dynlib, json, monotimes, os, parseopt, strutils],
-  ../decompbound/libretro_api
+  ../decompbound/[libretro_api, viewport_geometry]
 
 when defined(linux):
   import std/posix
@@ -16,7 +16,7 @@ const
   JoypadRight = 7.cuint
   NanosecondsPerSecond = 1_000_000_000'i64
   Usage = "libretro_profile --core:PATH --rom:PATH [--state:PATH] " &
-    "[--frames:N] [--warmup:N] [--ds] [--walk] [--hash] [--xbgr] --out:bin/NAME.json"
+    "[--frames:N] [--warmup:N] [--ds] [--viewport:WIDTHxHEIGHT] [--walk] [--hash] [--xbgr] --out:bin/NAME.json"
   CrcPolynomial = 0xEDB88320'u32
   CrcInitial = 0xFFFFFFFF'u32
 
@@ -25,6 +25,7 @@ type
     corePath, romPath, statePath, outPath: string
     frames, warmup: int
     dualScreen, walk, hash, xbgr: bool
+    geometry: ViewportGeometry
   VoidProc = proc() {.cdecl.}
   ApiVersion = proc(): cuint {.cdecl.}
   SystemInfo = proc(info: ptr RetroSystemInfo) {.cdecl.}
@@ -45,6 +46,7 @@ type
     videoCalls, audioFrames, pollCalls, videoBytes: int64
     width, height: cuint
     pitch: csize_t
+    viewportWidth, viewportHeight: string
     videoCrc, audioCrc: uint32
 
 func makeCrcTable(): array[256, uint32] =
@@ -87,6 +89,12 @@ proc environment(command: cuint, data: pointer): bool {.cdecl.} =
       let setting = cast[ptr RetroVariable](data)
       if setting.key != nil and $setting.key == "decompbound_dual_screen":
         setting.value = if callbacks.dualScreen: "enabled" else: "disabled"
+        result = true
+      elif setting.key != nil and $setting.key == ViewportWidthOption:
+        setting.value = callbacks.viewportWidth.cstring
+        result = true
+      elif setting.key != nil and $setting.key == ViewportHeightOption:
+        setting.value = callbacks.viewportHeight.cstring
         result = true
   of RetroEnvShutdown:
     callbacks.failure = "The core requested shutdown."
@@ -178,6 +186,7 @@ proc parseOptions(): Options =
   ## Parse explicit benchmark inputs and reject ambiguous or invalid options.
   result.frames = DefaultFrames
   result.warmup = DefaultWarmup
+  result.geometry = viewportGeometry()
   var parser = initOptParser(commandLineParams())
   for kind, key, value in parser.getopt():
     if kind != cmdLongOption:
@@ -189,6 +198,12 @@ proc parseOptions(): Options =
     of "out": result.outPath = value
     of "frames": result.frames = parseInt(value)
     of "warmup": result.warmup = parseInt(value)
+    of "viewport":
+      let dimensions = value.split('x')
+      if dimensions.len != 2:
+        raise newException(ValueError, "Expected --viewport:WIDTHxHEIGHT")
+      result.geometry = viewportGeometry(parseDimension(dimensions[0], OriginalWidth),
+        parseDimension(dimensions[1], OriginalHeight))
     of "ds", "walk", "hash", "xbgr":
       if value.len != 0:
         raise newException(ValueError, "--" & key & " takes no value.")
@@ -272,6 +287,7 @@ proc profile(options: Options): JsonNode =
   symbol[SystemInfo](library, "retro_get_system_info")(addr info)
   callbacks = CallbackState(dualScreen: options.dualScreen, walk: options.walk,
     offerOpaque: options.xbgr,
+    viewportWidth: $options.geometry.width, viewportHeight: $options.geometry.height,
     videoCrc: CrcInitial, audioCrc: CrcInitial)
   symbol[SetEnvironment](library, "retro_set_environment")(environment)
   symbol[SetVideo](library, "retro_set_video_refresh")(video)
@@ -320,6 +336,10 @@ proc profile(options: Options): JsonNode =
     checkCallbacks()
     if callbacks.videoCalls != videoBefore + 1 or callbacks.pollCalls <= pollBefore:
       raise newException(IOError, "Expected video and input callbacks for every frame.")
+    if callbacks.width != options.geometry.width.cuint or
+        callbacks.height != options.geometry.outputHeight(options.dualScreen).cuint or
+        callbacks.pitch != (options.geometry.width * sizeof(uint32)).csize_t:
+      raise newException(IOError, "The core did not honor the requested viewport geometry.")
   result = %*{
     "schema": 1,
     "core_path": options.corePath,
@@ -330,6 +350,8 @@ proc profile(options: Options): JsonNode =
     "frames": options.frames,
     "warmup_frames": options.warmup,
     "dual_screen": options.dualScreen,
+    "viewport_width": options.geometry.width,
+    "viewport_height": options.geometry.height,
     "opaque_xbgr_offered": options.xbgr,
     "opaque_xbgr_accepted": callbacks.opaqueAccepted,
     "walk": options.walk,

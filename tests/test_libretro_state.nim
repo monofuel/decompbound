@@ -35,8 +35,10 @@ proc environment(command: cuint, data: pointer): bool {.cdecl.} =
     return cast[ptr cuint](data)[] == RetroPixelFormatXrgb8888
   if command == RetroEnvSetVariables: return true
   if command == RetroEnvGetVariable:
-    cast[ptr RetroVariable](data).value = "enabled"
-    return true
+    let variable = cast[ptr RetroVariable](data)
+    if $variable.key == "decompbound_dual_screen":
+      variable.value = "enabled"
+      return true
 
 proc video(data: pointer, width, height: cuint, pitch: csize_t) {.cdecl.} =
   ## Check that restoring a state preserves the negotiated dual-screen output.

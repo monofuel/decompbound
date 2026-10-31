@@ -69,9 +69,10 @@ Change how *our emulator* renders/runs the game — ROM untouched. Because we ow
 the emulator, we can do things real hardware never could. Fully our own code, no
 copyright issue, ship freely. Several need no decomp at all.
 
-- **🖥️ Widescreen mode** — the flagship. Render a wider viewport than 256px by
-  extending the PPU's per-scanline render + revealing more of the scrolled BG.
-  Tricky (sprite pop-in at the edges, HUD layout), but pure emulator-side.
+- **🖥️ Expanded viewport** — reveal more scenery horizontally and vertically.
+  Correct live scenes require camera, streaming, object and effect research
+  beyond increasing the framebuffer size. Candidate handheld resolutions and
+  investigation questions live in [expanded-viewport.md](expanded-viewport.md).
 - **⏪ Save states + rewind** — snapshot emulator state; rewind = a ring buffer of
   snapshots. Also directly feeds the TAS/replay work (`docs/input-replay.md`) and
   the accuracy regression harness (`docs/accuracy.md`).

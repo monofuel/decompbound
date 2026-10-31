@@ -57,8 +57,8 @@ unsupported pixel format is rejected through the API and optional frontend log.
 
 | Interface | Value |
 |---|---|
-| Video | 256x224, standard XRGB8888 or negotiated opaque XBGR, 1,024-byte pitch |
-| Aspect | 8:7 square pixels, matching the existing desktop player |
+| Video | Default 256x224, standard XRGB8888 or negotiated opaque XBGR, 1,024-byte pitch |
+| Aspect | Square pixels; default 8:7, matching the existing desktop player |
 | Timing | 60 frames/sec, 533 stereo samples/frame, 31,980 samples/sec |
 | Audio | Interleaved signed 16-bit stereo; batch callback preferred, per-sample fallback |
 | Input | Port 0 RetroPad: B, Y, Select, Start, Up, Down, Left, Right, A, X, L, R |
@@ -69,6 +69,12 @@ The sample rate describes the existing replay cadence exactly. Frontends should
 resample from the advertised rate when their audio device requires another rate.
 Discarding audio never changes the emulation rate. The frontend owns pacing;
 there are no sleeps or window/event loops inside the core.
+
+Startup-only experimental width/height options can enlarge the game viewport.
+The default output is unchanged; custom dimensions determine geometry and pitch.
+Dual-screen mode retains the 256×224 companion with a separate crop below the
+game. See [expanded viewport](expanded-viewport.md#desktop-launch-and-transport)
+for options, dimensions and the desktop prototype's supported scene coverage.
 
 Pixel and PCM buffers remain core-owned; a frontend retaining output should copy
 it during the callback. SRAM and WRAM pointers remain stable until game unload.

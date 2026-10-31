@@ -37,6 +37,14 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 ## OPEN — please check
 
+### Expanded viewport desktop prototype
+
+| Check | Run | Pass if |
+|---|---|---|
+| [ ] Winters terrain at every viewport size | On the matching branches in both repos, build mono-retro with `make player-desktop`, then run decompbound's `make libretro-viewport-play STATE="$HOME/Pictures/Screenshots/earthbound_20260818-021632.png" VIEWPORT=336x256`. Repeat with `256x224`, `320x240`, `448x252`, `512x384` and custom `257x225`. The target is muted and disables achievements. | Original game pixels and Jeff remain correctly positioned; supported Winters scenery extends on every added side without seams as you walk. Objects outside the original frame are intentionally not added in this phase. The companion keeps its original appearance. |
+| [ ] Unequal windows and companion input | Resize both windows separately; compare automatic scaling with `VIEWPORT_SCALE=2`. Use keyboard/controller character selection and click status cards where multiple members are available. Drop a private state onto either window. | Each panel stays sharp and centered at integer scales. The companion remains 256×224 logically; clicks select the intended card, padding clicks do nothing, and state imports clear old scenery. |
+| [ ] Unsupported scene padding | From the prototype, enter the lab or load local interior/battle screenstates. Return to the Winters outdoor reference. | Unsupported scenes retain the complete original image centered on black, with no stale outdoor terrain. Verified Winters scenery resumes after returning. No new actors or effects are claimed outside the original view. |
+
 ### RetroAchievements (2026-10-30)
 
 Core, synthetic SDK and desktop integration gates pass. RG DS Plus now has the
