@@ -206,10 +206,10 @@ Entity processing crosses to bank `$80` via `JML $809470`; instruction traces
 must account for that bank alias when looking for callbacks.
 
 Static inspection locates queued-sprite composition at `$C08B8E` and the
-per-sprite emitter at `$C08CD5`. The emitter is adopted; the queue drain remains
-unadopted. The emitter's verified record semantics and the
-queue's statically derived layout follow below. Definition producers and their
-graphics references remain the link needed for a faithful asset browser.
+per-sprite emitter at `$C08CD5`. The initializer, queue drain, emitter and
+publisher are reproduced from annotated assembly. Their record and queue
+contracts follow below; the resource and upload sections connect them to the
+local sprite preview.
 
 ## Sprite-element emission
 
@@ -296,6 +296,14 @@ required: the code pushes X and retrieves it with a 16-bit accumulator pull.
 It forces M16 but does not force X16. Valid queue indices are 0–3, and each
 queue has space for 32 records; neither limit is checked by the routine.
 
+The wrapper/near entry, four append handlers and drain are reproduced in
+`enqueueOamDefinition.asm`, `appendOamQueues.asm` and `drainOamQueues.asm`.
+`$C08C65` is their four-entry dispatch table. Before each queue, the drain
+compares `$2402` to that queue's index; equality calls the lone RTS at `$C08C53`.
+That call has no data effect and does not skip or reorder the queue. The higher
+level role of `$2402` remains unresolved. The drain requires native 16-bit
+indices and restores processor status; it does not clear queue counts.
+
 `publishOamBuild` at `$C08B26..$C08B8D` is adopted as
 [annotated assembly](../asm/publishOamBuild.asm). Its 104 bytes are checked
 against the original ROM by the pipeline integration test. It first calls the
@@ -345,7 +353,8 @@ and `$7E`. No game assets, frames, or machine-state fixtures are used.
 
 The test also executes the bounded interrupt consumers below to establish the
 PPU transfer. Full interrupt scheduling and visual fidelity remain outside its
-scope. Entity definition pointers and graphics/palette selection remain open.
+scope. Resource definitions and baseline palette selection have separate checks
+below; scene-specific selection remains open.
 
 
 ## Published buffer transfer and scroll snapshots
@@ -421,8 +430,8 @@ with Y already at the operands. These are action-VM opcodes, not dialogue codes.
 The normal dispatch rejects a negative bank/state word and also branches on
 **inherited overflow** at `$C0A0E8`: its preceding LDA does not update V.
 Do not reinterpret that branch as a test of bank/state bit 14. The test below
-uses a positive bank/state word and V clear; meanings of the upper state bits
-and all suppression paths are not yet established.
+uses a positive bank/state word and V clear. The separate entity-system check
+covers all rejection branches; meanings of the upper state bits remain open.
 
 `nim r tests/integration_entity_sprite.nim` checks 8,640 synthetic scenarios:
 30 entity offsets, four queue groups, two RAM banks, and 36 frame indices
@@ -433,6 +442,20 @@ advancement, preservation of the high bank/state byte, selected table word,
 queue bank and coordinates, and resulting tile/attribute/size/position in OAM.
 No ROM graphics or script bodies are embedded. The action-VM fetch loop itself
 is not executed by this test; the handlers receive its documented entry state.
+
+The two handlers, dispatcher and callback are reproduced in
+`actionScriptSetGraphics.asm`, `actionScriptSetRenderCallback.asm`,
+`dispatchEntityGraphics.asm` and `enqueueEntityFrame.asm`.
+`tests/integration_entity_system.nim` adds 120 dispatch cases: three entity
+offsets, four bank/state words, five frame values, and both inherited V states.
+`$407E` is accepted when V is clear. Rejected bank/V paths preserve DP `$8C/$8E`;
+a rejected negative frame has already written those pointers. The selected
+callback is reached by JMP and returns directly to the dispatch caller.
+
+Another 81 cases check `$1C` across three entities, three pointer words and three
+bank bytes. The byte-wide bank store preserves entity `$116B`; A's low byte
+returns the bank while its high byte retains the pointer's high byte. A is not
+a zero-extended bank result.
 
 This proves the configured table-based path. It does not inventory all frame
 tables, explain how CHR is uploaded, or prove palette selection for every entity.
@@ -498,13 +521,11 @@ first-group count in `$2BE7`; `(layout byte 0 - layout byte 1) & $FF` becomes
 second-group count `$2BE6`. This connects the layout header to the priority
 loops, rather than treating their counts as unrelated entity state.
 
-These are **static findings**, not a completed resource catalog. Table lengths,
-valid ID ranges, complete layout records, allocation behavior, graphics frame
-pointers, and palette interpretation remain to be verified. The runtime-definition
-builder is verified below. Next: correlate a real resource's layout with its
-generated records and graphics transfer. Keep extracted resource
-and layout contents local; only the code, structural facts, and evidence belong
-in the repository.
+These offsets explain the static route. The following sections verify the 464
+resource entries, definition construction, allocation, frame transfers and baseline
+palette. Identity labels, scene overrides and other graphics classes remain open.
+Extracted resource and layout contents stay local; only code, structural facts
+and evidence belong in the repository.
 
 ## Runtime-definition builder
 
@@ -718,10 +739,12 @@ palette-fidelity claim.
 
 The test initializes entity fields from the derived resource formulas. It does
 not execute the allocator, the whole spawn sequence, or full interrupt timing.
-Screen rendering remains open. Next: combine the allocation clearing verified
-below with the baseline
-OBJ palette verified below with this upload and the verified definitions to
-render a representative sprite faithfully.
+The local preview at the start of this document combines those stages with
+baseline palette loading and rendering. The normal-upload prefix, entry reader
+and chunk placement wrapper are reproduced as `uploadSpriteFrame.asm`,
+`readSpriteGraphicsEntry.asm` and `transferSpriteChunk.asm`. The prefix falls
+through into the entry reader; its fill-exhausted branches share the RTL at
+`$C0A56D`. They are contiguous build regions, not independent returning routines.
 
 ### Complete sprite spawn wrapper
 
@@ -762,6 +785,15 @@ graphics frame or execute the attached script. It also leaves fields such as
 `$341A` for later upload/update routines. The local preview uses this whole
 wrapper on fresh state, then explicitly selects its frame and publishes graphics.
 
+The spawn wrapper is reproduced as `spawnSpriteEntity.asm`; its same-bank
+header reader is `readSpriteResourceHeader.asm` (`$C01DED..1E48`). One additional
+early return tests resource ID `$FFFF` when `$436C` is nonzero, returning A=0
+before allocation. It tests the resource argument, not the owner request.
+`tests/integration_entity_system.nim` verifies this path leaves both pools and
+entity/state lists intact, then constructs a valid resource under the same gate.
+The same test reaches each exhaustion loop and verifies eight bounded loop
+iterations without pretending that the routine returns an allocation error.
+
 ### Sprite cleanup and reuse
 
 The two cleanup entries have different lifetimes. `$C020F1..213F` reads the
@@ -787,6 +819,36 @@ slots, and successful respawn reusing the same storage. These cases have one
 active entity and one attached script-state node; removing middle-list entities
 or multi-node script stacks remains outside this check.
 
+The cleanup entries are reproduced as `releaseCurrentSpriteGraphics.asm` and
+`removeSpriteEntity.asm`. The current-entity entry frees the definition pointer
+currently stored at `$112E`; callers that temporarily replace it with a synthetic
+frame table must restore the owned definition pointer before releasing graphics.
+
+### Connected lifecycle from the rebuilt ROM
+
+`nim r tests/integration_engine_lifecycle.nim` extracts locally, rebuilds from
+the manifest and annotated assembly, asserts whole-ROM identity, and executes
+that rebuilt image. Eight scenarios cover resources 0/437, both initial OAM
+buffers, and immediate/queued frame transfers. Each creates two entities and
+installs tiny synthetic scripts through their attached state pointers.
+
+The scripts execute `$1C/$22`, alternate two frames with two-tick waits, and
+remove the first entity through native graphics cleanup followed by opcode `$00`.
+Queue groups deliberately reverse active-list order. The harness explicitly
+invokes rendering and frame upload after each scheduler tick, sets the upload
+phase, publishes OAM, and runs bounded original DMA/scroll interrupt fragments.
+This is a consumer-integration check, not a complete frame service or NMI timing
+simulation. Original spawn definitions are snapshotted as rendering inputs;
+independent signed-coordinate packing checks every emitted OAM record, while a
+separate source-chunk model checks all VRAM words. The lower-level layout tests
+independently verify construction of those definition inputs.
+
+The script restores its owned definition pointer before cleanup. Assertions
+check unchanged VRAM during release, the surviving entity, returned entity/state
+storage, and respawn reusing the released tile/definition allocation. No scripts,
+images or captured state from the game are retained as fixtures. This does not
+extend scene-palette, physical display or full-interrupt coverage.
+
 ### Sprite allocation and clearing
 
 The resource-header reader `$C01DED` derives width in 8-pixel tiles as resource
@@ -806,8 +868,10 @@ requests are not established as safe inputs.
 
 The 123-byte allocator is reproduced by
 [`allocateSpriteSlots.asm`](../asm/allocateSpriteSlots.asm) and marked explained
-in the manifest. Its calling allocation/clear wrapper remains outside that
-adoption. The test compares assembled bytes against the original ROM and adds
+in the manifest. Its calling allocation/clear wrapper is reproduced separately
+as `allocateAndClearSpriteTiles.asm`, `$C01C52..1D37`. The four-byte return
+epilogue at `$C01D34..1D37` belongs to the wrapper; `$C01D38` begins the existing
+definition builder. The test compares assembled bytes against the original ROM and adds
 23,496 direct calls: all counts 1–88, occupied-prefix lengths 0–88, and three
 owner tags. This checks the full supported count range, final-slot acceptance,
 exhaustion without partial marking, occupancy guards, and preserved D/DBR/stack.
@@ -938,5 +1002,5 @@ the unselected half, the neighboring byte `$0031`, transfer accounting, and
 the next visit skipping the cleared request. A further case executes the
 original baseline copy, checks all 256 staging bytes against the user's ROM
 and both boundary guards, then uploads them to OBJ CGRAM. No palette bytes
-are embedded in the test. Scene overrides and the combination with sprite
-rendering remain unverified.
+are embedded in the test. Scene overrides remain unverified here; the separate
+local preview combines the baseline palette with sprite rendering.

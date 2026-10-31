@@ -1,13 +1,14 @@
-# Decompiling the data — the other 90% of the ROM
+# Data formats and reverse-engineering evidence
 
 **Status:** the big open frontier. Hub doc for the data reverse-engineering
 tracks.
 
-Goal 1 conquered the boot-path **code** (266 regions, byte-exact, round-tripped
-— `docs/goal-1.md`). But as `docs/goal.md` says up front, **most of the 3MB ROM
-is data, not code**: text and event scripts, graphics, music, maps, and game
-tables. "Decompile EarthBound" is mostly *this* — understanding the data. Goal 1
-conquered the machine; these tracks conquer the game.
+[GOAL.md](../GOAL.md) defines the current five goals. Goal 1 maintains an exact
+reconstruction of the complete ROM; it does not establish comprehension of the
+copied regions. This hub connects code consumers to text/event scripts, graphics,
+music, maps and game tables. The historical boot-path scaffold and its 266-region
+inventory are described in [goal-1.md](goal-1.md); those numbers are not current
+explained-code totals. Use the manifest progress report for accepted regions.
 
 ## The verification principle: round-trip, again
 
@@ -16,11 +17,13 @@ gets the exact same honesty rule:
 
 > **`encode(decode(bytes)) == bytes`**, per asset, against the gold ROM.
 
-If we claim to understand a format, we must **decode** it to a structured/visual
-form *and* **re-encode** it to the original bytes. A viewer that renders
-something plausible proves nothing; a byte-exact round-trip proves we actually
-understand the layout, including compression. This is what makes clean-room RE
-honest and lets us cross-check community docs (CoilSnake) without copying them.
+Byte-preserving parse/encode checks establish preservation of a representation.
+Behavioral checks against the original consumer establish the meaning of its
+fields; retaining opaque bytes alone does not explain them. Decoding graphics
+and then recompressing to equivalent pixels is also distinct from recreating
+the original compressed bytes. Keep the original-byte build path until the
+stronger re-encoding claim is verified. Community documentation can suggest
+hypotheses; our own code and ROM evidence must establish the result.
 
 ## The instrument: the emulator does dynamic RE
 
@@ -40,21 +43,21 @@ disasm finds the interpreter, dynamic tracing reveals the data it eats.
 
 ### The emulator also resolves the *code* frontier
 
-Static control-flow tracing (`tools/convert_all.nim`) follows the ROM from its
+Static control-flow tracing (`src/tools/convert_all.nim`) follows the ROM from its
 interrupt vectors, but stops dead at every computed/indirect jump — `JMP
 ($xxxx,X)`, `JML [$xx]` — because it cannot know statically where the game
 dispatches. EarthBound is a data-driven engine full of these jump tables, so
-vector-only tracing reaches a small fraction of the code. Each stop is recorded
-in `generated/frontier.md`.
+vector-only tracing cannot establish a complete code inventory. Phase 1 recorded
+these stops in the retired `generated/frontier.md`.
 
 The emulator resolves this the same way it resolves data: **every address the
 CPU actually fetches an instruction from is, by definition, real executed
 code** — no jump table needs hand-resolving.
 
-- `tools/probe_pc_coverage.nim` boots the ROM and replays save-states + recorded
+- `src/probes/probe_pc_coverage.nim` boots the ROM and replays save-states + recorded
   `.tas` sessions, recording the ROM file offset of every instruction fetch.
 - It writes those addresses to `src/decompbound/observed_entries.txt` (addresses
-  only — structural facts, like `frontier.md`; no game data, safe to commit).
+  only — structural facts; no game data, safe to commit).
 - `convert_all` seeds `analyzeControlFlow` with them, so tracing carries *past*
   the frontier through code we know is real because it ran.
 
@@ -64,17 +67,19 @@ walks each basic block forward to its return/branch. The critical requirement is
 **seeding at the right M/X width**: a mid-execution seed reached in 16-bit native
 mode, if decoded as 8-bit (the tracer's default), misaligns and over-runs the
 routine into trailing data, marking it Code. Those bytes still *reproduce gold
-byte-exactly* (so `tests/test_regions.nim` cannot catch them), which is exactly
+byte-exactly* (so a byte-comparison gate cannot catch them), which is exactly
 why an early version of this seeding *inflated* coverage ~3× with misaligned
 garbage and a frontier full of false `($FCFC,X)` sites. The fix: `probe_pc_coverage`
 records the true `cpu.m8/x8/emulation` width at each fetch and `convert_all` passes
 it through `seedFlags`, so each seed decodes at the boundary the CPU used.
 
-Correctly aligned, this seeding took byte-exact coverage from **141,963 → 179,250
-bytes (4.51% → 5.70% of the ROM)** — real code recovered from behind the computed
-jumps, with the frontier restored to its ~20 genuine jump-table sites. `make
-compare` reports it as *Decompiled (byte-exact)* — the number to drive up —
-separate from coincidental zero-fill matches, which are not progress.
+The historical corrected sweep grew from **141,963 to 179,250 bytes
+(4.51% to 5.70% of the ROM)**, with approximately 20 remaining jump-table sites.
+That measured scaffold recovery, not explained game code. Generated bank modules
+have since been retired. Current `make compare` verifies manifest-based whole-ROM
+identity; `progress_report` separately counts source reproduction and documented
+comprehension. Neither historical sweep percentages nor coincidental zero-fill
+matches belong in the accepted explained-code total.
 
 ## The browsers: one explorer per format
 

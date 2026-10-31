@@ -121,6 +121,8 @@ proc checkExhaustion(snes: SnesBus, failure: int) =
     before.add snes.bus.read8(Wram + address.uint32)
   let cpu = snes.create(1, 128, 112)
   doAssert cpu.a == 0 and (cpu.p and FlagC) != 0
+  doAssert snes.getWord(0x0A4C) == (if failure == 2: 2 else: 0)
+  doAssert snes.getWord(0x0A4E) == 60
   for index, value in before:
     doAssert snes.bus.read8(Wram + (0x0A50 + index).uint32) == value
 
