@@ -267,6 +267,16 @@ full-player result. Reports are `bin/viewport-{before,after}-general.json`.
 Further scene coverage should retain the publication checks; tile-row caching
 remains a candidate for reducing the additional per-pixel work.
 
+The first expanded battle path reuses the PPU compositor on translated chunks.
+On the same PC, a fullscreen battle capture (`earthbound_20260706-213532.png`),
+DS/XBGR at 336×256, pinned CPU 2, 120 warmup plus 600 measured frames gave
+**1.255 ms mean / 1.479 ms p99** core-thread CPU for the retained padded-battle
+baseline and **2.742 ms mean / 3.005 ms p99** with battle margins enabled.
+Reports are `bin/battle-viewport-{before,after}.json`. These are short desktop
+measurements, not ARM or full-player timing. The unexpanded default avoids the
+observer entirely. The first implementation renders fixed-width PPU chunks even
+for narrow margins; decoding only the needed spans is a future optimization.
+
 ## Measured RG DS Plus profile
 
 Measured 2026-10-29 local time (2026-10-30 UTC) on the actual RK3568/Cortex-A55

@@ -512,7 +512,11 @@ libretro-ds-play: libretro
 	@test -x "$(MONO_RETRO_PLAYER)" || { echo "Build mono-retro's player-desktop target first, or set MONO_RETRO_PLAYER." >&2; exit 1; }
 	"$(MONO_RETRO_PLAYER)" --core:"$(CURDIR)/bin/libretro/decompbound_libretro.so" --rom:"$(ROM)" --save-dir:"$(LIBRETRO_DS_SAVE_DIR)" --earthbound-ds $(LIBRETRO_STATE_ARGS) $(MONO_RETRO_ARGS)
 
-.PHONY: libretro-viewport-play libretro-viewport-test libretro-viewport-corpus-test
+.PHONY: libretro-viewport-play libretro-viewport-test libretro-viewport-corpus-test libretro-battle-viewport-test
+libretro-battle-viewport-test:
+	nim r $(NIM_TEST_FLAGS) tests/test_battle_viewport.nim
+	nim r $(NIM_TEST_FLAGS) tests/integration_battle_viewport.nim $(if $(STATE),"$(STATE)",)
+
 libretro-viewport-corpus-test:
 	nim r $(NIM_TEST_FLAGS) tests/integration_expanded_viewport_corpus.nim
 

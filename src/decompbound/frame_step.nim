@@ -16,6 +16,8 @@ type
     ## One frame of interleaved stereo APU output (533 left/right pairs).
   VisibleFrameHook* = proc(snes: SnesBus) {.closure.}
     ## Observe completed visible-frame data before NMI prepares the next frame.
+  ScanlineHook* = proc(snes: SnesBus, line: int) {.closure.}
+    ## Observe displayed PPU state after HDMA and before a visible scanline is rendered.
 
 when defined(coreProfile):
   const
@@ -54,7 +56,7 @@ proc readRomFile*(filepath: string): seq[uint8] =
 
 proc stepOneFrame*(snes: SnesBus, cpu: var Cpu, image: Image, render = true,
     pcm: ptr FramePcm = nil, polling: CpuPollingContext = nil,
-    onVisibleFrame: VisibleFrameHook = nil) =
+    onVisibleFrame: VisibleFrameHook = nil, onScanline: ScanlineHook = nil) =
   ## Advance the emulator by exactly one frame (262 scanlines).
   ## Mirrors play.nim (NMI at line 224, InstrPerLine=150). Pass render=false
   ## to skip PPU draws (headless TAS reports). When `pcm` is given, the 524
@@ -92,6 +94,7 @@ proc stepOneFrame*(snes: SnesBus, cpu: var Cpu, image: Image, render = true,
             break
     if l < 224:
       profileStage(SystemTasks): snes.runHdma()
+      if onScanline != nil: onScanline(snes, l)
       if render and (snes.ppuRegs[0x00] and 0x80) == 0:
         profileStage(VideoScanline): ppu.renderScanline(snes, image, l)
     for k in 0 ..< 2:

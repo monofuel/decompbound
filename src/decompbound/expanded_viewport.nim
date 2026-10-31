@@ -1,16 +1,17 @@
-## Optional expanded live map scenery around the original 256x224 frame.
+## Optional expanded live map and battle scenery around the original 256x224 frame.
 ## Capture is read-only and must run at the end of the visible frame, before NMI.
 
 import
   std/[options, strformat],
   pixie,
-  ./[cpu, ppu, snesbus, viewport_geometry, world_map, world_map_assets, world_map_layout]
+  ./[battle_viewport, cpu, ppu, snesbus, viewport_geometry, world_map, world_map_assets, world_map_layout]
 
 type
   ExpandedViewport* = ref object
-    ## Own decoded atlas resources plus a per-frame live map scenery snapshot.
+    ## Own decoded atlas resources and live map/battle presentation snapshots.
     width*, height*: int
     atlas: WorldMapAtlas
+    battle: BattleViewport
     originX, originY: int
     captured: bool
     extended: bool
@@ -107,6 +108,7 @@ proc newExpandedViewport*(rom: seq[uint8], width, height: int): ExpandedViewport
   discard viewportGeometry(width, height)
   let atlas = newWorldMapAtlas(rom)
   result = ExpandedViewport(width: width, height: height, atlas: atlas,
+    battle: newBattleViewport(width, height, rom),
     originX: (width - ScreenWidth) div 2, originY: (height - ScreenHeight) div 2,
     reason: "no-capture", output: newImage(width, height))
   result.output.fill(OpaqueBlack)
@@ -114,6 +116,7 @@ proc newExpandedViewport*(rom: seq[uint8], width, height: int): ExpandedViewport
 proc presentation*(view: ExpandedViewport): string =
   ## Describe the current extended or padded policy for stable log transitions.
   if not view.captured: PresentationNone
+  elif view.battle.ready: "extended battle"
   elif view.extended: PresentationExtended
   else: "padded " & view.reason
 
@@ -209,6 +212,8 @@ proc capture*(view: ExpandedViewport, snes: SnesBus) =
   ## Snapshot pre-NMI camera, flags, and live map resources; never write the machine.
   view.captured = true
   view.extended = false
+  view.battle.finishCapture(snes)
+  if view.battle.ready: return
   view.syncStoryFlags(snes)
   let camera = snes.publishedCamera()
   if camera.isNone:
@@ -229,6 +234,10 @@ proc capture*(view: ExpandedViewport, snes: SnesBus) =
     return
   view.extended = true
   view.reason = "map"
+
+proc captureScanline*(view: ExpandedViewport, snes: SnesBus, line: int) =
+  ## Record battle background HDMA at the row actually displayed by the PPU.
+  view.battle.captureScanline(snes, line)
 
 proc windowAt(view: ExpandedViewport, selector: uint8, shift, combine, x: int): bool =
   ## Evaluate static SNES windows in original-screen coordinates without wrapping new margins.
@@ -334,7 +343,10 @@ proc compose*(view: ExpandedViewport, original: Image): Image =
   if view.output.width != view.width or view.output.height != view.height:
     view.output = newImage(view.width, view.height)
   view.output.fill(OpaqueBlack)
-  if view.extended:
+  if view.battle.ready:
+    copyMem(addr view.output.data[0], addr view.battle.output.data[0],
+      view.output.data.len * sizeof(ColorRGBX))
+  elif view.extended:
     let
       originX = view.originX
       originY = view.originY

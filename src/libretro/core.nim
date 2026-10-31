@@ -25,8 +25,8 @@ const
     (if BuildDirty: "+dirty" else: "")
 
 let
-  widthDescription = dimensionOptions("Experimental world width", OriginalWidth)
-  heightDescription = dimensionOptions("Experimental world height", OriginalHeight)
+  widthDescription = dimensionOptions("Experimental viewport width", OriginalWidth)
+  heightDescription = dimensionOptions("Experimental viewport height", OriginalHeight)
 
 var
   environment: RetroEnvironment
@@ -44,6 +44,7 @@ var
   geometry = viewportGeometry()
   expandedView: ExpandedViewport
   visibleHook: VisibleFrameHook
+  scanlineHook: ScanlineHook
   presentationDescription: string
   dualScreen: bool
   opaquePixieVideo: bool
@@ -95,6 +96,7 @@ proc releaseMachine() =
   opaquePixieVideo = false
   expandedView = nil
   visibleHook = nil
+  scanlineHook = nil
   geometry = viewportGeometry()
   presentationDescription = ""
   GC_fullCollect()
@@ -103,12 +105,16 @@ proc resetPresentation() =
   ## Recreate read-only scene resources after a machine discontinuity.
   expandedView = nil
   visibleHook = nil
+  scanlineHook = nil
   presentationDescription = ""
   if geometry.expanded:
     expandedView = newExpandedViewport(machine.rom, geometry.width, geometry.height)
     visibleHook = proc(snes: SnesBus) =
       ## Sample the scene before next-frame NMI uploads.
       profileStage(ExpandedScenery): expandedView.capture(snes)
+    scanlineHook = proc(snes: SnesBus, line: int) =
+      ## Preserve the actual row's HDMA phase and palette without advancing the game.
+      profileStage(ExpandedScenery): expandedView.captureScanline(snes, line)
 
 proc readDimension(key: cstring, fallback: int): int =
   ## Read a startup-only option, preserving defaults on older frontends.
@@ -222,7 +228,7 @@ proc retro_run() {.cdecl, exportc, dynlib.} =
         if pressed:
           machine.joy1 = machine.joy1 or (1'u16 shl (15 - id.int))
     frameImage.fill(rgbx(0, 0, 0, 255))
-    stepReplayFrame(machine, cpuState, frameImage, addr pcm, polling, visibleHook)
+    stepReplayFrame(machine, cpuState, frameImage, addr pcm, polling, visibleHook, scanlineHook)
     if dualScreen:
       var
         buttons: uint16

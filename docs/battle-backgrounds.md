@@ -130,6 +130,13 @@ alternating vertical scroll-register words. Signed wave displacement is
 scroll; vertical phase does not. Compression advances its 8.8 accumulator
 **before** each vertical scanline. The engine's kind is record kind minus one.
 
+Live-driver routing differs from those generator equations: `$C2CF02` selects
+VOFS only for record kind 3; kind 4's vertical accumulator is published to HOFS.
+The expanded live viewport observes and verifies that actual axis. The standalone
+preset preview still applies kind 4 to vertical sampling; correcting that mapping
+and adding a whole-driver routing oracle remain follow-up work. The existing
+original-CPU generator oracle alone does not verify this routing step.
+
 Palette update `$C2C94F..$C2CBA2` first writes phase zero, then advances phase;
 subsequent writes occur every speed ticks. Speed zero freezes after that first
 write. Types 1 and 2 copy backwards through one or two inclusive ranges. Type 3

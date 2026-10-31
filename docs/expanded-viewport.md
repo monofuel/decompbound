@@ -1,7 +1,7 @@
 # Expanded EarthBound viewport
 
-Status: experimental live map expansion for towns, outdoor cutscenes and ordinary
-interiors. Winters has manual confirmation; broader scenes have headless
+Status: experimental live map expansion plus ordinary mode-0 battle backgrounds.
+Winters has manual confirmation; broader map and battle scenes have headless
 verification and await manual checks. Desktop tearing remains open, and the
 complete manual preset/input matrix is not yet confirmed. All listed sizes and validated custom
 dimensions are selectable. The first implementation targets local desktop testing
@@ -12,6 +12,7 @@ The Winters-only tileset gate has been removed. Captured Skyrunner clouds,
 landing in Threed and cave interiors now extend through the shared map renderer.
 There is no town or indoor allowlist. Unsupported rendering effects still use
 the original screen centered on black; this does not promise every cutscene frame.
+Mode-0 BG3/BG4 battle backgrounds now extend too, with centered original enemies/UI.
 
 The aim is to reveal more of the world while retaining sharp integer-scaled
 pixels. On the handheld's 4:3 panels, expanding both dimensions is a useful
@@ -370,7 +371,7 @@ story state; ordinary outdoor scenery passing does not verify these effects.
 
 **Findings and remaining gaps:** live CHR, arrangements and palettes, static
 windows, layer priority, fixed/subscreen colour math and brightness are covered
-by PPU comparisons across the archive and synthetic configurations. HDMA and
+by PPU comparisons across the archive and synthetic configurations. Overworld HDMA and
 mosaic remain excluded: end-of-frame registers cannot describe their scanline
 history. Captured Skyrunner cloud/landing scenes now pass; other portions with
 unsupported effects may still pad. This does not resolve the independent Deep
@@ -389,11 +390,58 @@ every preset, companion input stays aligned, and scene changes obey the document
 presentation policy. Distinguish intentionally padded scenes from fully expanded
 ones rather than counting both as completed expansion.
 
-**Findings and remaining gaps:** original UI/battle pixels remain centered and the
-companion is unchanged. ABI tests cover both transports, companion pixels and
-state imports; frontend synthetic tests cover overlay crops and input mapping.
-UI relocation and expanded battle backgrounds remain pending. Basic desktop play
-is confirmed; the full UI/input matrix is not independently confirmed.
+**Findings and remaining gaps:** ordinary mode-0 BG3/BG4 battle backgrounds now
+extend through [battle_viewport.nim](../src/decompbound/battle_viewport.nim).
+Original enemies, menus, status cards and battle framing stay centered, with
+the complete original 256×224 image preserved. Letterboxed scenes retain their
+existing bands; fullscreen scenes can extend vertically too. The companion is
+unchanged. Other battle modes, mosaic and background VRAM replacement during
+visible drawing retain padding. UI relocation and offscreen actors remain later work.
+
+The core's optional scanline observer runs **after HDMA, before PPU rendering**.
+It records each displayed row's scroll, CGRAM, windows, layer masks, colour math
+and fixed colour. This uses actual live state, with no enemy-preset lookup or
+animation clock restarted at load. Background VRAM is retained from the first
+row and checked for replacement before use; unrelated UI uploads are allowed.
+The existing PPU compositor draws translated background-only chunks. Its
+`renderDetachedScanline` preserves the five sprite-context rows it normally
+writes, keeping the live game's foreground composition isolated.
+
+Added top/bottom rows use the ordinary distortion equations only when a model
+matches the captured generator/display data. Otherwise those rows stay black;
+side margins still use their exact observed HDMA rows. Edge-row palette/window
+and framing state is retained outside the original vertical range. This is not
+general extrapolation of arbitrary HDMA scripts.
+
+Live source evidence and continuation rules:
+
+- `$C2DCDC/$C2DCF4` pass objects `$7EADD4/$7EAE4B` to `$C2C92D` (119 bytes each).
+  `$C2CF29` uses kind at `+$68`, frequency `+$69`, amplitude `+$6B`, angle `+$6D`,
+  compression `+$6E`, and increments at `+$70/+$72/+$74/+$75`.
+- `$C0AE5A` generates the wave into `$7E3C46/$7E3E06` from the signed sine table
+  at ROM file `0x00B425`. Compression advances before emitting each vertical row.
+  `$C2CF02` routes only kind 3 to VOFS; kind 4's vertical equation is routed to
+  HOFS. Continuation verifies the actually displayed axis.
+- Driver fields can already describe a queued frame after restore. Current and
+  one-update-earlier snapshots are checked against the recorded scroll, rather
+  than guessing an animation frame number.
+- In private `earthbound_20260818-015713.png` (group 446, pair 215+214), BG3
+  matches the generated wave for 184 rows, then a CPU-written constant suffix
+  follows the published base scroll. Side rendering preserves that actual suffix.
+  Continuation can use the initially captured generator buffer only when its
+  entire wave matches the driver equations, the displayed prefix agrees, and
+  every remaining displayed value equals published scroll. It never interpolates
+  a damaged table or discards unexplained mismatches.
+
+`make libretro-battle-viewport-test` runs authored texture/phase/suffix tests and
+the private battle corpus. `STATE=...` selects a battle PNG and adds 30-frame
+replays at all five presets. The archive gate passes **91/100 battle captures**
+with identical original pixels, PCM and complete machine/CPU state; nine retain
+fallback. The complete scene sweep now reports **776 maps + 91 battles + 420
+padded captures**, seven image-only files and zero map background mismatches.
+Synthetic tests cover every added side, odd sizes, per-row palettes, scroll,
+flips, transparency, queued-state phase, all four distortion equations and the
+constant-suffix case. Manual checks are in [human-verify.md](human-verify.md).
 
 ### Stage 7 — Device performance and coverage
 

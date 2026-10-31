@@ -86,7 +86,7 @@ proc main() =
   defer: oracle.release()
   var
     paths: seq[string]
-    accepted, rejected, noState, mismatched: int
+    accepted, battles, rejected, noState, mismatched: int
     effectsChecked = false
     families: set[0 .. 31]
     reasons = initCountTable[string]()
@@ -117,7 +117,7 @@ proc main() =
       let before = serializeState(snes, cpu)
       view.capture(snes)
       doAssert serializeState(snes, cpu) == before, name & ": capture changed machine"
-      if not effectsChecked and view.presentation.startsWith("extended"):
+      if not effectsChecked and view.presentation == "extended map":
         checkStaticEffects(rom, before)
         effectsChecked = true
       oracle.vram = snes.vram
@@ -129,7 +129,11 @@ proc main() =
       oracle.fixedColorB = snes.fixedColorB
       oracle.ppuRegs[0x2C] = snes.ppuRegs[0x2C] and 3
       oracle.ppuRegs[0x2D] = snes.ppuRegs[0x2D] and 3
-    stepReplayFrame(machine, cpu, original, onVisibleFrame = hook)
+    let scanline: ScanlineHook = proc(snes: SnesBus, line: int) =
+      ## Exercise the same optional live-row observer used by the libretro caller.
+      view.captureScanline(snes, line)
+    original.fill(rgbx(0, 0, 0, 255))
+    stepReplayFrame(machine, cpu, original, onVisibleFrame = hook, onScanline = scanline)
     let before = serializeState(machine, cpu)
     let composed = view.compose(original)
     let left = (composed.width - ScreenWidth) div 2
@@ -138,7 +142,10 @@ proc main() =
       for x in 0 ..< ScreenWidth:
         doAssert composed[x + left, y + top] == original[x, y], name & ": original changed"
     doAssert serializeState(machine, cpu) == before, name & ": compose changed machine"
-    if not view.presentation.startsWith("extended"):
+    if view.presentation == "extended battle":
+      inc battles
+      continue
+    if view.presentation != "extended map":
       inc rejected
       reasons.inc(view.presentation)
       continue
@@ -158,7 +165,7 @@ proc main() =
       inc mismatched
       echo &"MISMATCH {name} logical={logical} xy={origin} pixels={differences} first={first} " &
         &"atlas={view.sceneryPixel(origin.x + first.x, origin.y + first.y)} ppu={background[first.x, first.y]}"
-  echo &"Corpus: extended={accepted}, padded={rejected}, imageOnly={noState}, " &
+  echo &"Corpus: maps={accepted}, battles={battles}, padded={rejected}, imageOnly={noState}, " &
     &"families={families}, mismatched={mismatched}; fallback={reasons}"
   doAssert accepted > 0, "No map scene was exercised."
   doAssert effectsChecked, "Static lighting and windows were not exercised."

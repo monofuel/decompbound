@@ -14,12 +14,12 @@ type
 
 proc stepReplayFrame*(snes: SnesBus, cpu: var Cpu, image: Image = nil,
     pcm: ptr FramePcm = nil, polling: CpuPollingContext = nil,
-    onVisibleFrame: VisibleFrameHook = nil) =
+    onVisibleFrame: VisibleFrameHook = nil, onScanline: ScanlineHook = nil) =
   ## One headless TAS frame: policy stepper + APU top-up to 533. Renders into
   ## `image` when one is given and stores the frame's samples in `pcm` when
   ## one is given (top-up samples land in slots 524..532).
   frame_step.stepOneFrame(snes, cpu, image, render = image != nil, pcm = pcm,
-    polling = polling, onVisibleFrame = onVisibleFrame)
+    polling = polling, onVisibleFrame = onVisibleFrame, onScanline = onScanline)
   for i in 0 ..< PlayApuTopUp:
     let (left, right) = snes.tickApu()
     if pcm != nil:

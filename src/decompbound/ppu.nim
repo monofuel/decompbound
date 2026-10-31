@@ -634,6 +634,23 @@ proc renderScanline*(snes: SnesBus, image: Image, py: int) =
       image.data[rowIdx + px] = toRgbx(outPixel)
       preSpriteComposite[py][px] = outPixel
 
+proc renderDetachedScanline*(snes: SnesBus, image: Image, py: int) =
+  ## Render an auxiliary background line without replacing the live frame's sprite context.
+  let
+    suppressed = objSuppressLine[py]
+    suppressActive = objSuppressActive[py]
+    mathWindow = objColorMathLine[py]
+    layerOff = objLayerOffLine[py]
+    composite = preSpriteComposite[py]
+  try:
+    snes.renderScanline(image, py)
+  finally:
+    objSuppressLine[py] = suppressed
+    objSuppressActive[py] = suppressActive
+    objColorMathLine[py] = mathWindow
+    objLayerOffLine[py] = layerOff
+    preSpriteComposite[py] = composite
+
 proc renderBgScanline*(snes: SnesBus, image: Image, py: int, bg: int, bpp: int,
                        paletteBase: int, prio: int = -1) =
   ## Render one scanline of a single BG layer (legacy per-line path, kept
