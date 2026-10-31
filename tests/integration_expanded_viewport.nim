@@ -34,7 +34,7 @@ proc checkCenter(image, original: Image): int =
       elif color.r != 0 or color.g != 0 or color.b != 0:
         inc result
 
-proc checkPreset(rom, state: seq[uint8], width, height: int) =
+proc checkPreset(rom, state: seq[uint8], width, height: int, sailing = false) =
   ## Prove that expanded presentation preserves complete CPU/machine and PCM behavior.
   let
     reference = newSnesBus(rom)
@@ -67,7 +67,7 @@ proc checkPreset(rom, state: seq[uint8], width, height: int) =
     backgroundOracle.bgScroll = machine.bgScroll
     backgroundOracle.ppuRegs[0x2C] = 3
   for frame in 0 ..< TestFrames:
-    let buttons = case frame div (TestFrames div 5)
+    let buttons = case (if sailing: 0 else: frame div (TestFrames div 5))
       of 1: 0x0100'u16
       of 2: 0x0200'u16
       of 3: 0x0400'u16
@@ -86,13 +86,13 @@ proc checkPreset(rom, state: seq[uint8], width, height: int) =
     let composed = view.compose(original)
     if frame == 0:
       doAssert view.presentation.startsWith("extended"),
-        &"Winters reference was rejected: {view.presentation}; " &
+        &"Map reference was rejected: {view.presentation}; " &
         &"BG maps={backgroundOracle.ppuRegs[7]:02X}/{backgroundOracle.ppuRegs[8]:02X}."
     doAssert composed.width == width and composed.height == height
     let addedPixels = checkCenter(composed, expected)
     if view.presentation.startsWith("extended"):
       inc extendedFrames
-      doAssert addedPixels > 0, "An extended Winters frame must expose actual terrain."
+      doAssert addedPixels > 0, "An extended map frame must expose actual terrain."
       for y in 0 ..< ScreenHeight: backgroundOracle.renderScanline(background, y)
       for y in 0 ..< ScreenHeight:
         for x in 0 ..< ScreenWidth:
@@ -112,10 +112,28 @@ proc checkPreset(rom, state: seq[uint8], width, height: int) =
       verticalSector = verticalSector or capturedY div 128 != previousY div 128
     previousX = capturedX
     previousY = capturedY
-  doAssert extendedFrames > 0, "No Winters outdoor frames extended: " & view.presentation
-  doAssert horizontalBoundary and verticalBoundary
-  doAssert horizontalSector and verticalSector,
-    &"The route did not cross both sector axes: horizontal={horizontalSector}, vertical={verticalSector}."
+  doAssert extendedFrames > 0, "No map frames extended: " & view.presentation
+  if sailing:
+    doAssert extendedFrames == TestFrames, "Sailing switched to bordered framing"
+    let saved = serializeState(candidate, candidateCpu)
+    let baseline = view.worldOrigin
+    for (x, y, rejected) in [(-255, baseline.y, false), (-19, baseline.y, false),
+        (-1, baseline.y, false), (0, baseline.y, false),
+        (0, -223, false), (-256, baseline.y, true), (0, -224, true)]:
+      for lane in 0 .. 1:
+        candidate.putWord((WramBase + 0x41 + lane * 2).uint32, x)
+        candidate.putWord((WramBase + 0x45 + lane * 2).uint32, y)
+        candidate.bgScroll[lane * 2] = (x and 1023).uint16
+        candidate.bgScroll[lane * 2 + 1] = (y and 1023).uint16
+      view.capture(candidate)
+      doAssert view.worldOrigin == (x, y), "Camera word lost its signed position"
+      doAssert (view.presentation == "padded camera-oob") == rejected
+    deserializeState(saved, candidate, candidateCpu)
+    view.capture(candidate)
+  else:
+    doAssert horizontalBoundary and verticalBoundary
+    doAssert horizontalSector and verticalSector,
+      &"The route did not cross both sector axes: horizontal={horizontalSector}, vertical={verticalSector}."
   for axis in 0 .. 1:
     candidate.bgScroll[axis + 2] = candidate.bgScroll[axis] xor 1'u16
     view.capture(candidate)
@@ -155,14 +173,15 @@ proc checkPreset(rom, state: seq[uint8], width, height: int) =
     "original pixels, PCM, complete machine/CPU and fallback matched."
 
 proc main() =
-  ## Exercise the actual user's Winters reference without writing game-derived fixtures.
-  if paramCount() != 1:
-    raise newException(ValueError, "Supply the private earthbound_20260818-021632.png Winters state.")
+  ## Compare the walking route or an uninterrupted sailing scene without saving game fixtures.
+  let sailing = paramCount() == 2 and paramStr(1) == "--sailing"
+  if paramCount() != 1 and not sailing:
+    raise newException(ValueError, "Supply a private map state, optionally preceded by --sailing.")
   let
     rom = readGoldBaserom()
-    bytes = cast[seq[uint8]](readFile(paramStr(1)))
+    bytes = cast[seq[uint8]](readFile(paramStr(if sailing: 2 else: 1)))
     state = extractStateForRom(bytes, romHashOf(rom))
   for (width, height) in [(320, 240), (336, 256), (448, 252), (512, 384), (257, 225)]:
-    checkPreset(rom, state, width, height)
+    checkPreset(rom, state, width, height, sailing)
 
 main()

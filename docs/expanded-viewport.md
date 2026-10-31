@@ -306,6 +306,14 @@ uses `padded map-publication`. This checks compatibility without hard-coding a
 location. Mosaic, HDMA, non-map subscreen layers, other BG modes, force blank
 and unmatched camera configurations still use padding.
 
+Published coordinates are signed 16-bit words. An original frame overlapping
+the atlas edge may have a small negative origin; out-of-atlas samples still
+use arrangement zero. This keeps Scaraba sailing extended while its camera
+oscillates around X=0. Native tilemap ring lookup extracts horizontal bit 8
+even for negative coordinates. The signed-edge route and boundary checks run
+with `tests/integration_expanded_viewport.nim --sailing` and private
+`earthbound_20261031-165947.png`; see [sailing evidence](issues.md#scaraba-sailing-at-the-atlas-edge).
+
 Static layer windows, fixed/subscreen colour math and master brightness are
 supported. Windows retain their original-screen coordinates in the extra margins
 without wrapping at 256 pixels. The original center remains untouched.

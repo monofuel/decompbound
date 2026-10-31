@@ -302,7 +302,8 @@ proc displayed*(tracker: ExpandedSpriteTracker, snes: SnesBus,
     tracker.reason = "oam-changed-after-transfer"
     return nil
   let frame = tracker.active
-  if frame.published.camera[0].int != cameraX or frame.published.camera[1].int != cameraY:
+  if frame.published.camera[0] != (cameraX and 0xFFFF).uint16 or
+      frame.published.camera[1] != (cameraY and 0xFFFF).uint16:
     tracker.reason = "sprite-camera-mismatch"
     return nil
   tracker.reason = "matched"

@@ -94,10 +94,10 @@ proc eventFlagEnabled(snes: SnesBus, id: int): bool =
     uint8(1 shl (index mod 8))) != 0
 
 proc publishedCamera(snes: SnesBus): Option[tuple[x, y: int]] =
-  ## Select the full published camera matching the displayed PPU scroll, rejecting ambiguity.
+  ## Select the signed published camera matching displayed PPU scroll, rejecting ambiguity.
   for lane in 0 .. 1:
-    let camera = (x: snes.wram16(PublishedCameraX + lane * 2),
-      y: snes.wram16(PublishedCameraY + lane * 2))
+    let camera = (x: cast[int16](snes.wram16(PublishedCameraX + lane * 2).uint16).int,
+      y: cast[int16](snes.wram16(PublishedCameraY + lane * 2).uint16).int)
     if (camera.x and ScrollMask) == snes.bgScroll[0].int and
         (camera.y and ScrollMask) == snes.bgScroll[1].int:
       if result.isSome and result.get != camera:
@@ -173,7 +173,8 @@ proc padReason(view: ExpandedViewport, snes: SnesBus, cameraX, cameraY,
     return "independent-bg-scroll"
   if ((snes.ppuRegs[TmReg] or snes.ppuRegs[TsReg]) and Bg1Bg2Mask) == 0:
     return "missing-bg"
-  if cameraX notin 0 ..< WorldWidth or cameraY notin 0 ..< WorldHeight:
+  if cameraX <= -ScreenWidth or cameraX >= WorldWidth or
+      cameraY <= -ScreenHeight or cameraY >= WorldHeight:
     return "camera-oob"
   if logical notin 0 ..< WorldLogicalTilesetCount: return &"tileset={logical}"
 
@@ -199,7 +200,7 @@ proc publishedMapMatches(view: ExpandedViewport, snes: SnesBus): bool =
     for x in countup(left, view.cameraX + ScreenWidth - 1, TilePixels):
       let
         word = view.sceneryWord(x, y)
-        offset = ((x div 256) and 1) * TilemapScreenWords +
+        offset = ((x shr 8) and 1) * TilemapScreenWords +
           ((y div TilePixels) and 31) * 32 + ((x div TilePixels) and 31)
         second = if (word and TileIndexMask).int < WorldBg2TileCount:
             word or PriorityHigh else: 0'u16

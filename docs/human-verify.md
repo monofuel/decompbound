@@ -75,6 +75,12 @@ automated checks remain muted or use null audio.
 | [ ] Winters daytime / falling-leaves flash — deferred | At `VIEWPORT=336x256`, play through Winters becoming daytime and the start of falling leaves. Watch the margins at the transition. | The framing stays coherent without a one-frame black-border flash. Currently reported and deferred; its exact fallback condition remains unverified. |
 | [ ] Photoman shutter framing — deferred | At `VIEWPORT=336x256`, trigger a Photoman photo and watch the margins as the shutter closes and opens. | Extended scenery does not remain exposed outside the shutter effect. Temporary original framing with black borders during the animation is an acceptable candidate workaround; no fix is currently implemented. |
 | [ ] Flash-back circular shutter — deferred | Load private `earthbound_20260728-045735.png` at `VIEWPORT=336x256` and watch the shutter effect. | The circular border and viewport edges form coherent framing. Cropped borders currently conflict with the circle; record only, no fix implemented. |
+| [ ] Runaway Five lighting/concert — deferred | Load private `earthbound_20260710-211636.png`; watch the dimming before the performance and the concert at `VIEWPORT=336x256`. | Dimming applies coherently and the concert retains extended scenery. Currently reported incorrect and deferred; no repair implemented. |
+| [ ] Tea-scene text mask — open | Load private `earthbound_20260708-225439.png` at `VIEWPORT=336x256` and watch the text/effect framing. | The text filter forms coherent framing without the reported square-looking mask. Cause uninvestigated; no repair implemented. |
+| [ ] Initial title cards — low priority | Watch the initial title cards at `VIEWPORT=336x256`. | Currently retain original framing; extending them would be optional future polish. |
+| [x] Autoplay intro circular framing | Let the autoplay intro scenes run at the extended size. | Monofuel confirms they look fine: native circular borders conceal the extra area, with no visible viewport change. Preserve this behavior. |
+| [x] Sound Stone screen — acceptable, optional polish | Load private `earthbound_20260707-015742.png` at `VIEWPORT=336x256`. | Monofuel considers the current quirks acceptable and the screen fine as it is; polishing it is optional future work. |
+| [ ] Scaraba sailing border flicker — fix ready | Restart with the rebuilt core and load private `earthbound_20261031-165947.png` at `VIEWPORT=336x256`; let the ship sail. | Scenery stays extended as the camera crosses X=0, without alternating original framing and black borders. Human confirmation pending. |
 | [ ] Desktop presentation tearing | Manually run the viewport target using the rebuilt GPU player. Check startup says `X11 GPU textures; vsync on`. Walk vertically/horizontally and compare `VIEWPORT=336x256` with `VIEWPORT=256x224`. Resize, minimize and restore each window; compare `MONO_RETRO_ARGS=--video:cpu` if needed. | Moving scenery has no visible tear, both windows retain normal pacing, restored panels show current pixels, and the original center joins extended terrain without a fixed seam. |
 | [ ] Unequal windows and companion input | Resize both windows separately; compare automatic scaling with `VIEWPORT_SCALE=2`. Use keyboard/controller character selection and click status cards where multiple members are available. Drop a private state onto either window. | Each panel stays sharp and centered at integer scales. The companion remains 256×224 logically; clicks select the intended card, padding clicks do nothing, and state imports clear old scenery. |
 | [ ] Towns, flight and interiors | Use the viewport target with private `earthbound_20260818-021755.png` (Skyrunner clouds), `earthbound_20260818-021923.png` (Threed landing), `earthbound_20260818-022023.png` (cave), and `earthbound_20260818-021941.png` (lab). Start at `VIEWPORT=336x256`, then try `512x384`. | Extra terrain aligns with the original center, lighting and masks remain consistent, room surroundings stay appropriate, and transitions clear previous scenery. Record any unrelated neighboring rooms visible at larger sizes. Ordinary active NPC bodies extend with their scenery. |
@@ -583,6 +589,24 @@ Only when an agent points you here for a **tool** check:
 ---
 
 ## FOUND IN PLAY — new issues (human → agents)
+
+- **2026-10-31 · Scaraba sailing border flicker — fix ready.**
+  The sailing scene in `earthbound_20261031-165947.png` switched framing when
+  its camera crossed the atlas edge. Signed camera handling now passes silent
+  replay checks; manual confirmation pending. **Run / Pass if:** use the
+  Scaraba sailing row above.
+
+- **2026-10-31 · Sound Stone — acceptable, optional polish.**
+  Monofuel considers `earthbound_20260707-015742.png` a little quirky but fine
+  as it is. No repair requested. **Run / Pass if:** use the Sound Stone row above.
+
+- **2026-10-31 · Additional scene framing — open/deferred.**
+  Runaway Five's pre-show dimming is wrong and the concert snaps to bordered
+  framing (`earthbound_20260710-211636.png`); record only for now. The tea
+  scene has a square-looking text filter (`earthbound_20260708-225439.png`),
+  still uninvestigated. Initial title cards are not extended, a low-priority
+  improvement. The autoplay intro's circular framing is human-confirmed good
+  and needs no visible change. **Run / Pass if:** use the individual rows above.
 
 - **2026-10-31 · PSI effect quirks — deferred, acceptable for now.**
   Monofuel reports expected quirks with effects such as PSI Starstorm in

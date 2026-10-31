@@ -227,6 +227,15 @@ proc main() =
     "An in-window actor suppressed by the game must stay suppressed"
   checkIndirectQueues(machine, tracker)
   for slot in [0, 1, 2, 29]: checkAnimation(machine, tracker, slot)
+  machine.put(0x31, -19)
+  machine.put(0x33, -1)
+  machine.publish(1)
+  machine.transfer(1)
+  let edge = tracker.displayed(machine, -19, -1)
+  doAssert edge != nil, "Signed camera did not match the native published words"
+  doAssert edge.published.camera[0] == 0xFFED and edge.published.camera[1] == 0xFFFF
+  doAssert tracker.displayed(machine, -20, -1) == nil
+  doAssert tracker.displayed(machine, -19, -1) == edge
   machine.resetUnserialized()
   doAssert tracker.displayed(machine, 0, 0) == nil
   doAssert tracker.status == "awaiting-publication"

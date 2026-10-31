@@ -48,9 +48,48 @@ or simulation need separate justification.
 | Sanctuary boss backgrounds repeat horizontally | In private `earthbound_20260818-005528.png`, Monofuel reports that the sanctuary boss background fits vertically but loops across the extended horizontal area. The repeated pattern looks odd. | **Deferred; record only.** A scene-specific composition adjustment may be desirable, but this is not a critical issue and no change is requested yet. |
 | Flash-back shutter conflicts with extended framing | In private `earthbound_20260728-045735.png`, Monofuel reports that the cropped borders look at odds with the shutter's circular border. | **Deferred; record only.** The circular effect and viewport framing need a coordinated policy; no rendering adjustment is requested yet. |
 | PSI effects retain viewport quirks | Monofuel reports quirks with some PSI effects, including PSI Starstorm in private `earthbound_20260725-190159.png`. Exact effect bounds and masking have not been diagnosed. | **Deferred; expected, acceptable for now.** Polishing these effects for the extended viewport is optional future work, not part of the battle-border repair. |
+| Runaway Five dimming and concert framing | In private `earthbound_20260710-211636.png`, Monofuel reports incorrect light dimming before the performance and a snap back to black borders during the concert. He expects the concert to retain the extended viewport. | **Deferred; record only.** Lighting composition and the concert's fallback condition need diagnosis; no fix is implemented. |
+| Tea-scene text filter appears square | In private `earthbound_20260708-225439.png`, Monofuel reports broken extended framing with a square-looking filter around the text. | **Open, uninvestigated.** Trace the scene's native text/effect mask before choosing extended composition or an intentional framing rule. |
+| Initial title cards retain original framing | Monofuel reports that the initial title cards do not use the extended viewport. | **Deferred, low priority.** Wider title-card composition would be desirable future polish. |
+| Sound Stone screen polish | In private `earthbound_20260707-015742.png`, Monofuel considers the current extended presentation a little quirky but fine as it is. | **Accepted for now; optional future polish.** No repair is requested. |
+| Scaraba sailing switches to bordered framing | Private `earthbound_20261031-165947.png` repeatedly crosses camera X=0. The published word for X=-19 was read as 65517 and rejected as outside the atlas; crossing zero briefly re-enabled expansion. | **Fix ready for manual retry.** Decode signed camera words, preserve arrangement-zero fill outside the atlas, and retain native publication checks. Evidence below. |
 | NPC pop-in at larger viewport sizes | On 2026-10-31, Monofuel confirms the NPC extension works at 336×256, but reports NPCs appearing near that visible range when using 512×384. The renderer has no 336×256 cutoff. Native actor loading is a suspected cause; the exact activation boundary has not been traced. | **Accepted limitation for the current milestone.** Polish 336×256 first; increasing native loading/activation ranges is not part of the current fix. |
 | Special scripted actor effects are not extended | Implementation limitation: ordinary active `$A3A4` bodies are extended, while `$AC43` effects and unusual draw callbacks remain native. This is not an established cause of the individual scene reports above. | **Deferred.** Investigate individual scenes when useful; a presentation workaround or original framing may be sufficient. |
 | Exact room isolation at larger sizes is unverified | Map-family clipping is implemented, but a logical family can contain several disconnected rooms. Specific unwanted neighboring-room exposures still need a scene report; this is a coverage gap, not a confirmed room-specific bug. | **Deferred unless encountered.** Avoid a broad room-boundary rewrite without a concrete case. |
+
+Monofuel confirms that the autoplay intro scenes already look fine: their
+native circular framing conceals the extended area, so no visible change is
+expected there. Preserve that framing; this is separate from the reported
+flash-back shutter problem.
+
+### Scaraba sailing at the atlas edge
+
+The camera's signed X oscillates around zero in
+`earthbound_20261031-165947.png`. Before the repair, a silent replay stayed
+`padded camera-oob` until frame 200, extended at X=0, then returned to padding
+at frame 207 when X=-1 was interpreted as 65535. The map layout, mode, scroll
+lanes and native publication otherwise remained valid, without HDMA.
+
+The original map readers sign-extend negative input coordinates at
+`$C00AD8..$C00AE4` and `$C00BEB..$C00BF6`; their out-of-range paths
+`$C00B9D/$C00CAD` select arrangement zero. The viewport now uses signed camera
+coordinates and allows an original frame overlapping the atlas edge, while
+still checking every visible tilemap word. Negative X uses bit 8 for the native
+horizontal ring bank; truncating division incorrectly selected the other bank.
+Sprite publications compare equivalent 16-bit camera words.
+
+Silent checks pass 480 uninterrupted frames at each of the five presets:
+scenery matches the independent PPU oracle, original pixels/PCM/complete
+CPU/machine state match, and no frame falls back to a black border. Boundary
+fixtures retain rejection at X=-256/Y=-224 and for ambiguous scroll lanes.
+The full scene archive reports 779 maps, 306 battles, 206 padded states, seven
+image-only captures and zero background mismatches. A 900-frame diagnostic
+also stays extended and has been retired into these tests and docs.
+
+```sh
+nim r --opt:speed tests/integration_expanded_viewport.nim --sailing \
+  "$HOME/Pictures/Screenshots/earthbound_20261031-165947.png"
+```
 
 ### Reproduced sprite seam evidence
 
