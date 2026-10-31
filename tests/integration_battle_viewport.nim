@@ -26,6 +26,7 @@ proc checkState(rom, state: seq[uint8], name: string, width, height, frames: int
   var
     referenceCpu, candidateCpu: Cpu
     referencePcm, candidatePcm: FramePcm
+    leftPixels, rightPixels: int
   deserializeState(state, reference, referenceCpu)
   deserializeState(state, candidate, candidateCpu)
   let
@@ -55,7 +56,17 @@ proc checkState(rom, state: seq[uint8], name: string, width, height, frames: int
         doAssert output[x, y].a == 255
         if x >= left and x < left + ScreenWidth and y >= top and y < top + ScreenHeight:
           doAssert output[x, y] == expected[x - left, y - top], name & ": centered image changed"
+        elif y >= top and y < top + ScreenHeight:
+          let pixel = output[x, y]
+          if pixel.r != 0 or pixel.g != 0 or pixel.b != 0:
+            if x < left: inc leftPixels
+            elif x >= left + ScreenWidth: inc rightPixels
     if view.presentation == "extended battle": inc result
+  if frames > 1:
+    if (width - ScreenWidth) div 2 > 0:
+      doAssert leftPixels > 0, name & ": left battle margin stayed black"
+    if width - ScreenWidth - (width - ScreenWidth) div 2 > 0:
+      doAssert rightPixels > 0, name & ": right battle margin stayed black"
 
 proc main() =
   ## Sweep private battle captures; explicit paths additionally replay motion across viewport sizes.
@@ -81,8 +92,13 @@ proc main() =
     defer: machine.release()
     var cpu: Cpu
     deserializeState(state, machine, cpu)
-    if not partyBattleVisible(machine.bus.mem.toOpenArray(Wram, Wram + 0x1FFFF),
-        (machine.ppuRegs[5] and 7).int):
+    let
+      mode = (machine.ppuRegs[5] and 7).int
+      modeOneBattle = mode == 1 and machine.ppuRegs[7] == 0x58 and machine.ppuRegs[8] == 0x5C
+        ## The native four-bit battle allocation, independently of the renderer's selector.
+      candidate = hasPlayableBattlerPointer(machine.bus.mem.toOpenArray(Wram, Wram + 0x1FFFF)) and
+        (mode == 0 or modeOneBattle)
+    if not candidate and paramCount() == 0:
       continue
     inc battles
     let first = checkState(rom, state, path.extractFilename, 336, 256, 1)

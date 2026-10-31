@@ -49,6 +49,39 @@ proc release(machine: SnesBus) =
   machine.apu.spc.readHook = nil
   machine.apu.spc.writeHook = nil
 
+proc fourBitFixture(): SnesBus =
+  ## Author the native mode-1 battle allocation with contrasting foreground UI.
+  result = fixture()
+  result.ppuRegs[5] = 9
+  result.ppuRegs[7] = 0x58
+  result.ppuRegs[8] = 0x5C
+  result.ppuRegs[9] = 0x7C
+  result.ppuRegs[11] = 0x10
+  result.ppuRegs[12] = 0x36
+  result.ppuRegs[0x2D] = 0
+  result.ppuRegs[0x30] = 0
+  result.ppuRegs[0x31] = 0
+  for base in [0x1000]:
+    for tile in 0 .. 3:
+      for y in 0 .. 7:
+        var low, high: uint16
+        for x in 0 .. 7:
+          let index = (tile + x + y * 3 + base div 0x1000) mod 16
+          low = low or ((index and 1) shl (7 - x)).uint16 or
+            (((index shr 1) and 1) shl (15 - x)).uint16
+          high = high or (((index shr 2) and 1) shl (7 - x)).uint16 or
+            (((index shr 3) and 1) shl (15 - x)).uint16
+        result.vram[base + tile * 16 + y] = low
+        result.vram[base + tile * 16 + y + 8] = high
+  for y in 0 .. 31:
+    for x in 0 .. 31:
+      let entry = ((x + y) mod 4 or (((x div 4) and 7) shl 10) or
+        ((x and 1) shl 14) or ((y and 1) shl 15)).uint16
+      result.vram[0x5800 + y * 32 + x] = 0
+      result.vram[0x5C00 + y * 32 + x] = entry xor 0x2000
+      result.vram[0x7C00 + y * 32 + x] = 1
+  for y in 0 .. 7: result.vram[0x6000 + 8 + y] = 0x00FF
+
 proc colorWord(index, line: int): uint16 =
   ## Generate a synthetic per-scanline palette independently of the renderer.
   ((index and 31) or (((index * 3 + line) and 31) shl 5) or
@@ -88,6 +121,122 @@ proc expected(x, line: int): ColorRGBX =
   bgr555ToColor(value).rgbx
 
 suite "Live battle viewport":
+  test "mode-1 battle rows extend both sides with native letterboxing and centered UI":
+    let machine = fourBitFixture()
+    defer: machine.release()
+    let oracle = newImage(ScreenWidth, ScreenHeight)
+    for (windowed, math) in [(false, false), (true, false), (false, true), (true, true)]:
+      for (width, height) in [(336, 256), (512, 384), (257, 225)]:
+        let
+          view = newBattleViewport(width, height)
+          left = (width - ScreenWidth) div 2
+          top = (height - ScreenHeight) div 2
+        var sidePixels = 0
+        machine.ppuRegs[0x23] = if windowed: 0x33'u8 else: 0'u8
+        machine.ppuRegs[0x26] = 0
+        machine.ppuRegs[0x27] = 255
+        machine.ppuRegs[0x2E] = if windowed: 3'u8 else: 0'u8
+        machine.ppuRegs[0x30] = 0
+        machine.ppuRegs[0x31] = if math: 0xC2'u8 else: 0'u8
+        for line in 0 ..< ScreenHeight:
+          let band = line < 24 or line >= 200
+          machine.ppuRegs[0x2C] = if band: 0'u8 else: 2'u8
+          machine.ppuRegs[0x2D] = 0
+          machine.bgScroll[0] = (line * 3).uint16
+          machine.bgScroll[1] = (line div 2).uint16
+          machine.bgScroll[2] = (line * 5 + 11).uint16
+          machine.bgScroll[3] = (line + 7).uint16
+          for index in 0 ..< 256: machine.cgram[index] = colorWord(index, line)
+          machine.cgram[0] = 0
+          machine.renderScanline(oracle, line)
+          machine.ppuRegs[0x2C] = machine.ppuRegs[0x2C] or 0x14
+          view.captureScanline(machine, line)
+        machine.vram[0x4000] = machine.vram[0x4000] xor 1
+        machine.vram[0x6000] = machine.vram[0x6000] xor 1
+        view.finishCapture(machine)
+        check view.ready
+        for y in 0 ..< ScreenHeight:
+          for x in 0 ..< width:
+            if x >= left and x < left + ScreenWidth: continue
+            let pixel = view.output[x, y + top]
+            doAssert pixel == oracle[(x - left) and 255, y],
+              "Mode-1 side pixels or native letterboxing differed"
+            if pixel.r != 0 or pixel.g != 0 or pixel.b != 0: inc sidePixels
+        check sidePixels > 0
+        machine.vram[0x1000] = machine.vram[0x1000] xor 1
+        view.finishCapture(machine)
+        check not view.ready
+        machine.vram[0x1000] = machine.vram[0x1000] xor 1
+  test "mode-1 battle allocation cannot match a map or an invalid party pointer":
+    let machine = fourBitFixture()
+    defer: machine.release()
+    machine.ppuRegs[0x2C] = 0x17
+    let view = newBattleViewport(336, 256)
+    for line in 0 ..< ScreenHeight: view.captureScanline(machine, line)
+    view.finishCapture(machine)
+    check view.ready
+    for register in [7, 8, 9, 11, 12]:
+      let original = machine.ppuRegs[register]
+      machine.ppuRegs[register] = original xor 1
+      for line in 0 ..< ScreenHeight: view.captureScanline(machine, line)
+      view.finishCapture(machine)
+      check not view.ready
+      machine.ppuRegs[register] = original
+    machine.putWord(BattlerPointer, 0xFFFF)
+    for line in 0 ..< ScreenHeight: view.captureScanline(machine, line)
+    view.finishCapture(machine)
+    check not view.ready
+    machine.putWord(BattlerPointer, PartyCharTableWram)
+    machine.ppuRegs[7] = 0x39
+    machine.ppuRegs[8] = 0x59
+    machine.ppuRegs[11] = 0x20
+    for line in 0 ..< ScreenHeight: view.captureScanline(machine, line)
+    view.finishCapture(machine)
+    check not view.ready
+  test "mode-1 BG2 uses the first distortion object and first HDMA wave":
+    let machine = fourBitFixture()
+    defer: machine.release()
+    var
+      background: BattleBg
+      rom = newSeq[uint8](0xB525)
+    for index in 0 ..< 256:
+      let value = clamp((if index < 64: index * 2
+        elif index < 192: 256 - index * 2 else: index * 2 - 512), -128, 127)
+      background.sine[index] = value
+      rom[0xB425 + index] = (value and 255).uint8
+    let
+      segment = DistortSegment(kind: 2, frequency: 0x100, amplitude: 0x4200,
+        angle: 17, compression: 0x100)
+      generated = distortionLines(background, @[segment], 0, 159, 107, ScreenHeight)
+      view = newBattleViewport(336, 256, rom)
+    machine.bus.mem[Wram + 0xADD4 + 0x68] = 2
+    for (offset, value) in [(0x69, segment.frequency), (0x6B, segment.amplitude),
+        (0x6E, segment.compression)]:
+      machine.putWord(0xADD4 + offset, value)
+    machine.bus.mem[Wram + 0xADD4 + 0x6D] = segment.angle.uint8
+    machine.putWord(0x35, 159)
+    machine.putWord(0x37, 107)
+    machine.hdmaen = 1 shl 5
+    machine.dmaRegs[0x50] = 0x42
+    machine.dmaRegs[0x51] = 0x0F
+    machine.dmaRegs[0x57] = 0x7E
+    machine.hdmaIndirectAddr[5] = 0x3C48
+    machine.ppuRegs[0x2C] = 0x16
+    for index in 0 ..< 256: machine.cgram[index] = colorWord(index, 0)
+    for line in 0 ..< ScreenHeight:
+      machine.putWord(0x3C46 + line * 2, generated.dx[line])
+      machine.bgScroll[2] = (generated.dx[line] and 1023).uint16
+      machine.bgScroll[3] = (generated.dy[line] and 1023).uint16
+      view.captureScanline(machine, line)
+    view.finishCapture(machine)
+    check view.ready
+    var colored = 0
+    for y in 0 ..< 256:
+      if y in 16 .. 239: continue
+      for x in 0 ..< 336:
+        let pixel = view.output[x, y]
+        if pixel.r != 0 or pixel.g != 0 or pixel.b != 0: inc colored
+    check colored > 0
   test "auxiliary PPU rows preserve the game's sprite visibility and colour context":
     let machine = fixture()
     defer: machine.release()

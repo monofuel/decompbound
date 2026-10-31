@@ -151,8 +151,31 @@ for group 39 takes `$C2D714`: A is main-screen BG3, B is subscreen BG4, mode 0,
 preset 3 (`CGWSEL=02`, `CGADSUB=64`; `$C2D899..$C2D8A8`). Separate palettes are
 staged for CGRAM indices 64 and 96. B's transparent index zero uses black fixed
 color and disables halving; an opaque B half-adds with A or the backdrop.
-`$C2E9ED → $C0B01A` clears the fixed color. The distinct 4bpp path uses BG1/BG2
-and optional preset 7; it is not the path taken by those 52 groups.
+`$C2E9ED → $C0B01A` clears the fixed color.
+
+The common **428 catalog groups** instead contain one 4bpp layer and no second
+layer. The original loader selects `$C2D317` (`LDA #$0009; JSL $C08D79`) for
+mode 1 with BG3 priority. In the verified live group-50/layer-20 capture,
+scenery is **BG2**, map `$5C00`, CHR `$1000`; reserved BG1 uses map `$5800`,
+while foreground UI uses BG3 map `$7C00`, CHR `$6000`. The resulting registers
+are `BG1SC=58`, `BG2SC=5C`, `BG3SC=7C`, `BG12NBA=10`, `BG34NBA&0F=6`.
+These observed allocations distinguish it from the mode-1 world map's
+`39/59/20`; a stale playable battler pointer alone is insufficient.
+
+The **first** driver object `$ADD4` and first wave buffer `$3C46` route to
+BG2's `$210F/$2110`, not BG1. The captured group uses alternating horizontal
+distortion (kind 2), channel 5 targeting `$210F`, `TM=1F`, `TS=00`,
+`CGWSEL=00`, `CGADSUB=00`. Its original loader selects colour preset 1;
+optional preset 7 is a separate branch. Replaying a restored frame can change
+TM/TS immediately through HDMA, so the viewport records actual displayed rows
+rather than inferring framing from end-of-frame registers. The loader's mode
+selection was verified by executing `$C2D121`; BGnSC values above are live
+capture evidence, not registers programmed by that isolated loader invocation.
+
+The four remaining catalog groups have no ordinary layer pair. Format counts
+describe the catalog, not a proof of every scripted battle phase. The live
+viewport supports the verified mode-1 BG2 and mode-0 BG3/BG4 paths; it retains
+native windows and letterboxing, and excludes centered UI from added margins.
 
 The standalone preview deliberately uses a **black backdrop**, omits battle
 letterboxing/UI and starts the preset's local clock at zero. The loader leaves

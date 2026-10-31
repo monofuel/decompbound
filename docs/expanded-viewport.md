@@ -1,6 +1,6 @@
 # Expanded EarthBound viewport
 
-Status: experimental live map expansion plus ordinary mode-0 battle backgrounds.
+Status: experimental live map expansion plus ordinary mode-0 and mode-1 battle backgrounds.
 Winters has manual confirmation; broader map and battle scenes have headless
 verification and await manual checks. Desktop tearing remains open, and the
 complete manual preset/input matrix is not yet confirmed. All listed sizes and validated custom
@@ -479,20 +479,23 @@ every preset, companion input stays aligned, and scene changes obey the document
 presentation policy. Distinguish intentionally padded scenes from fully expanded
 ones rather than counting both as completed expansion.
 
-**Findings and remaining gaps:** ordinary mode-0 BG3/BG4 battle backgrounds now
-extend through [battle_viewport.nim](../src/decompbound/battle_viewport.nim).
+**Findings and remaining gaps:** ordinary mode-0 BG3/BG4 and mode-1 four-bit BG2
+battle backgrounds extend through [battle_viewport.nim](../src/decompbound/battle_viewport.nim).
 Original enemies, menus, status cards and battle framing stay centered, with
 the complete original 256×224 image preserved. Letterboxed scenes retain their
 existing bands; fullscreen scenes can extend vertically too. The companion is
-unchanged. Other battle modes, mosaic and background VRAM replacement during
-visible drawing retain padding. UI relocation and offscreen actors remain later work.
+unchanged. Other battle allocations, mosaic and replacement of referenced
+background data during visible drawing retain padding. UI relocation and
+offscreen battle actors remain later work.
 
-Manual testing confirms incomplete horizontal coverage: some letterboxed and
-fullscreen battle backgrounds remain confined to the original width. A new
-results-screen capture uses mode 1 and is rejected by the mode-0 battle gate;
-the earlier archive tests filtered out this case before testing. See the
+Manual testing exposed missing horizontal coverage for common four-bit
+backgrounds. The mode-1 gate, BG2 routing and four-bit tile handling are now
+implemented, and tests no longer filter out those captures. The fix is ready
+for manual retry; see the
 [reproduced coverage gap](issues.md#reproduced-battle-extension-coverage-gap).
-This is an open limitation, not a reason to remove ordinary top/bottom bands.
+Normal top/bottom bands remain intact. Synthetic tests cover 4bpp live palettes,
+scroll, colour math, full-width windows, foreground isolation and native bands;
+explicit capture replays require actual colour on both added sides.
 
 The core's optional scanline observer runs **after HDMA, before PPU rendering**.
 It records each displayed row's scroll, CGRAM, windows, layer masks, colour math
@@ -531,13 +534,21 @@ Live source evidence and continuation rules:
 
 `make libretro-battle-viewport-test` runs authored texture/phase/suffix tests and
 the private battle corpus. `STATE=...` selects a battle PNG and adds 30-frame
-replays at all five presets. The archive gate passes **91/100 battle captures**
-with identical original pixels, PCM and complete machine/CPU state; nine retain
-fallback. The complete scene sweep now reports **776 maps + 91 battles + 420
-padded captures**, seven image-only files and zero map background mismatches.
+replays at all five presets. The updated archive gate extends **306/373 battle
+captures** with identical original pixels, PCM and complete machine/CPU state;
+the rest retain fallback, including transitions and unsupported configurations.
+The complete scene sweep reports **778 maps + 306 battles + 206 padded
+captures**, seven image-only files and zero map background mismatches.
 Synthetic tests cover every added side, odd sizes, per-row palettes, scroll,
 flips, transparency, queued-state phase, all four distortion equations and the
 constant-suffix case. Manual checks are in [human-verify.md](human-verify.md).
+
+For the mode-1 repair, explicit 30-frame replays of the failing capture and two
+mode-0 references pass at all five presets. The unit suite and byte-identical
+ROM rebuild pass. Full golden replays `20260816-223148`, `20260816-235052` and
+`20260817-225201` match image, PCM and WRAM hashes (106,863 frames total).
+The two longer golden replays were stopped to keep this manual-test iteration
+bounded; their full results are not claimed for this repair.
 
 ### Stage 7 — Device performance and coverage
 

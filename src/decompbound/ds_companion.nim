@@ -77,13 +77,17 @@ proc word(wram: openArray[uint8], offset: int): int =
   ## Read a little-endian unsigned word from a validated party buffer.
   wram[offset].int or (wram[offset + 1].int shl 8)
 
-proc partyBattleVisible*(wram: openArray[uint8], bgMode: int): bool =
-  ## Recognize the existing mode-0 battle view with a playable battler pointer.
+proc hasPlayableBattlerPointer*(wram: openArray[uint8]): bool =
+  ## Check the battler pointer's shape without treating a stale pointer as battle visibility.
   if wram.len < BattlePartyPointer + 2:
     raise newException(ValueError, "WRAM buffer is too short for battler pointers")
-  if bgMode != 0: return false
   let offset = word(wram, BattlePartyPointer) - PartyCharTableWram
   offset >= 0 and offset < PlayableCharCount * CharStride and offset mod CharStride == 0
+
+proc partyBattleVisible*(wram: openArray[uint8], bgMode: int): bool =
+  ## Recognize the existing mode-0 battle HUD with a playable battler pointer.
+  let playable = hasPlayableBattlerPointer(wram)
+  bgMode == 0 and playable
 
 proc readDsParty*(wram: openArray[uint8], names: array[256, string],
     battle = false): DsParty =
