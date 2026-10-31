@@ -29,42 +29,6 @@ save-state. Drop it onto the player to resume that moment. These screenstates
 stay private; the illustrations in this README are image-only exports.
 [How screenstates work →](docs/state-screenshots.md)
 
-## Experimental extended viewport
-
-<img src="docs/images/expanded-viewport.png" alt="EarthBound in Winters at the experimental 336×256 viewport, showing extra snowy scenery around Jeff and Dr. Andonuts's lab" width="1008">
-
-*Winters at 336×256, shown at 3× integer scale.*
-
-See more of EarthBound in both directions: the libretro core can extend map
-scenery, ordinary NPCs and animated battle backgrounds beyond the original
-256×224 frame. The original game image, menus and battle UI stay centered.
-This also works with the unchanged EarthBound DS companion.
-
-**336×256 is the current partially polished target.** Other sizes are available
-for experimentation; special effects, cutscene framing and distant sprite
-loading still have [known quirks](docs/issues.md#known-viewport-extension-bugs).
-Some scenes retain their original framing.
-
-| Logical game resolution | Status |
-|---|---|
-| 256×224 | Original SNES frame; default. |
-| 320×240 | Modest 4:3 expansion; experimental. |
-| **336×256** | **Current partially polished target.** |
-| 448×252 | 16:9 expansion; experimental. |
-| 512×384 | Larger 4:3 view; experimental, with earlier NPC pop-in. |
-
-Custom integer dimensions from **256–1024 pixels wide** and **224–1024 high**
-are also selectable. These are logical pixels; mono-retro-player handles
-display scaling. At 3×, 336×256 becomes 1008×768, nearly filling an RG DS Plus
-panel while keeping the original pixel size.
-
-```sh
-make libretro-viewport-play VIEWPORT=336x256
-```
-
-Requires mono-retro-player with the experimental viewport extensions.
-[Configuration, supported scenes and limitations →](docs/expanded-viewport.md)
-
 ## EarthBound on two screens
 
 <img src="docs/images/earthbound_20260818-022023-ds.png" alt="EarthBound DS: the complete game above a companion screen with Ness's inventory and the active party's HP and PP" width="384">
@@ -170,6 +134,42 @@ screens in DS mode. The player records inputs, takes periodic screenshots, and
 captures a final screenstate on clean exit. Load a local screenstate at startup
 or drop it onto either desktop window.
 [Core setup and frontend contract →](docs/libretro.md)
+
+## Experimental extended viewport
+
+<img src="docs/images/expanded-viewport.png" alt="EarthBound in Winters at the experimental 336×256 viewport, showing extra snowy scenery around Jeff and Dr. Andonuts's lab" width="1008">
+
+*Winters at 336×256, shown at 3× integer scale.*
+
+See more of EarthBound in both directions: the libretro core can extend map
+scenery, ordinary NPCs and animated battle backgrounds beyond the original
+256×224 frame. The original game image, menus and battle UI stay centered.
+This also works with the unchanged EarthBound DS companion.
+
+**336×256 is the current partially polished target.** Other sizes are available
+for experimentation; special effects, cutscene framing and distant sprite
+loading still have [known quirks](docs/issues.md#known-viewport-extension-bugs).
+Some scenes retain their original framing.
+
+| Logical game resolution | Status |
+|---|---|
+| 256×224 | Original SNES frame; default. |
+| 320×240 | Modest 4:3 expansion; experimental. |
+| **336×256** | **Current partially polished target.** |
+| 448×252 | 16:9 expansion; experimental. |
+| 512×384 | Larger 4:3 view; experimental, with earlier NPC pop-in. |
+
+Custom integer dimensions from **256–1024 pixels wide** and **224–1024 high**
+are also selectable. These are logical pixels; mono-retro-player handles
+display scaling. At 3×, 336×256 becomes 1008×768, nearly filling an RG DS Plus
+panel while keeping the original pixel size.
+
+```sh
+make libretro-viewport-play VIEWPORT=336x256
+```
+
+Requires mono-retro-player with the experimental viewport extensions.
+[Configuration, supported scenes and limitations →](docs/expanded-viewport.md)
 
 ## Decompilation and research
 
