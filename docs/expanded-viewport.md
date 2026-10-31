@@ -207,9 +207,15 @@ mode still works. This establishes transport, not correct expanded game scenery.
 **Findings and remaining gaps:** headless geometry, pixel transport, pointer,
 legacy DS and overlay tests pass. Default dimensions need only the original
 companion option, preserving the updated player's compatibility with older cores.
-Explicit game scaling uses CPU presentation and rejects an explicit GPU request;
-resizing below the requested scale raises a clear error. Monofuel confirms basic
-desktop play; the full matrix, desktop tearing and native device testing remain open.
+Explicit game scaling works with X11 GPU or CPU presentation; native forced-scale
+experiments still use CPU. Resizing below the requested scale raises a clear error.
+Mono-retro's X11 default now uploads native-size textures and uses GPU nearest
+scaling with double-buffered GLX vsync. Build against the updated Windy checkout
+(`MONO_RETRO_WINDY=../windy-gpu-player` in the current shared workspace).
+The GPU/CPU Xvfb suites passed colour readback, separate windows, resizing, input,
+state drops and a paced 180-frame real-core run at 336x256 with null audio.
+Physical vsync cannot be tested under Xvfb. Monofuel confirms basic desktop play;
+the full matrix, desktop tearing retest and native device testing remain open.
 
 ### Stage 2 — Camera and base scenery
 

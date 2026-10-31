@@ -59,12 +59,15 @@ hang, Saturn Valley corruption, half-speed music) are tracked together in
 - **Expanded viewport / desktop presentation tearing.** Monofuel confirms the
   outdoor prototype works but reports a "vsync vertical tear". Its orientation,
   position and behavior at the original viewport size are not yet isolated.
-  Mono-retro's `src/player.nim` enables window vsync only for DRM. Its desktop
-  build defines `useCpu`; Windy's X11 `presentPixels` uses `XPutImage` and
-  `XFlush`, bypassing GLX buffer swapping. Windy's GLX swap-interval setup is
-  excluded from this build, so changing the window's vsync boolean alone would
-  not synchronize this pixel-upload path. This points to frontend/X11 presentation;
-  it does not yet prove the reported defect's cause. The earlier Anbernic fix
+  The previous desktop path used unsynchronized Windy `XPutImage` uploads;
+  changing its vsync boolean alone could not synchronize those uploads.
+  **Fix ready for manual verification:** mono-retro now defaults to native-size
+  X11 GPU textures, nearest scaling and double-buffered GLX swaps with interval
+  one. Windy's opt-in GPU pixel context works alongside `useCpu` builds. Explicit
+  `--video:cpu` retains the comparison path. Private Xvfb tests passed actual
+  colour/crop readback, resize, two windows, input, state drops and paced real-core
+  playback, including the 336x256 outdoor viewport. Xvfb tests use null audio and
+  disable vsync; they cannot prove physical tear-free behavior. The earlier Anbernic fix
   used DRM double buffering/vblank page flips and paired GPU atomic presentation,
   which are separate from X11. Reproduction and acceptance live in
   [human-verify.md](human-verify.md), Expanded viewport desktop prototype.
