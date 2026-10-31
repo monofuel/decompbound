@@ -186,6 +186,14 @@ make libretro-viewport-test \
 
 ## Implementation layers and staged verification
 
+The current manual-polish target is **336×256**. Larger presets remain useful
+stress tests and may reveal additional loading or framing limitations. Monofuel
+confirms the NPC extension works at 336×256; reported larger-view pop-in and
+other gaps are tracked in
+[Known viewport extension bugs](issues.md#known-viewport-extension-bugs).
+That list permits accepted limitations, scene-specific workarounds and original
+framing; completing every possible extension is not a release requirement.
+
 Solve and document the layers below incrementally. Stage 1 has headless coverage;
 Stage 2 covers ordinary map-mode scenes across logical families; static lighting
 and window handling also cover part of Stage 5. Stage 3 now extends ordinary

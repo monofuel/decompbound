@@ -19,6 +19,33 @@ hang, Saturn Valley corruption, half-speed music) are tracked together in
 
 **Updated:** 2026-07-05 — restructured as a scannable status board (fixed vs. in-progress vs. open). Grouped from live-play verification this session, cross-checked against recent git log.
 
+## Known viewport extension bugs
+
+The current polish target is **336×256**, preserving the original 256×224
+image in the center. Larger presets such as 512×384 remain experimental.
+This is an inventory of bugs and limitations, **not a commitment to fix every
+entry**. A difficult issue can remain an accepted limitation. Scene-specific
+presentation fixes or original framing with black borders are valid outcomes;
+the named per-scene rule list is proposed, not implemented yet.
+
+For new reports, record the scene or private screenstate filename, viewport
+size, observed behavior and chosen disposition. Keep uncertain causes labeled
+as hypotheses. Prefer presentation-only fixes; changes to gameplay activation
+or simulation need separate justification.
+
+| Issue / gap | Evidence | Disposition |
+|---|---|---|
+| NPC pop-in at larger viewport sizes | On 2026-10-31, Monofuel confirms the NPC extension works at 336×256, but reports NPCs appearing near that visible range when using 512×384. The renderer has no 336×256 cutoff. Native actor loading is a suspected cause; the exact activation boundary has not been traced. | **Accepted limitation for the current milestone.** Polish 336×256 first; increasing native loading/activation ranges is not part of the current fix. |
+| Special scripted actor effects are not extended | Implementation limitation: ordinary active `$A3A4` bodies are extended, while `$AC43` effects and unusual draw callbacks remain native. No specific additional broken cutscene has been reported here. | **Deferred.** Investigate individual scenes when useful; a presentation workaround or original framing may be sufficient. |
+| Exact room isolation at larger sizes is unverified | Map-family clipping is implemented, but a logical family can contain several disconnected rooms. Specific unwanted neighboring-room exposures still need a scene report; this is a coverage gap, not a confirmed room-specific bug. | **Deferred unless encountered.** Avoid a broad room-boundary rewrite without a concrete case. |
+
+HDMA/mosaic and other unsupported configurations already use deliberate black
+padding; extending every effect is optional. Desktop tearing is tracked under
+[OPEN](#open-not-yet-assigned), since it concerns frontend presentation rather
+than the extra scene content. Implementation contracts and verification remain
+in [expanded-viewport.md](expanded-viewport.md); manual checks remain in
+[human-verify.md](human-verify.md#expanded-viewport-desktop-prototype).
+
 ## FIXED (verified in live play)
 
 - Iris/window-mask flicker (window masking + compositor).
