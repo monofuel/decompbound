@@ -41,7 +41,7 @@ or simulation need separate justification.
 | Ghost tunnel pushback snaps to black borders | Monofuel confirms the tunnel ghosts animate correctly while speaking, but the pushback to Threed abruptly switches to original framing with black borders. The specific fallback condition has not been traced. | **Deferred, low priority; record only for now.** Extending the pushback cutscene would be desirable, but the current fallback is acceptable pending investigation. |
 | Thin background-coloured line through edge sprites | Human-reported intermittent seam. Silent replay of the current private session reproduces a one-pixel gap at the original top edge; details below. | **Open, reproduced.** Validate native edge clipping and unused OAM handling before choosing a repair; no rendering fix is implemented. |
 | Rare pop-in at the 336×256 target | Monofuel reports intermittent pop-in involving an enemy on the left edge and the “do not enter” sign near the Threed graveyard. It usually works and is not yet reliably reproduced. | **Open.** Keep separate from the accepted larger-preset loading limit; clipping, resources and native loading remain possible causes. |
-| Battle backgrounds appear unextended during current play | Monofuel reports missing extension. Mode-0 battle-background extension is implemented and previously passed captured-scene tests. A silent current-core check at 336×256 still selects `extended battle` for private `earthbound_20260706-213532.png` across 30 measured frames. The affected live battle and fallback condition are not yet isolated. | **Open.** Investigate as a possible regression or unsupported battle path; do not describe the feature as unimplemented or assume all letterboxing is a bug. |
+| Battle backgrounds do not extend left/right in many fights | Monofuel confirms some backgrounds work, while others lack horizontal extension in both letterboxed and fullscreen layouts. Existing top/bottom bands are intentional. The new results-screen capture `earthbound_20261031-154410_2.png` reproduces a rejected mode-1 path; details below. Mode-0 extension still works in the reference capture `earthbound_20260706-213532.png`. | **Open, one failure reproduced.** Add coverage for the missing rendering path and check other affected fights. Preserve native top/bottom framing while extending the background horizontally. |
 | Skyrunner sky/cloud cutscene exposes blue fill | Monofuel reports unwanted blue background along the bottom and right of the extended cloud scene. The existing native-area comparisons do not verify intended framing in the added margins. | **Open, bounded workaround acceptable.** Either keep original framing for this scene or derive a scene-specific cloud/mask fix. Neither rule is implemented yet. |
 | Battle swirl retains a black border | Monofuel observes that the battle-entry swirl uses original framing and considers that acceptable. | **Accepted limitation.** Extending the swirl is optional and low priority. |
 | NPC pop-in at larger viewport sizes | On 2026-10-31, Monofuel confirms the NPC extension works at 336×256, but reports NPCs appearing near that visible range when using 512×384. The renderer has no 336×256 cutoff. Native actor loading is a suspected cause; the exact activation boundary has not been traced. | **Accepted limitation for the current milestone.** Polish 336×256 first; increasing native loading/activation ranges is not part of the current fix. |
@@ -74,6 +74,38 @@ the source session untouched. No checkpoint or image is committed. Changing
 the general parked-sprite heuristic needs care: unused OAM slots also use
 offscreen Y values, so removing the guard without validation could reintroduce
 top-row garbage. Keep the report open until a repair is verified visually.
+
+### Reproduced battle extension coverage gap
+
+Monofuel's private `earthbound_20261031-154410_2.png` shows the battle results
+dialogue over a textured background, with black side margins at 336×256.
+A silent three-frame replay observes `$2105=$09` (mode 1, BG3 priority) on all
+224 visible rows. `BattleViewport.captureScanline` calls `partyBattleVisible`,
+which accepts only mode 0, and rejects this frame at row zero. The map path
+then also rejects its HDMA configuration, leaving original framing on black.
+This explains this particular captured failure; it is not proof that every
+reported non-working fight uses the same path.
+
+The existing `integration_battle_viewport` archive selection also uses
+`partyBattleVisible`, excluding mode-1 captures before testing. A diagnostic
+sweep finds visible horizontal extension in 91 mode-0 archive candidates,
+but that subset does not establish support for all battles or results screens.
+Future regressions must check visible left/right output, not just the
+`extended battle` status or unchanged original pixels. Native top/bottom
+letterboxing must remain intact; unsupported vertical continuation is a
+different question from missing horizontal extension.
+
+Reproduce the split without a window or audio device:
+
+```sh
+nim r src/probes/probe_battle_viewport_coverage.nim \
+  "$HOME/Pictures/Screenshots/earthbound_20261031-154410_2.png" \
+  "$HOME/Pictures/Screenshots/earthbound_20260706-213532.png"
+```
+
+The retained probe reports per-row modes, eligibility, window registers and
+nonblack side-pixel counts. It writes no game captures or machine state.
+No rendering behavior has been changed as part of this investigation.
 
 HDMA/mosaic and other unsupported configurations already use deliberate black
 padding; extending every effect is optional. Desktop tearing is tracked under

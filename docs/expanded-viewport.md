@@ -487,6 +487,13 @@ existing bands; fullscreen scenes can extend vertically too. The companion is
 unchanged. Other battle modes, mosaic and background VRAM replacement during
 visible drawing retain padding. UI relocation and offscreen actors remain later work.
 
+Manual testing confirms incomplete horizontal coverage: some letterboxed and
+fullscreen battle backgrounds remain confined to the original width. A new
+results-screen capture uses mode 1 and is rejected by the mode-0 battle gate;
+the earlier archive tests filtered out this case before testing. See the
+[reproduced coverage gap](issues.md#reproduced-battle-extension-coverage-gap).
+This is an open limitation, not a reason to remove ordinary top/bottom bands.
+
 The core's optional scanline observer runs **after HDMA, before PPU rendering**.
 It records each displayed row's scroll, CGRAM, windows, layer masks, colour math
 and fixed colour. This uses actual live state, with no enemy-preset lookup or
