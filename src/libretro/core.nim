@@ -21,6 +21,8 @@ const
     ## XB24 stores opaque black as R,G,B,255 on the negotiated little-endian transport.
   DualScreenOption = "decompbound_dual_screen"
   DualScreenDescription = "EarthBound DS companion (restart required); disabled|enabled"
+  StatePayloadLengthBytes = 4
+    ## Little-endian DBST length trailer at the end of the fixed libretro envelope.
   Version = (if BuildCommit.len > 0: BuildCommit else: "unknown") &
     (if BuildDirty: "+dirty" else: "")
 
@@ -291,25 +293,103 @@ proc retro_run() {.cdecl, exportc, dynlib.} =
   finally:
     endCoreProfile()
 
+proc copyBytes(data: pointer, size: int): seq[uint8] =
+  ## Copy `size` bytes from a frontend buffer into an owned sequence.
+  result = newSeq[uint8](size)
+  if size > 0:
+    copyMem(addr result[0], data, size)
+
+proc writeU32leAt(data: pointer, offset: int, value: uint32) =
+  ## Store a little-endian word at `offset` in a frontend buffer.
+  let bytes = cast[ptr UncheckedArray[uint8]](data)
+  bytes[offset] = uint8(value and 0xFF)
+  bytes[offset + 1] = uint8((value shr 8) and 0xFF)
+  bytes[offset + 2] = uint8((value shr 16) and 0xFF)
+  bytes[offset + 3] = uint8((value shr 24) and 0xFF)
+
+proc readU32leAt(data: pointer, offset: int): uint32 =
+  ## Load a little-endian word at `offset` from a frontend buffer.
+  let bytes = cast[ptr UncheckedArray[uint8]](data)
+  bytes[offset].uint32 or (bytes[offset + 1].uint32 shl 8) or
+    (bytes[offset + 2].uint32 shl 16) or (bytes[offset + 3].uint32 shl 24)
+
+proc startsWithPng(data: pointer, size: csize_t): bool =
+  ## True when the frontend buffer begins with a PNG signature.
+  if size < PngSignature.len.csize_t:
+    return false
+  let bytes = cast[ptr UncheckedArray[uint8]](data)
+  result = true
+  for i, expected in PngSignature:
+    if bytes[i] != expected:
+      return false
+
+proc envelopePayloadLength(data: pointer, size: csize_t): int =
+  ## Return the DBST length stored in a fixed-size export envelope, or 0.
+  ## serializeState grows with apuPostBoot/apuJumps, so libretro export uses a
+  ## stable MaxStateBytes envelope: DBST payload, zero padding, length trailer.
+  if size != MaxStateBytes.csize_t:
+    return 0
+  let
+    bytes = cast[ptr UncheckedArray[uint8]](data)
+    payload = readU32leAt(data, size.int - StatePayloadLengthBytes).int
+    paddingEnd = size.int - StatePayloadLengthBytes
+  if payload < 8 or payload > paddingEnd:
+    return 0
+  for index, expected in StateMagic:
+    if bytes[index] != expected.uint8: return 0
+  for i in payload ..< paddingEnd:
+    if bytes[i] != 0:
+      return 0
+  payload
+
 proc retro_serialize_size(): csize_t {.cdecl, exportc, dynlib.} =
-  ## Indicate that state creation is unsupported; explicit imports are accepted separately.
-  0
+  ## Return the fixed export envelope size, or zero when no machine is loaded.
+  ## The size is the existing MaxStateBytes import ceiling so it cannot move
+  ## with live APU port/jump logs inside serializeState.
+  if machine != nil:
+    result = MaxStateBytes.csize_t
 
 proc retro_serialize(data: pointer, size: csize_t): bool {.cdecl, exportc, dynlib.} =
-  ## Decline save-state serialization.
-  false
+  ## Write serializeState into a zero-padded MaxStateBytes envelope.
+  if machine == nil or data == nil or size < MaxStateBytes.csize_t:
+    return false
+  try:
+    let payload = serializeState(machine, cpuState)
+    if payload.len + StatePayloadLengthBytes > MaxStateBytes:
+      logError("State export exceeds the 64 MiB libretro envelope.")
+      return false
+    if payload.len > 0:
+      copyMem(data, addr payload[0], payload.len)
+    let paddingEnd = MaxStateBytes - StatePayloadLengthBytes
+    if paddingEnd > payload.len:
+      zeroMem(cast[pointer](cast[uint](data) + payload.len.uint),
+        paddingEnd - payload.len)
+    writeU32leAt(data, paddingEnd, payload.len.uint32)
+    result = true
+  except CatchableError as error:
+    logError("State export failed: " & error.msg)
 
 proc retro_unserialize(data: pointer, size: csize_t): bool {.cdecl, exportc, dynlib.} =
-  ## Import a DBST blob or ROM-matched state PNG without changing live memory on rejection.
+  ## Import a DBST blob, padded export envelope, or ROM-matched state PNG.
+  ## Rejection leaves live memory unchanged. Exceptions never escape the C ABI.
   if machine == nil or data == nil or size == 0 or size > MaxStateBytes.csize_t:
     logError("State import requires loaded content and a nonempty state of at most 64 MiB.")
     return false
   var staged: SnesBus
   try:
-    var bytes = newSeq[uint8](size.int)
-    copyMem(addr bytes[0], data, size.int)
-    if bytes.len >= PngSignature.len and bytes[0 ..< PngSignature.len] == @PngSignature:
+    var bytes: seq[uint8]
+    if startsWithPng(data, size):
+      bytes = copyBytes(data, size.int)
       bytes = extractStateForRom(bytes, romHashOf(machine.rom))
+      if bytes.len > 0:
+        let payloadLen = envelopePayloadLength(unsafeAddr bytes[0], bytes.len.csize_t)
+        if payloadLen > 0: bytes.setLen(payloadLen)
+    else:
+      let payloadLen = envelopePayloadLength(data, size)
+      if payloadLen > 0:
+        bytes = copyBytes(data, payloadLen)
+      else:
+        bytes = copyBytes(data, size.int)
     staged = newSnesBus(machine.rom)
     var stagedCpu: Cpu
     deserializeState(bytes, staged, stagedCpu)

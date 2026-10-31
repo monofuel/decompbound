@@ -97,6 +97,14 @@ repo, under monofuel's home Pictures folder.
 | **Writer** | `src/tools/play.nim` → F12 → `saveScreenshot` |
 | **Restore** | drag-drop the PNG onto the play window (or load via tools that accept ebSt PNGs) |
 
+**mono-retro-player sessions are separate:** its F12/exit screenstates and
+five-second images are generated under `SAVE_DIR/captures/session-*/` (override
+with `--capture-dir`). The player prints that path. With this repo's DS launch
+target, the default is ignored `bin/libretro/earthbound-ds-saves/captures/`.
+Those generated sessions remain private and must never be staged. This does
+not move or change the standalone archive above; never copy its original F12s
+into the repo. See `docs/state-screenshots.md` and `docs/libretro.md`.
+
 When monofuel (or human-verify) names an F12 like `earthbound_20260708-191042.png`,
 resolve it under **`~/Pictures/Screenshots/`** first. Repo `bin/` only has a few
 tool/test PNGs (round-trips, probes); that is **not** the play capture archive.

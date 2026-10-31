@@ -98,12 +98,28 @@ The private path requires an updated mono-retro-player; older frontends continue
 through XRGB8888. See mono-retro's `docs/libretro-extensions.md` for its complete
 little-endian transport contract.
 
-State creation, cheats, special-content loading, other controller ports, and
-hardware rendering are unsupported. Serialization reports size zero and returns
-false. Explicit `retro_unserialize` imports accept the existing DBST v1/v2
-format or complete F12 PNGs with an `ebSt` chunk, including ROM-hash validation
-for PNGs. The legacy snapshot format is unchanged. The ABI is single-instance
-and used on the frontend's emulation thread.
+Cheats, special-content loading, other controller ports, and hardware rendering
+are unsupported. State export uses the existing DBST serializer. Because DBST
+includes variable-length APU diagnostic logs, `retro_serialize_size` reports a
+stable 64 MiB capacity while content is loaded (zero otherwise). The export is
+raw DBST followed by zero padding and a final little-endian `uint32` payload
+length. Frontends must supply that capacity; rejected exports return false.
+The envelope reserves four bytes of the existing 64 MiB import ceiling.
+
+`retro_unserialize` accepts this fixed envelope, existing raw DBST v1/v2 files,
+and complete F12 PNGs containing `ebSt`, with ROM-hash and CRC validation for
+PNGs. Invalid state imports leave live machine memory unchanged. State calls
+run between frames on the core owner thread. The ABI remains single-instance.
+
+Updated mono-retro-player provides F12 screenstates, five-second image captures,
+always-on input recording, and a final screenstate on orderly exit. PNGs store
+canonical DBST without libretro padding, so they also load in standalone play.
+Compression and file writes run on a frontend writer thread; exporting the
+machine state itself remains synchronous. See its README-player.md for capture
+paths, overrides, and replay commands. Screenstates and recordings stay local.
+This retains the existing DBST v2 restore behavior: DSP mixing internals reset
+on load, and the companion panel rebuilds its selection. Export does not add
+those presentation/mixer fields to the legacy state format.
 
 Target-local Nim settings inherit the root build profile, prefix the Nim runtime
 entrypoints, and export only `retro_*`. Library allocations use libc allocation
@@ -121,6 +137,14 @@ make libretro-test
 nim r -d:release tests/integration_libretro.nim
 make compare
 ```
+
+`tests/test_libretro_export.nim` covers raw DBST, fixed-capacity envelopes and
+PNG round-trips, rejected buffers/padding, stable size, and a local-ROM round-trip.
+Mono-retro's `tests/integration_decompbound_capture.nim CORE ROM STATE_PNG` also
+checks 60 recorded/replayed dual-screen frames against every pixel/PCM hash and
+the final serialized state, then resumes the newly created PNG. This passed with
+the local `earthbound_20260818-022023.png` on 2026-10-31. X11 CPU/GPU event checks
+passed for F12, periodic/exit capture and input recording through fast-forward.
 
 The unit test runs independent C and Nim hosts against the actual shared library.
 It checks the exported ABI, native dependencies, synthetic ROM/header loading,

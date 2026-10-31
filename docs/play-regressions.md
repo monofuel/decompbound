@@ -216,15 +216,15 @@ its own screenshots; if the overlay activates (or a game/app takes focus
 priority) our window can stop receiving the key entirely — the handler
 never runs, so nothing is written and nothing is logged.
 
-**Mitigations shipped (313ef14):**
+**Mitigations shipped (313ef14), updated 2026-10-31:**
 
 | Change | Why |
 |--------|-----|
-| **F5 = identical screenstate capture** | A second binding Steam does not claim — press F5 when F12 goes quiet |
-| Log line at handler ENTRY (`screenstate key pressed (F12\|F5)`) | Distinguishes "key never arrived" (nothing logged → external grab) from "handler failed" (logged, then error) |
+| **F12 is the sole screenstate key** | The former F1/F5 aliases were removed to keep one capture control. If Steam intercepts it, change Steam's screenshot binding. |
+| Log line at handler ENTRY (`screenstate key pressed (F12)`) | Distinguishes "key never arrived" (nothing logged → external grab) from "handler failed" (logged, then error) |
 | Capture body wrapped; failures log `SCREENSTATE FAILED: <msg>` loudly | A capture error can no longer be silent or kill the loop |
 
-**Next time it happens:** press F5. Then check `bin/play_log.txt` — no
+**Next time it happens:** check `bin/play_log.txt` — no
 `screenstate key pressed` line means the keypress never reached us
 (external grab, not our bug); a line followed by `SCREENSTATE FAILED`
 means our capture path broke and the message says how.

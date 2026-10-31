@@ -484,6 +484,7 @@ libretro: nim.cfg
 
 libretro-test: libretro
 	nim r $(NIM_TEST_FLAGS) tests/test_libretro.nim
+	nim r $(NIM_TEST_FLAGS) tests/test_libretro_export.nim
 	nim r $(NIM_TEST_FLAGS) tests/test_cpu_polling.nim
 	nim r $(NIM_TEST_FLAGS) tests/test_ppu_palette.nim
 	nim r $(NIM_TEST_FLAGS) tests/ppu/corpus.nim --self-test

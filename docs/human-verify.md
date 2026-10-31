@@ -37,6 +37,14 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 ## OPEN — please check
 
+### Libretro screenstates and recording
+
+| Check | Run | Pass if |
+|---|---|---|
+| [ ] F12 and exit resume | Run `make libretro-ds-play` with the rebuilt mono-retro-player. Press F12 while walking and again in the inventory, using each window. Close normally, then drag one of the new PNGs onto a player window. | Each PNG contains the Game and Party screens and restores the captured scene. Closing produces a final resumable PNG. F1 still opens achievements; F5 does not capture. |
+| [ ] Periodic capture without playback hitches | Play for several minutes, including held R2 fast-forward. Inspect the session directory printed as `Captures:`. | Plain screenshots appear about every five seconds of active play. The session includes a checkpoint and recorded inputs, including fast-forwarded frames. Audio remains smooth. Captures stay local. |
+| [ ] Standalone capture key | Run `make play`, press F12, then try F1 and F5. | F12 creates a resumable screenstate; the two former aliases no longer capture. |
+
 ### Expanded viewport desktop prototype
 
 The rebuilt core now extends ordinary map-mode scenes across logical families,

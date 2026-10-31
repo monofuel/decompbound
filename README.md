@@ -129,8 +129,11 @@ make libretro
 make libretro-play
 ```
 
-The player can also import local decompbound screenstates at startup or when
-dropped onto a desktop window. [Core setup and frontend contract →](docs/libretro.md)
+F12 captures a resumable screenstate in mono-retro-player too, including both
+screens in DS mode. The player records inputs, takes periodic screenshots, and
+captures a final screenstate on clean exit. Load a local screenstate at startup
+or drop it onto either desktop window.
+[Core setup and frontend contract →](docs/libretro.md)
 
 ## Decompilation and research
 
