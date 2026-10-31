@@ -4,8 +4,9 @@ Status: experimental live map expansion plus ordinary mode-0 and mode-1 battle b
 Winters has manual confirmation; broader map and battle scenes have headless
 verification and await manual checks. Desktop tearing remains open, and the
 complete manual preset/input matrix is not yet confirmed. All listed sizes and validated custom
-dimensions are selectable. The first implementation targets local desktop testing
-through mono-retro-player; RG DS Plus deployment is deferred. The existing
+dimensions are selectable. Desktop testing is available through mono-retro-player;
+336×256 ARM64 test builds are now installed on RG DS Plus, with physical-screen
+acceptance pending in [human-verify.md](human-verify.md#rg-ds-plus-shipping-build). The existing
 [EarthBound DS companion](earthbound-ds.md) remains the default baseline.
 
 The Winters-only tileset gate has been removed. Captured Skyrunner clouds,
@@ -116,7 +117,7 @@ the broader coverage and remaining effect restrictions.
 The first phase combines Stage 1 with a bounded part of Stage 2, so the
 result demonstrates actual extra scenery rather than only a larger output image.
 Implementation spans decompbound and mono-retro-player geometry handling. Initial
-testing is local on desktop; handheld deployment is deferred.
+testing was desktop-only; the later handheld deployment is recorded in human-verify.
 
 In scope:
 

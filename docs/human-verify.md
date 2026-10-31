@@ -106,8 +106,8 @@ automated checks remain muted or use null audio.
 
 ### RetroAchievements (2026-10-30)
 
-Core, synthetic SDK and desktop integration gates pass. RG DS Plus now has the
-player from `a3e5180` and core from `fc0c09a`; binary checksums, silent loader
+Core, synthetic SDK and desktop integration gates pass. The 2026-10-30 deployment used
+player `a3e5180` and core `fc0c09a`; binary checksums, silent loader
 checks and muted synthetic native GPU/CPU runs pass. The user-provided account file
 was copied without inspecting it.
 Monofuel confirms the Skyrunner achievement unlocked on the handheld. Service
@@ -126,11 +126,33 @@ reloads this capture; the earlier cave capture remains available on the device.
 
 ### RG DS Plus shipping build
 
+2026-10-31: installed shipping (`danger`) ARM64 core **`82e1285`** and
+mono-retro-player **`eb6e273`**, built against Windy `488b614`. Both installed
+player paths and the shared core match the staged SHA256 checksums:
+
+- Core: `31d46717e2e743b6b9271ac59c273cb16caa2939fceef7326937eac409eebcbe`.
+- Player: `d1a5227eec942299facfed6a1e3f35046a28c176f783ff1b00588689304c362c`.
+
+The Decompbound wrappers now add `--earthbound-viewport:336x256`; automatic
+integer scaling and GPU selection remain in effect. The active ROCKNIX entry
+still loads `earthbound_20260818-021632.png` with its existing DS-test save
+directory and achievement-config path. No account contents were inspected.
+SRAM/default-state hashes and the menu PID stayed unchanged. Nothing was
+launched on the screens, no audio output was opened, and the menu service was
+not stopped or restarted. On-device `--help` and a headless real-state core
+check passed, reporting `extended map`, 336×256 and private opaque XBGR.
+This does not establish physical-screen appearance or sustained performance.
+
+Rollback binaries and both previous wrappers are under
+`/var/backups/mono-retro/viewport-82e1285-eb6e273-AnHiD9/`. Local ignored
+deployment evidence is in `bin/rgds-viewport-82e1285-eb6e273/`.
+
 | Check | Run | Pass if |
 |---|---|---|
+| [ ] Expanded viewport on both handheld screens | Select **Decompbound** in the RG DS Plus menu. Start from Jeff outside the lab; walk, open inventory, try L2/touch party selection and hold/release R2. | Game scenery uses 336×256 at 3× (1008×768, eight-pixel side margins); Party stays 256×224 at 3× (768×672, centered). Touch, controls, normal audio, fast-forward and exit behave correctly. Known scene quirks remain as listed in issues.md. |
 | [ ] Measured full-player frame-time headroom | Profile the combined core/GPU player during movement and battles using the workflow in `libretro-performance.md`. | Whole-player timing distributions establish sustained 60 fps and remaining headroom. Monofuel accepts normal gameplay as flawless; this remaining check is quantitative profiling. |
-| [ ] Guarded CPU polling batches | Open Decompbound from the RG DS Plus menu using the installed `2880e7d` core, which includes polling batching; walk, open menus, enter a battle, and hold Select+Start to exit. | Game timing, both screens, controls and audio remain correct; no new transition/menu/battle stalls appear, and exit restores the menu. Automated CPU savings do not replace this play check. |
-| [ ] Borrowed background palette | Open Decompbound (`2880e7d`) from the RG DS Plus menu; inspect the cave, inventory, a battle and a fade/scene transition. | Both screens retain their original colors, windows, transparency and priority, with normal game behavior. Silent parity/timing tests pass; sustained full-player speed and residual audio crunch remain separate open checks. |
+| [ ] Guarded CPU polling batches | Open Decompbound from the RG DS Plus menu using the current installed core, which includes polling batching; walk, open menus, enter a battle, and hold Select+Start to exit. | Game timing, both screens, controls and audio remain correct; no new transition/menu/battle stalls appear, and exit restores the menu. Automated CPU savings do not replace this play check. |
+| [ ] Borrowed background palette | Open Decompbound from the RG DS Plus menu; inspect the cave, inventory, a battle and a fade/scene transition. | Both screens retain their original colors, windows, transparency and priority, with normal game behavior. Silent parity/timing tests pass; sustained full-player speed and residual audio crunch remain separate open checks. |
 | [ ] Residual native audio underrun | Launch the same DS test state several times with the existing mono-retro player, listen for dropouts, and inspect its final underrun counter. | No audible interruptions or sustained underruns occur. An intermittent single counter increment was observed in both previous and optimized cores; its timing/cause remains unresolved. |
 
 Polling-batch rollout: fixed-clock ARM battle CPU mean improves **34.71%**.
