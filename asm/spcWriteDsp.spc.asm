@@ -10,6 +10,11 @@ spcWriteDsp:
     AND A, $1A
     POP A                  ; POP preserves the mask test's flags.
     BNE returnDsp
+
+; Shared $0749 entry: write unconditionally with A=value, Y=DSP register.
+; Echo configuration calls/jumps here to bypass $47 & $1A. Preserves registers
+; and all PSW bits; RET consumes the current caller frame.
+spcWriteDspUnconditionally:
     MOV !$00F2, Y          ; DSPADDR; absolute encoding is intentional.
     MOV !$00F3, A          ; DSPDATA.
 returnDsp:

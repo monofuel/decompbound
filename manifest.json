@@ -1535,12 +1535,42 @@
     {
       "name": "blob_26004E",
       "offset": 2490446,
-      "length": 193,
+      "length": 55,
       "kind": "blob",
       "source": "blobs/blob_26004E.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcFlushDsp",
+      "offset": 2490501,
+      "length": 54,
+      "kind": "code",
+      "source": "asm/spcFlushDsp.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_dsp_flush.nim and integration_spc_echo_control.nim verify ordered publication, gates, cleanup and produced settle state"
+    },
+    {
+      "name": "blob_2600BB",
+      "offset": 2490555,
+      "length": 77,
+      "kind": "blob",
+      "source": "blobs/blob_2600BB.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcAdvanceEchoSettle",
+      "offset": 2490632,
+      "length": 7,
+      "kind": "code",
+      "source": "asm/spcAdvanceEchoSettle.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_dsp_flush.nim and integration_spc_echo_control.nim verify modulo advancement, equality holds and preserved frames"
     },
     {
       "name": "spcAdvancePhase",
@@ -1773,14 +1803,14 @@
       "evidence": "docs/audio.md; integration_spc_tempo.nim and integration_spc_volume.nim verify original/rebuilt command, update, arithmetic and consumer behavior"
     },
     {
-      "name": "blob_260447",
+      "name": "spcTickEchoVolumeTransition",
       "offset": 2491463,
       "length": 25,
-      "kind": "blob",
-      "source": "blobs/blob_260447.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "kind": "code",
+      "source": "asm/spcTickEchoVolumeTransition.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_echo_control.nim verifies original/rebuilt commands, readback, fades and DSP consumers"
     },
     {
       "name": "spcTickMasterVolumeTransition",
@@ -2023,14 +2053,84 @@
       "evidence": "docs/audio.md; integration_spc_modulation_commands.nim and integration_spc_sequence_control.nim verify original/rebuilt setters, event resets, call slots and global stream controls"
     },
     {
-      "name": "blob_260611",
+      "name": "spcSetEchoChannelsAndVolume",
       "offset": 2491921,
-      "length": 175,
-      "kind": "blob",
-      "source": "blobs/blob_260611.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "length": 19,
+      "kind": "code",
+      "source": "asm/spcSetEchoChannelsAndVolume.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_echo_control.nim verifies original/rebuilt commands, readback, fades and DSP consumers"
+    },
+    {
+      "name": "spcSetEchoVolumeTransition",
+      "offset": 2491940,
+      "length": 33,
+      "kind": "code",
+      "source": "asm/spcSetEchoVolumeTransition.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_echo_control.nim verifies original/rebuilt commands, readback, fades and DSP consumers"
+    },
+    {
+      "name": "spcDisableEchoWrites",
+      "offset": 2491973,
+      "length": 7,
+      "kind": "code",
+      "source": "asm/spcDisableEchoWrites.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_echo_control.nim verifies original/rebuilt commands, readback, fades and DSP consumers"
+    },
+    {
+      "name": "spcConfigureEcho",
+      "offset": 2491980,
+      "length": 34,
+      "kind": "code",
+      "source": "asm/spcConfigureEcho.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_echo_control.nim verifies original/rebuilt commands, readback, fades and DSP consumers"
+    },
+    {
+      "name": "spcConfigureEchoDelay",
+      "offset": 2492014,
+      "length": 70,
+      "kind": "code",
+      "source": "asm/spcConfigureEchoDelay.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_echo_control.nim verifies original/rebuilt commands, readback, fades and DSP consumers"
+    },
+    {
+      "name": "spcSetInstrumentRemapBase",
+      "offset": 2492084,
+      "length": 3,
+      "kind": "code",
+      "source": "asm/spcSetInstrumentRemapBase.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_global_commands_preview.nim verifies original/rebuilt command producers, real consumers and preview behavior"
+    },
+    {
+      "name": "spcSkipSequenceOperand",
+      "offset": 2492087,
+      "length": 4,
+      "kind": "code",
+      "source": "asm/spcSkipSequenceOperand.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_global_commands_preview.nim verifies original/rebuilt command producers, real consumers and preview behavior"
+    },
+    {
+      "name": "spcSetChannelEventGuard",
+      "offset": 2492091,
+      "length": 5,
+      "kind": "code",
+      "source": "asm/spcSetChannelEventGuard.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_global_commands_preview.nim verifies original/rebuilt command producers, real consumers and preview behavior"
     },
     {
       "name": "spcIncrementSequenceMode",
@@ -2183,14 +2283,14 @@
       "evidence": "docs/audio.md; integration_spc_pitch_modulation.nim verifies original/rebuilt command setup, delay/ramp/phase arithmetic, event resets and guarded output continuations"
     },
     {
-      "name": "blob_260912",
+      "name": "spcPreviewVolumeModulation",
       "offset": 2492690,
       "length": 15,
-      "kind": "blob",
-      "source": "blobs/blob_260912.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "kind": "code",
+      "source": "asm/spcPreviewVolumeModulation.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_global_commands_preview.nim verifies original/rebuilt command producers, real consumers and preview behavior"
     },
     {
       "name": "spcPreviewPan",
@@ -2233,14 +2333,14 @@
       "evidence": "docs/audio.md; integration_spc_pan_transition.nim and integration_spc_arithmetic.nim verify original/rebuilt command, tick, preview and helper arithmetic"
     },
     {
-      "name": "blob_26098B",
+      "name": "spcPreviewVolumePhase",
       "offset": 2492811,
       "length": 13,
-      "kind": "blob",
-      "source": "blobs/blob_26098B.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "kind": "code",
+      "source": "asm/spcPreviewVolumePhase.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_global_commands_preview.nim verifies original/rebuilt command producers, real consumers and preview behavior"
     },
     {
       "name": "spcModulateChannelGain",

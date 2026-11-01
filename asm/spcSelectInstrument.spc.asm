@@ -1,6 +1,6 @@
 ; E0 instrument selection, APU $095F..09B7 / file $2604A1..2604F9 (89 bytes).
 ; Dispatcher/RET: direct page zero, X=even channel offset 0..14, A=operand.
-; Caller mask $47 selects guard bits at $1A and state bits at $49.
+; Caller mask $47 selects guard bits at $1A and noise-enable bits at $49.
 ; Always stores operand at $0211+X and computes record pointer in DP $14/$15.
 ; Guarded: no record reads or further writes; A=mask intersection, Y=index*6
 ; high byte, C=0. Unguarded: four DSP writes, multiplier copy; A=record byte 5,
@@ -38,11 +38,11 @@ directRecord:
     MOV A, [$14]+Y
     BPL sampleRecord
 
-    ; TODO: Trace later consumers before naming the global roles of $48/$49.
+    ; Select the shared DSP noise clock, retaining echo-write-disable bit 5.
     AND A, #$1F
     AND $48, #$20
     TSET1 !$0048           ; $48 = (old $48 & $20) | (record byte 0 & $1F).
-    OR $49, $47
+    OR $49, $47            ; The regular flush publishes $49 to DSP NON.
     MOV A, Y               ; Y is zero: high-bit record writes SRCN=0.
     BRA writeRegister
 
