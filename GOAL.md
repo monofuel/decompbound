@@ -24,7 +24,7 @@ fixed-point motion and script operands, coordinate projection, draw traversal,
 default sprite/effect drawing, DMA producer backpressure, and script control
 flow/state ownership, counted loops, banked calls and addressed operations.
 Audio research also verifies E1 stereo positioning/phase controls and E2
-transitions against the original SPC700 driver. Eighty-four SPC700 regions now
+transitions against the original SPC700 driver. 98 SPC700 regions now
 rebuild from annotated source, covering bootstrap/phase production, sequence
 fetch/dispatch, instrument selection, pitch scaling/output, guarded DSP writes,
 stereo positioning/transitions, tempo and master/channel-volume updates, and
@@ -35,8 +35,11 @@ normal/preview pitch updates, packed sequence prefixes, private lookahead/key-of
 and active F9 transition service, global echo controls and fades, ordered DSP
 publication and settling, instrument remapping, event guards and volume preview,
 hardware startup, timer polling, host-port sampling, update/preview routing and
-IPL handoff. The 48-byte service-call fragment is reproduced but remains only
-identified until the broader roles of its callees are explained.
+IPL handoff, host-command classification, negative selection/reset, stream-free
+service adapters and auxiliary countdowns. The 48-byte service-call fragment and
+20-byte upload/reset prelude are reproduced but remain only identified until
+their broader callee roles are explained. Three interleaved record headers are
+identified data and remain copied from the user's ROM.
 The checkout also includes the Pi/player performance work. Earlier unfinished bot/report
 work remains preserved on `review/pending-2026-09-10`; `bestiary/integration`
 and `review/archive-2026-10-27/*` retain unverified research for later investigation.
@@ -44,17 +47,18 @@ and `review/archive-2026-10-27/*` retain unverified research for later investiga
 | Goal | Outcome | Current state |
 |---|---|---|
 | **1. Rebuild identically** | Reconstruct every original byte from our source and the user's local extraction. | **Met; maintain.** `make compare` printed `BYTE-IDENTICAL`. |
-| **2. Understand all code** | Explain every game routine, its contracts, and its role in the larger system. | **Early.** 199 assembly regions, 10,871 bytes, formally marked explained and reproduced, including SPC startup/phase/dispatch/instrument/pitch/stereo/tempo/volume/sequence/echo/host-port paths, script control flow/state ownership and operations, entity motion, drawing order and effects, the entity lifecycle, DMA queues, sprite spawning/transfers, and world-map readers. Another 48 reproduced bytes are only identified. Additional research lives outside that inventory. |
+| **2. Understand all code** | Explain every game routine, its contracts, and its role in the larger system. | **Early.** 212 assembly regions, 11,293 bytes, formally marked explained and reproduced, including SPC startup/phase/dispatch/instrument/pitch/stereo/tempo/volume/sequence/echo/host-command paths, script control flow/state ownership and operations, entity motion, drawing order and effects, the entity lifecycle, DMA queues, sprite spawning/transfers, and world-map readers. Another 68 reproduced bytes are only identified. Additional research lives outside that inventory. |
 | **3. Understand scripting** | Explain the script languages, their interpreters, and how scripts cause game behavior. | **Partial.** Text decoding, entity action scripts and bounded SPC prefix, call, global-control and lookahead machinery are verified; complete semantics and a whole-ROM script inventory remain open. |
 | **4. Understand graphics** | Explain and browse the game's graphics, including the assembled world map. | **Partial.** Pocket Atlas browses the world/interior atlas and 15 verified static scenery flags; enemy portraits, backgrounds and UI also have verified renderers. A complete graphics catalog, animation and dynamic scene behavior remain open. |
 | **5. Understand audio** | Explain the sound driver, music, effects, instruments, and playback behavior. | **Partial.** Upload/song selection and bounded SPC fetch, instrument, pitch, stereo, tempo, volume, echo and DSP publication paths are verified; full driver, timing and content interpretation remain open. |
 
-The manifest currently covers 3,145,728 bytes in 242 regions. Of those bytes,
-10,919 (0.3471%) are reproduced: 10,871 (0.3456%) are explained and 48 remain
-identified. Another 3,134,809 bytes are `copy` / `unknown`.
-The reproduced inventory contains 194 code regions (10,685 bytes) and six
-structural tables (234 bytes); one code region is only identified. Regions are
-not a count of distinct functions.
+The manifest currently covers 3,145,728 bytes in 258 regions. Of those bytes,
+11,361 (0.3612%) are reproduced: 11,293 (0.3590%) are explained and 68 remain
+identified. The copied inventory has nine identified record-header bytes and
+3,134,358 unknown bytes.
+The reproduced inventory contains 208 code regions (11,127 bytes) and six
+structural tables (234 bytes); two code regions are only identified. The three
+identified headers remain copied data. Regions are not a count of distinct functions.
 This denominator is the **whole ROM**, including data and assets, not executable
 code alone. It is not a percentage of functions understood. Recompute from
 [manifest.json](manifest.json) when updating this baseline.

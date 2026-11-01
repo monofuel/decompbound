@@ -1723,14 +1723,14 @@
       "evidence": "docs/audio.md; integration_spc_modulation_commands.nim and integration_spc_sequence_control.nim verify original/rebuilt setters, event resets, call slots and global stream controls"
     },
     {
-      "name": "blob_2602A0",
+      "name": "spcPrepareSequenceSelection",
       "offset": 2491040,
       "length": 20,
-      "kind": "blob",
-      "source": "blobs/blob_2602A0.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "kind": "code",
+      "source": "asm/spcPrepareSequenceSelection.spc.asm",
+      "build": "reproduce",
+      "comprehension": "identified",
+      "evidence": "docs/audio.md; integration_spc_sequence_selection.nim; original/rebuilt code and native caller/helper contracts"
     },
     {
       "name": "spcSelectSequence",
@@ -1743,14 +1743,24 @@
       "evidence": "docs/audio.md; integration_spc_sequence_lifecycle.nim and integration_spc_pitch_offsets.nim verify original/rebuilt selection, blocks, modes, queued key-off and accepted-event pitch state"
     },
     {
-      "name": "blob_2602DC",
+      "name": "spcSelectNegativeSequence",
       "offset": 2491100,
-      "length": 80,
-      "kind": "blob",
-      "source": "blobs/blob_2602DC.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "length": 15,
+      "kind": "code",
+      "source": "asm/spcSelectNegativeSequence.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_selection.nim; original/rebuilt code and native caller/helper contracts"
+    },
+    {
+      "name": "spcResetSequenceChannels",
+      "offset": 2491115,
+      "length": 65,
+      "kind": "code",
+      "source": "asm/spcResetSequenceChannels.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_selection.nim; original/rebuilt code and native caller/helper contracts"
     },
     {
       "name": "spcStopSequence",
@@ -1763,14 +1773,24 @@
       "evidence": "docs/audio.md; integration_spc_sequence_lifecycle.nim and integration_spc_pitch_offsets.nim verify original/rebuilt selection, blocks, modes, queued key-off and accepted-event pitch state"
     },
     {
-      "name": "blob_260336",
+      "name": "spcResumePriorSelection",
       "offset": 2491190,
-      "length": 38,
-      "kind": "blob",
-      "source": "blobs/blob_260336.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "length": 5,
+      "kind": "code",
+      "source": "asm/spcResumePriorSelection.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_selection.nim; original/rebuilt code and native caller/helper contracts"
+    },
+    {
+      "name": "spcUpdateSequence",
+      "offset": 2491195,
+      "length": 33,
+      "kind": "code",
+      "source": "asm/spcUpdateSequence.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_host_commands.nim; original/rebuilt code and native caller/helper contracts"
     },
     {
       "name": "spcReadSequenceControl",
@@ -2415,9 +2435,149 @@
     {
       "name": "blob_2609B5",
       "offset": 2492853,
-      "length": 652875,
+      "length": 1942,
       "kind": "blob",
       "source": "blobs/blob_2609B5.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcServiceControl",
+      "offset": 2494795,
+      "length": 156,
+      "kind": "code",
+      "source": "asm/spcServiceControl.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_service_control.nim; original/rebuilt code and native caller/helper contracts"
+    },
+    {
+      "name": "blob_2611E7",
+      "offset": 2494951,
+      "length": 5894,
+      "kind": "blob",
+      "source": "blobs/blob_2611E7.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcTickPitchTempoOverride",
+      "offset": 2500845,
+      "length": 24,
+      "kind": "code",
+      "source": "asm/spcTickPitchTempoOverride.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_auxiliary_service.nim; original/rebuilt code and native caller/helper contracts"
+    },
+    {
+      "name": "spcPitchTempoOverrideRecordHeader",
+      "offset": 2500869,
+      "length": 3,
+      "source": "blobs/blob_262905.bin",
+      "kind": "data",
+      "build": "copy",
+      "comprehension": "identified",
+      "evidence": "docs/audio.md; integration_spc_auxiliary_service.nim traces original record readers before native arm entry; metadata contents remain user-ROM data"
+    },
+    {
+      "name": "spcArmPitchTempoOverride",
+      "offset": 2500872,
+      "length": 15,
+      "kind": "code",
+      "source": "asm/spcArmPitchTempoOverride.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_auxiliary_service.nim; original/rebuilt code and native caller/helper contracts"
+    },
+    {
+      "name": "spcTickMasterFactorA0",
+      "offset": 2500887,
+      "length": 21,
+      "kind": "code",
+      "source": "asm/spcTickMasterFactorA0.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_auxiliary_service.nim; original/rebuilt code and native caller/helper contracts"
+    },
+    {
+      "name": "spcMasterFactorA0RecordHeader",
+      "offset": 2500908,
+      "length": 3,
+      "source": "blobs/blob_26292C.bin",
+      "kind": "data",
+      "build": "copy",
+      "comprehension": "identified",
+      "evidence": "docs/audio.md; integration_spc_auxiliary_service.nim traces original record readers before native arm entry; metadata contents remain user-ROM data"
+    },
+    {
+      "name": "spcArmMasterFactorA0",
+      "offset": 2500911,
+      "length": 6,
+      "kind": "code",
+      "source": "asm/spcArmMasterFactorA0.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_auxiliary_service.nim; original/rebuilt code and native caller/helper contracts"
+    },
+    {
+      "name": "spcTickMasterFactorF0",
+      "offset": 2500917,
+      "length": 21,
+      "kind": "code",
+      "source": "asm/spcTickMasterFactorF0.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_auxiliary_service.nim; original/rebuilt code and native caller/helper contracts"
+    },
+    {
+      "name": "spcMasterFactorF0RecordHeader",
+      "offset": 2500938,
+      "length": 3,
+      "source": "blobs/blob_26294A.bin",
+      "kind": "data",
+      "build": "copy",
+      "comprehension": "identified",
+      "evidence": "docs/audio.md; integration_spc_auxiliary_service.nim traces original record readers before native arm entry; metadata contents remain user-ROM data"
+    },
+    {
+      "name": "spcArmMasterFactorF0",
+      "offset": 2500941,
+      "length": 6,
+      "kind": "code",
+      "source": "asm/spcArmMasterFactorF0.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_auxiliary_service.nim; original/rebuilt code and native caller/helper contracts"
+    },
+    {
+      "name": "spcSelectSequenceAfter1C",
+      "offset": 2500947,
+      "length": 12,
+      "kind": "code",
+      "source": "asm/spcSelectSequenceAfter1C.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_auxiliary_service.nim; original/rebuilt code and native caller/helper contracts"
+    },
+    {
+      "name": "spcFilterHostPortThree",
+      "offset": 2500959,
+      "length": 43,
+      "kind": "code",
+      "source": "asm/spcFilterHostPortThree.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_auxiliary_service.nim; original/rebuilt code and native caller/helper contracts"
+    },
+    {
+      "name": "blob_26298A",
+      "offset": 2501002,
+      "length": 644726,
+      "kind": "blob",
+      "source": "blobs/blob_26298A.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
