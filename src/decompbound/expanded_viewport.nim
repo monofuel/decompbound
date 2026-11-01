@@ -39,6 +39,8 @@ const
     ## C21628 numbered event bits, one-based IDs.
   ArrangementWram = 0x7F8000'u32
     ## C41A9E arrangement destination; C0035B indexes 32-byte records here.
+  ArrangementWramBytes = 0x8000
+    ## Original staging occupies at most the upper half of bank $7F.
   WramBase = 0x7E0000'u32
   MapModeOne = 1
   MapChrNba = 0x20'u8
@@ -221,17 +223,41 @@ proc ensureLiveResource(view: ExpandedViewport, drawing: int) =
     graphics: newSeq[uint8](WorldChrBytes),
     arrangements: newSeq[array[WorldArrangementCells, uint16]](sourceResource.arrangements.len))
 
+proc requireLiveCopy(destBytes, sourceBytes, copyBytes: int, message: string) =
+  ## Reject a bulk snapshot that does not fit both the source and destination.
+  if copyBytes == 0:
+    return
+  if copyBytes < 0 or destBytes < copyBytes or sourceBytes < copyBytes:
+    raise newException(ValueError, message)
+
 proc copyLiveResources(view: ExpandedViewport, snes: SnesBus, drawing: int) =
   ## Snapshot frame-consistent CHR, arrangements, and CGRAM without mutating atlas caches.
   view.ensureLiveResource(drawing)
-  for byte in 0 ..< WorldChrBytes:
-    let word = snes.vram[byte div 2]
-    view.liveResource.graphics[byte] =
-      if byte mod 2 == 0: uint8(word and 0xFF) else: uint8(word shr 8)
-  for arrangement in 0 ..< view.liveResource.arrangements.len:
-    for tile in 0 ..< WorldArrangementCells:
-      view.liveResource.arrangements[arrangement][tile] = snes.bus.read16(
-        ArrangementWram + (arrangement * WorldArrangementCells * 2 + tile * 2).uint32)
+  let arrangementBytes = view.liveResource.arrangements.len *
+    WorldArrangementCells * sizeof(uint16)
+  requireLiveCopy(view.liveResource.graphics.len, snes.vram.len * sizeof(uint16),
+    WorldChrBytes, "Live map CHR snapshot exceeds its source or destination range.")
+  if arrangementBytes > ArrangementWramBytes:
+    raise newException(ValueError,
+      "Live map arrangement snapshot exceeds its WRAM staging range.")
+  let wramRemain = if ArrangementWram.int > snes.bus.mem.len: -1
+    else: snes.bus.mem.len - ArrangementWram.int
+  requireLiveCopy(arrangementBytes, wramRemain, arrangementBytes,
+    "Live map arrangement snapshot exceeds canonical WRAM.")
+  when cpuEndian == littleEndian:
+    copyMem(addr view.liveResource.graphics[0], addr snes.vram[0], WorldChrBytes)
+    if arrangementBytes > 0:
+      copyMem(addr view.liveResource.arrangements[0],
+        addr snes.bus.mem[ArrangementWram.int], arrangementBytes)
+  else:
+    for byte in 0 ..< WorldChrBytes:
+      let word = snes.vram[byte div 2]
+      view.liveResource.graphics[byte] =
+        if byte mod 2 == 0: uint8(word and 0xFF) else: uint8(word shr 8)
+    for arrangement in 0 ..< view.liveResource.arrangements.len:
+      for tile in 0 ..< WorldArrangementCells:
+        view.liveResource.arrangements[arrangement][tile] = snes.bus.read16(
+          ArrangementWram + (arrangement * WorldArrangementCells * 2 + tile * 2).uint32)
   for index, color in snes.cgram:
     view.liveColors[index] = bgr555ToColor(color)
   view.registers = snes.ppuRegs
