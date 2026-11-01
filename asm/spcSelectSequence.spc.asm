@@ -25,10 +25,10 @@ spcSelectSequence:
 ; three global bytes and queue KOFF. Returns A=~$1A, N/Z from TSET1; unlike
 ; the full entry, preserves incoming C/H/V. RET consumes the existing frame.
 spcQueueSequenceKeyOff:
-    ; TODO: identify downstream roles of $0C and the three global bytes cleared here.
+    ; TODO: identify the full roles of $0C, $0491 and $04B5.
     MOV A, #$00
     MOV $0491, A
-    MOV $04B1, A
+    MOV $04B1, A           ; Discard the last copied host-port-one change.
     MOV $04B5, A
 
     MOV A, $1A

@@ -1533,14 +1533,14 @@
       "evidence": "docs/audio.md; integration_spc_phase.nim verifies original/rebuilt dirty startup, phase arithmetic, stack and update/preview routing"
     },
     {
-      "name": "blob_26004E",
+      "name": "spcInitializeDriverHardware",
       "offset": 2490446,
       "length": 55,
-      "kind": "blob",
-      "source": "blobs/blob_26004E.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "kind": "code",
+      "source": "asm/spcInitializeDriverHardware.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_bootstrap.nim verifies dirty startup and actual APU configuration"
     },
     {
       "name": "spcFlushDsp",
@@ -1553,14 +1553,34 @@
       "evidence": "docs/audio.md; integration_spc_dsp_flush.nim and integration_spc_echo_control.nim verify ordered publication, gates, cleanup and produced settle state"
     },
     {
-      "name": "blob_2600BB",
+      "name": "spcPollTimer",
       "offset": 2490555,
-      "length": 77,
-      "kind": "blob",
-      "source": "blobs/blob_2600BB.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "length": 19,
+      "kind": "code",
+      "source": "asm/spcPollTimer.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_timer_service.nim verifies timer arithmetic, polling and alternate reset gates"
+    },
+    {
+      "name": "spcCheckServiceReset",
+      "offset": 2490574,
+      "length": 10,
+      "kind": "code",
+      "source": "asm/spcCheckServiceReset.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_timer_service.nim verifies timer arithmetic, polling and alternate reset gates"
+    },
+    {
+      "name": "spcRunServicePass",
+      "offset": 2490584,
+      "length": 48,
+      "kind": "code",
+      "source": "asm/spcRunServicePass.spc.asm",
+      "build": "reproduce",
+      "comprehension": "identified",
+      "evidence": "docs/audio.md; integration_spc_timer_service.nim verifies call order and idle-callee fixtures; broader service-callee roles remain open"
     },
     {
       "name": "spcAdvanceEchoSettle",
@@ -1583,14 +1603,44 @@
       "evidence": "docs/audio.md; integration_spc_phase.nim verifies original/rebuilt dirty startup, phase arithmetic, stack and update/preview routing"
     },
     {
-      "name": "blob_26011A",
+      "name": "spcRouteSequenceUpdate",
       "offset": 2490650,
-      "length": 124,
-      "kind": "blob",
-      "source": "blobs/blob_26011A.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "length": 36,
+      "kind": "code",
+      "source": "asm/spcRouteSequenceUpdate.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_phase_routing.nim verifies real routing, previews and APU handoff"
+    },
+    {
+      "name": "spcReturnToIpl",
+      "offset": 2490686,
+      "length": 41,
+      "kind": "code",
+      "source": "asm/spcReturnToIpl.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_phase_routing.nim verifies real routing, previews and APU handoff"
+    },
+    {
+      "name": "spcExchangeHostPortZero",
+      "offset": 2490727,
+      "length": 16,
+      "kind": "code",
+      "source": "asm/spcExchangeHostPortZero.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_host_ports.nim verifies stable reads, change suppression and real caller frames"
+    },
+    {
+      "name": "spcSampleHostPort",
+      "offset": 2490743,
+      "length": 31,
+      "kind": "code",
+      "source": "asm/spcSampleHostPort.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_host_ports.nim verifies stable reads, change suppression and real caller frames"
     },
     {
       "name": "spcPrepareChannelEvent",
