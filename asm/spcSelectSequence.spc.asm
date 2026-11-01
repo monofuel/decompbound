@@ -18,17 +18,22 @@ spcSelectSequence:
     MOV A, $2E49+X
     MOV Y, A
     MOV A, $2E48+X
+
+; Shared $0782 entry from the negative mapper: YA=cursor, raw $04 preserved.
+; Store the cursor and selection-reset countdown, then queue key-off and RET
+; through the existing frame. Preserves X/Y/C/H/V; A/N/Z follow key-off cleanup.
+spcSetSequenceCursor:
     MOVW $40, YA
-    MOV $0C, #$02
+    MOV $0C, #$02          ; Reset countdown before the first global control fetch.
 
 ; Tail entry $0787 from FE: preserve selection/cursor/$0C and X/Y; clear the
 ; three global bytes and queue KOFF. Returns A=~$1A, N/Z from TSET1; unlike
 ; the full entry, preserves incoming C/H/V. RET consumes the existing frame.
 spcQueueSequenceKeyOff:
-    ; TODO: identify downstream roles of $0C and the three global bytes cleared here.
+    ; TODO: identify the complete host policies of countdown $0491 and $04B5.
     MOV A, #$00
     MOV $0491, A
-    MOV $04B1, A
+    MOV $04B1, A           ; Discard the last copied host-port-one change.
     MOV $04B5, A
 
     MOV A, $1A

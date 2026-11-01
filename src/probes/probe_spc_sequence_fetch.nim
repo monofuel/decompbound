@@ -5,16 +5,40 @@ import
 type
   ReadSite = object
     count, first, last: int
+  PortWrite = tuple[address: uint16, value: uint8]
+  BoundaryState = object
+    direct: array[0xF0, uint8]
+    a, x, y, stack, status, timer, writes: int
   LookAheadState = object
     channel, stack, gate, cursor, repeats, target, continuation, request, queued, dirty: int
 
 const
   SongId = 3
   SampleRate = 32000
+  DriverMap = 0x25FB42 # Package-one file offset minus its APU origin.
+  PreservedStatus = PswH or PswV or PswP or PswI or PswB
 
 proc word(spc: Spc, address: int): int =
   ## Read a structural live-RAM word without exporting its contents.
   spc.ram[address].int + spc.ram[address + 1].int * 256
+
+proc snapshot(spc: Spc, writes: int): BoundaryState =
+  ## Save the bounded direct page, native registers and pending timer frame.
+  for address in 0 ..< result.direct.len:
+    result.direct[address] = spc.ram[address]
+  result.a = spc.a.int
+  result.x = spc.x.int
+  result.y = spc.y.int
+  result.stack = spc.sp.int
+  result.status = spc.psw.int
+  result.timer = spc.ram[0x100 + ((spc.sp.int + 1) and 255)].int
+  result.writes = writes
+
+proc checkStatus(spc: Spc, before: BoundaryState, value, carry: int) =
+  ## Check final arithmetic flags and all status bits the fragments preserve.
+  let expected = (before.status and PreservedStatus.int) or carry or
+    (if value == 0: PswZ.int else: 0) or (value and PswN.int)
+  doAssert spc.psw.int == expected
 
 proc convertedPitch(spc: Spc, compensate: bool): int =
   ## Calculate the conversion oracle from live scratch and curve words without exporting data.
@@ -34,7 +58,7 @@ proc convertedPitch(spc: Spc, compensate: bool): int =
   result = if quotient > 6: 0 else: ((interpolation * 2) and 65535) shr (6 - quotient)
 
 proc main() =
-  ## Trace driver reads and verify bounded pitch, gain, call and phase contracts.
+  ## Trace driver reads and verify bounded pitch, gain, call, phase and publication contracts.
   let
     rom = readGoldBaserom()
     machine = newApu()
@@ -70,6 +94,20 @@ proc main() =
     lookAheadPending = false
     lookAhead: LookAheadState
     lookAheadChecks = 0
+    flushPending, settlePending: bool
+    flush, settle: BoundaryState
+    flushPorts, expectedPorts: seq[PortWrite]
+    writeCount, flushChecks, bypassChecks, publishedPairs, settleChecks: int
+    settleEqual, settleIncrement, fullFlushes, partialFlushes, keyFlushes: int
+    lastSource: int
+  let apuWriteHook = machine.spc.writeHook
+  doAssert apuWriteHook != nil
+  # Observe writes while retaining the real DSP, timer and communication hooks.
+  machine.spc.writeHook = proc(address: uint16, value: uint8): bool =
+    inc writeCount
+    if flushPending:
+      flushPorts.add (address, value)
+    result = apuWriteHook(address, value)
   for sample in 0 ..< SampleRate * 2:
     let start = machine.spc.cycles
     while machine.spc.cycles - start < CyclesPerSample:
@@ -77,6 +115,87 @@ proc main() =
       let
         pc = machine.spc.pc.int
         opcode = machine.spc.ram[pc]
+      if pc == 0x0546:
+        doAssert not flushPending
+        flush = snapshot(machine.spc, writeCount)
+        doAssert (machine.spc.psw and PswP) == 0
+        flushPorts.setLen(0)
+        expectedPorts.setLen(0)
+        if flush.direct[0x1B] == 0:
+          for index in countdown(10, 1):
+            if index >= 6 or (flush.direct[0x4C] < 128 and
+                (index == 5 or flush.direct[0x4C] == flush.direct[0x4D])):
+              let
+                register = rom[DriverMap + 0xEA7 + index]
+                source = rom[DriverMap + 0xEB1 + index].int
+              doAssert machine.spc.ram[0xEA7 + index] == register
+              doAssert machine.spc.ram[0xEB1 + index].int == source
+              doAssert source < flush.direct.len
+              expectedPorts.add (0xF2'u16, register)
+              expectedPorts.add (0xF3'u16, flush.direct[source])
+              lastSource = source
+        flushPending = true
+      if flushPending and pc in [0x0579, 0x05D8]:
+        doAssert machine.spc.sp.int == flush.stack
+        doAssert machine.spc.ram[0x100 + ((flush.stack + 1) and 255)].int == flush.timer
+        doAssert flushPorts == expectedPorts
+        if flush.direct[0x1B] != 0:
+          doAssert pc == 0x05D8
+          doAssert machine.spc.a == flush.direct[0x1B]
+          doAssert machine.spc.x.int == flush.x and machine.spc.y.int == flush.y
+          checkStatus(machine.spc, flush, flush.direct[0x1B].int, flush.status and 1)
+          for address in 0 ..< flush.direct.len:
+            doAssert machine.spc.ram[address] == flush.direct[address]
+          inc bypassChecks
+        else:
+          doAssert pc == 0x0579
+          let
+            oldHigh = flush.direct[0x18].int
+            oldLow = flush.direct[0x19].int
+            feedback = oldHigh xor oldLow
+            newHigh = (oldHigh shr 1) or ((1 - ((feedback shr 1) and 1)) shl 7)
+            newLow = (oldLow shr 1) or ((oldHigh and 1) shl 7)
+          doAssert machine.spc.a.int == feedback shr 2
+          doAssert machine.spc.x.int == lastSource and machine.spc.y == 0
+          checkStatus(machine.spc, flush, newLow, oldLow and 1)
+          for address in 0 ..< flush.direct.len:
+            let expected = case address
+              of 0x18: newHigh
+              of 0x19: newLow
+              of 0x45, 0x46: 0
+              else: flush.direct[address].int
+            doAssert machine.spc.ram[address].int == expected
+          inc flushChecks
+          publishedPairs += expectedPorts.len div 2
+          case expectedPorts.len div 2
+          of 10: inc fullFlushes
+          of 6: inc partialFlushes
+          of 5: inc keyFlushes
+          else: doAssert false
+        flushPending = false
+      if pc == 0x05C6:
+        doAssert not settlePending
+        settle = snapshot(machine.spc, writeCount)
+        doAssert (machine.spc.psw and PswP) == 0
+        settlePending = true
+      if settlePending and pc == 0x05CD:
+        let
+          old = settle.direct[0x4C].int
+          requested = settle.direct[0x4D].int
+          expected = if old == requested: old else: (old + 1) and 255
+        doAssert machine.spc.a.int == settle.a and machine.spc.x.int == settle.x
+        doAssert machine.spc.y.int == settle.y and machine.spc.sp.int == settle.stack
+        doAssert machine.spc.ram[0x100 + ((settle.stack + 1) and 255)].int == settle.timer
+        doAssert writeCount == settle.writes
+        for address in 0 ..< settle.direct.len:
+          doAssert machine.spc.ram[address].int ==
+            (if address == 0x4C: expected else: settle.direct[address].int)
+        checkStatus(machine.spc, settle, (if old == requested: 0 else: expected),
+          (if old >= requested: 1 else: 0))
+        if old == requested: inc settleEqual
+        else: inc settleIncrement
+        inc settleChecks
+        settlePending = false
       if pc == 0x05CD:
         let
           timerCount = machine.spc.ram[0x100 + ((machine.spc.sp.int + 1) and 255)].int
@@ -203,6 +322,14 @@ proc main() =
       machine.spc.step()
     machine.tickTimers(CyclesPerSample)
     discard machine.dsp.mixSample()
+  machine.spc.writeHook = apuWriteHook
+  doAssert flushChecks > 0 and settleChecks > 0
+  echo "verified live flushes: ", flushChecks, " bypasses: ", bypassChecks,
+    " DSP pairs: ", publishedPairs, " full/flags/key-only: ",
+    fullFlushes, "/", partialFlushes, "/", keyFlushes
+  echo "verified live settle boundaries: ", settleChecks, " equal: ", settleEqual,
+    " increments: ", settleIncrement, " pending flush/settle at trace end: ",
+    flushPending, "/", settlePending
   var addresses: seq[int]
   for pc in sites.keys:
     addresses.add pc

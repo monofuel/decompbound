@@ -107,8 +107,8 @@ all 191 songs sound correct or that their sequences are fully decoded.
 
 ## Reproduced SPC700 source
 
-The fixed-layout build now assembles sixty-three annotated `.spc.asm` files with
-our Nim SPC700 assembler. They reproduce **1,624 executable bytes** in package 1.
+The fixed-layout build now assembles 98 annotated `.spc.asm` files with
+our Nim SPC700 assembler. They reproduce **2,611 executable bytes** in package 1.
 The upload block header at file `$26003E` declares 16,779 bytes from file
 `$260042` to APU `$0500`; therefore `file = apuAddress + $25FB42` within it.
 Each source's `.org` is its APU execution address, not a ROM padding request.
@@ -116,7 +116,17 @@ Each source's `.org` is its APU execution address, not a ROM padding request.
 | Source | APU range | File range | Bytes |
 |---|---|---|---:|
 | `spcInitializeDriverRam.spc.asm` | `$0500..050B` | `$260042..26004D` | 12 |
+| `spcInitializeDriverHardware.spc.asm` | `$050C..0542` | `$26004E..260084` | 55 |
+| `spcFlushDsp.spc.asm` | `$0543..0578` | `$260085..2600BA` | 54 |
+| `spcPollTimer.spc.asm` | `$0579..058B` | `$2600BB..2600CD` | 19 |
+| `spcCheckServiceReset.spc.asm` | `$058C..0595` | `$2600CE..2600D7` | 10 |
+| `spcRunServicePass.spc.asm` | `$0596..05C5` | `$2600D8..260107` | 48† |
+| `spcAdvanceEchoSettle.spc.asm` | `$05C6..05CC` | `$260108..26010E` | 7 |
 | `spcAdvancePhase.spc.asm` | `$05CD..05D7` | `$26010F..260119` | 11 |
+| `spcRouteSequenceUpdate.spc.asm` | `$05D8..05FB` | `$26011A..26013D` | 36 |
+| `spcReturnToIpl.spc.asm` | `$05FC..0624` | `$26013E..260166` | 41 |
+| `spcExchangeHostPortZero.spc.asm` | `$0625..0634` | `$260167..260176` | 16 |
+| `spcSampleHostPort.spc.asm` | `$0635..0653` | `$260177..260195` | 31 |
 | `spcPrepareChannelEvent.spc.asm` | `$0654..0683` | `$260196..2601C5` | 48 |
 | `spcResetEventState.spc.asm` | `$0684..0695` | `$2601C6..2601D7` | 18 |
 | `spcInitializeEventPitchTransition.spc.asm` | `$0696..06BD` | `$2601D8..2601FF` | 40 |
@@ -125,8 +135,13 @@ Each source's `.org` is its APU execution address, not a ROM padding request.
 | `spcWritePitch.spc.asm` | `$0733..0740` | `$260275..260282` | 14 |
 | `spcWriteDsp.spc.asm` | `$0741..074F` | `$260283..260291` | 15 |
 | `spcFetchSequenceWord.spc.asm` | `$0750..075D` | `$260292..26029F` | 14 |
+| `spcPrepareSequenceSelection.spc.asm` | `$075E..0771` | `$2602A0..2602B3` | 20† |
 | `spcSelectSequence.spc.asm` | `$0772..0799` | `$2602B4..2602DB` | 40 |
+| `spcSelectNegativeSequence.spc.asm` | `$079A..07A8` | `$2602DC..2602EA` | 15 |
+| `spcResetSequenceChannels.spc.asm` | `$07A9..07E9` | `$2602EB..26032B` | 65 |
 | `spcStopSequence.spc.asm` | `$07EA..07F3` | `$26032C..260335` | 10 |
+| `spcResumePriorSelection.spc.asm` | `$07F4..07F8` | `$260336..26033A` | 5 |
+| `spcUpdateSequence.spc.asm` | `$07F9..0819` | `$26033B..26035B` | 33 |
 | `spcReadSequenceControl.spc.asm` | `$081A..0840` | `$26035C..260382` | 39 |
 | `spcLoadSequenceBlock.spc.asm` | `$0841..0870` | `$260383..2603B2` | 48 |
 | `spcBeginChannelPass.spc.asm` | `$0871..0881` | `$2603B3..2603C3` | 17 |
@@ -135,6 +150,7 @@ Each source's `.org` is its APU execution address, not a ROM padding request.
 | `spcServiceSequenceEvent.spc.asm` | `$08E6..08EF` | `$260428..260431` | 10 |
 | `spcNextSequenceChannel.spc.asm` | `$08F0..08F5` | `$260432..260437` | 6 |
 | `spcTickTempoTransition.spc.asm` | `$08F6..0904` | `$260438..260446` | 15 |
+| `spcTickEchoVolumeTransition.spc.asm` | `$0905..091D` | `$260447..26045F` | 25 |
 | `spcTickMasterVolumeTransition.spc.asm` | `$091E..092F` | `$260460..260471` | 18 |
 | `spcDispatchCommand.spc.asm` | `$0943..0954` | `$260485..260496` | 18 |
 | `spcSequenceFetch.spc.asm` | `$0955..095E` | `$260497..2604A0` | 10 |
@@ -158,6 +174,14 @@ Each source's `.org` is its APU execution address, not a ROM padding request.
 | `spcSetVolumeTransition.spc.asm` | `$0A8F..0AA7` | `$2605D1..2605E9` | 25 |
 | `spcSetEventPitchFraction.spc.asm` | `$0AA8..0AAB` | `$2605EA..2605ED` | 4 |
 | `spcCallSequence.spc.asm` | `$0AAC..0ACE` | `$2605EE..260610` | 35 |
+| `spcSetEchoChannelsAndVolume.spc.asm` | `$0ACF..0AE1` | `$260611..260623` | 19 |
+| `spcSetEchoVolumeTransition.spc.asm` | `$0AE2..0B02` | `$260624..260644` | 33 |
+| `spcDisableEchoWrites.spc.asm` | `$0B03..0B09` | `$260645..26064B` | 7 |
+| `spcConfigureEcho.spc.asm` | `$0B0A..0B2B` | `$26064C..26066D` | 34 |
+| `spcConfigureEchoDelay.spc.asm` | `$0B2C..0B71` | `$26066E..2606B3` | 70 |
+| `spcSetInstrumentRemapBase.spc.asm` | `$0B72..0B74` | `$2606B4..2606B6` | 3 |
+| `spcSkipSequenceOperand.spc.asm` | `$0B75..0B78` | `$2606B7..2606BA` | 4 |
+| `spcSetChannelEventGuard.spc.asm` | `$0B79..0B7D` | `$2606BB..2606BF` | 5 |
 | `spcIncrementSequenceMode.spc.asm` | `$0B7E` | `$2606C0` | 1 |
 | `spcSetSequenceProcessingMode.spc.asm` | `$0B7F..0B83` | `$2606C1..2606C5` | 5 |
 | `spcServiceHeldPitchTransition.spc.asm` | `$0B84..0B93` | `$2606C6..2606D5` | 16 |
@@ -172,12 +196,29 @@ Each source's `.org` is its APU execution address, not a ROM padding request.
 | `spcLookAheadSequence.spc.asm` | `$0CF7..0D5F` | `$260839..2608A1` | 105 |
 | `spcTickPitchTransition.spc.asm` | `$0D60..0D7B` | `$2608A2..2608BD` | 28 |
 | `spcTickPitchModulation.spc.asm` | `$0D7C..0DCF` | `$2608BE..260911` | 84 |
+| `spcPreviewVolumeModulation.spc.asm` | `$0DD0..0DDE` | `$260912..260920` | 15 |
 | `spcPreviewPan.spc.asm` | `$0DDF..0DFB` | `$260921..26093D` | 29 |
 | `spcPreviewPitchTransition.spc.asm` | `$0DFC..0E12` | `$26093E..260954` | 23 |
 | `spcPreviewPitchModulation.spc.asm` | `$0E13..0E2A` | `$260955..26096C` | 24 |
 | `spcScaleSignedStep.spc.asm` | `$0E2B..0E48` | `$26096D..26098A` | 30 |
+| `spcPreviewVolumePhase.spc.asm` | `$0E49..0E55` | `$26098B..260997` | 13 |
 | `spcModulateChannelGain.spc.asm` | `$0E56..0E60` | `$260998..2609A2` | 11 |
 | `spcComputeChannelGain.spc.asm` | `$0E61..0E72` | `$2609A3..2609B4` | 18 |
+| `spcServiceControl.spc.asm` | `$1609..16A4` | `$26114B..2611E6` | 156 |
+| `spcTickPitchTempoOverride.spc.asm` | `$2DAB..2DC2` | `$2628ED..262904` | 24 |
+| `spcArmPitchTempoOverride.spc.asm` | `$2DC6..2DD4` | `$262908..262916` | 15 |
+| `spcTickMasterFactorA0.spc.asm` | `$2DD5..2DE9` | `$262917..26292B` | 21 |
+| `spcArmMasterFactorA0.spc.asm` | `$2DED..2DF2` | `$26292F..262934` | 6 |
+| `spcTickMasterFactorF0.spc.asm` | `$2DF3..2E07` | `$262935..262949` | 21 |
+| `spcArmMasterFactorF0.spc.asm` | `$2E0B..2E10` | `$26294D..262952` | 6 |
+| `spcSelectSequenceAfter1C.spc.asm` | `$2E11..2E1C` | `$262953..26295E` | 12 |
+| `spcFilterHostPortThree.spc.asm` | `$2E1D..2E47` | `$26295F..262989` | 43 |
+
+† The 48-byte service pass and 20-byte selection prelude are reproduced/identified,
+not explained: bounded call order and entry behavior are established, but broader
+callee roles remain open. The other 96 regions are explained, totaling 2,543 bytes;
+the two identified regions total 68 bytes. Byte reproduction and comprehension
+are separate.
 
 The pitch scale and pitch writer share fall-through tails; the stereo writer
 also exposes scratch-coordinate entry `$0C95`. Their contracts are kept next
@@ -191,8 +232,13 @@ literal synthetic fixtures, plus operand order, origins, labels, signed branch
 limits/wrap, bit packing and rejection of invalid or oversized operands.
 `nim r tests/integration_rom_pipeline.nim` independently checks SPC label origin
 versus ROM placement in a mixed 65816/SPC build, exact-length rejection and the
-whole-ROM gold rebuild. Source adoption compared every one of the 1,624 bytes
-at the file offsets above; the completed carving probe was retired afterward.
+whole-ROM gold rebuild. All adopted source bytes match their original file
+positions, including 442 individually checked bytes in the selection/control
+sources. Fresh extraction/rebuild is byte-identical across all 3,145,728 bytes,
+with 258 regions and no gaps or overlaps. All 39 focused programs passed after
+adoption, including the four selection, host-command, service-control and auxiliary
+suites on original and fresh rebuilt images. Neither identified code fragment
+is promoted to explained by those bounded checks.
 
 The sequence-fetch, pitch-scale, pan, pan-transition, arithmetic, phase, tempo,
 volume, modulation-command, sequence-control, lifecycle, pitch-offset,
@@ -209,12 +255,51 @@ The bootstrap at APU `$0500..050B` selects direct page zero, resets hardware
 SP to `$CF`, and clears exactly `$0000..00DF` using `(X)+` until X reaches `$E0`.
 It establishes the zero word at `$0E/$0F` and phase byte `$51` even from dirty
 RAM with PSW page one. `$00E0..00FF` and page one remain untouched by this block;
-initialization continues at `$050C`, outside the adopted fragment.
+the next source continues initialization at `$050C..0542` (file
+`$26004E..260084`). It calls `$16A5`, seeds feedback bytes `$18/$19=$55`,
+requests echo delay 1 through `$0B2C`, and sets FLG shadow `$48.5`. The actual
+clear-helper chain clears `$0420..04FF` and `$E800..FEFF`, then seeds
+`$04D1..04D4` with `$1D,$09,$80,$C0`; these external helper instructions are
+not included in the 55-byte startup source, and those fields' game-level roles
+remain open. It writes DSP MVOLL/MVOLR=`$70`
+and DIR=`$6C`, selects CONTROL=`$F0` (timers disabled, all input ports cleared,
+IPL mapped), sets timer-zero target and tempo integer `$53` to `$10`, then
+CONTROL=1 enables only timer zero and unmaps IPL. The nonzero A branches directly
+to flush `$0546`, skipping the bypass jump at `$0543`.
+
+Echo initialization reads old hardware EDL once. Request `$4D=1` leaves settle
+`$4C=0` if readback is already 1, otherwise `$4C=255-(oldEDL&15)`;
+ESA becomes `$F7`. The entry makes no host-output-port write or timer-counter
+read. At `$0546`, A=1, X=0, Y=`$5D`, SP=`$CF`; C/H are set, V/N/Z/P clear,
+and I/B preserved. Its real nested calls write native-stack slots down to
+`$01CC`; page one is therefore preserved by the initial clear, not by the
+complete startup chain.
 
 At `$0579` (file `$2600BB`) the driver reads timer-0 counter `$00FD`. Zero
-keeps it polling; `$057E` pushes the nonzero count. A separate `count*32`
-accumulator at `$0581..0587` may run service calls before the saved byte is
-recovered at `$05CF`. The adopted phase fragment starts at `$05CD`:
+keeps it polling without pushing a count. A nonzero count is pushed at `$057E`.
+The first accumulator is `$43 = (old43 + ((count*32)&255))&255`; only that
+low-byte addition’s carry routes execution. No carry branches to `$05CD`;
+carry jumps directly to service entry `$0596`, bypassing `$058C`. Actual
+nonzero timer reads are 1..15; synthetic full-byte counts test the raw arithmetic
+without claiming that hardware emits them. In particular, product high bits do
+not force service (count 8 has low product zero).
+
+The 48-byte service pass calls `$1609,$2DAB,$2DF3,$2DD5,$11DC`, samples host
+port 3 through `$0635` and stores its result at `$04B3`, calls `$2E1D,$11BA`,
+samples port 2 into `$04B2`, calls `$1198`, then samples port 1 into `$04B1`.
+It falls through settle updater `$05C6` before phase math. Original-callee
+idle-state checks establish that order and preserve the pending timer frame;
+they do not explain every callee’s broader RAM, port or command effects. The
+newly reproduced adapters and auxiliary counters below explain parts of this
+pass; `$11DC/$11BA/$1198` still have broader unadopted dispatch roles, so its
+48 bytes remain identified.
+
+The separate `$058C..0595` entry compares `$04B1` with `$AA`. Ordinary values
+fall into the same service pass; equality calls the nonreturning IPL transfer
+at `$05FC`. No normal upstream reachability for this entry has been established.
+Its own instructions do not push a timer byte; continuing through `$05CD`
+still requires a valid pending frame. The phase fragment recovers that byte at
+`$05CF` and starts at `$05CD`:
 
 ```
 product = savedTimerCount * byte[$53]
@@ -227,9 +312,10 @@ high byte, but it does not affect routing. Carry falls through at `$05D8` to
 calls `$07F9` and `$0625`; no carry branches to `$05E0`, where active byte `$04`
 permits channel preview through `$0DD0`. The timer target and `$53` are initially
 set to `$10` at `$0535..053A`; `$07E0` also writes `$20` to `$53`. The E7/E8
-tempo commands are explained below. The earlier service path, alternate reset
-routing and absolute scheduling rate remain open. `$51` is a fractional
-accumulator, not a wall-clock sample counter.
+tempo commands are explained below. Broader service-callee roles, upstream
+reachability of the alternate reset entry and absolute scheduling rate remain
+open. CPU cycle accounting is approximate; these routes establish no absolute
+cadence. `$51` is a fractional accumulator, not a wall-clock sample counter.
 
 `nim r tests/integration_spc_phase.nim` runs **2,102,264 cases** across original
 and rebuilt images: all dirty RAM/status byte seeds,
@@ -239,6 +325,133 @@ pending timer byte and stops at the branch exits; it does not claim coverage of
 the polling loop, service calls or `$04` gate. The retained sequence trace below
 also checks phase arithmetic and branch routing during actual silent song-3
 driver execution using the shared product package loader.
+
+### Host-port exchange, update routing and IPL handoff
+
+`$0625..0634` publishes activity/selection byte `$04` to output port zero
+`$F4`, then reads input port zero in pairs until a pair agrees. It stores the
+stable byte in `$00`. The write precedes every input read; termination requires
+a matching pair, not a fixed retry count. It preserves X/Y/H/V/P/I/B and returns
+A=stable byte, C=1/N=0/Z=1. Input and output directions are distinct in our APU.
+
+`$0635..0653` takes X as a port index (the service uses 3,2,1), saves old
+`$04A4+X` in scratch `$20`, and similarly waits for two equal reads at
+`$F4+X`. It stores the stable input at `$00+X`, echoes it to that port, and
+updates `$04A4+X`. A and `$04A0+X` receive the byte when changed, otherwise
+zero; a changed-to-zero input also returns zero. C/N/Z reflect stable-minus-old
+CMP even when its following MOV selects zero. X/Y/H/V/P/I/B and the caller’s
+native frame are preserved. These helpers establish transport and suppression,
+not an identity for every command carried by those ports.
+
+Phase carry entry `$05D8` calls normal sequence update `$07F9` and the
+port-zero exchange, then returns to flush `$0546`. No-carry preview entry
+`$05E0` skips directly to that flush when `$04=0`; otherwise it visits all
+eight even channel offsets, with one-hot `$47`, calling `$0DD0` only when
+cursor high byte `$31+X` is nonzero. A nonzero low cursor alone is inactive.
+Preview callees preserve persistent phase/counters while updating derived
+scratch/gain and possibly DSP ports. Active traversal ends X=16, `$47=0`,
+C=1/N=0/Z=1; calls balance SP. Neither routing entry RETs or jumps to `$058C`.
+This bounded traversal does not explain the full normal-update callee.
+
+`$05FC..0624` unconditionally writes hardware EVOLL/R=0, KOFF=`$FF`, EON=0
+and FLG=`$20`, using writer `$0749`; buffered shadows remain unchanged and
+`$1A/$1B` do not inhibit it. CONTROL=`$80` disables all three timers and maps
+IPL, then JMP `$FFC0` hands off without RET. Internal calls balance; an
+external CALL frame remains live. A=`$80`, Y=`$6C`, X preserved, N=1/Z=0 and
+C/H/V/P/I/B preserved. No execution inside IPL or subsequent handshake is claimed.
+
+`tests/integration_spc_timer_service.nim` separates the real four-bit timer
+domain from larger authored counts, checks low-product routing/flags, observes
+bounded zero polling, and runs actual service/reset callees with synthetic
+state. `tests/integration_spc_host_ports.nim` checks stable-pair retries,
+change suppression and real callers. `tests/integration_spc_phase_routing.nim`
+checks update versus eight-channel preview and return-to-flush behavior. These
+bounded fixtures passed in the combined adoption gate and open no audio device.
+Across both images, startup checks cover 1,024 dirty starts and 20 real APU
+configuration contexts. Timer checks cover 261,120 arithmetic/status contexts,
+including 15,360 in the nonzero four-bit timer domain, plus 3,072 idle-service
+contexts with 33,792 actual calls and 512 alternate reset-gate cases.
+Host-port checks execute 131,072 port-zero exchanges, 393,216 indexed samples,
+80 retry contexts, 150 real service callers and 16 finite never-stable observations.
+Routing checks execute 5,128 previews, 1,024 real update/exchange chains, 512
+IPL-handoff entries and two handoffs with actual APU hooks. No timer advancement
+or audio-device output is needed for the real APU configuration/handoff checks.
+
+### Stream-free service adapters and auxiliary controls
+
+The 156-byte `$1609..16A4` region contains a countdown entry and multiple
+callable adapters; it is not one monolithic reset. `$0491=0` stays zero,
+`$FF` clears immediately without expiry actions, and other values decrement.
+Expiry writes CONTROL=`$31`, clears copied/pending host-port bytes
+`$04B0..04B7` through `$1438`, and calls `$1453` to clear inhibit bits 5..7
+while setting those bits in pending-off/channel-mask/dirty bytes `$46/$47/$5E`.
+The countdown’s arithmetic is established; its full host-level policy is not.
+
+The remaining adapters accept A and scratch `$20/$21` rather than fetching a
+sequence stream. They reuse the existing master-volume, tempo, pitch-offset,
+volume/pan transition and pending-pitch helpers, preserving those helpers’
+zero-divisor and saved-channel requirements. `$1632` saves old tempo integer
+`$53` in `$0493` before setting a new integer with fraction zero. Restore entry
+`$163B` restores a nonzero saved integer directly. Saved zero instead clears
+tempo fade duration `$54`, takes the target from **inherited DP `$20`**, and
+calculates a disabled zero-divisor step through `$0A47`; it is not a stream fetch
+or a special restore-to-zero shortcut. That path requires zero `$0E/$0F` and
+`$44=X`. The service modulation/pending-pitch entries change their stated setup
+fields without resetting unrelated elapsed/phase/ramp counters.
+
+| Service entry | Stream-free inputs and shared behavior |
+|---|---|
+| `$162E` | A becomes master integer via `$0A24`; clears its fraction, preserves fade. |
+| `$164A/$165F` | A=delay, `$20`=rate, `$21`=depth; write pitch-modulation setup/target and clear ramp duration. `$165F` disables depth without replacing delay/rate. |
+| `$1663/$1666` | Store A as global/channel pitch offset; preserve registers and flags. |
+| `$166A/$166E` | Immediate channel volume, or A=duration/`$20`=target transition. The transition saves X in `$44` and balances its PUSH through the shared tail. |
+| `$1678/$167D` | Set pending pitch mode one/zero with A=delay, `$20`=duration, `$21`=raw interval. |
+| `$1692` | Clear pending pitch duration only. |
+| `$1698` | Set pan from A, skipping E1's scratch-save and `$0431` override test. |
+| `$169B` | Pan transition with A=duration/`$20`=target; saves `$44` and retains E2's `$0431` override, which can also replace `$20` with ten. |
+
+Original port-one inputs 5, 7 and 8 traverse `$1198`’s record lookup and reach
+arm entries `$2DC6/$2DED/$2E0B`. Input 5 sets counter `$0438=$70`, global pitch
+offset `$50=$0E`, saves tempo through `$1632` and sets tempo word to `$C800`.
+Its updater `$2DAB` decrements nonzero `$0438`; expiry clears pitch offset then
+tails into the saved-tempo restore, including its inherited-`$20` fallback.
+Rearming saves the current tempo again; the pending tempo fade is preserved.
+
+Inputs 7 and 8 arm `$043A=$28` and `$0439=$69` without immediately changing
+master volume. Their respective updaters `$2DD5/$2DF3` hold zero, decrement
+nonzero counts, and on expiry set master word `$58/$59` to `$A000/$F000` via
+`$162E`. Pending fade `$5A..5D` and dirty mask `$5E` survive. These are timed
+master-volume factors used by the verified gain consumer, not direct DSP writes
+or established game-effect identities. Both counters’ update slots occur in the
+service pass; their numerical counts establish no absolute time interval.
+
+The three-byte records at `$2DC3..2DC5`, `$2DEA..2DEC` and `$2E08..2E0A`
+are marked copied/identified **data**, nine bytes total. Original lookup `$123F..1247` obtains
+the handler pointer; the `$12C7` header route reads its preceding continuation
+word and type, then `$130D..1314` saves the word at `$0442/$0443` before entering
+the handler. Consumer `$1343` loads the doubled slot from `$2F`, and `$1345`
+jumps through `$0440+X`; port one's slot uses `$0442/$0443`. A bounded original
+trace executes that indirect continuation, establishing a code pointer while
+leaving its full callback policy open. Those metadata bytes are not instructions and are not reproduced
+as literal assets in source. Conditional helper `$2E11..2E1C` selects 2 through
+`$0772` only when activity `$04=$1C`; an original caller remains unproven.
+
+Port-three filter `$2E1D..2E47` takes p=A&127 into scratch `$20`. It clears
+copied change `$04B3` when p<8 and prior `$04B7>=8`, or p=7 and prior=7;
+otherwise it preserves that copied byte, even if direct-entry A differs from it.
+One clearing path executes the taken branch at `$2E48` back into the filter.
+Those same two bytes are sequence-pointer table word zero: they remain user-ROM
+copied data and are not adopted as another code source. The meaning of all
+`$04B7` policies and the wider dispatcher remains open.
+
+The service-control and auxiliary-service fixtures use authored state and actual
+shared callees/port-one routes. Across both ROM images, service-control checks
+cover 131,072 countdown/mask contexts, 45,056 parameter adapters, 262,144 fade
+setups, 131,072 tempo restores, 24 real APU expiry contexts and 192 adapter-to-tick
+chains. Auxiliary checks include 262,144 filter contexts, 131,072 zero-saved
+tempo fallbacks, 30 real arm callers and 30 arm-to-expiry chains over 2,600
+ticks including zero holds. The produced fields pass unchanged to their consumers;
+these are isolated calls, not an absolute timer model or a full dispatch inventory.
 
 ## Verified SPC700 sequence fetch and dispatch
 
@@ -414,8 +627,9 @@ copied at `$09AC..09B6`; their pitch consumer is verified below.
 When record byte 0 has bit 7 set, `$098A..0996` updates scratch/state
 `$48 = ($48 & $20) | (byte0 & $1F)` and `$49 |= $47`, and writes zero to
 the sample-number register. Otherwise `$0999` clears the `$47` bits in `$49`
-and preserves `$48`. The later consumers of these global fields still need
-tracing before assigning them stronger semantic names.
+and preserves `$48`. The complete descriptor flush below publishes `$48` to
+DSP FLG `$6C` and `$49` to NON `$3D`: these are the buffered flag/noise-clock
+byte and per-voice noise-enable mask, respectively.
 
 The integration test executes 24,576 E0 cases per image through dispatch and
 handler code: every operand, eight voices, three remapping bases, both guard
@@ -644,8 +858,8 @@ This establishes arithmetic and table shape without assigning frequency units
 or committing the original table contents. Event transition setup and its normal/
 preview consumers are explained above. The other conversion callers' complete
 roles remain open. Held lookahead/key-off is explained below; the next bounded
-question is the complete `$0546` DSP descriptor flush and cleanup beyond its
-already verified first KOFF descriptor, including buffered `$45/$46/$48/$49`.
+questions are the broader service-callee roles and unproven alternate-entry
+reachability described above; the bounded descriptor flush and cleanup are explained below.
 
 `nim r tests/integration_spc_pitch_conversion.nim` checks **1,048,576 direct
 entries** across both entry points and both ROM images: every position word
@@ -989,8 +1203,8 @@ The accepted-event path at `$0654` filters `$C8/$C9` and inhibited events before
 reaching reset block `$0684..0695`. That block clears modulation phase/counter
 along with bytes `$B0+X/$0100+X`, and ORs mask `$47` into `$5E` and `$45`.
 It preserves depth, rate and threshold. Thus accepted events restart the delay
-and waveform while EB itself preserves their progress. Broader roles of the
-additional reset bytes and `$45` remain TODO.
+and waveform while EB itself preserves their progress. The flush below publishes
+`$45` to DSP KON; broader roles of the additional reset bytes remain TODO.
 
 `nim r tests/integration_spc_modulation_commands.nim` runs original and rebuilt
 images through all depth values, parameter edges, stream wrapping and arbitrary-A
@@ -1156,24 +1370,66 @@ global word cursor from table `$2E48+2*A`, sets `$0C=2`, clears absolute bytes
 pendingKeyOff = oldPending | ((~inhibitMask[$1A]) & 255)
 ```
 
-Existing pending bits remain set, including bits now inhibited. A values 128–255 take
-the real alternate path `$079A` after storing `$04`, before the table/setup;
-that continuation remains outside the adopted fragment. This establishes local
-table indexing, rather than a complete mapping of S-CPU song IDs to track identities.
+Existing pending bits remain set, including bits now inhibited. For direct
+selection A>=128, `$079A..07A8` maps
+`X=(2*((A&127)+1))&255` and reads the word at `$2F46+X`, then jumps into
+`$0782` to store that cursor and share the countdown/cleanup tail. The raw
+selection remains in `$04`; `$FF` wraps to table slot zero. This is a verified
+local table mapping, not a catalog of S-CPU song identities.
+
+The callable reset at `$07A9..07E3` visits all eight even channel offsets in
+descending order. It sets channel-volume integer `$0301+X=$FF`; real pan setter `$09B8`
+sets control/integer 10 and fraction zero. It clears instrument `$0211+X`, event
+fraction `$0381+X`, channel pitch offset `$02F0+X`, pending pitch duration
+`$0280+X`, event guard `$0400+X`, and pitch/volume modulation depths `$B1/$C1+X`.
+It clears global fade counts `$5A/$68/$54`, pitch offset `$50`, loop counter
+`$42` and remap base `$5F`, then sets master integer `$59=$C0` and tempo
+integer `$53=$20`. Unlisted fields, including those current-word fractions,
+remain intact. It returns A=0, X=`$FE`, Y preserved, `$47=0`, C=1/N=0/Z=1,
+with H/V/P/I/B preserved. The adjacent `$07E4/$07E7` jumps share the existing
+caller frame with `$075E/$0772` respectively.
 
 The zero-word path at `$07EA..07F3` writes APU output port `$F4=0`, then supplies
 A=0 to `$0772`. This clears selection/activity and loads table entry zero while
 preserving byte `$08`. It queues key-off and returns through the caller's native
-frame. A generic nonzero-A call to `$0772` selects that value; it is not an
-intrinsic clear operation. The meanings of `$0C` and the three cleared bytes,
-and broader host-port handshake behavior, still need complete consumers.
+frame. The separate `$075E..0771` prelude writes hardware KOFF=`$FF` directly,
+calls `$141A/$1453/$0EE1`, then would clear `$08` and fall into the zero
+selector if those helpers return. Its 20 bytes remain identified: the bounded
+original-code fixture reaches `$0EE1`, which writes output ports AA/BB and waits
+for host CC. Constant-zero host input does not complete that receive protocol;
+no upload completion or blanket helper contract is claimed.
 
-The original flush entry `$0546` branches around this flush when `$1B` is
-nonzero. Otherwise its first descriptor selects DSP register **KOFF `$5C`** and
-parameter byte `$46`, producing ordered `$F2=$5C`, `$F3=pendingKeyOff` writes.
-The bounded test stops at `$0568` after that pair, where `$46` is unchanged;
-remaining descriptors and later buffer cleanup are not covered by this check.
-No speaker or DSP object is involved in these CPU/port assertions.
+Normal update entry `$07F9` loads old history `$08` into Y, reads sampled
+port-zero input `$00` into A, and copies it to `$08`. Shared classifier entry
+`$07FF` skips all three operations. Specials precede change detection: `$F0`
+uses cleanup tail `$0787`, `$FF` uses the identified reset prelude, and `$F1`
+continues the active selection. Other inputs compare **Y against RAM `$00`**;
+a mismatch selects A through `$07E7`. A matched input or `$F1` returns if
+`$04=0`; otherwise `$0C=0` starts the channel pass, `$0C=1` decrements to zero
+and fetches global control, and larger counts decrement and reset channel defaults.
+Thus `$0C` is the selection-reset countdown, not a general event duration.
+
+The sign guard `$07F4..07F8` reads prior `$08` into A and returns when
+nonnegative. Negative values branch to `$07FF` with incoming Y unchanged,
+without fetching `$00` or rewriting history. Consequently A, Y and RAM `$00`
+can differ there; substituting an A-versus-Y comparison changes real behavior.
+Copied host-port-one change `$04B1` and countdown `$0491` have the bounded
+roles below; the broader policy for `$04B5` remains open.
+
+`tests/integration_spc_sequence_selection.nim` covers wrapped direct selection,
+all eight channel defaults and preserved neighbors, sign-guard/classifier entry
+state, real prelude calls and its bounded receiver wait. The new host-command
+suite checks the classifier's distinct history/shared-entry contracts. Across both
+images it executes 262,144 history entries, 524,288 activity/countdown contexts,
+524,288 independent shared entries, 12,800 sign guards, 2,560 real port-exchange
+chains and 256 command-to-selection consumers. Selection checks include 131,072
+selector/key-off contexts, 2,560 complete channel resets and 1,024 direct mapper
+flag contexts. Prelude checks stop at the original receiver's bounded wait;
+they do not force it to return or assume a completed upload.
+
+The complete buffered flush below extends the earlier first-KOFF check through
+all descriptors and queue cleanup. These remain bare CPU/port assertions,
+without a speaker or DSP synthesis object.
 
 FD and FE reuse cleanup entry `$0787`, bypassing selection/table setup:
 
@@ -1197,6 +1453,132 @@ selectors**, **12,288 direct FE cases**, **288 direct FD cases**, **1,536 mode
 dispatches** and **2,816 reset-to-KOFF-flush contexts**, alongside block/first-token
 cases. The tests use authored pointer tables and records, preserve neighbors and
 native stack frames, and stop before the unclaimed `$079A/$0543` continuations.
+
+## Buffered DSP publication and echo controls
+
+Entry `$0546` bypasses publication, queue cleanup and feedback advancement when
+processing mode `$1B` is nonzero, joining `$0543`'s jump to `$05D8`. With mode
+zero, descriptor indices 10 down to 1 write these register/source pairs in order:
+
+| DSP register | Buffered byte | Gate |
+|---|---|---|
+| KOFF `$5C` | pending off `$46` | Always |
+| PMON `$2D` | `$4B` | Always |
+| NON `$3D` | `$49` | Always |
+| KOFF `$5C` | `$0E` (normally zero) | Always |
+| KON `$4C` | pending on `$45` | Always |
+| FLG `$6C` | `$48` | Settle `$4C` bit 7 clear |
+| EON `$4D` | `$4A` | Bit 7 clear and `$4C==$4D` |
+| EFB `$0D` | `$4E` | Same |
+| EVOLR `$3C` | `$63` | Same |
+| EVOLL `$2C` | `$61` | Same |
+
+Each transaction writes `$F2` before `$F3`. The inhibit mask `$1A` does not
+filter this flush. Both pending masks `$45/$46` are then cleared, even when echo
+publication is gated. This explains why reset/FD/FE paths queue key-off rather
+than writing it immediately. Cleanup also advances a feedback word with high
+byte `$18` and low byte `$19`: shift the old word right once, injecting
+`1 XOR bit1(old18 XOR old19)` at bit 15. Its game-level purpose remains open.
+The fragment falls into timer polling at `$0579`; it establishes no absolute
+publication cadence.
+
+F5 consumes mask, left byte and right byte. It stores mask `$4A`, sets current
+echo words `$60/$62` to the respective byte times 256, and clears FLG shadow
+`$48.5`. F6 consumes no operands: dispatch supplies YA=0, copies it into both
+words and sets `$48.5` (disable echo writes). A direct F6 call copies arbitrary
+YA and preserves all flags. Neither command cancels pending duration `$68`,
+steps `$64/$66` or targets `$69/$6A`; a subsequent active tick uses those old
+fade fields with the newly written current words. Neither writes DSP directly.
+
+F8 consumes duration and two full-byte targets. It preserves current fractions,
+stores duration/targets, and computes each signed 8.8 step from target minus
+the corresponding current **integer byte**, ignoring its fraction. For nonzero
+duration d the step is `sign(delta)*floor(abs(delta)*256/d)` modulo 65536;
+for d=0 its magnitude is `65535-abs(delta)`, with the same sign convention.
+The shared divider requires zero word `$0E/$0F` and saved channel `$44=X`;
+restoring X also controls the second stream fetch. Tick `$0905..091D` freezes
+both words when duration is zero. Otherwise it adds both steps modulo 65536,
+decrements duration, and snaps both words to target times 256 on the final tick.
+It does not itself write ports or change the flag/mask shadows.
+
+F7 consumes delay request, feedback and FIR selector. Helper `$0B2C` stores the
+full request in `$4D`, selects DSP EDL `$7D`, and reads back its full byte.
+When unequal, let `t=255-(oldHardwareEDL & 15)`: settle byte `$4C` becomes t
+if its old high bit was clear, otherwise `(old4C+t)&255`. It then clears hardware
+EON, EFB, EVOLR and EVOLL in that order, writes FLG=`$48|$20`, and writes EDL=request.
+These temporary hardware changes preserve their RAM shadows. Equal readback
+preserves `$4C` and skips that reset sequence. Both paths finally write ESA
+`$6D = 255-((8*request)&255)`. There is no range check or `$1A/$1B` guard:
+the shared `$0749` writer is unconditional. Helper return flags are C=1/H=1/V=0,
+N=0/Z=0; the final `MOV Y,#$6D` sets N/Z after calculating ESA.
+
+F7 buffers feedback in `$4E`, then writes eight FIR registers `$0F,$1F,..,$7F`
+from `$0E88+((8*selector+k)&255)`, k=0..7. The unchecked selector can read beyond
+the initial 32-byte coefficient window into adjacent runtime data; it is not
+a validated four-choice interface. Feedback reaches EFB through the later flush.
+The separate `$05C6..05CC` fragment increments `$4C` modulo 256 only when it
+differs from `$4D`, then falls into the phase producer `$05CD`. Broader
+service-callee roles and the hardware delay domain remain open; this local equality
+process does not prove a real-time settling interval.
+
+Equality alone does not enable publication: a raw request with bit 7 set can
+reach equality while the sign gate still suppresses FLG and all four echo bytes.
+Conversely, negative history can wrap to a positive byte inside the delay helper.
+Neither observation establishes which raw delay requests the game's songs use.
+
+`tests/integration_spc_dsp_flush.nim` checks complete ordered publication, all
+settle/request and key-queue byte pairs, mode suppression, feedback recurrence
+and complete settle/publication chains. `tests/integration_spc_echo_control.nim`
+checks dispatch versus direct YA, saved-channel requirements, signed fades,
+full-byte EDL comparisons/history, all selectors and actual writer-to-tick-to-flush
+chains. Only the initial 32-byte coefficient window is authored; wider unchecked
+reads use untouched runtime bytes. Both suites use guarded RAM/native stacks,
+bounded execution and bare port hooks; they create no DSP audio device.
+The echo suite also retains **44 helper/F7-to-settle-to-full-flush contexts**,
+covering **1,976 publication passes** including equality holds. The producer's
+`$4C/$4D` are preserved into the real updater and flush, including full-byte
+delay requests, sign transitions and wrap; the fixture does not force a settled state.
+
+For live evidence, run `nim r -d:debug src/probes/probe_spc_sequence_fetch.nim`.
+Its silent song-3 window verifies **381 flushes / 3,433 ordered DSP pairs**:
+304 full ten-descriptor flushes, eight six-descriptor flushes and 69 five-descriptor
+flushes. It also checks 121 settle boundaries (111 equal, ten increments), native
+registers, pending timer-frame preservation, queue cleanup and the feedback law.
+The observer delegates each write to the existing APU hook; real DSP mixing is
+discarded without opening an audio device. No mode bypass occurred in that
+window; synthetic tests cover that branch. No boundary check was pending at its end.
+
+## Global command producers and volume preview
+
+FA stores its one operand in remapping base `$5F`; instrument selection uses it
+in the wrapped high-instrument index `(instrument-$CA+$5F)&255`. FB consumes two
+stream bytes through dispatch: the prefetched first byte is ignored, and entry
+`$0B75` calls fetch interior `$0957` to advance past the second **without reading
+it**. Direct FB calls skip one byte. FC has no dispatched operand: A=0 is
+incremented and stored as 1 at `$0400+X`. Direct callers can supply another A,
+including `$FF` wrapping to zero. The parser ORs that guard with `$1B` to decide
+whether accepted-event preparation runs; later duration/held service is separate.
+
+Preview `$0DD0` clears `$13.7`, then enables only when depth `$C1+X` is nonzero
+and old elapsed counter `$C0+X` equals delay threshold `$02E0+X`. Disabled preview
+preserves derived gain `$0321+X`. Enabled preview calls `$0E49`, sets `$13.7`,
+and computes phase `(oldPhase+floor(rate*$51/256))&255` without changing persistent
+phase, counter, rate or depth. The direct helper has no delay/depth gate.
+It shares triangle/depth and nested gain truncation with `$0E56/$0E61`:
+triangle is `2*p` below 128 or `511-2*p` otherwise, and factor is
+`255-floor(depth*triangle/256)`, followed by the documented gain law above.
+
+Normal `$0C40` increments the elapsed counter on a delay mismatch and computes
+baseline gain when inactive; enabled updates alter persistent phase and OR `$47`
+into dirty mask `$5E`. It holds phase at 128 when old phase is negative and
+depth=255. Preview has no such hold, never advances that counter or changes
+`$5E`, and uses `$13.7` to request the following pan preview's stereo writes.
+Thus disabled preview retains gain, while normal inactive processing recomputes it.
+`tests/integration_spc_global_commands_preview.nim` retains command-to-remapping
+and event-guard consumers, phase/depth/rate/fraction matrices, normal contrasts,
+and complete preview-to-stereo port chains with authored curves and inhibit gates.
+These tests preserve producer outputs into their consumers rather than replacing
+them with the expected state.
 
 ## Pitch-offset setters and accepted-event state
 
@@ -1248,9 +1630,10 @@ instrument fields and driver consumers still need traced evidence. Package 4
 at file `$1FEC46`, targeting `$4800`, is an existing sequence-table candidate.
 
 The dispatcher, prefix/event parser, private lookahead, active/pending pitch,
-E0 instrument path, stereo, tempo and volume paths now have bounded executed checks.
-Next questions include the full DSP flush, other sequence commands, remaining
-position/envelope writers, alternate tempo/reset routing and global overrides. Derive
+E0–FE handler entries, stereo, tempo, volume and echo paths have bounded executed
+checks. This does not assign valid semantics to unchecked out-of-layout FF dispatch.
+Next questions include the remaining service-callee roles, position/envelope
+writers, alternate reset-entry reachability and global overrides. Derive
 operand widths and DSP effects from those consumers; preserve source offsets
 and package-to-APU mappings.
 
