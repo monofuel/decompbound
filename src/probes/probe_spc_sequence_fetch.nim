@@ -2,12 +2,19 @@ import
   std/[tables, strutils, algorithm],
   ../decompbound/[apu, dsp, music_player, rom_pipeline, spc700]
 
+type
+  ReadSite = object
+    count, first, last: int
+  LookAheadState = object
+    channel, stack, gate, cursor, repeats, target, continuation, request, queued, dirty: int
+
 const
   SongId = 3
   SampleRate = 32000
 
-type ReadSite = object
-  count, first, last: int
+proc word(spc: Spc, address: int): int =
+  ## Read a structural live-RAM word without exporting its contents.
+  spc.ram[address].int + spc.ram[address + 1].int * 256
 
 proc convertedPitch(spc: Spc, compensate: bool): int =
   ## Calculate the conversion oracle from live scratch and curve words without exporting data.
@@ -60,6 +67,9 @@ proc main() =
     eventChannel, eventInteger, eventFraction, eventMode, eventChecks = 0
     conversionPending = false
     conversionExpected, conversionChecks = 0
+    lookAheadPending = false
+    lookAhead: LookAheadState
+    lookAheadChecks = 0
   for sample in 0 ..< SampleRate * 2:
     let start = machine.spc.cycles
     while machine.spc.cycles - start < CyclesPerSample:
@@ -74,6 +84,30 @@ proc main() =
         phaseSum = machine.spc.ram[0x51].int + (product and 255)
         phaseHigh = product shr 8
         phasePending = true
+      if pc == 0x0CF7:
+        let channel = machine.spc.x.int
+        lookAhead = LookAheadState(channel: channel, stack: machine.spc.sp.int,
+          gate: machine.spc.ram[0x71 + channel].int,
+          cursor: machine.spc.word(0x30 + channel),
+          repeats: machine.spc.ram[0x80 + channel].int,
+          target: machine.spc.word(0x240 + channel),
+          continuation: machine.spc.word(0x230 + channel),
+          request: machine.spc.ram[0x13].int, queued: machine.spc.ram[0x46].int,
+          dirty: machine.spc.ram[0x5E].int)
+        lookAheadPending = true
+      if lookAheadPending and pc == 0x0D60:
+        let channel = lookAhead.channel
+        doAssert machine.spc.x.int == channel and machine.spc.sp.int == lookAhead.stack
+        doAssert machine.spc.ram[0x71 + channel].int == max(0, lookAhead.gate - 1)
+        doAssert machine.spc.word(0x30 + channel) == lookAhead.cursor
+        doAssert machine.spc.ram[0x80 + channel].int == lookAhead.repeats
+        doAssert machine.spc.word(0x240 + channel) == lookAhead.target
+        doAssert machine.spc.word(0x230 + channel) == lookAhead.continuation
+        doAssert machine.spc.ram[0x13].int == lookAhead.request
+        doAssert machine.spc.ram[0x46].int == lookAhead.queued
+        doAssert machine.spc.ram[0x5E].int == lookAhead.dirty
+        lookAheadPending = false
+        inc lookAheadChecks
       if pc == 0x0667:
         eventChannel = machine.spc.x.int
         eventInteger = ((machine.spc.y.int and 127) + machine.spc.ram[0x50].int +
@@ -199,6 +233,8 @@ proc main() =
   echo "verified accepted-event pitch states: ", eventChecks
   doAssert conversionChecks > 0 and not conversionPending
   echo "verified pitch-table conversions: ", conversionChecks
+  doAssert lookAheadChecks > 0
+  echo "verified lookahead live-state preservation: ", lookAheadChecks
 
 when isMainModule:
   main()

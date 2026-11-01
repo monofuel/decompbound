@@ -1733,14 +1733,24 @@
       "evidence": "docs/audio.md; integration_spc_modulation_commands.nim and integration_spc_sequence_control.nim verify original/rebuilt setters, event resets, call slots and global stream controls"
     },
     {
-      "name": "blob_2603E0",
+      "name": "spcParseSequencePrefix",
       "offset": 2491360,
-      "length": 82,
-      "kind": "blob",
-      "source": "blobs/blob_2603E0.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "length": 72,
+      "kind": "code",
+      "source": "asm/spcParseSequencePrefix.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_prefix.nim, integration_spc_sequence_lookahead.nim and integration_spc_active_pitch_transition.nim verify original/rebuilt prefix/counter parsing, private lookahead, guarded key-off and active F9 transitions"
+    },
+    {
+      "name": "spcServiceSequenceEvent",
+      "offset": 2491432,
+      "length": 10,
+      "kind": "code",
+      "source": "asm/spcServiceSequenceEvent.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_prefix.nim, integration_spc_sequence_lookahead.nim and integration_spc_active_pitch_transition.nim verify original/rebuilt prefix/counter parsing, private lookahead, guarded key-off and active F9 transitions"
     },
     {
       "name": "spcNextSequenceChannel",
@@ -2043,14 +2053,24 @@
       "evidence": "docs/audio.md; integration_spc_sequence_lifecycle.nim and integration_spc_pitch_offsets.nim verify original/rebuilt selection, blocks, modes, queued key-off and accepted-event pitch state"
     },
     {
-      "name": "blob_2606C6",
+      "name": "spcServiceHeldPitchTransition",
       "offset": 2492102,
-      "length": 32,
-      "kind": "blob",
-      "source": "blobs/blob_2606C6.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "length": 16,
+      "kind": "code",
+      "source": "asm/spcServiceHeldPitchTransition.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_prefix.nim, integration_spc_sequence_lookahead.nim and integration_spc_active_pitch_transition.nim verify original/rebuilt prefix/counter parsing, private lookahead, guarded key-off and active F9 transitions"
+    },
+    {
+      "name": "spcStartActivePitchTransition",
+      "offset": 2492118,
+      "length": 16,
+      "kind": "code",
+      "source": "asm/spcStartActivePitchTransition.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_prefix.nim, integration_spc_sequence_lookahead.nim and integration_spc_active_pitch_transition.nim verify original/rebuilt prefix/counter parsing, private lookahead, guarded key-off and active F9 transitions"
     },
     {
       "name": "spcSetPitchTransitionTarget",
@@ -2133,14 +2153,14 @@
       "evidence": "docs/audio.md; integration_spc_pan_transition.nim and integration_spc_arithmetic.nim verify original/rebuilt command, tick, preview and helper arithmetic"
     },
     {
-      "name": "blob_260839",
+      "name": "spcLookAheadSequence",
       "offset": 2492473,
       "length": 105,
-      "kind": "blob",
-      "source": "blobs/blob_260839.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "kind": "code",
+      "source": "asm/spcLookAheadSequence.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_prefix.nim, integration_spc_sequence_lookahead.nim and integration_spc_active_pitch_transition.nim verify original/rebuilt prefix/counter parsing, private lookahead, guarded key-off and active F9 transitions"
     },
     {
       "name": "spcTickPitchTransition",

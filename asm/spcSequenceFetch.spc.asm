@@ -5,6 +5,11 @@
     .org $0955
 spcSequenceFetch:
     MOV A, [$30+X]
+
+; CALL entry $0957: A=already-read byte, same X/DP pointer contract.
+; Advance without rereading the stream; return A=Y=input byte and N/Z from it.
+; Preserves X and other PSW bits. Held F9 service uses this to skip its opcode.
+spcAdvanceSequenceCursor:
     INC $30+X
     BNE returnByte
     INC $31+X              ; Carry a low-byte wrap into the pointer high byte.
