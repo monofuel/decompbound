@@ -403,6 +403,60 @@ verify an entire NMI/IRQ entry/return, cycle timing, interactions with other
 DMA channels, or how publication behaves if interrupted partway through.
 
 
+## Choosing and ordering entity draws
+
+`$C0A0CA..A0E2` (`drawEntityById`) wraps the already adopted graphics
+dispatcher. It accepts a nonnegative raw entity ID in A, forces M16, allocates
+scratch at `D=(callerD-$A0)&$FF00`, doubles the ID into X and DP `$88`, then
+calls `$A0E3`. It restores D and returns via RTS. X16, decimal clear, a WRAM
+DBR and scratch isolated from live buffers are required. Negative IDs spin at
+`$A0D8`; IDs above the 30 real slots are not checked. Its SBC establishes V
+from scratch-address arithmetic, so this wrapper does not simply preserve the
+caller's overflow flag into `$A0E3`'s inherited-V rejection. Execute through
+the `$80` mirror used by the scheduler (or equivalent `$00` mirror): the
+dispatcher's bank-local indirect pointer must read WRAM at `$11E2`. Calling
+through the nominal `$C0` location instead reads ROM there.
+
+`$C0DB0F..DBE5` (`drawEntitiesByDepth`) is the normal traversal. It reserves
+24 bytes below caller D and follows doubled active-list links from `$0A50`
+through `$0A9E`. Before dispatch it accepts render X from −64 through 319 and
+render Y from −64 through 255, inclusive. Raw queue word `$103E == 1` is
+deferred; every other word is dispatched immediately in list order. Deferred
+actors are dispatched in descending **unsigned** world Y (`$0BCA`), with equal
+depths retaining active-list order. Scratch links use `$280C + entityOffset`.
+Queue indirection is resolved later by the body callback, so an indirect word
+that eventually selects queue 1 is not treated as raw group 1 here.
+
+When `$0067` bit `$2000` is set, that entry calls `$C0DA31..DB0E`
+(`drawEntitiesBySlot`). This entry reserves 22 additional scratch bytes and,
+provided the active-list head is not `$FFFF`, scans all 30 slots in ascending
+ID order. A selector `$0A62 == $FFFF` makes a slot inactive for this scan;
+membership in the linked list is not otherwise required. There is no normal
+X/Y clipping. Only raw group 1 with render Y from −8 through 503 is deferred;
+all others draw immediately. Deferred depth is again descending unsigned world
+Y, with ascending slot ID breaking ties. Its scratch array stores ID+1, zeros
+consumed entries and ends with `$FFFF`. The mode's broader scene role remains
+unassigned.
+
+Both traversals force M16/X16 and clear carry at entry, preserve D/DBR/stack,
+and leave registers/flags and their scratch areas clobbered. Valid lists,
+callbacks and separate scratch storage are caller responsibilities. These
+three regions total **462 bytes**; the existing dispatcher and callbacks remain
+separate adopted regions.
+
+`nim r tests/integration_entity_drawing.nim` checks **8,744 cases** across
+original and freshly rebuilt ROMs. All 120 permutations of five entities are
+tested with depth ties, unsigned boundaries, raw/indirect queue words and both
+traversals. Boundary cases cover the different clipping ranges, empty lists,
+inactive selectors, slots absent from the linked list, and full 30-actor sorts.
+Wrapper cases cover
+all 30 IDs, three scratch origins and dispatcher rejection paths. In **960 of
+those cases**, the real default callback, queue drain and publication also run
+against authored definitions, verifying actual OAM order and bytes for both
+build buffers. The complete scheduler/lifecycle test supplies additional caller
+integration. These checks do not establish full interrupt timing or a visual
+identity for the alternate mode.
+
 ## Entity frame tables and action-script configuration
 
 One entity rendering callback, `$C0A0FA..$C0A11A`, treats A as a frame index
@@ -739,6 +793,53 @@ Queued byte counts accumulate in `$0099`. The inner helper waits for interrupt
 progress if adding a request exceeds `$1200` bytes or the ring would become
 full. These waits are intentional; tests with no interrupt scheduling must
 provide available space and budget rather than bypassing the waits.
+
+### DMA producer entries and backpressure
+
+The complete producer is reproduced in `asm/requestVramDma.asm`, file
+`0x008643..0086DD` (**155 bytes**). The public entry `$C08643` accepts either
+native register width, establishes M16/X16, D=0 and DBR=0, and restores the
+original status, D, DBR and stack. Y returns zero; A/X are scratch. Decimal must
+be clear. Fast JSL entry `$C0865B` instead requires M16/X16, D=0 and DBR=0;
+its inner JSR entry `$865F` preserves Y and status. These same-bank lookups
+must run in a ROM mirror that maps `$8FB0` to the profile table.
+
+The queued path first computes a 16-bit `$0092 + $0099`. Sums through `$1200`
+are accepted. Larger sums wait at `$8671` until `$0099` becomes zero, then
+reload `$0092` and continue without validating that request's own size. A
+single `$1201`-byte request can therefore proceed on an empty budget. Arithmetic
+overflow is not checked; this is a scheduling convention, not an input-size
+validator.
+
+After storing that byte count, the producer snapshots tail byte `$01`, copies
+the complete request to the current head slot, and calculates the next head
+modulo 256. If that next head equals the saved tail, it waits at `$869D` for
+the live tail to move. Head byte `$00` is published only afterward. Thus the
+consumer cannot see the staged request while the producer waits for space.
+The ring has 32 physical records and reserves one empty slot.
+
+The original consumer `$C08238..8277` drains published records. Actual NMI
+instructions `$C0834E..8351` then establish 16-bit widths and clear word `$99`.
+If this reset occurs during the full-ring wait, the staged request's previously
+stored count is lost: the producer publishes its head without restoring `$99`.
+The request is still pending, but the counter is zero. This observed behavior
+is retained, not repaired in the byte-identical source.
+
+Under forced blank, channel 1 performs the request immediately, preserving the
+ring and byte budget. It also copies `$00A3` into `$00A1` and clears word
+`$7E9E2B`; the ordinary queued return does neither. Profile offsets 0 and 3
+select incrementing and fixed-source mode-1 VRAM transfers respectively; both
+use VMAIN `$80`. Other hardware profiles remain outside this test matrix.
+
+`nim r tests/integration_dma_request.nim` checks **2,192 original/rebuilt
+scenarios**. It covers every native status combination with decimal clear,
+the fast entry's supported width combinations, both verified profiles, ring
+wrap, exact/over-budget requests and full-ring waits. After observing three
+actual wait-loop visits, the test schedules the original consumer and budget
+reset fragments, then lets the original producer resume. It checks publication
+order, register context, queue records, accounting, DMA counts and every VRAM
+word, including odd-length transfers. This proves the producer/consumer contract
+under an explicit schedule; it does not model hardware interrupt latency.
 
 Sprite wrapper `$C0A56E..$C0A60A` applies a placement rule before invoking that
 helper. For the tested even sizes, if the destination range crosses a

@@ -49,9 +49,9 @@
     .word $98A0            ; Opcode $2B.
     .word $98AE            ; Opcode $2C.
     .word $98BC            ; Opcode $2D.
-    .word $976D            ; Opcode $2E.
-    .word $9792            ; Opcode $2F.
-    .word $97B7            ; Opcode $30.
+    .word $976D            ; Opcode $2E. Add signed 8.8 X step.
+    .word $9792            ; Opcode $2F. Add signed 8.8 Y step.
+    .word $97B7            ; Opcode $30. Add signed 8.8 elevation step.
     .word $97DC            ; Opcode $31.
     .word $97EF            ; Opcode $32.
     .word $9802            ; Opcode $33.
@@ -66,9 +66,9 @@
     .word $9A38            ; Opcode $3C.
     .word $9A3E            ; Opcode $3D.
     .word $9A44            ; Opcode $3E.
-    .word $9713            ; Opcode $3F.
-    .word $9731            ; Opcode $40.
-    .word $974F            ; Opcode $41.
+    .word $9713            ; Opcode $3F. Set signed 8.8 X step.
+    .word $9731            ; Opcode $40. Set signed 8.8 Y step.
+    .word $974F            ; Opcode $41. Set signed 8.8 elevation step.
     .word $993D            ; Opcode $42. Call a three-byte native target.
     .word $9931            ; Opcode $43.
     .word $9BA9            ; Opcode $44.
@@ -79,7 +79,7 @@ packedActionHandlers:
     .word $9A38            ; Opcode $46. Packed selector 1.
     .word $9A3E            ; Opcode $47. Packed selector 2.
     .word $9A44            ; Opcode $48. Packed selector 3.
-    .word $9713            ; Opcode $49. Packed selector 4.
-    .word $9731            ; Opcode $4A. Packed selector 5.
-    .word $974F            ; Opcode $4B. Packed selector 6.
+    .word $9713            ; Opcode $49 / packed 4: set X step.
+    .word $9731            ; Opcode $4A / packed 5: set Y step.
+    .word $974F            ; Opcode $4B / packed 6: set elevation step.
     .word $993D            ; Opcode $4C. Packed selector 7.

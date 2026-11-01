@@ -20,7 +20,8 @@ research stays in the existing topic docs; no separate ideas notebook is needed.
 The decompilation evidence builds on the verified sprite-storage and action-script
 work on `decomp/rng-contract-2026-09-10`, with subsequent adoption of entity
 creation/replacement, OAM queue composition, sprite spawning and frame transfers,
-fixed-point motion, coordinate projection, and default sprite/effect drawing.
+fixed-point motion and script operands, coordinate projection, draw traversal,
+default sprite/effect drawing, and DMA producer backpressure.
 The checkout also includes the Pi/player performance work. Earlier unfinished bot/report
 work remains preserved on `review/pending-2026-09-10`; `bestiary/integration`
 and `review/archive-2026-10-27/*` retain unverified research for later investigation.
@@ -28,14 +29,14 @@ and `review/archive-2026-10-27/*` retain unverified research for later investiga
 | Goal | Outcome | Current state |
 |---|---|---|
 | **1. Rebuild identically** | Reconstruct every original byte from our source and the user's local extraction. | **Met; maintain.** `make compare` printed `BYTE-IDENTICAL`. |
-| **2. Understand all code** | Explain every game routine, its contracts, and its role in the larger system. | **Early.** 89 assembly regions, 7,309 bytes, formally marked explained and reproduced, including entity motion/projection, default sprite effects, the entity lifecycle, script-to-OAM path, sprite spawning/transfers, and world-map readers. Additional research lives outside that inventory. |
+| **2. Understand all code** | Explain every game routine, its contracts, and its role in the larger system. | **Early.** 99 assembly regions, 8,127 bytes, formally marked explained and reproduced, including entity motion/scripts, drawing order and sprite effects, the entity lifecycle, DMA queues, sprite spawning/transfers, and world-map readers. Additional research lives outside that inventory. |
 | **3. Understand scripting** | Explain the script languages, their interpreters, and how scripts cause game behavior. | **Partial.** Text decoding and entity action-script machinery exist; complete semantics and a whole-ROM script inventory remain open. |
 | **4. Understand graphics** | Explain and browse the game's graphics, including the assembled world map. | **Partial.** Pocket Atlas browses the world/interior atlas and 15 verified static scenery flags; enemy portraits, backgrounds and UI also have verified renderers. A complete graphics catalog, animation and dynamic scene behavior remain open. |
 | **5. Understand audio** | Explain the sound driver, music, effects, instruments, and playback behavior. | **Partial.** Emulator playback and annotated upload/song-selection routines exist; full driver and content interpretation remain open. |
 
-The manifest currently covers 3,145,728 bytes in 121 regions. Of those bytes,
-7,309 (0.2323%) are `reproduce` / `explained`; 3,138,419 are `copy` / `unknown`.
-The reproduced inventory contains 85 code regions (7,099 bytes) and four
+The manifest currently covers 3,145,728 bytes in 133 regions. Of those bytes,
+8,127 (0.2584%) are `reproduce` / `explained`; 3,137,601 are `copy` / `unknown`.
+The reproduced inventory contains 95 code regions (7,917 bytes) and four
 structural tables (210 bytes); regions are not a count of distinct functions.
 This denominator is the **whole ROM**, including data and assets, not executable
 code alone. It is not a percentage of functions understood. Recompute from

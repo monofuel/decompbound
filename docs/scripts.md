@@ -303,9 +303,50 @@ or elevated projection, then the native draw loop `$C0DB0F`, default callback
 `$C0A3A4`, effect timers, priority edits, indirect queue retention, publication
 and the bounded OAM/scroll interrupt fragments. Bodies and effects use authored
 synthetic definitions; all emitted sprite bytes have independent expectations.
-The draw loop and interrupt fragments are dependencies executed by this check,
-not newly adopted routines or a claim about full interrupt timing. The existing
-eight real-resource/frame-table lifecycle scenarios remain separate coverage.
+The draw loop is now adopted with its own ordering checks, described in
+[graphics.md](graphics.md#choosing-and-ordering-entity-draws). The interrupt
+fragments remain bounded dependencies rather than a claim about full interrupt
+timing. The existing eight real-resource/frame-table lifecycle scenarios remain
+separate coverage.
+
+### Script operands that set and add movement steps
+
+Six handlers convert signed 8.8 script operands into the 16.16 step pairs used
+by the motion callbacks above. Each consumes one little-endian word from
+`[$80],Y` and advances the 16-bit cursor by two:
+
+| Axis | Set entry / low opcode aliases | Add entry / low opcode |
+|---|---|---|
+| X | `$C09713..9730`, `$3F/$49` | `$C0976D..9791`, `$2E` |
+| Y | `$C09731..974E`, `$40/$4A` | `$C09792..97B6`, `$2F` |
+| Elevation | `$C0974F..976C`, `$41/$4B` | `$C097B7..97DB`, `$30` |
+
+Packed opcodes `$C0..CF`, `$D0..DF` and `$E0..EF` select the same three set
+handlers. Their low nibble supplies the fetch loop's inline wait. A nonzero
+inline wait stops dispatch after the operand; its first decrement occurs in
+that same tick. With a zero inline wait, dispatch continues to the next opcode.
+The `$49..4B` low aliases do not acquire a packed inline wait.
+
+For operand `s` interpreted as signed 16-bit, the complete replacement step is
+`s * 256` modulo `2^32`. The low operand byte becomes fraction bits 8..15; the
+high operand byte is sign-extended into the integer word. Add handlers add that
+same value to the existing complete step, carrying from fraction to integer.
+AND, conditional ORA and XBA leave carry intact between those additions.
+
+All six require native M16/X16, a WRAM DBR and DP `$88` containing the doubled
+entity offset. They reload X and save the operand in DP word `$90`; Y returns
+advanced and A/X/flags are scratch. D/DBR/stack and unrelated entity fields are
+preserved. Add handlers require decimal clear. Set handlers perform no ADC/SBC.
+Long-indexed operand reads can cross a bank while the returned Y wraps at 16
+bits; the stream base itself is not rewritten by these handlers.
+
+The six annotated handlers total **201 bytes**. `nim r
+tests/integration_action_script_motion.nim` checks **795,072 direct calls** on
+original and rebuilt ROMs: all 65,536 operands on each handler, plus signed,
+carry, overflow and cursor-boundary cases across all 30 entities. **570 further
+cases** execute every valid low/packed alias through the original fetch loop,
+then apply the real XYZ callback and verify waits and resulting coordinates.
+Synthetic streams supply the operands; game script bodies are not fixtures.
 
 ### A verified script-driven removal sequence
 

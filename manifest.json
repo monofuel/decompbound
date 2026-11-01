@@ -215,9 +215,29 @@
     {
       "name": "blob_008573",
       "offset": 34163,
-      "length": 830,
+      "length": 208,
       "kind": "blob",
       "source": "blobs/blob_008573.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "requestVramDma",
+      "offset": 34371,
+      "length": 155,
+      "kind": "code",
+      "source": "asm/requestVramDma.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md: DMA producer/backpressure; integration_dma_request"
+    },
+    {
+      "name": "blob_0086DE",
+      "offset": 34526,
+      "length": 467,
+      "kind": "blob",
+      "source": "blobs/blob_0086DE.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
@@ -525,9 +545,79 @@
     {
       "name": "blob_0096E3",
       "offset": 38627,
-      "length": 1130,
+      "length": 48,
       "kind": "blob",
       "source": "blobs/blob_0096E3.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "actionScriptSetXStep",
+      "offset": 38675,
+      "length": 30,
+      "kind": "code",
+      "source": "asm/actionScriptSetXStep.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: script movement steps; integration_action_script_motion"
+    },
+    {
+      "name": "actionScriptSetYStep",
+      "offset": 38705,
+      "length": 30,
+      "kind": "code",
+      "source": "asm/actionScriptSetYStep.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: script movement steps; integration_action_script_motion"
+    },
+    {
+      "name": "actionScriptSetElevationStep",
+      "offset": 38735,
+      "length": 30,
+      "kind": "code",
+      "source": "asm/actionScriptSetElevationStep.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: script movement steps; integration_action_script_motion"
+    },
+    {
+      "name": "actionScriptAddXStep",
+      "offset": 38765,
+      "length": 37,
+      "kind": "code",
+      "source": "asm/actionScriptAddXStep.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: script movement steps; integration_action_script_motion"
+    },
+    {
+      "name": "actionScriptAddYStep",
+      "offset": 38802,
+      "length": 37,
+      "kind": "code",
+      "source": "asm/actionScriptAddYStep.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: script movement steps; integration_action_script_motion"
+    },
+    {
+      "name": "actionScriptAddElevationStep",
+      "offset": 38839,
+      "length": 37,
+      "kind": "code",
+      "source": "asm/actionScriptAddElevationStep.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: script movement steps; integration_action_script_motion"
+    },
+    {
+      "name": "blob_0097DC",
+      "offset": 38876,
+      "length": 881,
+      "kind": "blob",
+      "source": "blobs/blob_0097DC.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
@@ -723,14 +813,14 @@
       "evidence": "docs/scripts.md: entity motion/projection; integration_entity_motion"
     },
     {
-      "name": "blob_00A0CA",
+      "name": "drawEntityById",
       "offset": 41162,
       "length": 25,
-      "kind": "blob",
-      "source": "blobs/blob_00A0CA.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "kind": "code",
+      "source": "asm/drawEntityById.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md: draw traversal; integration_entity_drawing"
     },
     {
       "name": "dispatchEntityGraphics",
@@ -1155,9 +1245,39 @@
     {
       "name": "blob_00B425",
       "offset": 46117,
-      "length": 209061,
+      "length": 9740,
       "kind": "blob",
       "source": "blobs/blob_00B425.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "drawEntitiesBySlot",
+      "offset": 55857,
+      "length": 222,
+      "kind": "code",
+      "source": "asm/drawEntitiesBySlot.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md: draw traversal; integration_entity_drawing"
+    },
+    {
+      "name": "drawEntitiesByDepth",
+      "offset": 56079,
+      "length": 215,
+      "kind": "code",
+      "source": "asm/drawEntitiesByDepth.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/graphics.md: draw traversal; integration_entity_drawing"
+    },
+    {
+      "name": "blob_00DBE6",
+      "offset": 56294,
+      "length": 198884,
+      "kind": "blob",
+      "source": "blobs/blob_00DBE6.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"

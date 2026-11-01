@@ -1,5 +1,6 @@
 ; Load an entity's frame table and jump to its graphics callback.
 ; File $00A0E3..$00A0F9, SNES $C0A0E3. JSR, native M16/X16, DBR=$7E.
+; Execute through PBR=$80 (or $00): the indirect callback table is WRAM.
 ; X is the entity byte offset. Taken path is JMP ($11E2,X): the callback
 ; RTS returns to this routine's caller. A holds the frame from $10F2,X.
 ; Rejections preserve D, DBR, and stack depth; A is clobbered.
