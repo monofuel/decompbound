@@ -2,6 +2,7 @@
 ## Run from this worktree using the user's ROM and an isolated debug cache:
 ##   nim r -d:debug --nimcache:bin/nimcache/boot-packages-source src/probes/probe_spc_boot_packages.nim
 ## Optional first argument changes the bounded modeled-frame budget (default 1200).
+## Add --service after the numeric budget to observe the separate setup/service instruction boundary.
 ## A shorter 400-frame prefix reaches only the resident upload in this blank-SRAM run.
 ## Core SnesBus/Cpu/APU paths, including MMIO catch-up, remain unchanged. Every
 ## generated PCM sample is discarded; no frontend, audio device or SRAM file is used.
@@ -13,7 +14,7 @@
 ## No completion here initializes the eleven queried instrument rows; this bounded
 ## first-song history does not establish what later scene/song libraries upload.
 import
-  std/[os, strformat, strutils, tables],
+  std/[algorithm, os, strformat, strutils, tables],
   ../decompbound/[cpu, music_player, rom_pipeline, snesbus]
 
 type
@@ -57,6 +58,8 @@ type
     hostInstructions, cacheTransitions, initEntries: int
     gapWriter: array[11, int]
     gapMask: array[11, uint8]
+    auditService: bool
+    serviceVisits: CountTable[int]
 
 const
   PackageCount = 169
@@ -208,6 +211,8 @@ proc observe(trace: Trace, snes: SnesBus, host: Cpu, rom: seq[uint8]) =
       echo &"completed resident initializer: restoredDP=${host.d:04X} restoredDBR=${host.dbr:02X} " &
         &"seedPackage={seed} marker=1 currentSongPreserved=true"
   if host.nmiPending: return # The core will enter NMI before executing this PC.
+  if trace.auditService and pc in 0xC0B7D8'u32 .. 0xC0B9BB'u32:
+    trace.serviceVisits.inc(pc.int)
   if pc == 0xC4FB58:
     inc trace.initEntries
     trace.initializers.add InitializerCall(returnAddress: snes.callerReturn(host),
@@ -235,7 +240,8 @@ proc main() =
   let
     rom = readGoldBaserom()
     snes = newSnesBus(rom)
-    trace = Trace(packageIds: initTable[int, seq[int]]())
+    trace = Trace(packageIds: initTable[int, seq[int]](),
+      auditService: "--service" in commandLineParams())
     frames = if paramCount() > 0: parseInt(paramStr(1)) else: DefaultFrames
   doAssert frames > 0 and frames <= 2000
   for value in snes.sram.mitems: value = 0 # Never load or save a user's SRAM.
@@ -351,6 +357,16 @@ proc main() =
     &"CPUobservedInstructions={trace.hostInstructions} scheduledDiscardedSamples={scheduledSamples} " &
     &"SPCentry=${snes.apu.spc.pc:04X} IPLmapped={snes.apu.spc.iplEnabled} SRAMdirtyInMemory={snes.sramDirty}"
   echo "No visual-title, physical timing, complete library or musical-correctness claim."
+  if trace.auditService:
+    echo &"service observation: entries={trace.serviceVisits[0xC0B7D8]} " &
+      &"iterationStarts={trace.serviceVisits[0xC0B814]} tailEntries={trace.serviceVisits[0xC0B95E]} " &
+      &"returnInstructions={trace.serviceVisits[0xC0B999]} startupWrapperEntries={trace.serviceVisits[0xC0B99A]} " &
+      &"distinctInstructionStarts={trace.serviceVisits.len}"
+    var starts: seq[int]
+    for address in trace.serviceVisits.keys: starts.add address
+    starts.sort()
+    for address in starts:
+      echo &"service instruction ${address:06X}: visits={trace.serviceVisits[address]}"
 
 when isMainModule:
   main()

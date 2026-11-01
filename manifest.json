@@ -175,9 +175,109 @@
     {
       "name": "blob_002194",
       "offset": 8596,
-      "length": 25346,
+      "length": 6801,
       "kind": "blob",
       "source": "blobs/blob_002194.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "updatePositionSongSelection",
+      "offset": 15397,
+      "length": 38,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/updatePositionSongSelection.asm",
+      "evidence": "docs/audio.md; integration_position_song_selection.nim; original/rebuilt caller/consumer and byte evidence"
+    },
+    {
+      "name": "blob_003C4B",
+      "offset": 15435,
+      "length": 11433,
+      "kind": "blob",
+      "source": "blobs/blob_003C4B.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "resolvePositionSongCandidate",
+      "offset": 26868,
+      "length": 187,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/resolvePositionSongCandidate.asm",
+      "evidence": "docs/audio.md; integration_position_song_selection.nim; original/rebuilt caller/consumer and byte evidence"
+    },
+    {
+      "name": "applySelectedSong",
+      "offset": 27055,
+      "length": 62,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/applySelectedSong.asm",
+      "evidence": "docs/audio.md; integration_apply_selected_song.nim; original/rebuilt caller/consumer and byte evidence"
+    },
+    {
+      "name": "loadSelectedSong",
+      "offset": 27117,
+      "length": 10,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/loadSelectedSong.asm",
+      "evidence": "docs/audio.md; integration_selected_song_adapters.nim; original/rebuilt caller/consumer and byte evidence"
+    },
+    {
+      "name": "resolveCurrentPositionSong",
+      "offset": 27127,
+      "length": 16,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/resolveCurrentPositionSong.asm",
+      "evidence": "docs/audio.md; integration_position_song_selection.nim; original/rebuilt caller/consumer and byte evidence"
+    },
+    {
+      "name": "resolveAndLoadCurrentPositionSong",
+      "offset": 27143,
+      "length": 20,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/resolveAndLoadCurrentPositionSong.asm",
+      "evidence": "docs/audio.md; integration_selected_song_adapters.nim; original/rebuilt caller/consumer and byte evidence"
+    },
+    {
+      "name": "blob_006A1B",
+      "offset": 27163,
+      "length": 6108,
+      "kind": "blob",
+      "source": "blobs/blob_006A1B.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "advanceDisplayBrightness",
+      "offset": 33271,
+      "length": 47,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/advanceDisplayBrightness.asm",
+      "evidence": "docs/graphics.md; integration_display_transition_setup.nim; original/rebuilt caller/consumer and byte evidence"
+    },
+    {
+      "name": "blob_008226",
+      "offset": 33318,
+      "length": 624,
+      "kind": "blob",
+      "source": "blobs/blob_008226.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
@@ -235,9 +335,29 @@
     {
       "name": "blob_0086DE",
       "offset": 34526,
-      "length": 467,
+      "length": 398,
       "kind": "blob",
       "source": "blobs/blob_0086DE.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "startDisplayBrightnessTransition",
+      "offset": 34924,
+      "length": 14,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/startDisplayBrightnessTransition.asm",
+      "evidence": "docs/graphics.md; integration_display_transition_setup.nim; original/rebuilt caller/consumer and byte evidence"
+    },
+    {
+      "name": "blob_00887A",
+      "offset": 34938,
+      "length": 55,
+      "kind": "blob",
+      "source": "blobs/blob_00887A.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
@@ -425,9 +545,29 @@
     {
       "name": "blob_009086",
       "offset": 36998,
-      "length": 508,
+      "length": 213,
       "kind": "blob",
       "source": "blobs/blob_009086.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "divideUnsignedWord",
+      "offset": 37211,
+      "length": 33,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/divideUnsignedWord.asm",
+      "evidence": "docs/audio.md; integration_unsigned_division.nim; original/rebuilt caller/consumer and byte evidence"
+    },
+    {
+      "name": "blob_00917C",
+      "offset": 37244,
+      "length": 262,
+      "kind": "blob",
+      "source": "blobs/blob_00917C.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
@@ -1535,9 +1675,29 @@
     {
       "name": "blob_04FD18",
       "offset": 326936,
-      "length": 2163498,
+      "length": 45,
       "kind": "blob",
       "source": "blobs/blob_04FD18.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "setPositionSongSelectionEnabled",
+      "offset": 326981,
+      "length": 6,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/setPositionSongSelectionEnabled.asm",
+      "evidence": "docs/audio.md; integration_position_song_selection.nim; original/rebuilt caller/consumer and byte evidence"
+    },
+    {
+      "name": "blob_04FD4B",
+      "offset": 326987,
+      "length": 2163447,
+      "kind": "blob",
+      "source": "blobs/blob_04FD4B.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
@@ -3413,11 +3573,21 @@
       "evidence": "docs/audio.md; integration_spc_auxiliary_service.nim; original/rebuilt code and native caller/helper contracts"
     },
     {
-      "name": "blob_26298A",
+      "name": "spcSequenceZeroPointerBranchAlias",
       "offset": 2501002,
-      "length": 384,
-      "kind": "blob",
+      "length": 2,
+      "kind": "data",
+      "build": "copy",
+      "comprehension": "identified",
       "source": "blobs/blob_26298A.bin",
+      "evidence": "docs/audio.md; integration_spc_port_three_alias.nim; original/rebuilt caller/consumer and byte evidence"
+    },
+    {
+      "name": "blob_26298C",
+      "offset": 2501004,
+      "length": 382,
+      "kind": "blob",
+      "source": "blobs/blob_26298C.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"

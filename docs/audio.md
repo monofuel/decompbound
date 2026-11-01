@@ -60,7 +60,8 @@ frame plus nested helper requires scratch through entry D−20; `loadSong`'s
 twenty-byte frame needs the nested word at entry D−22/−21. Native stacks and
 scratch must be disjoint. Intended DBR is `$7E`, decimal clear. The helper's
 N/Z flags follow restored D; initialization returns A=1 and preserves D/DBR
-through the original uploader. The broader consumer policy of `$B549` remains open.
+through the original uploader. `$B549` enables the position-change selection
+path described below; initialization does not itself resolve a position's song.
 
 `integration_apu_resident_init.nim` checks 65,536 full-word/width/frame helper
 contexts and 1,536 raw-index/cache/argument prefix contexts per original/rebuilt
@@ -100,6 +101,103 @@ behavior only. A separate original reset execution, with coherent low-WRAM
 aliases, verifies that its two forward fills clear `$B543`; it checks the whole
 WRAM result, including the intervening display-shadow write and untouched bank
 `$7F`. This is a known bulk invalidation, not proof of every possible cache writer.
+
+## Position-based song selection
+
+The position-selection path now has source for seven routines (339 bytes):
+
+| Source / SNES entry | Bytes | Role |
+|---|---:|---|
+| `updatePositionSongSelection` / `$C03C25` | 38 | Suppress lookup notification, compare candidate/current, then synchronize and apply a changed candidate. |
+| `resolvePositionSongCandidate` / `$C068F4` | 187 | Quantize two position words and choose the first matching conditional record. |
+| `applySelectedSong` / `$C069AF` | 62 | Commit a changed candidate, load it, then publish record byte +3. |
+| `loadSelectedSong` / `$C069ED` | 10 | Load the retained candidate without lookup or selection gating. |
+| `resolveCurrentPositionSong` / `$C069F7` | 16 | Resolve global position and return the candidate word. |
+| `resolveAndLoadCurrentPositionSong` / `$C06A07` | 20 | Resolve if enabled, then load even a retained candidate. |
+| `setPositionSongSelectionEnabled` / `$C4FD45` | 6 | Store the full `$B549` enable word; zero disables automatic position-change selection. |
+
+At `$C0524E..527B`, the original caller compares high bytes of position words
+`$9877/$987B` against `$5D5C/$5D5E`. On change it updates those caches **before**
+testing `$B549`; zero skips the near call to `$C03C25`. Thus disabling selection
+does not freeze the position caches. `$C03CE5` supplies zero to the setter;
+the resident initializer writes one after uploading. Broader scene policy remains
+separate from these verified field consumers.
+
+The lookup accepts A=first position and X=second position. It forms
+`(A >> 8) + 32 * (X div 128)`, reads one map byte at `$DCD637+index` (file
+`$1CD637+index`), then indexes the word-offset table at `$CF58EF+2*mapByte`
+(file `$0F58EF`). The initial offset is masked to fifteen bits in bank `$CF`.
+These are raw coordinate operations; this evidence does not assign physical
+units or a complete map/table extent.
+
+Each locally extracted record has four bytes:
+
+| Field | Meaning |
+|---|---|
+| `u16 condition` | Zero is unconditional. Otherwise evaluate the low-fifteen-bit event-flag number through original `$C21628`. |
+| `u8 candidate` | Song candidate published as a word at `$5DD6`. |
+| `u8 auxiliary` | Later published to port one by `$C069AF`; lookup itself does not read it. |
+
+A nonzero condition **strictly greater than** `$8000` requires the flag set;
+other nonzero conditions require it clear. Exactly `$8000` tests masked flag
+zero with clear polarity; it is not the unconditional sentinel. The original
+predicate's unchecked one-based flag-number arithmetic wraps zero. Unmatched
+records advance the low pointer by four without carrying into bank `$CF`.
+Individual far reads retain the CPU's ordinary bank-carry behavior. Lists have
+no count/bounds check, so termination depends on their contents.
+
+The first match publishes candidate `$5DD6` and record pointer `$5E38/$5E3A`.
+Nonzero `$5DD8` returns before lookup and preserves those older outputs.
+Otherwise lookup sends port-one command 2 only when `$5DDA=0` and the candidate
+differs from selected-song word `$5DD4`. This word is distinct from the loader's
+requested/current-song cache `$B53B`.
+
+The near wrapper sets `$5DDA=1` and finishes with zero, rather than restoring
+its previous value. It compares the produced or retained candidate: equal
+returns; different calls original `$C08756` then `$C069AF`. The consumer checks
+`$5DD8` again, commits `$5DD4` **before** calling `loadSong`, and subsequently
+reads record byte +3 through a full far pointer before the real toggled port-one
+write. The three adjacent adapters intentionally differ: `$69ED` has no lookup,
+`$69F7` only resolves/returns, and `$6A07` always calls the loader even when an
+inhibited lookup retained an old candidate. None of those three commits `$5DD4`
+or sends record byte +3.
+
+`integration_position_song_selection.nim` runs, per original/rebuilt image,
+65,536 position/division cases, 8,192 condition cases, 768 inhibited lookup cases,
+518 wrapper contexts, 65,536 setter cases, 4,096 setter-to-decision chains that
+retain the produced enable word, seventeen record-edge cases and 256 actual global-position callers.
+The edge checks include a generated unmatched list that reaches `$FFFF`, then
+wraps to bank `$CF` offset 3 rather than carrying into bank `$D0`. Changed wrapper
+cases stop at actual `$C08756`; completed synchronization is not claimed.
+
+`integration_apply_selected_song.nim` adds 73,728 finite consumer contexts and
+64 actual lookup-to-consumer chains across both images. It preserves produced
+candidate/pointer state into real loader/port calls and checks pre-load commit,
+full far-pointer carry, dirty phase bits and exact port ordering. The adapter
+suite adds 4,608 contexts, including inhibited-lookup-but-still-load behavior.
+These fixtures author unused package slots and idle host inputs to isolate
+finite paths without uploads. They do not establish original song validity,
+asynchronous timing, complete scene reachability or resource-transfer completion.
+The earlier complete-transfer and cold-boot gates remain separate evidence.
+
+### Unsigned word division
+
+`divideUnsignedWord.asm` reproduces `$C0915B..917B` (33 bytes). Native M16/X16
+callers supply A=dividend and Y=divisor with decimal clear. A returns quotient
+and Y remainder; divisor zero produces quotient `$FFFF` and the original dividend
+as remainder. X, D, DBR and incoming carry are preserved. N/Z reflect quotient;
+V follows the last subtraction, or stays unchanged if quotient zero executed
+no subtraction. DBR-selected scratch `$00B2` holds divisor and `$00B0` holds
+`(quotient >> 1) | (incomingCarry << 15)`. Scratch must be writable and disjoint
+from the live native return frame; D is not used for addressing it.
+
+`integration_unsigned_division.nim` executes 1,384,446 contexts per image:
+all dividends against seventeen divisor edges, all divisors against four dividend
+edges, valid status/operand combinations, and thirty actual `$C06914` lookup
+call/return witnesses. Its quotient/remainder and flag oracles use mathematical
+identities rather than replaying the instruction loop. The preceding sixteen-byte
+absolute-magnitude adapter remains copied; this does not explain a complete
+signed-division family.
 
 ## Package format and upload protocol
 
@@ -349,7 +447,7 @@ versus ROM placement in a mixed 65816/SPC build, exact-length rejection and the
 whole-ROM gold rebuild. The nineteen native callback/helper regions add 208
 independently assembled/byte-compared bytes; the sender’s 183 bytes also remain
 byte-identical after annotation cleanup. Fresh extraction/rebuild matches all
-3,145,728 ROM bytes with 344 regions and no gaps or overlaps. All 56 focused
+3,145,728 ROM bytes with 361 regions and no gaps or overlaps. All 62 focused
 test programs passed with assertions enabled. Checks include
 42 complete original-sender/resident-receiver transfers and 24 separate
 incoming-bank/direct-page address checks and 2,424 complete service passes.
@@ -865,7 +963,8 @@ Eighteen formerly copied body entries and shared helper `$2D37` now reproduce
 208 code bytes. Their eighteen headers (54 bytes), fixed parameters at
 `$250A..2510` (7 bytes) and preset window `$2CAF..2CD6` (40 bytes) remain copied,
 identified data. Together with the earlier seven headers and three descriptor
-regions, the identified inventory is 239 bytes. The header at `$180D..180F`
+regions, these native metadata account for 239 bytes; the separate two-byte
+pointer/branch alias brings copied/identified data to 241 bytes. The header at `$180D..180F`
 also aliases the default port-zero pointer-table base; that alias is preserved.
 
 Port-one commands 9..16 select five-byte target rows and jump to `$2D37`.
@@ -926,6 +1025,26 @@ the intentional copied code/data alias `$2E45 -> $2E48`; its BEQ returns to
 owned `$2E25`. A supposed `$15F1 -> $15F3` fall-through into a header is
 impossible along the nominal arm entry: immediate `$70` sets Z=0, its store
 preserves flags and BNE is taken.
+
+`integration_spc_port_three_alias.nim` now proves that copied alias through
+complete original service passes, in both ROM images. At the filter, let
+`p = sampledChange & 127`; it executes `$2E48` exactly when `p < 8` and the
+current active slot `$04B7 >= 8`. An unchanged host samples zero, so it can
+also reach the alias. Preceding dispatch may change the active slot, making
+the state at filter entry the relevant condition. Actual hits have produced
+A=0/Z=1 and take the branch to `$2E25`, preserving flags and the entire stack
+page; they never fall into later pointer-table entries. The same original word
+is independently consumed by the real selector-zero path. It has a separate
+identified, copied data region; no literal pointer or branch bytes are emitted.
+
+Across both images the test executes 262,144 raw full passes with 134,912 alias
+hits, plus 254 real two-pass command chains (508 passes) with 238 hits and two
+selector-zero checks. Each image includes 125 non-native installations and native
+commands 71/127; the latter clears active state and avoids the alias. The raw
+matrix authors an original native-RET continuation for valid slots, while high
+slots are rejected by the original capacity check. Stable host samples, DP zero
+and valid nonaliasing frames are explicit inputs; later record evolution,
+unstable asynchronous reads and arbitrary modified pointer contents remain open.
 
 The former 18 copied native roots and their shared helper `$2D37` now have
 separate source. This closes the nominal startup-root gap, not every executable

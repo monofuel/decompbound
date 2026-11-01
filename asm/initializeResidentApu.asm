@@ -56,6 +56,6 @@ initializeResidentApu:
     AND $B547
     JSL $C0AB06          ; Original uploader; may request resident reset or use IPL readiness.
     LDA #$0001
-    STA $B549            ; Mark completed seed upload. TODO: identify later consumers.
+    STA $B549            ; Enable position-change song selection after the seed upload.
     PLD
     RTL

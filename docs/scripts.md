@@ -22,6 +22,13 @@ with their own interpreters and cursor state. The action VM is covered below;
 [audio sequence calls and control words](audio.md#sequence-calls-and-global-control-words)
 have their own opcode/entry inventory and original-driver checks.
 
+Position-based music uses a separate four-byte conditional-record format:
+an event-flag condition selects a song candidate and auxiliary command byte.
+Its native lookup, first-match rules, inhibition and consumers are documented in
+[audio.md](audio.md#position-based-song-selection). These records remain locally
+extracted game data; explaining their consumer does not complete the dialogue
+opcode or whole-ROM script inventory.
+
 ## Why this is the heart of it
 
 Text + events *are* EarthBound — its writing is the reason the game is beloved,

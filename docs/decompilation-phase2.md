@@ -427,8 +427,8 @@ regions (4,591 bytes) and three structural code-pointer tables (98 bytes).
 All reproduced regions are explained within their documented contracts; this
 does not establish a complete executable inventory or explain every native record.
 All 25 nominal native record entries have source. Their headers plus timing,
-classification, operand and parameter data remain identified and copied
-(239 bytes). No metadata contents are
+classification, operand and parameter data, plus the sequence-zero pointer/branch
+alias, remain identified and copied (241 bytes). No metadata contents are
 committed as assembly merely because their bytes could decode as instructions.
 [audio.md](audio.md#reproduced-spc700-source) records their mappings and behavior
 gates. Song sequences, instrument records and the stereo curve remain local
@@ -441,6 +441,15 @@ source. Their cache/scratch contracts, synthetic original/rebuilt checks and
 complete original cold-boot upload/return evidence are in
 [audio.md](audio.md#song-selection-and-resident-packages). The existing song
 loader keeps its 347 bytes while moving explanations beside logical code blocks.
+
+Ten additional main-CPU regions (433 bytes) explain conditional position-based
+song selection and its distinct candidate consumers, unsigned word division,
+display-brightness setup and the interrupt fragment that consumes it. Original
+caller/consumer checks cover notifications, inhibition, far-pointer versus
+low-word advancement, hardware-NMI entry and actual PPU writes. The two-byte
+SPC pointer/branch alias remains extracted data even though a real caller executes
+it. See [audio.md](audio.md#position-based-song-selection) and
+[graphics.md](graphics.md#display-brightness-transitions) for scope and gates.
 
 ## Open decisions
 
