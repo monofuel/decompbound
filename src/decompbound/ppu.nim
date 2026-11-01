@@ -106,11 +106,38 @@ proc tilePixel(snes: SnesBus, chrBase: int, tile: int, x: int, y: int,
     if ((plane67 shr (15 - x)) and 1) != 0: index = index or 0x80
   result = index
 
-proc tileRowIndices(snes: SnesBus, cache: ptr PpuTileRowCache,
+proc cachedTileRowIndices(snes: SnesBus, cache: ptr PpuTileRowCache,
                     chrBase: int, tile: int, y: int, bpp: int,
                     idx: var array[8, uint8]) {.inline.} =
   ## Borrow cached indices after comparing the current raw VRAM plane words.
   cache[].decodeTileRow(addr snes.vram, chrBase + tile * (bpp * 4) + y, bpp, idx)
+
+proc tileRowIndices(snes: SnesBus, chrBase: int, tile: int, y: int, bpp: int,
+                    idx: var array[8, uint8]) {.inline.} =
+  ## Decode a row directly for PPU compositions without row reuse.
+  let base = chrBase + tile * (bpp * 4)
+  let plane01 = snes.vram[(base + y) and 0x7FFF]
+  var plane23 = 0'u16
+  var plane45 = 0'u16
+  var plane67 = 0'u16
+  if bpp >= 4:
+    plane23 = snes.vram[(base + 8 + y) and 0x7FFF]
+  if bpp == 8:
+    plane45 = snes.vram[(base + 16 + y) and 0x7FFF]
+    plane67 = snes.vram[(base + 24 + y) and 0x7FFF]
+  for x in 0 .. 7:
+    var index = 0
+    if ((plane01 shr (7 - x)) and 1) != 0: index = index or 1
+    if ((plane01 shr (15 - x)) and 1) != 0: index = index or 2
+    if bpp >= 4:
+      if ((plane23 shr (7 - x)) and 1) != 0: index = index or 4
+      if ((plane23 shr (15 - x)) and 1) != 0: index = index or 8
+    if bpp == 8:
+      if ((plane45 shr (7 - x)) and 1) != 0: index = index or 0x10
+      if ((plane45 shr (15 - x)) and 1) != 0: index = index or 0x20
+      if ((plane67 shr (7 - x)) and 1) != 0: index = index or 0x40
+      if ((plane67 shr (15 - x)) and 1) != 0: index = index or 0x80
+    idx[x] = uint8(index)
 
 proc renderBg(snes: SnesBus, image: Image, bg: int, bpp: int,
               paletteBase: int) =
@@ -172,7 +199,7 @@ proc bgLineSetup(snes: SnesBus, py: int, bg: int, sizeBits: var int,
   let screenY = if (sizeBits and 2) != 0: (ty shr 5) and 1 else: 0
   rowBase = tilemapBase + screenY * (if sizeBits == 3: 0x800 else: 0x400) + (ty and 31) * 32
 
-proc bgScanlineInto[FullWidth: static[bool]](snes: SnesBus, buf: var openArray[ColorRGBA],
+proc bgScanlineInto[FullWidth, UseCache: static[bool]](snes: SnesBus, buf: var openArray[ColorRGBA],
                     drawn: var openArray[bool], py: int, bg: int, bpp: int,
                     paletteBase: int, palette: ptr typeof(palCache),
                     cache: ptr PpuTileRowCache, prio: int = -1,
@@ -210,7 +237,10 @@ proc bgScanlineInto[FullWidth: static[bool]](snes: SnesBus, buf: var openArray[C
     let palBase = paletteBase + ((entry shr 10) and 0x07).int * colorsPerPal
     let flipX = (entry and 0x4000) != 0
     let sy = if (entry and 0x8000) != 0: 7 - subY else: subY
-    snes.tileRowIndices(cache, chrBase, tile, sy, bpp, idx)
+    when UseCache:
+      snes.cachedTileRowIndices(cache, chrBase, tile, sy, bpp, idx)
+    else:
+      snes.tileRowIndices(chrBase, tile, sy, bpp, idx)
     for i in 0 ..< runLen:
       let sx = if flipX: 7 - (sub + i) else: sub + i
       let index = idx[sx].int
@@ -227,7 +257,6 @@ proc bgScanlineMask(snes: SnesBus, drawn: var openArray[bool], py: int, bg: int,
   ## no palette lookups. Same run/priority/flip logic.
   var sizeBits, chrBase, hofs, rowBase, subY: int
   snes.bgLineSetup(py, bg, sizeBits, chrBase, hofs, rowBase, subY)
-  let cache = addr tileRows
   var idx: array[8, uint8]
   var px = 0
   while px < ScreenWidth:
@@ -243,7 +272,7 @@ proc bgScanlineMask(snes: SnesBus, drawn: var openArray[bool], py: int, bg: int,
     let tile = (entry and 0x3FF).int
     let flipX = (entry and 0x4000) != 0
     let sy = if (entry and 0x8000) != 0: 7 - subY else: subY
-    snes.tileRowIndices(cache, chrBase, tile, sy, bpp, idx)
+    snes.tileRowIndices(chrBase, tile, sy, bpp, idx)
     for i in 0 ..< runLen:
       let sx = if flipX: 7 - (sub + i) else: sub + i
       if idx[sx] != 0:
@@ -409,7 +438,7 @@ proc compositeScreen[FullWidth: static[bool]](snes: SnesBus, py: int, mask: uint
     mode = (snes.ppuRegs[0x05] and 0x07).int
     bg3prio = (snes.ppuRegs[0x05] and 0x08) != 0
     palette: ptr typeof(palCache) = addr palCache
-    cache = addr tileRows
+    cacheEligible = mode == 1 and (snes.ppuRegs[0x31] and 0x3F) == 0
   const BackdropMathBit = 0x20'u8  ## CGADSUB bit 5.
   for px in 0..<width:
     buf[px] = backdrop
@@ -425,8 +454,12 @@ proc compositeScreen[FullWidth: static[bool]](snes: SnesBus, py: int, mask: uint
     if not dec.decoded[bg]:
       dec.decoded[bg] = true
       for px in 0 ..< width: dec.lineDrawn[bg][px] = false
-      bgScanlineInto[FullWidth](snes, dec.lines[bg], dec.lineDrawn[bg], py, bg, layer.bpp,
-                          layer.pal, palette, cache, -1, addr dec.linePrio[bg], width)
+      if cacheEligible:
+        bgScanlineInto[FullWidth, true](snes, dec.lines[bg], dec.lineDrawn[bg], py, bg, layer.bpp,
+                            layer.pal, palette, addr tileRows, -1, addr dec.linePrio[bg], width)
+      else:
+        bgScanlineInto[FullWidth, false](snes, dec.lines[bg], dec.lineDrawn[bg], py, bg, layer.bpp,
+                            layer.pal, palette, nil, -1, addr dec.linePrio[bg], width)
     if not winDone[bg]:
       winDone[bg] = true
       let wp = bgWindowParams(bg)
