@@ -1,44 +1,22 @@
 import
   std/[tables, strutils, algorithm],
-  ../decompbound/[apu, dsp, rom_pipeline, spc700]
+  ../decompbound/[apu, dsp, music_player, rom_pipeline, spc700]
 
 const
   SongId = 3
-  SongTable = 0x4F70A
-  PackTable = 0x4F947
   SampleRate = 32000
 
 type ReadSite = object
   count, first, last: int
 
-proc loadPack(apu: Apu, rom: seq[uint8], index: int) =
-  ## Populate local APU RAM from the user's package blocks, stopping at zero length.
-  let entry = PackTable + index * 3
-  var offset = ((rom[entry].int and 63) shl 16) or rom[entry + 1].int or (rom[entry + 2].int shl 8)
-  while true:
-    doAssert offset + 2 <= rom.len
-    let size = rom[offset].int or (rom[offset + 1].int shl 8)
-    offset += 2
-    if size == 0:
-      break
-    doAssert offset + 2 + size <= rom.len
-    let destination = rom[offset].int or (rom[offset + 1].int shl 8)
-    offset += 2
-    doAssert destination + size <= 65536
-    for index in 0 ..< size:
-      apu.spc.ram[destination + index] = rom[offset + index]
-    offset += size
-
 proc main() =
-  ## Locate indirect read sites during real driver execution without exporting payload bytes.
+  ## Trace unknown event consumers and verify known pitch/phase paths without payload dumps.
   let
     rom = readGoldBaserom()
     machine = newApu()
-  machine.loadPack(rom, 1)
-  for slot in 0 .. 2:
-    let pack = rom[SongTable + (SongId - 1) * 3 + slot].int
-    if pack != 255:
-      machine.loadPack(rom, pack)
+  applyPackageBlocks(machine.spc.ram[], rom, packFileOffset(rom, 1))
+  for pack in songPackIndices(rom, SongId):
+    applyPackageBlocks(machine.spc.ram[], rom, packFileOffset(rom, pack))
   machine.spc.pc = 0x500
   machine.spc.sp = 0xEF
   for sample in 0 ..< SampleRate div 5:
@@ -55,6 +33,8 @@ proc main() =
     scaledPitch: uint32
     pitchPending = false
     pitchChecks = 0
+    phasePending = false
+    phaseSum, phaseHigh, phaseChecks = 0
   for sample in 0 ..< SampleRate * 2:
     let start = machine.spc.cycles
     while machine.spc.cycles - start < CyclesPerSample:
@@ -62,6 +42,19 @@ proc main() =
       let
         pc = machine.spc.pc.int
         opcode = machine.spc.ram[pc]
+      if pc == 0x05CD:
+        let
+          timerCount = machine.spc.ram[0x100 + ((machine.spc.sp.int + 1) and 255)].int
+          product = timerCount * machine.spc.ram[0x53].int
+        phaseSum = machine.spc.ram[0x51].int + (product and 255)
+        phaseHigh = product shr 8
+        phasePending = true
+      if phasePending and pc in [0x05D8, 0x05E0]:
+        doAssert pc == (if phaseSum > 255: 0x05D8 else: 0x05E0)
+        doAssert machine.spc.ram[0x51].int == (phaseSum and 255)
+        doAssert machine.spc.a.int == (phaseSum and 255) and machine.spc.y.int == phaseHigh
+        phasePending = false
+        inc phaseChecks
       if pc == 0x070E:
         let
           channel = machine.spc.x.int
@@ -116,6 +109,8 @@ proc main() =
   echo "dispatch X offsets: ", voices
   doAssert pitchChecks > 0
   echo "verified pitch multiplications: ", pitchChecks
+  doAssert phaseChecks > 0
+  echo "verified timer/tempo phase routes: ", phaseChecks
 
 when isMainModule:
   main()

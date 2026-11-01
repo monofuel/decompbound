@@ -102,40 +102,88 @@ all 191 songs sound correct or that their sequences are fully decoded.
 
 ## Reproduced SPC700 source
 
-The fixed-layout build now assembles six annotated `.spc.asm` files with our
-Nim SPC700 assembler. They reproduce **177 executable bytes** in package 1.
+The fixed-layout build now assembles sixteen annotated `.spc.asm` files with our
+Nim SPC700 assembler. They reproduce **488 executable bytes** in package 1.
 The upload block header at file `$26003E` declares 16,779 bytes from file
 `$260042` to APU `$0500`; therefore `file = apuAddress + $25FB42` within it.
 Each source's `.org` is its APU execution address, not a ROM padding request.
 
 | Source | APU range | File range | Bytes |
 |---|---|---|---:|
+| `spcInitializeDriverRam.spc.asm` | `$0500..050B` | `$260042..26004D` | 12 |
+| `spcAdvancePhase.spc.asm` | `$05CD..05D7` | `$26010F..260119` | 11 |
 | `spcPitchScale.spc.asm` | `$070E..0732` | `$260250..260274` | 37 |
 | `spcWritePitch.spc.asm` | `$0733..0740` | `$260275..260282` | 14 |
 | `spcWriteDsp.spc.asm` | `$0741..074F` | `$260283..260291` | 15 |
+| `spcDispatchCommand.spc.asm` | `$0943..0954` | `$260485..260496` | 18 |
 | `spcSequenceFetch.spc.asm` | `$0955..095E` | `$260497..2604A0` | 10 |
+| `spcSelectInstrument.spc.asm` | `$095F..09B7` | `$2604A1..2604F9` | 89 |
 | `spcSetPan.spc.asm` | `$09B8..09D5` | `$2604FA..260517` | 30 |
+| `spcSetPanTransition.spc.asm` | `$09D6..09FC` | `$260518..26053E` | 39 |
+| `spcDivideStep.spc.asm` | `$0BC7..0BE2` | `$260709..260724` | 28 |
+| `spcTickPanTransition.spc.asm` | `$0C79..0C8B` | `$2607BB..2607CD` | 19 |
 | `spcWriteStereo.spc.asm` | `$0C8C..0CD2` | `$2607CE..260814` | 71 |
+| `spcApplyPanStep.spc.asm` | `$0CD3..0CF6` | `$260815..260838` | 36 |
+| `spcPreviewPan.spc.asm` | `$0DDF..0DFB` | `$260921..26093D` | 29 |
+| `spcScaleSignedStep.spc.asm` | `$0E2B..0E48` | `$26096D..26098A` | 30 |
 
 The pitch scale and pitch writer share fall-through tails; the stereo writer
 also exposes scratch-coordinate entry `$0C95`. Their contracts are kept next
-to those entries. The existing E2 transition code is behaviorally verified
-below, but remains copied pending its own source adoption.
+to those entries. The E2 tick prelude ends at `$0C8B`: `$0C8A` is the opcode
+of a two-byte branch, so stopping there would split an instruction. The division
+region also owns callable conditional-negation entry `$0BD9`; its contract is
+documented beside that entry.
 
 `nim r tests/test_spc_asm.nim` checks all 256 opcode encodings against independent
 literal synthetic fixtures, plus operand order, origins, labels, signed branch
 limits/wrap, bit packing and rejection of invalid or oversized operands.
 `nim r tests/integration_rom_pipeline.nim` independently checks SPC label origin
 versus ROM placement in a mixed 65816/SPC build, exact-length rejection and the
-whole-ROM gold rebuild. Source adoption compared every one of the 177 bytes
+whole-ROM gold rebuild. Source adoption compared every one of the 488 bytes
 at the file offsets above; the completed carving probe was retired afterward.
 
-The sequence-fetch, pitch-scale, pan and pan-transition integration tests execute
+The sequence-fetch, pitch-scale, pan, pan-transition, arithmetic and phase tests execute
 both original and freshly rebuilt driver images, checking mathematical results,
 state effects and ordered DSP-port writes. No audio output is needed for those
 gates. Remaining code, curves, instruments, songs and effects still enter the
 build through the user's local extraction; reproducing these routines does not
 claim full driver understanding, musical correctness or complete audio timing.
+
+## Driver initialization and phase generation
+
+The bootstrap at APU `$0500..050B` selects direct page zero, resets hardware
+SP to `$CF`, and clears exactly `$0000..00DF` using `(X)+` until X reaches `$E0`.
+It establishes the zero word at `$0E/$0F` and phase byte `$51` even from dirty
+RAM with PSW page one. `$00E0..00FF` and page one remain untouched by this block;
+initialization continues at `$050C`, outside the adopted fragment.
+
+At `$0579` (file `$2600BB`) the driver reads timer-0 counter `$00FD`. Zero
+keeps it polling; `$057E` pushes the nonzero count. A separate `count*32`
+accumulator at `$0581..0587` may run service calls before the saved byte is
+recovered at `$05CF`. The adopted phase fragment starts at `$05CD`:
+
+```
+product = savedTimerCount * byte[$53]
+sum = oldPhase + (product & 255)
+phase[$51] = sum & 255
+```
+
+Only the low product participates in ADC and its carry. Y retains the product's
+high byte, but it does not affect routing. Carry falls through at `$05D8` to
+calls `$07F9` and `$0625`; no carry branches to `$05E0`, where active byte `$04`
+permits channel preview through `$0DD0`. The timer target and `$53` are initially
+set to `$10` at `$0535..053A`; `$07E0` also writes `$20` to `$53`. Complete tempo
+command semantics, the earlier service path and absolute scheduling rate remain
+open. `$51` is a fractional accumulator, not a wall-clock sample counter.
+
+`nim r tests/integration_spc_phase.nim` runs **2,102,264 cases** across original
+and rebuilt images: all dirty RAM/status byte seeds,
+every four-bit timer-count/tempo/phase combination, larger authored counts that
+distinguish low-product carry, and every hardware stack pointer. It injects the
+pending timer byte and stops at the branch exits; it does not claim coverage of
+the polling loop, service calls or `$04` gate. The retained sequence trace below
+also checks phase arithmetic and branch routing during actual silent song-3
+driver execution using the shared product package loader.
 
 ## Verified SPC700 sequence fetch and dispatch
 
@@ -178,11 +226,14 @@ and pointer boundaries), plus 2,560 dispatch cases stopping at handler entry.
 The latter check target addresses, optional fetches, register results, and stack
 balance without claiming to execute the handlers.
 
-`nim r src/probes/probe_spc_sequence_fetch.nim` reproduces the two-second song-3
+`nim r -d:debug src/probes/probe_spc_sequence_fetch.nim` reproduces the two-second song-3
 investigation. It emits only read-site and dispatch metadata, not payload dumps.
 The trace observes `$0955` reading sequence addresses and dispatches to twelve
 command IDs, including `$E0->$095F`, `$E1->$09B8`, `$ED->$0A86`, and `$EF->$0AAC`.
 Instrument-area reads occur at `$0986/$099D/$09AC/$09B2` into `$6E30..6E4D`.
+The same run verifies **382** phase additions and update/preview branch routes,
+along with **655** pitch multiplications. These are bounded live-trace counts,
+not an absolute timer rate or an exhaustive song/command inventory.
 The `$0D10/$0D19` path scans ahead and skips command operands using metadata;
 those reads do not themselves advance the channel pointer at `$30+X`.
 
@@ -197,7 +248,7 @@ not validate whether that record is present in the uploaded package.
 This contract uses direct page zero, as observed during playback; the scratch
 addresses honor the SPC direct-page flag, while `$F2/$F3` writes are absolute.
 
-If `ram[$1A] & ram[$47]` is nonzero, the branch at `$097A` returns without
+If `ram[$1A] & ram[$47]` is nonzero, the branch at `$097B` returns without
 reading the record or changing DSP/channel parameters. The operand store and
 record-pointer calculation still happen. Otherwise, for X = twice the voice
 number, the record has these consumers:
@@ -332,11 +383,11 @@ WAVs, captured RAM or extracted sequence fixtures. The exploratory probe was
 retired after preserving its offsets and formula here.
 
 Positions 21–31 accepted by E1's five-bit mask are **unchecked**, not clamped;
-the formula above is not claimed for them. The override's gameplay purpose,
-other position writers/readers at `$09EE`, `$0DDF/$0DE3`, `$157F`, and complete
-volume-envelope/mixing behavior remain open. E1 and its stereo consumer now
-have formally reproduced source in the inventory above; that adoption does not
-extend the verified position bounds or explain the remaining consumers.
+the formula above is not claimed for them. E2's `$09EE` target read and the
+`$0DDF/$0DE3` preview path are explained below. The override's gameplay purpose,
+the later position reader at `$157F`, and complete volume-envelope/mixing behavior
+remain open. E1 and its stereo consumer have formally reproduced source in the
+inventory above; that adoption does not extend the verified position bounds.
 
 ### E2: persistent pan transitions and sub-tick preview
 
@@ -353,10 +404,12 @@ the full unsigned subtraction borrow, not an eight-bit signed interpretation.
 Helper `$0BC7..0BE2` (file `$260709..260724`) carries that sign through NOTC/ROR.
 When d=0, the two SPC divisions yield signed magnitude `65535-abs(delta)`;
 the zero counter nevertheless disables persistent updates. Entry requires
-DP zero, even X in 0..14, and **DP `$44` equal to X**, because division restores
-the channel offset from that global.
+DP zero, even X in 0..14, **DP `$44` equal to X**, and the bootstrap's zero word
+at **DP `$0E/$0F` equal to zero**. Division restores the channel offset from
+`$44`. Its shared tail at `$0BD9` subtracts YA from the word at `$0E`; with a
+nonzero word this is base-minus-quotient, not intrinsic two's-complement negation.
 
-The persistent updater `$0C79..0C8A` (file `$2607BB..2607CC`) skips a zero
+The persistent updater `$0C79..0C8B` (file `$2607BB..2607CD`) skips a zero
 counter, otherwise decrements it and calls `$0CD3..0CF6`. That helper ORs caller
 mask `$47` into dirty mask `$5E`. The OR instruction sets N/Z, so the later
 branch at `$0CDD` uses this OR result, not the earlier duration decrement:
@@ -376,12 +429,28 @@ has reached zero. The original CALL at `$0939` into `$0C40` reaches this updater
 once per enclosing channel-update invocation; an absolute tick rate is not
 established here.
 
+`nim r tests/integration_spc_step_apply.nim` checks **10,368 direct helper calls**
+on original and rebuilt images. It covers both observed YA bases (`$0330` for
+pan and `$0300` for the neighboring caller), all channels, word carry/wrap,
+zero/nonzero dirty-mask combinations, incoming-Z independence, target snaps,
+guarded neighboring arrays and stack/register effects. The pointer adjustment
+changes only its low byte; arbitrary bases are not part of this contract. The
+game-level role of the `$0300` array remains a separate question.
+
 Sub-tick code `$0DDF..0DFB` (file `$260921..26093D`) and helper `$0E2B..0E48`
 (file `$26096D..26098A`) calculate a preview using caller phase byte `$51`:
 `preview = current + sign(signed16(step))*floor(abs(signed16(step))*phase/256)`
 when duration remains. It marks DP `$13` bit 7 and invokes the pan writer
 through `$0C95` using scratch coordinates, without modifying persistent
-position or remaining duration.
+position or remaining duration. Both conditional-negation calls require the
+same zero word. The preview fragment continues at `$0DFC`, rather than RET.
+
+`nim r tests/integration_spc_arithmetic.nim` adds **1,205,488 direct helper cases**
+across original and rebuilt drivers: every magnitude/divisor/sign combination,
+every signed sixteen-bit step against seven phases, and boundary accumulation,
+status, restored-X and nonzero subtraction-base checks. Assertions cover scratch
+preservation, stack guards and absence of I/O. This proves the arithmetic helpers
+over those domains without sending unsupported coordinates to the stereo curve.
 
 `nim r tests/integration_spc_pan_transition.nim` verifies **56,448 command
 cases**, **2,400 complete transitions**, **9,600 previews**, **36 branch cases**
@@ -396,9 +465,9 @@ all 1,000 opcode `$09` cases and all 1,000 DIV `$9E` cases using
 `src/tools/run_spc_vectors.nim` with the existing local vector directory. OR's
 N/Z behavior also agrees with the original Nintendo development manual,
 [Book I, Table C-8, page C-6](https://floating.muncher.se/bot/manual/book1_text.pdf#page=232).
-No core flags were changed to obtain the driver result. Caller phase generation,
-absolute timing, override purpose and the other transition/envelope writers
-remain open.
+No core flags were changed to obtain the driver result. The phase accumulator
+is explained above; absolute timing, tempo writers, override purpose and the
+other transition/envelope writers remain open.
 
 ## Uploaded data and the next research boundary
 
@@ -415,7 +484,7 @@ at file `$1FEC46`, targeting `$4800`, is an existing sequence-table candidate.
 The dispatcher, E0 instrument path, pitch multiplier, E1 stereo consumer and
 E2 transition now have bounded executed checks. Next questions are the other
 sequence commands, prefix/event consumers, remaining position/envelope writers,
-phase generation and the global override's purpose. Derive operand widths and
+tempo-command semantics and the global override's purpose. Derive operand widths and
 DSP effects from those consumers; preserve source offsets and package-to-APU
 mappings.
 

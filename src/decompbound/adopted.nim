@@ -133,12 +133,22 @@ const
     AdoptedSpec(name: "clearServiceSuppression", offset: 0x03E4CA),
     AdoptedSpec(name: "setServiceSuppression", offset: 0x03E4D4),
     AdoptedSpec(name: "loadSong", offset: 0x04FBBD),
+    AdoptedSpec(name: "spcInitializeDriverRam", offset: 0x260042, isSpc: true),
+    AdoptedSpec(name: "spcAdvancePhase", offset: 0x26010F, isSpc: true),
     AdoptedSpec(name: "spcPitchScale", offset: 0x260250, isSpc: true),
     AdoptedSpec(name: "spcWritePitch", offset: 0x260275, isSpc: true),
     AdoptedSpec(name: "spcWriteDsp", offset: 0x260283, isSpc: true),
+    AdoptedSpec(name: "spcDispatchCommand", offset: 0x260485, isSpc: true),
     AdoptedSpec(name: "spcSequenceFetch", offset: 0x260497, isSpc: true),
+    AdoptedSpec(name: "spcSelectInstrument", offset: 0x2604A1, isSpc: true),
     AdoptedSpec(name: "spcSetPan", offset: 0x2604FA, isSpc: true),
+    AdoptedSpec(name: "spcSetPanTransition", offset: 0x260518, isSpc: true),
+    AdoptedSpec(name: "spcDivideStep", offset: 0x260709, isSpc: true),
+    AdoptedSpec(name: "spcTickPanTransition", offset: 0x2607BB, isSpc: true),
     AdoptedSpec(name: "spcWriteStereo", offset: 0x2607CE, isSpc: true),
+    AdoptedSpec(name: "spcApplyPanStep", offset: 0x260815, isSpc: true),
+    AdoptedSpec(name: "spcPreviewPan", offset: 0x260921, isSpc: true),
+    AdoptedSpec(name: "spcScaleSignedStep", offset: 0x26096D, isSpc: true),
   ]
 
   ## Public offsets retained for tests/tools (was snes_src consts).
