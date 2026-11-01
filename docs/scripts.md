@@ -348,6 +348,68 @@ cases** execute every valid low/packed alias through the original fetch loop,
 then apply the real XYZ callback and verify waits and resulting coordinates.
 Synthetic streams supply the operands; game script bodies are not fixtures.
 
+### Script control flow and state ownership
+
+The VM keeps its stream base in DP `$80..82`, operand cursor in Y, current
+state offset in `$8A` and state value in `$1516+stateOffset`. The return stack
+is separate from the 65816 CPU stack: DP `$84` points to
+`$15A2 + stateOffset*8`, a 16-byte work area per state ID. Word `$12E6` is a
+byte index into that area. These are trusted pointers and indexes, not checked
+containers.
+
+| Opcode / entry | Verified operation |
+|---|---|
+| `$19` / `$C09649` | Replace Y with the operand word; keep stream bank. |
+| `$03` / `$C0964D` | Replace Y and the bank at DP `$82`; the M16 bank read also copies the following stream byte into `$83`. |
+| `$1A` / `$C09658` | Push operand cursor+2, advance stack index by two, jump near. No bank is pushed. |
+| `$1B` / `$C0966F` | Pop a near cursor when the index is nonzero; otherwise detach the state. |
+| `$0A/$0B` / `$C0995D/$C0996B` | Take a word target when the full state value is zero/nonzero; otherwise skip its two bytes. |
+| `$10/$11` / `$C09979/$C0999E` | Indexed near jump/call: count byte followed by word targets; compare unsigned full state value with count. |
+| `$42/$4C` / `$C0993D` | Call a three-byte native target through `$C09D9E`, passing and replacing the state value in A. |
+| `$0C` / `$C099C3` | Detach/recycle the state; remove the entity if no attached states remain. |
+| `$00` / `$C095F2` | Remove the entity, then force state wait and saved-next `$0A58` to `$FFFF`. |
+
+For a switch, let T be the cursor immediately after count. An index below
+count selects the word at `T+2*index`; otherwise execution skips to
+`T+2*count`. The call variant pushes **exactly** that end cursor only on an
+in-range selection. Its ASL of the masked count necessarily clears carry
+before ADC, so there is no extra byte despite the absence of CLC at that
+instruction. All cursor/index sums wrap at 16 bits. Calls allow eight words
+within the work area but have no overflow, alignment or underflow checks.
+
+Native aliases also include packed `$70..7F` and `$F0..FF`, with the ordinary
+inline-wait rule. The handler reads the bank as a word, staging the following
+stream byte at `$0A5D`; bank-zero `JML [$0A5A]` consumes only `$0A5A..5C`.
+The RTL target may return A and clobber X/Y, but must preserve the live VM
+context, including D/DBR, M16/X16 and scratch `$8A/$94`. A far GOTO inside a
+subroutine does not make RETURN restore its old bank. Its `$83` overread also
+survives the fetch loop's word-sized save into `$148A+stateOffset`.
+
+The adopted `$C09D12..9D5F` helper unlinks a reachable state from an entity's
+chain, repairs `$0A58` when it equals that state, then prepends the state to
+free head `$0A54`. Entries `$9D1F` and `$9D3E` provide unlink-only and
+predecessor-search operations. The search requires an acyclic chain containing
+the state, reserves a scratch word at caller DP−2, and has no missing-node
+guard. The unlink-only entry does not recycle the node.
+
+Detach sets the freed state's wait to `$FFFF`. If other states remain, it
+restores the cursor supplied at entry. Empty RETURN enters that shared tail
+with Y=0, overwriting its earlier saved cursor, so this path resumes at zero.
+If no state remains, it tail-calls entity removal and returns Y equal to the
+detached state's offset. The enclosing fetch loop stores that Y and decrements
+the wait to `$FFFE` even though the state is now free. The scheduler's saved-next
+repair is what permits traversal to continue through surviving states.
+
+Nine reproduced regions total **318 bytes**, including shared entries and
+the native trampoline. `nim r tests/integration_action_script_control.nim`
+checks **100,074 cases** across original/rebuilt ROMs: cursor/bank wrapping,
+near/far calls, all count-byte boundaries and unsigned switch indexes, stack
+guard regions, every native alias and inline wait, one to eight nested calls,
+all predecessor/unlink positions, detach head/middle/tail cases, empty RETURN,
+last-state removal and complete scheduler traversal of 70-node chains. Its
+out-of-area push case demonstrates an unchecked write, not a supported deeper
+stack. Fixtures contain only authored synthetic scripts and buffers.
+
 ### A verified script-driven removal sequence
 
 The action VM distinguishes graphics cleanup from entity removal. Opcode `$42`

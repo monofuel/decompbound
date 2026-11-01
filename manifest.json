@@ -513,11 +513,41 @@
       "evidence": "adopted actionScriptDispatchTable from asm/"
     },
     {
-      "name": "blob_0095F2",
+      "name": "actionScriptRemoveEntity",
       "offset": 38386,
-      "length": 209,
+      "length": 17,
+      "kind": "code",
+      "source": "asm/actionScriptRemoveEntity.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: control flow and state ownership; integration_action_script_control"
+    },
+    {
+      "name": "blob_009603",
+      "offset": 38403,
+      "length": 70,
       "kind": "blob",
-      "source": "blobs/blob_0095F2.bin",
+      "source": "blobs/blob_009603.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "actionScriptControlFlow",
+      "offset": 38473,
+      "length": 60,
+      "kind": "code",
+      "source": "asm/actionScriptControlFlow.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: control flow and state ownership; integration_action_script_control"
+    },
+    {
+      "name": "blob_009685",
+      "offset": 38533,
+      "length": 62,
+      "kind": "blob",
+      "source": "blobs/blob_009685.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
@@ -615,9 +645,69 @@
     {
       "name": "blob_0097DC",
       "offset": 38876,
-      "length": 881,
+      "length": 353,
       "kind": "blob",
       "source": "blobs/blob_0097DC.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "actionScriptNativeCall",
+      "offset": 39229,
+      "length": 32,
+      "kind": "code",
+      "source": "asm/actionScriptNativeCall.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: control flow and state ownership; integration_action_script_control"
+    },
+    {
+      "name": "actionScriptBranchIfZero",
+      "offset": 39261,
+      "length": 14,
+      "kind": "code",
+      "source": "asm/actionScriptBranchIfZero.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: control flow and state ownership; integration_action_script_control"
+    },
+    {
+      "name": "actionScriptBranchIfNonzero",
+      "offset": 39275,
+      "length": 14,
+      "kind": "code",
+      "source": "asm/actionScriptBranchIfNonzero.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: control flow and state ownership; integration_action_script_control"
+    },
+    {
+      "name": "actionScriptSwitch",
+      "offset": 39289,
+      "length": 74,
+      "kind": "code",
+      "source": "asm/actionScriptSwitch.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: control flow and state ownership; integration_action_script_control"
+    },
+    {
+      "name": "actionScriptDetachState",
+      "offset": 39363,
+      "length": 26,
+      "kind": "code",
+      "source": "asm/actionScriptDetachState.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: control flow and state ownership; integration_action_script_control"
+    },
+    {
+      "name": "blob_0099DD",
+      "offset": 39389,
+      "length": 368,
+      "kind": "blob",
+      "source": "blobs/blob_0099DD.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
@@ -703,11 +793,41 @@
       "evidence": "docs/scripts.md; integration_entity_create, integration_entity_system, integration_entity_scheduler and integration_entity_remove execute original lifecycle contracts"
     },
     {
-      "name": "blob_009D12",
+      "name": "detachScriptState",
       "offset": 40210,
-      "length": 694,
+      "length": 78,
+      "kind": "code",
+      "source": "asm/detachScriptState.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: control flow and state ownership; integration_action_script_control"
+    },
+    {
+      "name": "blob_009D60",
+      "offset": 40288,
+      "length": 62,
       "kind": "blob",
-      "source": "blobs/blob_009D12.bin",
+      "source": "blobs/blob_009D60.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "callEntityNativeTarget",
+      "offset": 40350,
+      "length": 3,
+      "kind": "code",
+      "source": "asm/callEntityNativeTarget.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: control flow and state ownership; integration_action_script_control"
+    },
+    {
+      "name": "blob_009DA1",
+      "offset": 40353,
+      "length": 551,
+      "kind": "blob",
+      "source": "blobs/blob_009DA1.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
