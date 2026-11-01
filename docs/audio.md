@@ -126,9 +126,9 @@ all 191 songs sound correct or that their sequences are fully decoded.
 
 ## Reproduced SPC700 source
 
-The fixed-layout build now assembles 109 annotated `.spc.asm` files with
-our Nim SPC700 assembler. They reproduce **3,139 bytes** in package 1: 107 code
-regions totaling 3,103 bytes and two structural code-pointer tables totaling 36 bytes.
+The fixed-layout build now assembles 119 annotated `.spc.asm` files with
+our Nim SPC700 assembler. They reproduce **3,625 bytes** in package 1: 117 code
+regions totaling 3,589 bytes and two structural code-pointer tables totaling 36 bytes.
 The upload block header at file `$26003E` declares 16,779 bytes from file
 `$260042` to APU `$0500`; therefore `file = apuAddress + $25FB42` within it.
 Each source's `.org` is its APU execution address, not a ROM padding request.
@@ -225,12 +225,22 @@ Each source's `.org` is its APU execution address, not a ROM padding request.
 | `spcModulateChannelGain.spc.asm` | `$0E56..0E60` | `$260998..2609A2` | 11 |
 | `spcComputeChannelGain.spc.asm` | `$0E61..0E72` | `$2609A3..2609B4` | 18 |
 | `spcReceiveUpload.spc.asm` | `$0EE1..0F2C` | `$260A23..260A6E` | 76 |
+| `spcRecordInterpreterReadConfiguration.spc.asm` | `$0F2D..0F4A` | `$260A6F..260A8C` | 30 |
+| `spcRecordInterpreterSelectTiming.spc.asm` | `$0F8F..0FB6` | `$260AD1..260AF8` | 40 |
+| `spcRecordInterpreterSavePosition.spc.asm` | `$10FC..110C` | `$260C3E..260C4E` | 17 |
+| `spcRecordInterpreterWriteRegisters.spc.asm` | `$110D..1151` | `$260C4F..260C93` | 69 |
+| `spcRecordInterpreterRetarget.spc.asm` | `$1152..116F` | `$260C94..260CB1` | 30 |
 | `spcDispatchHostService.spc.asm` | `$1198..125A` | `$260CDA..260D9C` | 195 |
 | `spcServiceKindTable.spc.asm` | `$125B..126C` | `$260D9D..260DAE` | 18 |
+| `spcContinueRecordRoute.spc.asm` | `$126D..126F` | `$260DAF..260DB1` | 3 |
+| `spcBasicRecordRoutes.spc.asm` | `$1270..1287` | `$260DB2..260DC9` | 24 |
+| `spcExtendedRecordRoute.spc.asm` | `$1288..12C6` | `$260DCA..260E08` | 63 |
 | `spcDispatchNativeService.spc.asm` | `$12C7..1319` | `$260E09..260E5B` | 83 |
 | `spcContinueHostService.spc.asm` | `$131A..132D` | `$260E5C..260E6F` | 20 |
 | `spcServiceContinuationTable.spc.asm` | `$132E..133F` | `$260E70..260E81` | 18 |
 | `spcJumpServiceContinuation.spc.asm` | `$1340..1347` | `$260E82..260E89` | 8 |
+| `spcServiceRecordContinuation.spc.asm` | `$1348..139F` | `$260E8A..260EE1` | 88 |
+| `spcTickRecordContinuation.spc.asm` | `$13A0..1419` | `$260EE2..260F5B` | 122 |
 | `spcResetAuxiliaryState.spc.asm` | `$141A..1437` | `$260F5C..260F79` | 30 |
 | `spcClearHostCommandState.spc.asm` | `$1438..1452` | `$260F7A..260F94` | 27 |
 | `spcReleaseUpperVoices.spc.asm` | `$1453..1486` | `$260F95..260FC8` | 52 |
@@ -245,10 +255,10 @@ Each source's `.org` is its APU execution address, not a ROM padding request.
 | `spcSelectSequenceAfter1C.spc.asm` | `$2E11..2E1C` | `$262953..26295E` | 12 |
 | `spcFilterHostPortThree.spc.asm` | `$2E1D..2E47` | `$26295F..262989` | 43 |
 
-† The 48-byte service pass remains reproduced/identified: its external record
-routes are not fully explained. The selection prelude is now explained through
-complete transfers and reset-helper contracts. Overall, 108 explained regions
-total 3,091 bytes, including the two 18-byte structural dispatch tables; the
+† The 48-byte service pass remains reproduced/identified: broader record
+interpreter/finish paths remain open. The selection prelude is now explained through
+complete transfers and reset-helper contracts. Overall, 118 explained regions
+total 3,577 bytes, including the two 18-byte structural dispatch tables; the
 remaining identified region totals 48 bytes. Byte reproduction, table structure
 and executable-code comprehension are distinct claims.
 
@@ -264,14 +274,14 @@ literal synthetic fixtures, plus operand order, origins, labels, signed branch
 limits/wrap, bit packing and rejection of invalid or oversized operands.
 `nim r tests/integration_rom_pipeline.nim` independently checks SPC label origin
 versus ROM placement in a mixed 65816/SPC build, exact-length rejection and the
-whole-ROM gold rebuild. The 11 new receiver/reset/dispatch regions add 528
+whole-ROM gold rebuild. The 21 new receiver/reset/record regions add 1,014
 independently assembled/byte-compared bytes; the sender’s 183 bytes also remain
 byte-identical after annotation cleanup. Fresh extraction/rebuild matches all
-3,145,728 ROM bytes with 274 regions and no gaps or overlaps. All 44 focused
-test programs passed on this adopted tree with assertions enabled, including
+3,145,728 ROM bytes with 284 regions and no gaps or overlaps. All 47 focused
+test programs passed with assertions enabled. These include
 42 complete original-sender/resident-receiver transfers and 24 separate
 incoming-bank/direct-page address checks. The 48-byte service pass remains
-identified because external record routes and their broader effects are unresolved.
+identified because broader record interpreter/finish paths remain unresolved.
 
 The sequence-fetch, pitch-scale, pan, pan-transition, arithmetic, phase, tempo,
 volume, modulation-command, sequence-control, lifecycle, pitch-offset,
@@ -543,7 +553,8 @@ They mask copied input to seven bits, choose the per-port record table/state
 pointer, and supply voice masks/parameters. Port three additionally copies live
 feedback byte `$19` into three runtime record fields, even if no command is
 accepted. Common entry itself does not mask input. Zero input or input at least
-the exclusive capacity `$04D0+port` goes to the still-external `$126D` route.
+the exclusive capacity `$04D0+port` goes through `$126D` to continuation `$131A`,
+without pushing a new table offset.
 Accepted input uses byte offset `2*(command-1)&255` to fetch a record pointer,
 pushes that offset, caches the raw byte immediately before the record at
 `$048C+port`, then jumps through `$125B+kind`.
@@ -552,7 +563,8 @@ The `$125B..126C` and `$132E..133F` sources are two **structural tables of
 nine code pointers**, 18 bytes each, not executable instructions or game records.
 Raw kind is an unchecked **byte offset**: odd/out-of-range values can select
 unaligned or adjacent pointers. Table reproduction does not explain all targets.
-The 90 bytes `$126D..12C6` remain copied, unclaimed external record routes.
+The complete 90-byte `$126D..12C6` route block now rebuilds from source;
+its kind-specific state transfers are described below.
 
 Native kind eight enters `$12C7` with the saved table offset atop the native
 stack. It reads the preceding continuation word at record P-3/P-2, pops that
@@ -564,16 +576,90 @@ Out-of-domain ports use the port-zero table/slot rather than a checked error.
 Continuation entry `$131A` tests `$04B4+port` against zero and the same
 exclusive capacity. An accepted state dispatches the cached raw kind through
 `$132E`. Kind eight selects `$1343`, loads X from `$2F=2*port`, and jumps
-through the saved `$0440+X` pointer. `$1340` instead forwards to external
-`$134E`, whose broader contract is unresolved. No pointer or port range check
+through the saved `$0440+X` pointer. `$1340` instead forwards to record progress
+and byte consumption at `$134E`. No pointer or port range check
 is added by these native continuation entries.
 
 The auxiliary three-byte headers described above, plus `$1487..1489`, remain
 **12 copied/identified record-metadata bytes**. Their shape is described without embedding
 original record bytes. `tests/integration_spc_service_dispatch.nim` exercises
 bounded lookup/native/continuation behavior with synthetic records and original
-callees. It does not promote the external record routes or the 48-byte service
-pass to explained.
+callees. Separate route/continuation tests now explain the adjacent local paths;
+the 48-byte service pass remains identified while broader interpreter/finish
+behavior is unresolved.
+
+### Record routes, readers and progress
+
+Accepted routes consume the saved table-offset byte before entering their
+callees; the rejection route has no such byte to pop. Their original two-byte
+caller frame stays live throughout the tail calls.
+
+| Raw kind | Route | Verified transfer |
+|---|---|---|
+| 0/2 | `$1280 -> $14DF` | Copy the seven-byte record into per-port state and initialize its limits/counters. |
+| 4 | `$1270 -> $0F56` | Build the timing/configuration state, retain the record pointer and initialize the slot. |
+| 6 | `$1278 -> $0F4B` | Same installation, followed by slot mode one through `$1394`. |
+| 8 | `$12C7` | Save the preceding native continuation and jump to record code. |
+| 10/12 | `$1176/$1170` | Retarget port two's first table word, then use the kind-four/six route. These short preludes remain copied. |
+| 14/16 | `$1288 -> $14EE -> $10FC` | Read two preceding words, initialize control/state, then store a zero continuation position and set its valid byte. |
+
+The extended route reads header P-3/P-2 into `$26/$27` before reading P-5/P-4
+into `$28/$29`; it then reads byte P+5 into X and P+6 into `$2C`. These are
+ordered accesses, not snapshot copies: with P=`$002B`, the first word written
+to `$26/$27` also becomes the second word's source. Pointer-scratch overlaps
+likewise observe previous writes. The original control initializer computes
+`(old48 & $E0) | byte[P+5]`; a zero result clears the effective record pointer's
+low byte before the state copy. Pointer bounds and record contents remain trusted.
+
+The `$0F2D/$0F3C` readers copy seven/three bytes into `$04D8..DE` or
+`$04DA..DC`. They write pointer scratch `$20/$21` before reading, and overlapping
+destinations propagate earlier stores in forward order. Timing selector `$0FA1`
+uses the unchecked byte index `(selector-1)&255` into the resident pair table;
+the second index wraps independently. Selector `$7F` instead queues the voice's
+key-off bit and supplies the fixed pair 4/2. The 78 bytes `$1068..10B5` are data,
+remain locally extracted and are not adopted as instructions.
+
+Retarget helper `$1152` writes the high byte from P-2 to `$17C6` before reading
+the low byte from P-3 into `$17C5`, then requests port-two command one and restores
+P. A header at P=`$17C9` therefore rereads the newly stored high byte as its low
+byte; pointer-scratch overlap also follows the decrement/read ordering.
+Position helper `$10FC` independently indexes its word by `$2F` and valid byte
+by `$2E`; it does not validate that one index is twice the other.
+
+The `$110D/$1124/$1144` adapters unconditionally publish envelope, gain and
+paired-volume writes using raw base `$04D5`, including eight-bit register wrap.
+They bypass `$1A/$1B` inhibition. Instrument adapter `$1130` selects the even
+voice offset at `$04DF`, masks noise state, sets `$47=0` and calls the existing
+instrument interior `$0962`; it does not perform the ordinary operand store.
+
+Progress helper `$13A0` increments `$04B8+slot` modulo 256. First progress one
+uses the mode path: mode one becomes `$81` and initializes; existing `$81` skips
+initialization. On later progress, a `$04BC+slot` match maps `$FF` to `$FE` and
+other values to zero. A `$04C0+slot` match with mode bit zero clear queues key-off;
+if both mask and old queue are zero, the zero OR result falls through to reset
+progress. A zero initialization byte `$0450+slot` becomes one before the original
+`$1557` call. Optional position `$0458/$0459` reaches `$110D`; zero `$04C8+slot`
+queues key-on. Shared entry `$13D8` sets mode `$81` without incrementing progress.
+
+Extended continuation `$134E` consumes a byte only when its modulo-256 period
+counter `$D4+slot` equals `$2C`; it postincrements byte index `$D0+slot`.
+Token zero forwards to the still-unclaimed finish at `$1491`. Token `$7F` queues
+key-off and publishes zero volume through the actual `$1144`. Other tokens use
+the actual gain writer `$1124`; a nonzero `$29` additionally reads the control
+stream, replaces `$48` with its low five bits and queues noise bits in `$49`.
+Forwarders `$1348/$134B` preserve the native frame into `$148B/$0FB7`; their
+broader finish/parser implementations remain outside this source checkpoint.
+
+`tests/integration_spc_record_routes.nim` checks complete original callees,
+ordinary/special timing selectors, all-PSW local handoffs, wrapped pointers and
+real adapter/lookup/route chains. `tests/integration_spc_record_interpreter.nim`
+checks readers, scratch/destination aliases, timing, position/retarget, ordered
+DSP writes and actual instrument calls. `tests/integration_spc_record_continuations.nim`
+checks 241,664 finite ticks, 71,704 record paths and 2,048 complete initialization
+chains through `$1557`, instrument, stereo and pitch output. Its 2,304 finish
+observations stop at the real `$1491` entry; they do not claim a completed finish.
+The initialization fixtures use authored records/curves, preserve original code,
+and verify registers, flags, neighbor state, native frames and ordered port writes.
 
 ### Verified startup record inventory
 
@@ -603,7 +689,9 @@ broader runtime inventory does not promote their contents into source.
 tables and executes every accepted original adapter lookup through its real
 indirect jump. Across two ROM images and two package configurations, it checks
 652 handoffs, cached kinds, saved table offsets, caller frames and 148 native
-header references. It stops before record bodies; it establishes neither full
+header references. Native cases execute the original header consumer through
+its jump to the real record entry, checking the saved continuation and restored
+caller frame. The test stops before record bodies; it establishes neither full
 body lengths/semantics nor a complete inventory across all possible uploads.
 
 ## Verified SPC700 sequence fetch and dispatch

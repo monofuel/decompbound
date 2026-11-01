@@ -21,7 +21,7 @@ spcDispatchHostPortOne:
     MOV A, #$DF           ; Exclude voice five from the mask.
     MOV Y, #$20
     MOV $20, #$0A         ; Even voice offset.
-    MOV $21, #$50         ; TODO: trace this selected parameter-base consumer.
+    MOV $21, #$50         ; Raw DSP register base for voice five; published at $04D5.
     BNE dispatchService
 
 ; $11BA: port two, voice six; same calling/lookup contract.

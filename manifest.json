@@ -2453,11 +2453,81 @@
       "evidence": "docs/audio.md; integration_spc_upload_receiver.nim and integration_apu_resident_upload.nim; original/rebuilt source and native/port protocol contracts"
     },
     {
-      "name": "blob_260A6F",
+      "name": "spcRecordInterpreterReadConfiguration",
       "offset": 2493039,
-      "length": 619,
+      "length": 30,
+      "kind": "code",
+      "source": "asm/spcRecordInterpreterReadConfiguration.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_interpreter.nim; original/rebuilt native-frame, record-state and hardware-write oracles"
+    },
+    {
+      "name": "blob_260A8D",
+      "offset": 2493069,
+      "length": 68,
       "kind": "blob",
-      "source": "blobs/blob_260A6F.bin",
+      "source": "blobs/blob_260A8D.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcRecordInterpreterSelectTiming",
+      "offset": 2493137,
+      "length": 40,
+      "kind": "code",
+      "source": "asm/spcRecordInterpreterSelectTiming.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_interpreter.nim; original/rebuilt native-frame, record-state and hardware-write oracles"
+    },
+    {
+      "name": "blob_260AF9",
+      "offset": 2493177,
+      "length": 325,
+      "kind": "blob",
+      "source": "blobs/blob_260AF9.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcRecordInterpreterSavePosition",
+      "offset": 2493502,
+      "length": 17,
+      "kind": "code",
+      "source": "asm/spcRecordInterpreterSavePosition.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_interpreter.nim; original/rebuilt native-frame, record-state and hardware-write oracles"
+    },
+    {
+      "name": "spcRecordInterpreterWriteRegisters",
+      "offset": 2493519,
+      "length": 69,
+      "kind": "code",
+      "source": "asm/spcRecordInterpreterWriteRegisters.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_interpreter.nim; original/rebuilt native-frame, record-state and hardware-write oracles"
+    },
+    {
+      "name": "spcRecordInterpreterRetarget",
+      "offset": 2493588,
+      "length": 30,
+      "kind": "code",
+      "source": "asm/spcRecordInterpreterRetarget.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_interpreter.nim; original/rebuilt native-frame, record-state and hardware-write oracles"
+    },
+    {
+      "name": "blob_260CB2",
+      "offset": 2493618,
+      "length": 40,
+      "kind": "blob",
+      "source": "blobs/blob_260CB2.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
@@ -2483,14 +2553,34 @@
       "evidence": "docs/audio.md; integration_spc_service_dispatch.nim; original/rebuilt source and native/port protocol contracts"
     },
     {
-      "name": "blob_260DAF",
+      "name": "spcContinueRecordRoute",
       "offset": 2493871,
-      "length": 90,
-      "kind": "blob",
-      "source": "blobs/blob_260DAF.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "length": 3,
+      "kind": "code",
+      "source": "asm/spcContinueRecordRoute.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_routes.nim; original/rebuilt native-frame, record-state and hardware-write oracles"
+    },
+    {
+      "name": "spcBasicRecordRoutes",
+      "offset": 2493874,
+      "length": 24,
+      "kind": "code",
+      "source": "asm/spcBasicRecordRoutes.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_routes.nim; original/rebuilt native-frame, record-state and hardware-write oracles"
+    },
+    {
+      "name": "spcExtendedRecordRoute",
+      "offset": 2493898,
+      "length": 63,
+      "kind": "code",
+      "source": "asm/spcExtendedRecordRoute.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_routes.nim; original/rebuilt native-frame, record-state and hardware-write oracles"
     },
     {
       "name": "spcDispatchNativeService",
@@ -2533,14 +2623,24 @@
       "evidence": "docs/audio.md; integration_spc_service_dispatch.nim; original/rebuilt source and native/port protocol contracts"
     },
     {
-      "name": "blob_260E8A",
+      "name": "spcServiceRecordContinuation",
       "offset": 2494090,
-      "length": 210,
-      "kind": "blob",
-      "source": "blobs/blob_260E8A.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "length": 88,
+      "kind": "code",
+      "source": "asm/spcServiceRecordContinuation.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_continuations.nim; original/rebuilt native-frame, record-state and hardware-write oracles"
+    },
+    {
+      "name": "spcTickRecordContinuation",
+      "offset": 2494178,
+      "length": 122,
+      "kind": "code",
+      "source": "asm/spcTickRecordContinuation.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_continuations.nim; original/rebuilt native-frame, record-state and hardware-write oracles"
     },
     {
       "name": "spcResetAuxiliaryState",

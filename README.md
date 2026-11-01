@@ -188,7 +188,7 @@ explains how routine contracts, code comments and research evidence fit together
 | | Goal | Status |
 |---|------|--------|
 | **1** | Rebuild the original ROM byte-identically | **Met; maintain** — extraction + assembly + copied residual regions |
-| **2** | Understand all game code | **Early** — 224 explained assembly regions, including SPC700 sources, plus further research in tools/docs |
+| **2** | Understand all game code | **Early** — 234 explained assembly regions, including SPC700 sources, plus further research in tools/docs |
 | **3** | Understand scripting | **Partial** — text decoding, action scripts and bounded SPC sequence controls; complete semantics remain open |
 | **4** | Understand graphics, including the game map | **Partial** — complete base world atlas, enemy portraits, battle backgrounds, and original UI; animation/story variants and the full asset catalog remain open |
 | **5** | Understand audio | **Partial** — standalone music playback and upload/song-loader knowledge; complete driver/sequence understanding remains open |
@@ -198,8 +198,8 @@ explains how routine contracts, code comments and research evidence fit together
 - **Vanilla rebuild:** `make compare` extracts the user's ROM into ignored
   `extracted/` files and rebuilds it using `manifest.json` and `asm/`. The output
   must be byte-identical. Copied bytes do not count as understood code or assets.
-- **Explained regions:** the current manifest contains 11,841 explained and
-  reproduced bytes (0.3764% of the whole 3 MiB ROM). Another 48 reproduced bytes
+- **Explained regions:** the current manifest contains 12,327 explained and
+  reproduced bytes (0.3919% of the whole 3 MiB ROM). Another 48 reproduced bytes
   and 12 copied record-header bytes are only identified. Other knowledge lives in
   subsystem docs and tools; there is no complete code-only denominator yet.
 - **Emulator:** the repo records a complete human EarthBound playthrough through

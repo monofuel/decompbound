@@ -81,7 +81,19 @@ proc checkInventory(image: seq[uint8], withSong: bool,
       inc result.lookups
       if kind == NativeKind:
         nativePointers.incl(pointer)
-        continuations.incl(baseline.word(pointer - 3))
+        let continuation = baseline.word(pointer - 3)
+        continuations.incl(continuation)
+        var nativeSteps = 0
+        while actual.pc.int != pointer:
+          doAssert nativeSteps < 50
+          actual.step()
+          inc nativeSteps
+        doAssert nativeSteps > 0 and actual.sp == 0xEF
+        doAssert actual.word(0x440 + 2 * port) == continuation
+        doAssert actual.word(0x20) == pointer - 3
+        doAssert actual.x.int == 2 * (command - 1) and actual.y == actual.x
+        doAssert actual.a.int == continuation shr 8
+        doAssert actual.word(0x1F0) == ReturnAddress
         for headerAddress in pointer - 3 .. pointer - 1:
           doAssert baseline.ram[headerAddress] == image[DriverMap + headerAddress],
             "A runtime header must match its claimed package-one file placement."
@@ -114,7 +126,7 @@ proc checkInventory(image: seq[uint8], withSong: bool,
   echo &"withSong={withSong}: unique pointers={allPointers.len}, native headers={nativePointers.len}"
 
 proc main() =
-  ## Require both ROMs and both package configurations; stop before executing record bodies.
+  ## Require both ROMs/configurations and native header consumption; stop before record bodies.
   let layout = parseManifestFile(ManifestDefaultPath)
   var lookups, nativeHeaders: int
   for image in engineImages("bin/spc_service_inventory_extract"):

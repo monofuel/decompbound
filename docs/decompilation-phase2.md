@@ -422,8 +422,8 @@ manifest's ROM file offset. `.org` sets label addresses and emits no padding.
 The source suffix selects architecture before the general `.asm` fallback;
 the manifest schema and exact region-length gate are unchanged.
 
-The 109 SPC source regions reproduce 3,139 bytes from package 1: 107 code
-regions (3,103 bytes) and two structural code-pointer tables (36 bytes).
+The 119 SPC source regions reproduce 3,625 bytes from package 1: 117 code
+regions (3,589 bytes) and two structural code-pointer tables (36 bytes).
 All but one 48-byte service fragment are explained. Four identified record
 headers remain copied data; no metadata contents are
 committed as assembly merely because their bytes could decode as instructions.
