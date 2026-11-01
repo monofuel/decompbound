@@ -1,7 +1,7 @@
 import
   std/[os, strformat],
   decompbound/[asm_parse, cpu, manifest, memmap, rom_pipeline, snesbus],
-  ./engine/original_cpu
+  ./engine/[original_cpu, sprite_effect_fixture]
 
 type
   Sprite = object
@@ -207,6 +207,110 @@ proc checkLifecycle(image: seq[uint8], resource, firstSelector: int, immediate: 
   doAssert snes.word(0x112E + Owners[1] * 2) == survivor
   doAssert snes.bus.read8(Wram + (0x4A00 + sprites[1].slot).uint32) == (Owners[1] or 0x80).uint8
 
+proc checkDefaultLifecycle(image: seq[uint8], firstSelector: int) =
+  ## Follow default motion, projection and effects through the native draw loop and publication.
+  const
+    Actors = [5, 23]
+    Flags = [10, 5]
+    Heights = [3, 7]
+    Velocities = [[0x00018000'u32, 0xFFFF8000'u32],
+      [0xFFFFC000'u32, 0x00014000'u32]]
+    BodyBase = 0x5000
+    BodyBank = 0x7F
+    BodySpacing = 0x20
+    CameraX = 32
+    CameraY = 40
+    ExpectedQueueEntries = 5
+  let snes = newSnesBus(syntheticEffectsImage(image))
+  snes.call("JSL $C09282")
+  var coordinates: array[2, array[2, uint64]]
+  for index, actor in Actors:
+    let
+      offset = actor * 2
+      worldX = 100 + index * 50
+      worldY = 120 + index * 30
+      pointer = BodyBase + index * BodySpacing
+    snes.putWord(0x0A4C, actor)
+    snes.putWord(0x0A4E, actor + 1)
+    snes.putWord(0x0A48, Heights[index])
+    snes.call("JSL $C09321", a = 0, x = worldX, y = worldY)
+    let state = snes.word(0x0ADA + offset)
+    snes.putWord(0x1372 + state, 250)
+    snes.putWord(0x10B6 + offset, 0x8000)
+    snes.putWord(0x10F2 + offset, 0)
+    snes.putWord(0x112E + offset, pointer)
+    snes.putWord(0x116A + offset, BodyBank)
+    snes.putWord(0x11A6 + offset, if index == 0: 0xA023 else: 0xA03A)
+    snes.putWord(0x2BE6 + offset, 0x0101)
+    snes.putWord(0x2BAA + offset, Flags[index])
+    snes.putWord(0x2E7A + offset, if index == 0: 0 else: 0xC000)
+    snes.putWord(0x2A7E + offset, 0x40)
+    snes.putWord(0x103E + offset, if index == 0: 0 else: 0xC000 or Actors[0])
+    snes.seedEffects(actor)
+    coordinates[index] = [(worldX.uint64 shl 16) or 0x8000,
+      (worldY.uint64 shl 16) or 0x8000]
+    for axis in 0 .. 1:
+      snes.putWord([0x0CF6, 0x0D32][axis] + offset, (Velocities[index][axis] shr 16).int)
+      snes.putWord([0x0DAA, 0x0DE6][axis] + offset, (Velocities[index][axis] and 0xFFFF).int)
+    for record in 0 .. 1:
+      let bytes = [0'u8, (0x20 + index * 2 + record).uint8,
+        (if record == 0: 0xA5'u8 else: 0x4B'u8), (record * 8).uint8,
+        (if record == 1: 0x80'u8 else: 0'u8)]
+      snes.putBytes((BodyBank shl 16 or (pointer + record * RecordBytes)).uint32, bytes)
+  snes.putWord(0x0A5E, 0xDB0F)
+  snes.putWord(0x67, 0)
+  snes.putWord(0x31, CameraX)
+  snes.putWord(0x33, CameraY)
+  snes.putWord(0x2E, firstSelector)
+  for tick in 0 .. 6:
+    let selector = snes.word(0x2E)
+    snes.call("JSL $C088B1")
+    snes.call("JSL $C09466", directPage = 0x300)
+    doAssert snes.word(0x0A60) == 0
+    var expected: seq[array[4, uint8]]
+    for index, actor in Actors:
+      let
+        offset = actor * 2
+        phase = if tick mod 5 < 3: 0 else: 1
+      for axis in 0 .. 1:
+        coordinates[index][axis] = (coordinates[index][axis] +
+          Velocities[index][axis].uint64) and 0xFFFFFFFF'u64
+        doAssert snes.word([0x0B8E, 0x0BCA][axis] + offset) ==
+          (coordinates[index][axis] shr 16).int
+      let
+        x = (coordinates[index][0] shr 16).int - CameraX
+        y = (coordinates[index][1] shr 16).int - CameraY -
+          (if index == 1: Heights[index] else: 0)
+      doAssert snes.word(0x0B16 + offset) == x
+      doAssert snes.word(0x0B52 + offset) == y
+      for lane in selectedEffects(actor, Flags[index], if index == 0: 0 else: 0xC000, 0x40):
+        let variant = Flags[index] and 1
+        expected.add [x.uint8, (y - 1).uint8,
+          (0x40 + lane * 8 + phase * 3 + variant).uint8, 0xA5'u8]
+      for record in 0 .. 1:
+        let
+          groupBit = if record == 0: 2 else: 1
+          priority = if (Flags[index] and groupBit) != 0: 0x20 else: 0x30
+          attribute = if record == 0: 0xA5 else: 0x4B
+        expected.add [(x + record * 8).uint8, (y - 1).uint8,
+          (0x20 + index * 2 + record).uint8, ((attribute and 0xCF) or priority).uint8]
+      doAssert snes.word(0x1372 + snes.word(0x0ADA + offset)) == 249 - tick
+    doAssert snes.word(0x2504) == ExpectedQueueEntries * 2
+    doAssert snes.word(0x103E + Actors[1] * 2) == (0xC000 or Actors[0])
+    snes.call("JSL $C08B26")
+    let low = if selector == 1: 0x500 else: 0x800
+    doAssert snes.word(3) == low + expected.len * 4
+    for index, record in expected:
+      for component, value in record:
+        doAssert snes.bus.read8(Wram + (low + index * 4 + component).uint32) == value,
+          &"default lifecycle tick {tick}, entry {index}, component {component}"
+    for index in expected.len ..< OamCapacity:
+      doAssert snes.bus.read8(Wram + (low + index * 4 + 1).uint32) == 0xE0
+    snes.fragment(0x8196, 0x81C8, FlagX)
+    for index in 0 ..< FrameBufferBytes:
+      doAssert snes.oam[index] == snes.bus.read8(Wram + (low + index).uint32)
+    snes.fragment(0x8278, 0x8338, FlagX)
+
 proc main() =
   ## Execute the integrated scenarios from freshly assembled source and local extraction.
   let
@@ -220,6 +324,10 @@ proc main() =
     for selector in 1 .. 2:
       for immediate in [false, true]:
         rebuilt.checkLifecycle(resource, selector, immediate)
+  for image in [gold, rebuilt]:
+    for selector in 1 .. 2:
+      image.checkDefaultLifecycle(selector)
+  echo "engine lifecycle: 8 resource scenarios and 4 seven-tick default callback scenarios passed"
 
 when isMainModule:
   main()

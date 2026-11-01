@@ -480,13 +480,16 @@ attribute bits 4–5 change:
 | Second | 0 | `(attribute & $CF) | $30` | `(attribute & $CF) | $20` |
 
 These are OAM priority bits. Palette bits, tile-high bit, and flips are preserved.
-Both loops use 8-bit indices; the verified small-group cases below do not imply
-that arbitrary large counts or definitions crossing a 256-byte indexing window
-work. After patching, the callback resolves a queue group, calls overlay helper
+Both loops use 8-bit indices. Counts 0..128 execute that many iterations;
+129..255 execute none because the decremented count is already negative.
+Attribute offsets advance by five modulo 256, starting at offset two. Crossing
+that window patches earlier bytes rather than continuing into the next page.
+These are original unchecked limits, not validation added by our tooling.
+After patching, the callback resolves a queue group, calls effect helper
 `$C0AC43`, then enqueues the direct definition pointer using screen-position
 words `$0B16,X` and `$0B52,X`.
 
-`nim r tests/integration_sprite_priority.nim` verifies 12,288 scenarios for
+`nim r tests/integration_sprite_priority.nim` retains 12,288 scenarios per ROM for
 entity offset zero: every attribute byte, all four priority-control combinations,
 six first/second group-count pairs, and both pointer-offset choices. It executes
 the complete original callback with overlays inactive (`$2BAA & $0C = 0` and
@@ -498,8 +501,90 @@ the combined record list is nonempty and terminated.
 The test uses direct page `$0200` for entity scratch. This matters: the overlay
 helper uses DP `$00..$08`, while global OAM pointers live at absolute `$0003`
 and nearby addresses. Using direct page zero for this complete callback would
-alias unrelated scratch and OAM state. Overlay-producing paths and indirect
-queue-group references are not yet covered by this test.
+alias unrelated scratch and OAM state.
+
+Additional cases exercise entities 0, 5, 22, 23 and 29, every queue, and every
+other valid entity as an indirect target. `$103E` bit 15 selects indirection:
+the low six bits are a raw entity ID, doubled at `$C0A416` before reading that
+entity's `$103E`. This is exactly one lookup. Original bit 14 retains the actor's
+queue field when set; otherwise `$C0A429` clears it after saving the resolved
+queue in `$2400`. Self-references and references to another indirect value remain
+unresolved words, unsafe for the unchecked queue jump table. Bounded tests stop
+before enqueue for those cases, including target ID 63; they do not present them
+as valid actor IDs or recursively resolve them.
+
+The test checks **29,776 cases** across original and freshly rebuilt ROMs:
+the retained attribute sweep, complete valid indirect calls through OAM
+publication, one-hop boundary cases, and 81 count/index combinations per image.
+Further cases verify empty priority groups still enqueue a terminated body,
+variant-pointer wrapping leaves the bank unchanged, and `$8F` survives the
+effect helper through the final 16-bit bank-word copy. Direct invalid queue
+words are checked before enqueue and are neither masked nor cleared.
+The count/index cases stop after priority patching and compare a guarded
+512-byte region, without asking the emitter to interpret intentionally corrupted
+definitions.
+The 159-byte callback is reproduced as `asm/drawEntityDefault.asm`.
+
+### Effect selection, timers and sequence interpreter
+
+`$C0AC43..AD55` enqueues additional definitions in the inherited queue `$2400`
+before the default callback enqueues its body. It sets the definition bank
+`$000B` and sequence-pointer bank DP `$04` to `$C4`. The body callback restores
+its own definition bank afterward. Native M16/X16, decimal clear, DBR `$7E`,
+X and DP `$88` holding the entity offset, and isolated DP scratch are required.
+The helper clobbers A/X/Y, arithmetic flags and DP bytes `$00..09`; D/DBR/stack and
+DP `$88` are preserved. The queue's 32-entry capacity is unchecked.
+
+| Operational lane | Pointer | Timer | Output definition | Selected when |
+|---|---|---|---|---|
+| 64-byte chunk | `$301E` | `$305A` | `$3096` | `$2BAA & $0C` is 8 or 12 and bytes per chunk `$2A7E` is `$0040`. |
+| Other chunk size | `$30D2` | `$310E` | `$314A` | Same selector, with another chunk size. |
+| Primary status | `$2F6A` | `$2FA6` | `$2FE2` | Selector is 4, or `$2E7A` bit 15 is set; entity ID must be at least 23. |
+| Secondary status | `$2EB6` | `$2EF2` | `$2F2E` | `$2E7A` bit 14 is set and entity ID is at least 23. |
+
+The size lane runs first, then primary status, then secondary status. Selector
+4 jumps directly to primary status even if `$2E7A` is zero. Its entity-offset
+guard `$002E` (ID 23) exits both status lanes for smaller IDs. A primary output
+of zero suppresses only that enqueue; its timer still advances and the secondary
+lane can still run. Other lanes do not suppress zero output pointers.
+
+`$2BAA` bit 0 adds five bytes to the definition pointer. The other-size lane
+adds that value twice and draws eight pixels below the entity's render Y; all
+other lanes use the entity's render origin. Pointer arithmetic is 16-bit, and
+the original second ADC in the other-size lane retains the first ADC's carry.
+Eight additional boundary cases pin that extra carry before publication; this
+is not a checked pointer interface. Visual names for these effects remain
+unestablished.
+
+A zero timer calls `$C0AD56..AD89`, saving its returned pointer and delay.
+Every selected lane then decrements its timer in the same tick, including after
+reload. A returned delay of zero becomes `$FFFF`, not an immediate advance.
+The sequence interpreter reads words from the long pointer at DP `$02..04`:
+
+| Command word | Operation |
+|---|---|
+| 1 | Write the following word to the lane's output field; continue reading. |
+| 3 | Replace the pointer's low word with the following word and restart at index zero. |
+| Any other value | Read the following word as duration and return the advanced low pointer. |
+
+Entry A is the output-field base; X becomes that base plus DP `$88`. Return A
+is the advanced low pointer, Y the duration, DP `$08` the consumed byte count
+since the last redirect. The bank is preserved; return-pointer addition wraps
+at 16 bits. Long-indexed reads can cross into the following bank even though
+the returned pointer wraps without updating its bank. There is no terminator,
+cycle detection or command validation. Sequence content is game data extracted
+locally, not included in assembly.
+
+`nim r tests/integration_sprite_effects.nim` checks **1,920 sequence cases**,
+four additional no-write/pointer/bank-boundary cases, **8,644 seven-tick selector
+cases**, and zero-duration underflow on both images. Synthetic C4 sequences exercise
+repeated output writes, redirects and non-1/non-3 commands. The helper matrix
+covers all 16 low flag combinations, six status words, three chunk sizes,
+five entity IDs around the threshold and three starting timers. It checks
+unselected lanes, neighbor guards, ordered queue records and published OAM.
+The two routines are reproduced as `enqueueEntityEffects.asm` and
+`advanceEntityEffectSequence.asm`. Actual game effect names, sequence catalogs,
+and full interrupt timing remain separate investigations.
 
 ## Resource and layout tables: static route into runtime definitions
 

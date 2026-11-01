@@ -239,8 +239,9 @@ entities, one/two-node state chains, callback bank, scratch D, lock lifetime,
 and wait effects. Three further cases remove the current, next, or last entity
 from a first-pass native callback and verify resumed traversal and returned
 storage. Empty-list and two locked-entry cases are also checked (518 total).
-These tests establish scheduling mechanics, not the gameplay effects of the
-installed production callbacks or safety of second-pass mutation. The 160-byte
+These tests establish scheduling mechanics and safety limits for mutation. The
+motion and default-drawing checks below exercise selected production callbacks;
+they do not establish safety of second-pass mutation. The 160-byte
 scheduler region is reproduced from `asm/scheduleEntities.asm` and directly
 byte-checked in the scheduler test.
 
@@ -249,6 +250,62 @@ The pause/resume helpers are reproduced as `pauseEntityScripts.asm` and
 flag words in both forward and reverse three-entity lists, preserving all low
 14 bits and every inactive entity, plus empty-list calls. A and X are scratch;
 Y, D, DBR and stack depth are preserved.
+
+### Entity motion and coordinate projection
+
+The constructor's default `$121E=$9FC8` callback advances two 16.16 coordinate
+pairs. Its `$11A6=$A023` callback then projects the integer words into render
+coordinates. The scheduler skips motion when entity `$10B6` bit 14 is set, but
+still runs projection. The adopted routines require native M16/X16, DBR `$7E`,
+and decimal clear for arithmetic. DP `$88` supplies the doubled entity offset;
+each entry reloads X, preserves Y/D/DBR and returns at the original stack depth.
+
+| Axis | Integer | Fraction | Integer step | Fraction step |
+|---|---|---|---|---|
+| World X | `$0B8E` | `$0C42` | `$0CF6` | `$0DAA` |
+| World Y | `$0BCA` | `$0C7E` | `$0D32` | `$0DE6` |
+| Elevation | `$0C06` | `$0CBA` | `$0D6E` | `$0E22` |
+
+`$C09FC8..9FF0` adds each complete 32-bit step modulo `2^32`. The fraction
+addition's carry feeds its integer addition; a fresh CLC separates the axes.
+Negative steps are represented by their two's-complement bit patterns. The
+constructor initializes fractions to `$8000` (one half). `$C0A00C..A022` calls
+the same XY helper and also advances elevation. The sibling `$C09FF1..A00B`
+calls `$C0C7DB`; that additional behavior remains outside this adoption.
+
+All projection arithmetic wraps at 16 bits and performs no clipping:
+
+| SNES entry (file offset is address minus `$C00000`) | Operation | Return |
+|---|---|---|
+| `$C0A023..A039` | Render = world − `$0031/$0033` scroll origin. | RTS |
+| `$C0A03A..A054` | Same, with elevation subtracted from render Y. | RTS |
+| `$C0A055..A06B` | Render = world − origin words `$0039/$003B`. | RTS |
+| `$C0A06C..A088` | Subtract `$0039/$003B` from world and copy to render. | RTL |
+| `$C0A089..A09F` | Add `$0039/$003B` to world; leave render unchanged. | RTL |
+| `$C0A0A0..A0BA` | Project using `$0039/$003B`, also subtracting elevation. | RTS |
+| `$C0A0BB..A0C9` | Copy world directly to render. Decimal mode is unused. | RTS |
+
+The two elevated projections reset carry before subtracting elevation; a borrow
+from subtracting the origin does not introduce an extra pixel. The alternate
+origin pair's broader role is not inferred here. `$A06C/$A089` reverse each
+other's world-coordinate changes; only the subtracting entry writes render.
+
+`nim r tests/integration_entity_motion.nim` checks **113,700 calls** across the
+original ROM and a fresh byte-identical rebuild. Every entity slot is exercised
+with fractional carries, signed steps, integer wrapping, origin/elevation
+boundaries and neighbor guards. Expected coordinates use wider integer equations
+rather than an emulated-instruction translation.
+
+The default path also has four seven-tick scenarios in
+`tests/integration_engine_lifecycle.nim`, covering original/rebuilt ROMs and both
+OAM build buffers. Two constructed entities use real scheduler motion and normal
+or elevated projection, then the native draw loop `$C0DB0F`, default callback
+`$C0A3A4`, effect timers, priority edits, indirect queue retention, publication
+and the bounded OAM/scroll interrupt fragments. Bodies and effects use authored
+synthetic definitions; all emitted sprite bytes have independent expectations.
+The draw loop and interrupt fragments are dependencies executed by this check,
+not newly adopted routines or a claim about full interrupt timing. The existing
+eight real-resource/frame-table lifecycle scenarios remain separate coverage.
 
 ### A verified script-driven removal sequence
 
