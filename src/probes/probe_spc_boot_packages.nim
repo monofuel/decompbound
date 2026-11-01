@@ -38,10 +38,16 @@ type
     returnAddress: uint32
     entrySp: uint16
     completed: bool
+  InitializerCall = object
+    returnAddress: uint32
+    entrySp, entryDirect, entrySong: uint16
+    entryBank: uint8
+    completed: bool
   Trace = ref object
     uploads: seq[Upload]
     pending: seq[int]
     songs: seq[SongCall]
+    initializers: seq[InitializerCall]
     packageIds: Table[int, seq[int]]
     cacheDirty: bool
     cache: array[6, uint16]
@@ -185,9 +191,28 @@ proc observe(trace: Trace, snes: SnesBus, host: Cpu, rom: seq[uint8]) =
        host.s == trace.songs[index].entrySp + 3:
       trace.songs[index].completed = true
       echo &"completed song loader: id={trace.songs[index].id}"
+  for index in 0 ..< trace.initializers.len:
+    let call = trace.initializers[index]
+    if not call.completed and address == call.returnAddress and host.s == call.entrySp + 3:
+      let seed = rom[0x4F70C].uint16
+      doAssert host.d == call.entryDirect and host.dbr == call.entryBank
+      doAssert host.a == 1 and (host.p and (FlagM or FlagX)) == 0
+      let restoredNz = (if host.d == 0: FlagZ else: 0'u8) or
+        (if (host.d and 0x8000) != 0: FlagN else: 0'u8)
+      doAssert (host.p and (FlagN or FlagZ)) == restoredNz
+      doAssert snes.bus.read16(0x7EB53B) == call.entrySong
+      doAssert snes.bus.read16(0x7EB53D) == 0xFFFF and snes.bus.read16(0x7EB541) == 0xFFFF
+      doAssert snes.bus.read16(0x7EB53F) == seed and snes.bus.read16(0x7EB543) == seed
+      doAssert snes.bus.read16(0x7EB547) == 0xFFFF and snes.bus.read16(0x7EB549) == 1
+      trace.initializers[index].completed = true
+      echo &"completed resident initializer: restoredDP=${host.d:04X} restoredDBR=${host.dbr:02X} " &
+        &"seedPackage={seed} marker=1 currentSongPreserved=true"
   if host.nmiPending: return # The core will enter NMI before executing this PC.
   if pc == 0xC4FB58:
     inc trace.initEntries
+    trace.initializers.add InitializerCall(returnAddress: snes.callerReturn(host),
+      entrySp: host.s, entryDirect: host.d, entryBank: host.dbr,
+      entrySong: snes.bus.read16(0x7EB53B))
     echo "entered resident initializer $C4FB58"
   elif pc == 0xC4FBBD:
     trace.songs.add SongCall(id: host.a.int, entrySp: host.s, returnAddress: snes.callerReturn(host))
@@ -305,11 +330,13 @@ proc main() =
     scheduledSamples += samples
     if firstNmi < 0 and (snes.nmitimen and 0x80) != 0: firstNmi = frame
   trace.observe(snes, host, rom)
-  var completed, completedSongs, coveredRows = 0
+  var completed, completedSongs, completedInitializers, coveredRows = 0
   for upload in trace.uploads:
     if upload.completed: inc completed
   for song in trace.songs:
     if song.completed: inc completedSongs
+  for initializer in trace.initializers:
+    if initializer.completed: inc completedInitializers
   for index, writer in trace.gapWriter:
     if writer >= 0:
       if trace.gapMask[index] == 0x3F: inc coveredRows
@@ -317,7 +344,8 @@ proc main() =
         &"last touching completed upload #{writer + 1} packages={trace.uploads[writer].packages}"
     else: echo &"gap row ${GapRows[index]:04X}: never covered by a completed upload"
   echo &"bounded checkpoint: CPU=${host.pbr:02X}:{host.pc:04X} NMIenabled={firstNmi >= 0} " &
-    &"residentInitializers={trace.initEntries} requestedUploads={trace.uploads.len} completedUploads={completed} " &
+    &"residentInitializers={trace.initEntries} completedInitializers={completedInitializers} " &
+    &"requestedUploads={trace.uploads.len} completedUploads={completed} " &
     &"requestedSongs={trace.songs.len} completedSongs={completedSongs} " &
     &"instrumentGapRowsCovered={coveredRows}/11 cacheTransitions={trace.cacheTransitions} " &
     &"CPUobservedInstructions={trace.hostInstructions} scheduledDiscardedSamples={scheduledSamples} " &

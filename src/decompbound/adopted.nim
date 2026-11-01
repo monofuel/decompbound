@@ -132,6 +132,8 @@ const
     AdoptedSpec(name: "drawEntitiesByDepth", offset: 0x00DB0F),
     AdoptedSpec(name: "clearServiceSuppression", offset: 0x03E4CA),
     AdoptedSpec(name: "setServiceSuppression", offset: 0x03E4D4),
+    AdoptedSpec(name: "prepareApuPackageBank", offset: 0x04FB42),
+    AdoptedSpec(name: "initializeResidentApu", offset: 0x04FB58),
     AdoptedSpec(name: "loadSong", offset: 0x04FBBD),
     AdoptedSpec(name: "spcInitializeDriverRam", offset: 0x260042, isSpc: true),
     AdoptedSpec(name: "spcInitializeDriverHardware", offset: 0x26004E, isSpc: true),

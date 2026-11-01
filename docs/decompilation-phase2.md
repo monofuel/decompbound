@@ -435,6 +435,13 @@ gates. Song sequences, instrument records and the stereo curve remain local
 extracted data. Syntax and readability rules are in
 [assembly-style.md](assembly-style.md#spc700-source).
 
+The main-CPU resident initializer (`$C4FB58..FBBC`, 101 bytes) and its
+near-call bank/mask helper (`$C4FB42..FB57`, 22 bytes) also reproduce from
+source. Their cache/scratch contracts, synthetic original/rebuilt checks and
+complete original cold-boot upload/return evidence are in
+[audio.md](audio.md#song-selection-and-resident-packages). The existing song
+loader keeps its 347 bytes while moving explanations beside logical code blocks.
+
 ## Open decisions
 
 1. **Data and documentation model** — typed tables, pointer tables, struct/record

@@ -49,6 +49,29 @@ extents, not runtime bounds checks: the loader does not validate IDs this way.
 index, seeds caches `$B543/$B53F`, and uploads it at `$C4FBB1`. The checked ROM
 selects package 1 here.
 
+Its 101-byte `initializeResidentApu.asm` region and the preceding 22-byte
+`prepareApuPackageBank.asm` helper now reproduce from source. The helper takes
+a full A word through a near JSR, forces M16/X16, writes DBR:`$B547=$FFFF` and
+restores A/X/Y/D/DBR. Its sole scratch word is at entry D−2. Initialization
+invalidates `$B53D/$B541`, seeds `$B53F/$B543` before the upload, leaves
+current-song `$B53B` unchanged and writes `$B549=1` only after the uploader
+returns. There is no `$FF` or package-index bound check. Its eighteen-byte DP
+frame plus nested helper requires scratch through entry D−20; `loadSong`'s
+twenty-byte frame needs the nested word at entry D−22/−21. Native stacks and
+scratch must be disjoint. Intended DBR is `$7E`, decimal clear. The helper's
+N/Z flags follow restored D; initialization returns A=1 and preserves D/DBR
+through the original uploader. The broader consumer policy of `$B549` remains open.
+
+`integration_apu_resident_init.nim` checks 65,536 full-word/width/frame helper
+contexts and 1,536 raw-index/cache/argument prefix contexts per original/rebuilt
+image. Prefix checks stop before `$FBB1` and require the old completion marker
+to remain unchanged; out-of-table indices are authored branch/argument evidence,
+not valid resource identities. The separate cold-boot observer executes the full
+original initializer/helper/uploader/caller chain, verifies its actual RTL return,
+restored D=`$1F00`/DBR=`$7E`, seed/cache effects, preserved current-song word and
+completion marker 1. `loadSong.asm` now keeps these contracts beside logical
+blocks; its 347 original bytes are unchanged.
+
 `$C4FBBD` handles later song selection:
 
 - Matching current song `$B53B` returns without reloading.
@@ -62,6 +85,21 @@ Thus a song change does **not** imply reuploading the driver or all three
 packages. Shared resident data is part of the playback contract. The exact
 roles of `$B4B6` and special song IDs `$A0..A7` remain open; the latter skip
 the ordinary stop handshake. See `asm/loadSong.asm` and the port helpers.
+
+The alternate comparison is narrower than a demonstrated second-library policy.
+The initializer writes `$B543` and `$B53F` together from `$C4F70C`; a later
+slot-one upload changes `$B53F` while leaving `$B543` intact. A match against
+either cache, or an unused `$FF` slot, skips the upload without replacing the
+mutable cache. None of this ROM's 191 nominal middle-slot entries requests the
+initializer seed (package 1), so the alternate-match branch has synthetic
+execution evidence rather than a demonstrated nominal song-row caller.
+`integration_apu_song_cache.nim` runs 2,304 authored contexts per image through
+a genuine JSL and the real loader/helper, stopping before upload or song-command
+execution. Requested byte values outside the nominal package table prove branch
+behavior only. A separate original reset execution, with coherent low-WRAM
+aliases, verifies that its two forward fills clear `$B543`; it checks the whole
+WRAM result, including the intervening display-shadow write and untouched bank
+`$7F`. This is a known bulk invalidation, not proof of every possible cache writer.
 
 ## Package format and upload protocol
 
@@ -311,7 +349,7 @@ versus ROM placement in a mixed 65816/SPC build, exact-length rejection and the
 whole-ROM gold rebuild. The nineteen native callback/helper regions add 208
 independently assembled/byte-compared bytes; the sender’s 183 bytes also remain
 byte-identical after annotation cleanup. Fresh extraction/rebuild matches all
-3,145,728 ROM bytes with 342 regions and no gaps or overlaps. All 54 focused
+3,145,728 ROM bytes with 344 regions and no gaps or overlaps. All 56 focused
 test programs passed with assertions enabled. Checks include
 42 complete original-sender/resident-receiver transfers and 24 separate
 incoming-bank/direct-page address checks and 2,424 complete service passes.
@@ -898,6 +936,18 @@ return frames prevent a full-driver code-closure claim. Startup and startup
 plus song-three packages agree on the nominal roots; that is not an inventory
 of all upload configurations or callback semantics.
 
+The optional `--packages` audit validates all 169 nominal package pointers,
+headers, file spans and APU destination bounds: 323 blocks and 874,945 payload
+bytes. Only package 1 overlaps the 4,591 registered instruction bytes and 98
+structural pointer bytes; all 4,689 overlapping writes match. A separate check
+covers the entire declared `$0500..468A` resident payload, including unexplained
+code/data. Only package 1 writes any of its 16,779 bytes, with zero differences.
+Each block write is compared independently, so later overwriting cannot hide a
+transient difference. Thus the other 168 nominal packages preserve these source
+bytes and the native tables/headers inside that payload. This proves neither
+comprehension of unregistered bytes nor protection from runtime mutation,
+arbitrary uploads or an unobserved execution path.
+
 ### Record reachability and resource-history boundary
 
 `src/probes/probe_spc_real_records.nim` retains a bounded question: which actual
@@ -940,7 +990,21 @@ Before their first headers, 634 and 747 high-byte writes from the sender's
 rows is covered by those completed uploads. The 400-frame prefix sees only the
 first transfer. Later scene/song libraries and whether normal song playback
 reads these gaps remain open; a completed boot upload is not a complete resource
-inventory. Both retained probes print IDs, addresses and counts rather than assets.
+inventory. These probes print IDs, addresses and counts rather than assets.
+
+The narrower playback question has a bounded positive result.
+`nim r -d:debug src/probes/probe_spc_song_instruments.nim` reproduces the public
+MusicPlayer's song-three startup and three modeled seconds of playback, retaining
+original hardware hooks and timer/mixer ordering. PCM is hashed in memory and
+discarded; the hash matches the public `startTrack`/`renderPcm` path. Its 18 actual
+instrument calls make 126 reads from six fully covered rows: `$6E00,$6E0C,$6E12,
+$6E24,$6E30` from package 2 and `$6E48` from package 3. None of the eleven queried
+gap rows is read. Native `$15DB` executes once, record kinds `$04/$0A` reach their
+actual routes and stream continuations, and two original initializations and
+finishes complete. No saved native continuation executes in that window. Optional
+argument 1..5 selects modeled seconds. This reproducer distinguishes observed
+playback consumers from exhaustive command experiments; it does not establish
+coverage of later song sections, scene-driven commands, or musical fidelity.
 
 ## Verified SPC700 sequence fetch and dispatch
 

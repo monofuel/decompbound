@@ -1495,12 +1495,32 @@
     {
       "name": "blob_03E4E0",
       "offset": 255200,
-      "length": 71389,
+      "length": 71266,
       "kind": "blob",
       "source": "blobs/blob_03E4E0.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
+    },
+    {
+      "name": "prepareApuPackageBank",
+      "offset": 326466,
+      "length": 22,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/prepareApuPackageBank.asm",
+      "evidence": "docs/audio.md; integration_apu_resident_init.nim; original CPU contracts and complete cold-boot upload/caller trace"
+    },
+    {
+      "name": "initializeResidentApu",
+      "offset": 326488,
+      "length": 101,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/initializeResidentApu.asm",
+      "evidence": "docs/audio.md; integration_apu_resident_init.nim; original CPU contracts and complete cold-boot upload/caller trace"
     },
     {
       "name": "loadSong",

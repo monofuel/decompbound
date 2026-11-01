@@ -2,14 +2,16 @@
 ## Inputs are the user's ROM, manifest-registered SPC sources and our assembler grammar.
 ## Nominal startup roots and source control edges are checked; full executable closure is not claimed.
 ## Run: nim r -d:debug --nimcache:bin/nimcache/spc-code-inventory-worker src/probes/probe_spc_code_inventory.nim
+## Add --packages to audit nominal writes against registered bytes and the full resident payload.
 import
-  std/[algorithm, sequtils, sets, strformat, strutils, tables],
+  std/[algorithm, os, sequtils, sets, strformat, strutils, tables],
   ../decompbound/[apu, manifest, music_player, rom_pipeline, spc700, spc_asm]
 
 const
   DriverMap = 0x25FB42
   DriverStart = 0x0500
   DriverLength = 16779
+  NominalPackageCount = 169 # Established ROM package-pointer table extent; not arbitrary uploads.
   ReturnAddress = 0x5000'u16
   PointerTables = [0x180D, 0x17D5, 0x17C5, 0x16C7]
   PortEntries = [0x1184, 0x1198, 0x11BA, 0x11DC]
@@ -316,6 +318,99 @@ proc forcedLocalBranch(inventory: Inventory, spc: Spc, address: int): string =
     else:
       return ""
 
+proc auditPackages(inventory: Inventory, image: seq[uint8]) =
+  ## Validate every nominal package and compare each overlapping write to package-one placement.
+  var
+    resident: array[65536, uint8]
+    registered = inventory.codeBytes
+    totalBlocks, totalPayload, overlapWrites, changedWrites = 0
+    overlapPackages, changedPackages: seq[int]
+    overlapped, changed: HashSet[int]
+    residentOverlapWrites, residentChangedWrites = 0
+    residentOverlapPackages, residentChangedPackages: seq[int]
+    residentOverlapped, residentChanged: HashSet[int]
+  applyPackageBlocks(resident, image, packFileOffset(image, 1))
+  for address in DriverStart ..< DriverStart + DriverLength:
+    doAssert resident[address] == image[DriverMap + address],
+      "declared resident payload differs from package-one placement"
+  for address, owner in inventory.dataBytes:
+    doAssert address notin registered
+    registered[address] = owner
+  for address in registered.keys:
+    doAssert resident[address] == image[DriverMap + address],
+      "registered byte differs from original resident package-one placement"
+  for package in 0 ..< NominalPackageCount:
+    var
+      position = packFileOffset(image, package)
+      blocks, payload, overlaps, differences = 0
+      residentOverlaps, residentDifferences = 0
+    while true:
+      doAssert position >= 0 and position + 2 <= image.len,
+        &"package {package}: truncated length"
+      let length = image[position].int or (image[position + 1].int shl 8)
+      position += 2
+      if length == 0: break
+      doAssert position + 2 <= image.len, &"package {package}: truncated destination"
+      let destination = image[position].int or (image[position + 1].int shl 8)
+      position += 2
+      doAssert length <= image.len - position and destination + length <= 65536,
+        &"package {package}: payload or destination exceeds bounds"
+      inc blocks
+      payload += length
+      var runStart = -1
+      var runOwner = ""
+      var runKind = ""
+      var residentRunStart = -1
+      for offset in 0 .. length:
+        let address = destination + offset
+        let inResident = offset < length and
+          address in DriverStart ..< DriverStart + DriverLength
+        let residentDiffers = inResident and image[position + offset] != resident[address]
+        if residentRunStart >= 0 and not residentDiffers:
+          echo &"RESIDENT PAYLOAD CHANGE id={package} block={blocks} APU={residentRunStart:04X}..{address - 1:04X} residentFile={DriverMap + residentRunStart:06X}..{DriverMap + address - 1:06X}"
+          residentRunStart = -1
+        if residentDiffers and residentRunStart < 0: residentRunStart = address
+        if inResident:
+          inc residentOverlaps
+          residentOverlapped.incl address
+          if residentDiffers:
+            inc residentDifferences
+            residentChanged.incl address
+        let differs = offset < length and address in registered and
+          image[position + offset] != resident[address]
+        let owner = if differs: registered[address] else: ""
+        let kind = if differs and address in inventory.codeBytes: "instruction" else: "structural-word"
+        if runStart >= 0 and (not differs or owner != runOwner or kind != runKind):
+          echo &"PACKAGE CHANGE id={package} block={blocks} source={runOwner} kind={runKind} APU={runStart:04X}..{address - 1:04X} residentFile={DriverMap + runStart:06X}..{DriverMap + address - 1:06X}"
+          runStart = -1
+        if differs and runStart < 0:
+          runStart = address
+          runOwner = owner
+          runKind = kind
+        if offset < length and address in registered:
+          inc overlaps
+          overlapped.incl address
+          if differs:
+            inc differences
+            changed.incl address
+      position += length
+    totalBlocks += blocks
+    totalPayload += payload
+    overlapWrites += overlaps
+    changedWrites += differences
+    if overlaps > 0: overlapPackages.add package
+    if differences > 0: changedPackages.add package
+    echo &"PACKAGE id={package} blocks={blocks} payloadBytes={payload} registeredWrites={overlaps} changedWrites={differences} bounds=validated"
+    residentOverlapWrites += residentOverlaps
+    residentChangedWrites += residentDifferences
+    if residentOverlaps > 0: residentOverlapPackages.add package
+    if residentDifferences > 0: residentChangedPackages.add package
+    echo &"RESIDENT PAYLOAD id={package} overlappingWrites={residentOverlaps} changedWrites={residentDifferences}"
+  echo &"PACKAGE SUMMARY packages={NominalPackageCount} blocks={totalBlocks} payloadBytes={totalPayload} registeredInstructionBytes={inventory.codeBytes.len} registeredStructuralBytes={inventory.dataBytes.len} overlappingWrites={overlapWrites} changedWrites={changedWrites} uniqueOverlappedBytes={overlapped.len} uniqueChangedBytes={changed.len} overlapPackages={overlapPackages} changedPackages={changedPackages}"
+  echo "PACKAGE LIMITS: each nominal payload write is compared with original resident placement, including transient writes later overwritten in the same package. Unregistered code/data, runtime mutations, actual upload schedules and arbitrary external uploads are excluded."
+  echo &"RESIDENT PAYLOAD SUMMARY APU={DriverStart:04X}..{DriverStart + DriverLength - 1:04X} bytes={DriverLength} overlappingWrites={residentOverlapWrites} changedWrites={residentChangedWrites} uniqueOverlappedBytes={residentOverlapped.len} uniqueChangedBytes={residentChanged.len} overlapPackages={residentOverlapPackages} changedPackages={residentChangedPackages}"
+  echo "RESIDENT PAYLOAD LIMITS: preservation of the entire declared payload includes unexplained code/data and does not establish comprehension. Only nominal package block writes are checked; runtime mutations, actual upload schedules, bytes outside this payload and arbitrary external uploads remain excluded."
+
 proc main() =
   ## Inventory bounded nominal roots and reproducible source control edges, not the whole executable driver.
   let
@@ -329,6 +424,8 @@ proc main() =
       inventory.addSource(image, region.name, region.source, region.offset - DriverMap,
         region.length)
       inc units
+  doAssert commandLineParams().allIt(it == "--packages"), "only optional --packages is supported"
+  if "--packages" in commandLineParams(): inventory.auditPackages(image)
   let original = boot(image, false)
   let
     aliasOpcode = original.ram[0x2E48].int
