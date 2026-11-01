@@ -55,7 +55,7 @@ releaseRecord:
     MOV A, #$00
     JMP $1144              ; Write zero to two registers, using our native return.
 finishRecord:
-    JMP $1491              ; Unclaimed record-finish tail; preserve its real entry state.
+    JMP $1491              ; Restore saved channel state and release this record slot.
 
 ; $1394 CALL/RET: X=slot, A=raw mode; only $049C+X changes. All flags/registers
 ; preserved; this direct store is DP-independent. No stream fetch or port access.

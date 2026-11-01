@@ -3,7 +3,7 @@
 ; Route bodies carry their own contracts; unchecked targets are not validated.
     .org $132E
 spcServiceContinuationTable:
-    .word $1348           ; $00: forward to $148B; cleanup remains open.
+    .word $1348           ; $00: progress, then restore the channel on finish.
     .word $1348           ; $02: alias of kind zero.
     .word $134B           ; $04: forward to the record stream parser at $0FB7.
     .word $134B           ; $06: alias of kind four.

@@ -7,7 +7,7 @@
 ; then jumps through $125B+kind. Kind is an UNCHECKED byte offset, not an enum
 ; validated here. Uses DP $20..$25/$2A..$2F, globals $04D5..$04D7/$04DF,
 ; cached kind $048C+port and native stack (PUSH X). No hardware I/O.
-; Record content and external-kind contracts remain open. See docs/audio.md.
+; Record contents and native callback bodies are separate from this lookup. See docs/audio.md.
     .org $1198
 spcDispatchHostPortOne:
     MOV A, !$04B1

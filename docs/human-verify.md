@@ -553,7 +553,7 @@ Copy this template when adding a row (agents: always use it):
 
 ### Audio
 
-- [ ] **SPC source rebuild playback** · 2026-11-01 · `decomp/spc-echo-control`
+- [ ] **SPC source rebuild playback** · 2026-11-01 · `decomp/spc-upload-service`
   - **Run:** run `make compare`, then `make jukebox-app ROM=bin/phase2_rebuild.smc ARGS="--song:3"`. Listen briefly, stop, then repeat with `make jukebox-app ARGS="--song:3"` for the original ROM. These human launches use normal audio.
   - **Pass if:** the rebuilt ROM plays the same song with matching pitch, stereo balance, echo and transitions. This is a playback smoke check; the build must already be byte-identical, and existing audio-fidelity questions remain separate.
   - **Notes:** pending human listening. Automated source/CPU/DSP-port checks ran without speakers.

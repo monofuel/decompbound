@@ -62,7 +62,7 @@ initializeProgress:
     ; there is no carry into the high pointer byte. It selects the instrument
     ; through $0962, replaces gain/phase and emits stereo/pitch for voice $04DF.
     ; It leaves $47=0, uses scratch $10..$17/$22/$23, and needs valid records/tables.
-    CALL $1557            ; Callee remains external source; native return is executed normally.
+    CALL $1557            ; Apply state through the original instrument/stereo/pitch helpers.
     MOV X, $2E
     MOV A, !$0454+X
     BEQ testQueuedStart
