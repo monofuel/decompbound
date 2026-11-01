@@ -778,6 +778,10 @@ leave a short **OPEN** row here if you need a later eyeball on a fix.
 
 Move checked rows here so OPEN stays short. Prune freely.
 
+- **RG DS Plus expanded viewport and native decoding performance** · 2026-11-01 · `63dbd04`
+  - Monofuel confirmed the installed portable core is working and approved merging
+    both performance batches. This accepts manual play on the device; the paired
+    core timings remain in [libretro-performance.md](libretro-performance.md).
 - **RG DS Plus combined optimized core and GPU player** · 2026-10-30
   - Monofuel manually tests the combined build and reports: "Earthbound now
     runs flawlessly!" He highlights removal of extra pixel conversions and GPU

@@ -34,8 +34,6 @@ const
   FlipHorizontal = 0x4000'u16
   FlipVertical = 0x8000'u16
   PriorityHigh = 0x2000'u16
-  PlanarTileBytes = 32
-  PlanePairBytes = 16
   RegionPaletteCount = 8
   TileWordBits = sizeof(uint16) * 8
   ViewportRowCacheSlots = 4096
@@ -171,20 +169,7 @@ proc pixel*(atlas: WorldMapAtlas, x, y: int): ColorRGBX =
 proc tileRow(resource: WorldMapResource, tile, y: int,
     indices: var array[TilePixels, uint8]) =
   ## Decode a complete four-plane row with one read of each original plane byte.
-  if tile notin 0 ..< WorldChrTileCount:
-    raise newException(ValueError, "Map CHR tile is outside the original upload.")
-  let
-    offset = tile * PlanarTileBytes + y * 2
-    plane0 = resource.graphics[offset]
-    plane1 = resource.graphics[offset + 1]
-    plane2 = resource.graphics[offset + PlanePairBytes]
-    plane3 = resource.graphics[offset + PlanePairBytes + 1]
-  for x in 0 ..< TilePixels:
-    let shift = TilePixels - 1 - x
-    indices[x] = ((plane0 shr shift) and 1) or
-      (((plane1 shr shift) and 1) shl 1) or
-      (((plane2 shr shift) and 1) shl 2) or
-      (((plane3 shr shift) and 1) shl 3)
+  decodePlanarTileRow(resource.graphics, tile, y, indices)
 
 proc compositeTileRow(drawing: ptr RegionDrawing, word: uint16, y: int,
     colors: var array[TilePixels, ColorRGBX]) =

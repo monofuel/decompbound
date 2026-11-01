@@ -223,7 +223,7 @@ proc renderChunk(view: BattleViewport, row: BattleLine, y, start, length: int) =
     shadow.bgScroll[bg * 2] = ((row.scroll[bg * 2].int + offset) and ScrollMask).uint16
     shadow.bgScroll[bg * 2 + 1] = ((row.scroll[bg * 2 + 1].int + virtualY) and ScrollMask).uint16
   shadow.shiftedWindow(row.registers, offset)
-  shadow.renderDetachedScanline(view.lineImage, 0)
+  shadow.renderDetachedSpan(view.lineImage, 0, length)
   copyMem(addr view.output.data[y * view.width + start], addr view.lineImage.data[0],
     length * sizeof(ColorRGBX))
 

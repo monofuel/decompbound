@@ -5,8 +5,9 @@ import
   decompbound/rom_pipeline
 
 const
-  FramesPerCapture = 3
-  MaximumBlockBytes = 1024 * 1024
+  DefaultFramesPerCapture = 3
+  MaximumBlockBytes = 4 * 1024 * 1024
+    ## A maximum-size 1024x1024 viewport contains four MiB of RGBA pixels.
   StateChunk = "ebSt"
   PngSignature = "\x89PNG\r\n\x1a\n"
   ReportPath = "bin/ppu-palette/corpus.tsv"
@@ -51,6 +52,12 @@ proc checkReferee() =
     except ValueError, IOError:
       rejected = true
     doAssert rejected, "The byte-comparison referee accepted a difference"
+  var oversized = false
+  try:
+    discard readBlock(newStringStream($(MaximumBlockBytes + 1) & "\n"))
+  except ValueError:
+    oversized = true
+  doAssert oversized, "The byte-comparison referee accepted an oversized block"
 
 proc closeWorker(worker: Process) =
   ## Close only this harness's process and fail if its worker exited abnormally.
@@ -71,6 +78,9 @@ proc main() =
     return
   if paramCount() < 2:
     raise newException(ValueError, "corpus REFERENCE_WORKER CANDIDATE_WORKER [ROOT ...]")
+  let framesPerCapture = parseInt(getEnv("PPU_CORPUS_FRAMES", $DefaultFramesPerCapture))
+  if framesPerCapture notin 1..3600:
+    raise newException(ValueError, "PPU_CORPUS_FRAMES must be inside 1..3600")
   # Preserve the command name on installations using multicall coreutils.
   let timeout = findExe("timeout", followSymlinks = false)
   if timeout.len == 0: raise newException(IOError, "The corpus needs the timeout utility")
@@ -119,12 +129,12 @@ proc main() =
       continue
     if leftStatus != "OK":
       raise newException(IOError, "Unexpected worker status for " & path)
-    for frame in 0 ..< FramesPerCapture:
+    for frame in 0 ..< framesPerCapture:
       for component in Components:
         compareBlock(reference.outputStream, candidate.outputStream,
           &"{path}, frame {frame}: {component}")
     inc matched
-    report.writeLine(path & "\tMATCH\t" & $FramesPerCapture)
+    report.writeLine(path & "\tMATCH\t" & $framesPerCapture)
     if matched mod 100 == 0:
       report.flushFile()
       echo &"Renderer corpus {index + 1}/{paths.len}: {matched} matched."
@@ -132,7 +142,7 @@ proc main() =
   for worker in [reference, candidate]:
     worker.inputStream.writeLine("")
     worker.inputStream.flush()
-  echo &"Renderer corpus passed: {matched} captures x {FramesPerCapture} frames; " &
+  echo &"Renderer corpus passed: {matched} captures x {framesPerCapture} frames; " &
     &"image-only={imageOnly}, incompatible={incompatible}."
 
 main()
