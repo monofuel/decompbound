@@ -267,7 +267,7 @@ versus ROM placement in a mixed 65816/SPC build, exact-length rejection and the
 whole-ROM gold rebuild. The 11 new receiver/reset/dispatch regions add 528
 independently assembled/byte-compared bytes; the sender’s 183 bytes also remain
 byte-identical after annotation cleanup. Fresh extraction/rebuild matches all
-3,145,728 ROM bytes with 274 regions and no gaps or overlaps. All 43 focused
+3,145,728 ROM bytes with 274 regions and no gaps or overlaps. All 44 focused
 test programs passed on this adopted tree with assertions enabled, including
 42 complete original-sender/resident-receiver transfers and 24 separate
 incoming-bank/direct-page address checks. The 48-byte service pass remains
@@ -574,6 +574,37 @@ original record bytes. `tests/integration_spc_service_dispatch.nim` exercises
 bounded lookup/native/continuation behavior with synthetic records and original
 callees. It does not promote the external record routes or the 48-byte service
 pass to explained.
+
+### Verified startup record inventory
+
+Original startup at `$0500` establishes these exclusive capacities and record
+tables before reaching `$0546`. The inventory agrees for package one alone and
+package one plus song three's packages, in both original and rebuilt ROMs.
+
+| Port | Pointer table | Exclusive capacity | Accepted commands | Distinct pointers within port |
+|---|---|---|---|---|
+| 0 | `$180D` | 0 | 0 | 0 |
+| 1 | `$17D5` | 29 | 28 | 23 |
+| 2 | `$17C5` | 9 | 8 | 3 |
+| 3 | `$16C7` | 128 | 127 | 127 |
+
+The 163 accepted entries refer to **151 distinct record pointers** across ports.
+Port one uses native kind eight for all 28 commands. Port two has one kind-two
+entry and seven native entries. Port three has 13 kind-two, 25 kind-four,
+16 kind-six, two native, 60 kind-ten, eight kind-twelve and three kind-sixteen
+entries. These are raw kind-byte values, not word indices or named effect IDs.
+
+The 37 native references share 25 distinct three-byte headers. Their runtime
+bytes match package-one file placement, and none overlaps reproduced code.
+Only four headers currently have separate identified manifest regions; this
+broader runtime inventory does not promote their contents into source.
+
+`tests/integration_spc_service_inventory.nim` independently walks the record
+tables and executes every accepted original adapter lookup through its real
+indirect jump. Across two ROM images and two package configurations, it checks
+652 handoffs, cached kinds, saved table offsets, caller frames and 148 native
+header references. It stops before record bodies; it establishes neither full
+body lengths/semantics nor a complete inventory across all possible uploads.
 
 ## Verified SPC700 sequence fetch and dispatch
 
