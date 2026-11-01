@@ -1579,8 +1579,8 @@
       "kind": "code",
       "source": "asm/spcRunServicePass.spc.asm",
       "build": "reproduce",
-      "comprehension": "identified",
-      "evidence": "docs/audio.md; integration_spc_timer_service.nim verifies call order and idle-callee fixtures; broader service-callee roles remain open"
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_service_records.nim executes 2424 complete original/rebuilt service passes across all nine supported raw record kinds, retaining produced state, host-port latency, native continuations and real finish/expiry calls; callback bodies own clobbers/return behavior; no absolute cadence claim"
     },
     {
       "name": "spcAdvanceEchoSettle",
@@ -1729,8 +1729,8 @@
       "kind": "code",
       "source": "asm/spcPrepareSequenceSelection.spc.asm",
       "build": "reproduce",
-      "comprehension": "identified",
-      "evidence": "docs/audio.md; integration_spc_sequence_selection.nim; original/rebuilt code and native caller/helper contracts"
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_upload_receiver.nim, integration_spc_reset_helpers.nim and integration_apu_resident_upload.nim execute actual prelude/reset/receiver-to-selector returns and original two-processor transfers"
     },
     {
       "name": "spcSelectSequence",
@@ -1893,14 +1893,14 @@
       "evidence": "docs/audio.md; integration_spc_tempo.nim and integration_spc_volume.nim verify original/rebuilt command, update, arithmetic and consumer behavior"
     },
     {
-      "name": "blob_260472",
+      "name": "spcRunChannelService",
       "offset": 2491506,
       "length": 19,
-      "kind": "blob",
-      "source": "blobs/blob_260472.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/spcRunChannelService.spc.asm",
+      "evidence": "docs/audio.md; integration_spc_channel_service.nim; original/rebuilt dispatch and channel-call behavior"
     },
     {
       "name": "spcDispatchCommand",
@@ -2273,14 +2273,24 @@
       "evidence": "docs/audio.md; integration_spc_pan_transition.nim and integration_spc_arithmetic.nim verify original/rebuilt command, tick, preview and helper arithmetic"
     },
     {
-      "name": "blob_260725",
+      "name": "spcSequenceHandlerTable",
       "offset": 2492197,
-      "length": 93,
-      "kind": "blob",
-      "source": "blobs/blob_260725.bin",
+      "length": 62,
+      "kind": "data",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/spcSequenceHandlerTable.spc.asm",
+      "evidence": "docs/audio.md; integration_spc_sequence_fetch.nim; all31 real handler targets and optional fetches; original/rebuilt dispatch and channel-call behavior"
+    },
+    {
+      "name": "spcSequenceOperandMetadata",
+      "offset": 2492259,
+      "length": 31,
+      "kind": "data",
       "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "comprehension": "identified",
+      "source": "blobs/blob_260763.bin",
+      "evidence": "docs/audio.md; integration_spc_sequence_fetch.nim; descriptor values remain extracted; original/rebuilt dispatch and channel-call behavior"
     },
     {
       "name": "spcTickChannelVolume",
@@ -2435,12 +2445,402 @@
     {
       "name": "blob_2609B5",
       "offset": 2492853,
-      "length": 1942,
+      "length": 110,
       "kind": "blob",
       "source": "blobs/blob_2609B5.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcReceiveUpload",
+      "offset": 2492963,
+      "length": 76,
+      "kind": "code",
+      "source": "asm/spcReceiveUpload.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_upload_receiver.nim and integration_apu_resident_upload.nim; original/rebuilt source and native/port protocol contracts"
+    },
+    {
+      "name": "spcRecordInterpreterReadConfiguration",
+      "offset": 2493039,
+      "length": 30,
+      "kind": "code",
+      "source": "asm/spcRecordInterpreterReadConfiguration.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_interpreter.nim; original/rebuilt native-frame, record-state and hardware-write oracles"
+    },
+    {
+      "name": "spcRecordInterpreterInstall",
+      "offset": 2493069,
+      "length": 68,
+      "kind": "code",
+      "source": "asm/spcRecordInterpreterInstall.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_parser.nim; original/rebuilt control flow and state/metadata boundaries; data contents remain extracted"
+    },
+    {
+      "name": "spcRecordInterpreterSelectTiming",
+      "offset": 2493137,
+      "length": 40,
+      "kind": "code",
+      "source": "asm/spcRecordInterpreterSelectTiming.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_interpreter.nim; original/rebuilt native-frame, record-state and hardware-write oracles"
+    },
+    {
+      "name": "spcRecordInterpreterScanStream",
+      "offset": 2493177,
+      "length": 177,
+      "kind": "code",
+      "source": "asm/spcRecordInterpreterScanStream.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_parser.nim; original/rebuilt control flow and state/metadata boundaries; data contents remain extracted"
+    },
+    {
+      "name": "spcRecordTimingData",
+      "offset": 2493354,
+      "length": 78,
+      "kind": "data",
+      "source": "blobs/blob_260BAA.bin",
+      "build": "copy",
+      "comprehension": "identified",
+      "evidence": "docs/audio.md; integration_spc_record_interpreter.nim; original/rebuilt control flow and state/metadata boundaries; data contents remain extracted"
+    },
+    {
+      "name": "spcRecordInterpreterWritePan",
+      "offset": 2493432,
+      "length": 49,
+      "kind": "code",
+      "source": "asm/spcRecordInterpreterWritePan.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_parser.nim; original/rebuilt control flow and state/metadata boundaries; data contents remain extracted"
+    },
+    {
+      "name": "spcRecordInterpreterWritePitch",
+      "offset": 2493481,
+      "length": 21,
+      "kind": "code",
+      "source": "asm/spcRecordInterpreterWritePitch.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_parser.nim; original/rebuilt control flow and state/metadata boundaries; data contents remain extracted"
+    },
+    {
+      "name": "spcRecordInterpreterSavePosition",
+      "offset": 2493502,
+      "length": 17,
+      "kind": "code",
+      "source": "asm/spcRecordInterpreterSavePosition.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_interpreter.nim; original/rebuilt native-frame, record-state and hardware-write oracles"
+    },
+    {
+      "name": "spcRecordInterpreterWriteRegisters",
+      "offset": 2493519,
+      "length": 69,
+      "kind": "code",
+      "source": "asm/spcRecordInterpreterWriteRegisters.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_interpreter.nim; original/rebuilt native-frame, record-state and hardware-write oracles"
+    },
+    {
+      "name": "spcRecordInterpreterRetarget",
+      "offset": 2493588,
+      "length": 30,
+      "kind": "code",
+      "source": "asm/spcRecordInterpreterRetarget.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_interpreter.nim; original/rebuilt native-frame, record-state and hardware-write oracles"
+    },
+    {
+      "name": "spcRecordInterpreterRetargetRoutes",
+      "offset": 2493618,
+      "length": 12,
+      "kind": "code",
+      "source": "asm/spcRecordInterpreterRetargetRoutes.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_parser.nim; original/rebuilt control flow and state/metadata boundaries; data contents remain extracted"
+    },
+    {
+      "name": "spcHostCommandClassLookup",
+      "offset": 2493630,
+      "length": 8,
+      "kind": "data",
+      "source": "blobs/blob_260CBE.bin",
+      "build": "copy",
+      "comprehension": "identified",
+      "evidence": "docs/audio.md; integration_spc_service_dispatch.nim; original/rebuilt control flow and state/metadata boundaries; data contents remain extracted"
+    },
+    {
+      "name": "spcRecordInterpreterPortZero",
+      "offset": 2493638,
+      "length": 20,
+      "kind": "code",
+      "source": "asm/spcRecordInterpreterPortZero.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_parser.nim; original/rebuilt control flow and state/metadata boundaries; data contents remain extracted"
+    },
+    {
+      "name": "spcDispatchHostService",
+      "offset": 2493658,
+      "length": 195,
+      "kind": "code",
+      "source": "asm/spcDispatchHostService.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_service_dispatch.nim; original/rebuilt source and native/port protocol contracts"
+    },
+    {
+      "name": "spcServiceKindTable",
+      "offset": 2493853,
+      "length": 18,
+      "kind": "data",
+      "source": "asm/spcServiceKindTable.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_service_dispatch.nim; original/rebuilt source and native/port protocol contracts"
+    },
+    {
+      "name": "spcContinueRecordRoute",
+      "offset": 2493871,
+      "length": 3,
+      "kind": "code",
+      "source": "asm/spcContinueRecordRoute.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_routes.nim; original/rebuilt native-frame, record-state and hardware-write oracles"
+    },
+    {
+      "name": "spcBasicRecordRoutes",
+      "offset": 2493874,
+      "length": 24,
+      "kind": "code",
+      "source": "asm/spcBasicRecordRoutes.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_routes.nim; original/rebuilt native-frame, record-state and hardware-write oracles"
+    },
+    {
+      "name": "spcExtendedRecordRoute",
+      "offset": 2493898,
+      "length": 63,
+      "kind": "code",
+      "source": "asm/spcExtendedRecordRoute.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_routes.nim; original/rebuilt native-frame, record-state and hardware-write oracles"
+    },
+    {
+      "name": "spcDispatchNativeService",
+      "offset": 2493961,
+      "length": 83,
+      "kind": "code",
+      "source": "asm/spcDispatchNativeService.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_service_dispatch.nim; original/rebuilt source and native/port protocol contracts"
+    },
+    {
+      "name": "spcContinueHostService",
+      "offset": 2494044,
+      "length": 20,
+      "kind": "code",
+      "source": "asm/spcContinueHostService.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_service_dispatch.nim; original/rebuilt source and native/port protocol contracts"
+    },
+    {
+      "name": "spcServiceContinuationTable",
+      "offset": 2494064,
+      "length": 18,
+      "kind": "data",
+      "source": "asm/spcServiceContinuationTable.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_service_dispatch.nim; original/rebuilt source and native/port protocol contracts"
+    },
+    {
+      "name": "spcJumpServiceContinuation",
+      "offset": 2494082,
+      "length": 8,
+      "kind": "code",
+      "source": "asm/spcJumpServiceContinuation.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_service_dispatch.nim; original/rebuilt source and native/port protocol contracts"
+    },
+    {
+      "name": "spcServiceRecordContinuation",
+      "offset": 2494090,
+      "length": 88,
+      "kind": "code",
+      "source": "asm/spcServiceRecordContinuation.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_continuations.nim; original/rebuilt native-frame, record-state and hardware-write oracles"
+    },
+    {
+      "name": "spcTickRecordContinuation",
+      "offset": 2494178,
+      "length": 122,
+      "kind": "code",
+      "source": "asm/spcTickRecordContinuation.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_continuations.nim; original/rebuilt native-frame, record-state and hardware-write oracles"
+    },
+    {
+      "name": "spcResetAuxiliaryState",
+      "offset": 2494300,
+      "length": 30,
+      "kind": "code",
+      "source": "asm/spcResetAuxiliaryState.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_reset_helpers.nim; original/rebuilt source and native/port protocol contracts"
+    },
+    {
+      "name": "spcClearHostCommandState",
+      "offset": 2494330,
+      "length": 27,
+      "kind": "code",
+      "source": "asm/spcClearHostCommandState.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_reset_helpers.nim; original/rebuilt source and native/port protocol contracts"
+    },
+    {
+      "name": "spcReleaseUpperVoices",
+      "offset": 2494357,
+      "length": 52,
+      "kind": "code",
+      "source": "asm/spcReleaseUpperVoices.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_reset_helpers.nim; original/rebuilt source and native/port protocol contracts"
+    },
+    {
+      "name": "spcReturnServiceRecordHeader",
+      "offset": 2494409,
+      "length": 3,
+      "kind": "data",
+      "source": "blobs/blob_260FC9.bin",
+      "build": "copy",
+      "comprehension": "identified",
+      "evidence": "docs/audio.md; integration_spc_reset_helpers.nim and integration_spc_service_dispatch.nim trace original port-one record six; metadata contents remain user-ROM data"
+    },
+    {
+      "name": "spcReturnServiceRecord",
+      "offset": 2494412,
+      "length": 1,
+      "kind": "code",
+      "source": "asm/spcReturnServiceRecord.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_reset_helpers.nim; original/rebuilt source and native/port protocol contracts"
+    },
+    {
+      "name": "spcFinishRecordState",
+      "offset": 2494413,
+      "length": 84,
+      "kind": "code",
+      "source": "asm/spcFinishRecordState.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_state.nim; original/rebuilt control flow and state/metadata boundaries; data contents remain extracted"
+    },
+    {
+      "name": "spcInitializeRecordState",
+      "offset": 2494497,
+      "length": 120,
+      "kind": "code",
+      "source": "asm/spcInitializeRecordState.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_state.nim; original/rebuilt control flow and state/metadata boundaries; data contents remain extracted"
+    },
+    {
+      "name": "spcApplyRecordState",
+      "offset": 2494617,
+      "length": 129,
+      "kind": "code",
+      "source": "asm/spcApplyRecordState.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_state.nim; original/rebuilt control flow and state/metadata boundaries; data contents remain extracted"
+    },
+    {
+      "name": "spcClearServiceRecordStateHeader",
+      "offset": 2494746,
+      "length": 3,
+      "kind": "data",
+      "source": "blobs/blob_26111A.bin",
+      "build": "copy",
+      "comprehension": "identified",
+      "evidence": "docs/audio.md; integration_spc_record_state.nim; original/rebuilt control flow and state/metadata boundaries; data contents remain extracted"
+    },
+    {
+      "name": "spcClearServiceRecordState",
+      "offset": 2494749,
+      "length": 9,
+      "kind": "code",
+      "source": "asm/spcClearServiceRecordState.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_state.nim; original/rebuilt control flow and state/metadata boundaries; data contents remain extracted"
+    },
+    {
+      "name": "spcArmLongServiceRecordStateHeader",
+      "offset": 2494758,
+      "length": 3,
+      "kind": "data",
+      "source": "blobs/blob_261126.bin",
+      "build": "copy",
+      "comprehension": "identified",
+      "evidence": "docs/audio.md; integration_spc_record_state.nim; original/rebuilt control flow and state/metadata boundaries; data contents remain extracted"
+    },
+    {
+      "name": "spcArmLongServiceRecordState",
+      "offset": 2494761,
+      "length": 12,
+      "kind": "code",
+      "source": "asm/spcArmLongServiceRecordState.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_state.nim; original/rebuilt control flow and state/metadata boundaries; data contents remain extracted"
+    },
+    {
+      "name": "spcArmShortServiceRecordStateHeader",
+      "offset": 2494773,
+      "length": 3,
+      "kind": "data",
+      "source": "blobs/blob_261135.bin",
+      "build": "copy",
+      "comprehension": "identified",
+      "evidence": "docs/audio.md; integration_spc_record_state.nim; original/rebuilt control flow and state/metadata boundaries; data contents remain extracted"
+    },
+    {
+      "name": "spcArmShortServiceRecordState",
+      "offset": 2494776,
+      "length": 19,
+      "kind": "code",
+      "source": "asm/spcArmShortServiceRecordState.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_record_state.nim; original/rebuilt control flow and state/metadata boundaries; data contents remain extracted"
     },
     {
       "name": "spcServiceControl",
@@ -2453,11 +2853,21 @@
       "evidence": "docs/audio.md; integration_spc_service_control.nim; original/rebuilt code and native caller/helper contracts"
     },
     {
-      "name": "blob_2611E7",
+      "name": "spcClearDriverState",
       "offset": 2494951,
-      "length": 5894,
+      "length": 34,
+      "kind": "code",
+      "source": "asm/spcClearDriverState.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_driver_state_init.nim; original/rebuilt control flow and state/metadata boundaries; data contents remain extracted"
+    },
+    {
+      "name": "blob_261209",
+      "offset": 2494985,
+      "length": 5860,
       "kind": "blob",
-      "source": "blobs/blob_2611E7.bin",
+      "source": "blobs/blob_261209.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
@@ -2575,9 +2985,29 @@
     {
       "name": "blob_26298A",
       "offset": 2501002,
-      "length": 644726,
+      "length": 384,
       "kind": "blob",
       "source": "blobs/blob_26298A.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcSetDriverStateDefaults",
+      "offset": 2501386,
+      "length": 21,
+      "kind": "code",
+      "source": "asm/spcSetDriverStateDefaults.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_driver_state_init.nim; original/rebuilt control flow and state/metadata boundaries; data contents remain extracted"
+    },
+    {
+      "name": "blob_262B1F",
+      "offset": 2501407,
+      "length": 644321,
+      "kind": "blob",
+      "source": "blobs/blob_262B1F.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"

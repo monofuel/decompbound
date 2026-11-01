@@ -75,17 +75,36 @@ if length != 0:
     length payload bytes
     repeat
 else:
-    finish; execute at APU $0500
+    send end flag zero and destination $0500; receiver decides return/handoff
 ```
 
 The terminator is **two bytes**, the zero length alone. At `$C0AB62..AB73`,
 the zero branch substitutes `$0500` without consuming a destination word.
 Bytes following that terminator must not be interpreted as an entrypoint.
+The sender-supplied `$0500` is not a universal execute command: the resident
+receiver at `$0EE1` returns through its native caller frame, whereas the IPL
+receiver has a separate jump-to-address handoff.
 For nonempty blocks, destination and payload follow the length. `$C0AB78`
 tests `length >= 1` to form the transfer flag, not `length == 1`.
 The final path forces NMI enabled; it does not restore a saved enable bit.
 These are S-CPU disassembly findings, independently checked against the local
-ROM. They do not yet establish all package boundary/cross-bank corner cases.
+ROM. Entry uses native 16-bit A/X with decimal mode clear. Initial absolute
+stores at `$00C6..00C9` use the incoming DBR **before** DBR/direct-page zero
+setup, so DBR must map those addresses to low WRAM. A valid low-WRAM mirror is
+sufficient; the direct-page register D may be nonzero and is restored along
+with DBR. Arbitrary DBR values are not equivalent to valid low-WRAM mirrors.
+
+`tests/integration_apu_resident_upload.nim` couples the original `$C0AB06`
+sender to the resident SPC reset/receiver/main loop using real APU port pairs.
+Per image, 18 transfers combine six authored block layouts with three instruction
+interleavings; three more use DBR `$7E/$80/$BF` and varied incoming D, alongside
+the ordinary DBR-zero cases. That is
+**42 complete two-processor transfers across both images**, distinct from
+**24 initial absolute-store address contexts** that also inspect invalid banks
+without claiming complete transfers there. Payloads include 255/256/257-byte
+boundaries, multiple blocks and a source crossing `$7EFFFF`; none are game
+assets. Tests establish protocol progress under those interleavings, not physical
+CPU/APU timing or every package/16-bit-index wrap case.
 
 ## Bootstrap provenance
 
@@ -107,8 +126,9 @@ all 191 songs sound correct or that their sequences are fully decoded.
 
 ## Reproduced SPC700 source
 
-The fixed-layout build now assembles 98 annotated `.spc.asm` files with
-our Nim SPC700 assembler. They reproduce **2,611 executable bytes** in package 1.
+The fixed-layout build now assembles 135 annotated `.spc.asm` files with
+our Nim SPC700 assembler. They reproduce **4,481 bytes** in package 1: 132 code
+regions totaling 4,383 bytes and three structural code-pointer tables totaling 98 bytes.
 The upload block header at file `$26003E` declares 16,779 bytes from file
 `$260042` to APU `$0500`; therefore `file = apuAddress + $25FB42` within it.
 Each source's `.org` is its APU execution address, not a ROM padding request.
@@ -120,7 +140,7 @@ Each source's `.org` is its APU execution address, not a ROM padding request.
 | `spcFlushDsp.spc.asm` | `$0543..0578` | `$260085..2600BA` | 54 |
 | `spcPollTimer.spc.asm` | `$0579..058B` | `$2600BB..2600CD` | 19 |
 | `spcCheckServiceReset.spc.asm` | `$058C..0595` | `$2600CE..2600D7` | 10 |
-| `spcRunServicePass.spc.asm` | `$0596..05C5` | `$2600D8..260107` | 48† |
+| `spcRunServicePass.spc.asm` | `$0596..05C5` | `$2600D8..260107` | 48 |
 | `spcAdvanceEchoSettle.spc.asm` | `$05C6..05CC` | `$260108..26010E` | 7 |
 | `spcAdvancePhase.spc.asm` | `$05CD..05D7` | `$26010F..260119` | 11 |
 | `spcRouteSequenceUpdate.spc.asm` | `$05D8..05FB` | `$26011A..26013D` | 36 |
@@ -135,7 +155,7 @@ Each source's `.org` is its APU execution address, not a ROM padding request.
 | `spcWritePitch.spc.asm` | `$0733..0740` | `$260275..260282` | 14 |
 | `spcWriteDsp.spc.asm` | `$0741..074F` | `$260283..260291` | 15 |
 | `spcFetchSequenceWord.spc.asm` | `$0750..075D` | `$260292..26029F` | 14 |
-| `spcPrepareSequenceSelection.spc.asm` | `$075E..0771` | `$2602A0..2602B3` | 20† |
+| `spcPrepareSequenceSelection.spc.asm` | `$075E..0771` | `$2602A0..2602B3` | 20 |
 | `spcSelectSequence.spc.asm` | `$0772..0799` | `$2602B4..2602DB` | 40 |
 | `spcSelectNegativeSequence.spc.asm` | `$079A..07A8` | `$2602DC..2602EA` | 15 |
 | `spcResetSequenceChannels.spc.asm` | `$07A9..07E9` | `$2602EB..26032B` | 65 |
@@ -152,6 +172,7 @@ Each source's `.org` is its APU execution address, not a ROM padding request.
 | `spcTickTempoTransition.spc.asm` | `$08F6..0904` | `$260438..260446` | 15 |
 | `spcTickEchoVolumeTransition.spc.asm` | `$0905..091D` | `$260447..26045F` | 25 |
 | `spcTickMasterVolumeTransition.spc.asm` | `$091E..092F` | `$260460..260471` | 18 |
+| `spcRunChannelService.spc.asm` | `$0930..0942` | `$260472..260484` | 19 |
 | `spcDispatchCommand.spc.asm` | `$0943..0954` | `$260485..260496` | 18 |
 | `spcSequenceFetch.spc.asm` | `$0955..095E` | `$260497..2604A0` | 10 |
 | `spcSelectInstrument.spc.asm` | `$095F..09B7` | `$2604A1..2604F9` | 89 |
@@ -189,6 +210,7 @@ Each source's `.org` is its APU execution address, not a ROM padding request.
 | `spcSetPitchTransitionTarget.spc.asm` | `$0BA4..0BBB` | `$2606E6..2606FD` | 24 |
 | `spcReadChannelPitch.spc.asm` | `$0BBC..0BC6` | `$2606FE..260708` | 11 |
 | `spcDivideStep.spc.asm` | `$0BC7..0BE2` | `$260709..260724` | 28 |
+| `spcSequenceHandlerTable.spc.asm` | `$0BE3..0C20` | `$260725..260762` | 62 |
 | `spcTickChannelVolume.spc.asm` | `$0C40..0C78` | `$260782..2607BA` | 57 |
 | `spcTickPanTransition.spc.asm` | `$0C79..0C8B` | `$2607BB..2607CD` | 19 |
 | `spcWriteStereo.spc.asm` | `$0C8C..0CD2` | `$2607CE..260814` | 71 |
@@ -204,7 +226,41 @@ Each source's `.org` is its APU execution address, not a ROM padding request.
 | `spcPreviewVolumePhase.spc.asm` | `$0E49..0E55` | `$26098B..260997` | 13 |
 | `spcModulateChannelGain.spc.asm` | `$0E56..0E60` | `$260998..2609A2` | 11 |
 | `spcComputeChannelGain.spc.asm` | `$0E61..0E72` | `$2609A3..2609B4` | 18 |
+| `spcReceiveUpload.spc.asm` | `$0EE1..0F2C` | `$260A23..260A6E` | 76 |
+| `spcRecordInterpreterReadConfiguration.spc.asm` | `$0F2D..0F4A` | `$260A6F..260A8C` | 30 |
+| `spcRecordInterpreterInstall.spc.asm` | `$0F4B..0F8E` | `$260A8D..260AD0` | 68 |
+| `spcRecordInterpreterSelectTiming.spc.asm` | `$0F8F..0FB6` | `$260AD1..260AF8` | 40 |
+| `spcRecordInterpreterScanStream.spc.asm` | `$0FB7..1067` | `$260AF9..260BA9` | 177 |
+| `spcRecordInterpreterWritePan.spc.asm` | `$10B6..10E6` | `$260BF8..260C28` | 49 |
+| `spcRecordInterpreterWritePitch.spc.asm` | `$10E7..10FB` | `$260C29..260C3D` | 21 |
+| `spcRecordInterpreterSavePosition.spc.asm` | `$10FC..110C` | `$260C3E..260C4E` | 17 |
+| `spcRecordInterpreterWriteRegisters.spc.asm` | `$110D..1151` | `$260C4F..260C93` | 69 |
+| `spcRecordInterpreterRetarget.spc.asm` | `$1152..116F` | `$260C94..260CB1` | 30 |
+| `spcRecordInterpreterRetargetRoutes.spc.asm` | `$1170..117B` | `$260CB2..260CBD` | 12 |
+| `spcRecordInterpreterPortZero.spc.asm` | `$1184..1197` | `$260CC6..260CD9` | 20 |
+| `spcDispatchHostService.spc.asm` | `$1198..125A` | `$260CDA..260D9C` | 195 |
+| `spcServiceKindTable.spc.asm` | `$125B..126C` | `$260D9D..260DAE` | 18 |
+| `spcContinueRecordRoute.spc.asm` | `$126D..126F` | `$260DAF..260DB1` | 3 |
+| `spcBasicRecordRoutes.spc.asm` | `$1270..1287` | `$260DB2..260DC9` | 24 |
+| `spcExtendedRecordRoute.spc.asm` | `$1288..12C6` | `$260DCA..260E08` | 63 |
+| `spcDispatchNativeService.spc.asm` | `$12C7..1319` | `$260E09..260E5B` | 83 |
+| `spcContinueHostService.spc.asm` | `$131A..132D` | `$260E5C..260E6F` | 20 |
+| `spcServiceContinuationTable.spc.asm` | `$132E..133F` | `$260E70..260E81` | 18 |
+| `spcJumpServiceContinuation.spc.asm` | `$1340..1347` | `$260E82..260E89` | 8 |
+| `spcServiceRecordContinuation.spc.asm` | `$1348..139F` | `$260E8A..260EE1` | 88 |
+| `spcTickRecordContinuation.spc.asm` | `$13A0..1419` | `$260EE2..260F5B` | 122 |
+| `spcResetAuxiliaryState.spc.asm` | `$141A..1437` | `$260F5C..260F79` | 30 |
+| `spcClearHostCommandState.spc.asm` | `$1438..1452` | `$260F7A..260F94` | 27 |
+| `spcReleaseUpperVoices.spc.asm` | `$1453..1486` | `$260F95..260FC8` | 52 |
+| `spcReturnServiceRecord.spc.asm` | `$148A` | `$260FCC` | 1 |
+| `spcFinishRecordState.spc.asm` | `$148B..14DE` | `$260FCD..261020` | 84 |
+| `spcInitializeRecordState.spc.asm` | `$14DF..1556` | `$261021..261098` | 120 |
+| `spcApplyRecordState.spc.asm` | `$1557..15D7` | `$261099..261119` | 129 |
+| `spcClearServiceRecordState.spc.asm` | `$15DB..15E3` | `$26111D..261125` | 9 |
+| `spcArmLongServiceRecordState.spc.asm` | `$15E7..15F2` | `$261129..261134` | 12 |
+| `spcArmShortServiceRecordState.spc.asm` | `$15F6..1608` | `$261138..26114A` | 19 |
 | `spcServiceControl.spc.asm` | `$1609..16A4` | `$26114B..2611E6` | 156 |
+| `spcClearDriverState.spc.asm` | `$16A5..16C6` | `$2611E7..261208` | 34 |
 | `spcTickPitchTempoOverride.spc.asm` | `$2DAB..2DC2` | `$2628ED..262904` | 24 |
 | `spcArmPitchTempoOverride.spc.asm` | `$2DC6..2DD4` | `$262908..262916` | 15 |
 | `spcTickMasterFactorA0.spc.asm` | `$2DD5..2DE9` | `$262917..26292B` | 21 |
@@ -213,12 +269,13 @@ Each source's `.org` is its APU execution address, not a ROM padding request.
 | `spcArmMasterFactorF0.spc.asm` | `$2E0B..2E10` | `$26294D..262952` | 6 |
 | `spcSelectSequenceAfter1C.spc.asm` | `$2E11..2E1C` | `$262953..26295E` | 12 |
 | `spcFilterHostPortThree.spc.asm` | `$2E1D..2E47` | `$26295F..262989` | 43 |
+| `spcSetDriverStateDefaults.spc.asm` | `$2FC8..2FDC` | `$262B0A..262B1E` | 21 |
 
-† The 48-byte service pass and 20-byte selection prelude are reproduced/identified,
-not explained: bounded call order and entry behavior are established, but broader
-callee roles remain open. The other 96 regions are explained, totaling 2,543 bytes;
-the two identified regions total 68 bytes. Byte reproduction and comprehension
-are separate.
+All 135 reproduced source regions are explained within their documented contracts.
+The service pass now has complete record/continuation/finish/expiry chains;
+native callback bodies remain separate from its typed dispatch pipeline. This
+does not establish a complete executable inventory or explain all records.
+Byte reproduction, table structure and executable-code comprehension are distinct claims.
 
 The pitch scale and pitch writer share fall-through tails; the stereo writer
 also exposes scratch-coordinate entry `$0C95`. Their contracts are kept next
@@ -232,13 +289,13 @@ literal synthetic fixtures, plus operand order, origins, labels, signed branch
 limits/wrap, bit packing and rejection of invalid or oversized operands.
 `nim r tests/integration_rom_pipeline.nim` independently checks SPC label origin
 versus ROM placement in a mixed 65816/SPC build, exact-length rejection and the
-whole-ROM gold rebuild. All adopted source bytes match their original file
-positions, including 442 individually checked bytes in the selection/control
-sources. Fresh extraction/rebuild is byte-identical across all 3,145,728 bytes,
-with 258 regions and no gaps or overlaps. All 39 focused programs passed after
-adoption, including the four selection, host-command, service-control and auxiliary
-suites on original and fresh rebuilt images. Neither identified code fragment
-is promoted to explained by those bounded checks.
+whole-ROM gold rebuild. The 37 new receiver/reset/record/dispatch regions add 1,870
+independently assembled/byte-compared bytes; the sender’s 183 bytes also remain
+byte-identical after annotation cleanup. Fresh extraction/rebuild matches all
+3,145,728 ROM bytes with 301 regions and no gaps or overlaps. All 52 focused
+test programs passed with assertions enabled. Checks include
+42 complete original-sender/resident-receiver transfers and 24 separate
+incoming-bank/direct-page address checks and 2,424 complete service passes.
 
 The sequence-fetch, pitch-scale, pan, pan-transition, arithmetic, phase, tempo,
 volume, modulation-command, sequence-control, lifecycle, pitch-offset,
@@ -259,9 +316,10 @@ the next source continues initialization at `$050C..0542` (file
 `$26004E..260084`). It calls `$16A5`, seeds feedback bytes `$18/$19=$55`,
 requests echo delay 1 through `$0B2C`, and sets FLG shadow `$48.5`. The actual
 clear-helper chain clears `$0420..04FF` and `$E800..FEFF`, then seeds
-`$04D1..04D4` with `$1D,$09,$80,$C0`; these external helper instructions are
-not included in the 55-byte startup source, and those fields' game-level roles
-remain open. It writes DSP MVOLL/MVOLR=`$70`
+`$04D1..04D4` with `$1D,$09,$80,$C0`. Its 34-byte `$16A5` entry and 21-byte
+`$2FC8` defaults tail now have separate source. The first three defaults are
+exclusive host-record capacities; `$04D4`'s wider role remains open.
+It writes DSP MVOLL/MVOLR=`$70`
 and DIR=`$6C`, selects CONTROL=`$F0` (timers disabled, all input ports cleared,
 IPL mapped), sets timer-zero target and tempo integer `$53` to `$10`, then
 CONTROL=1 enables only timer zero and unmaps IPL. The nonzero A branches directly
@@ -275,6 +333,17 @@ and I/B preserved. Its real nested calls write native-stack slots down to
 `$01CC`; page one is therefore preserved by the initial clear, not by the
 complete startup chain.
 
+Direct `$16A5` entry with nonzero A fills rather than clears: `$0420..04FF`
+receives A, and the high fill starts at `$E800+A` because Y is initialized from
+A. It ends at `$FEFF`; `$FF00..FFFF` remains untouched. Selected-DP pointer
+`$24/$25` ends at `$FF00`. The defaults tail is DP-independent, but page-one
+pointer scratch aliases the native return frame at entry SP `$22/$23/$24`.
+`tests/integration_spc_driver_state_init.nim` checks 1,564 full-memory fill
+contexts, 3,584 direct-tail flag/frame cases and both real startup chains.
+Its six deliberately unsafe frame cases execute the original RET and inspect
+the predicted changed destination without following it. Production startup
+uses DP zero and its actual `$050C -> $16A5 -> $2FC8 -> $050F` native frame.
+
 At `$0579` (file `$2600BB`) the driver reads timer-0 counter `$00FD`. Zero
 keeps it polling without pushing a count. A nonzero count is pushed at `$057E`.
 The first accumulator is `$43 = (old43 + ((count*32)&255))&255`; only that
@@ -287,12 +356,30 @@ not force service (count 8 has low product zero).
 The 48-byte service pass calls `$1609,$2DAB,$2DF3,$2DD5,$11DC`, samples host
 port 3 through `$0635` and stores its result at `$04B3`, calls `$2E1D,$11BA`,
 samples port 2 into `$04B2`, calls `$1198`, then samples port 1 into `$04B1`.
-It falls through settle updater `$05C6` before phase math. Original-callee
-idle-state checks establish that order and preserve the pending timer frame;
-they do not explain every callee’s broader RAM, port or command effects. The
-newly reproduced adapters and auxiliary counters below explain parts of this
-pass; `$11DC/$11BA/$1198` still have broader unadopted dispatch roles, so its
-48 bytes remain identified.
+It falls through settle updater `$05C6` before phase math. Each port's dispatch
+consumes its previously copied input before that port's stable sampling/echo,
+so new host input is used on the next pass. Software retargets obey the actual
+order: port-three kind 10/12 can queue port two for the same pass; port one
+queues it for the next pass; port two's own initializer/sample consumes or
+replaces its queue. The retargeted table word feeds the real later lookup.
+
+`tests/integration_spc_service_records.nim` checks 216 authored scenarios across
+all nine supported raw kinds, ports 1..3 and four phase variants on both ROMs.
+Its 2,424 complete `$0596 -> $05C6` passes retain produced state through
+216 installs/initializations, 96 parser marker scans, 192 restored-channel
+finishes, 632 native returns/continuations, 24 real countdown expiries and
+80 retarget-fed lookups. Actual APU hooks verify combined host/DSP/CONTROL order
+and channel neighbors/native frames, without rewriting driver state between
+passes. Only host input latches change externally.
+
+Native short-fade scenarios arm the real `$15F6`, preserve its `$148A`
+continuation for 23 passes, then expire through `$1609`. Unlike `$1491`, expiry
+releases the upper voices without restoring saved gain/phase. The master fade
+remains pending because this 48-byte pass does not execute the later global
+volume tick. The tested boundary is `$05C6`; queued key masks are not assumed
+already flushed, and no absolute service cadence is inferred. The source is
+explained as a typed dispatch/continuation pipeline; arbitrary native bodies
+still determine their clobbers, termination and effects.
 
 The separate `$058C..0595` entry compares `$04B1` with `$AA`. Ordinary values
 fall into the same service pass; equality calls the nonreturning IPL transfer
@@ -377,6 +464,56 @@ Routing checks execute 5,128 previews, 1,024 real update/exchange chains, 512
 IPL-handoff entries and two handoffs with actual APU hooks. No timer advancement
 or audio-device output is needed for the real APU configuration/handoff checks.
 
+### Resident receive and reset helpers
+
+The resident receiver `$0EE1..0F2C` is exactly 76 bytes; `$0F2D` begins another
+routine. It announces output-port bytes AA/BB and polls input port zero for CC.
+It then reads input ports 2/3 as destination low/high, port zero as header token,
+and port one as a continuation flag, echoing the token. **There is no receiver
+length word.** Zero flag ends the receive; nonzero starts a data block whose
+first token must be zero.
+
+For each byte, expected counter Y must equal input port zero. The receiver reads
+the payload from input port one, ACKs Y on output port zero **before writing RAM**,
+then writes through `[$14]+Y` and increments Y modulo 256. On counter wrap it
+increments base high byte `$15`; effective destination addresses advance modulo
+65536 even when base low is nonzero. No destination bounds or code/stack/I/O
+protection exists. Authored wrap fixtures avoid overwriting the receiver itself.
+
+A mismatching token starts another header only when **two successive
+`(Y-input0)&255` comparisons both have bit 7 set**. The two sampled tokens need
+not be equal. A nonnegative mismatch, or a negative observation followed by a
+nonnegative one, keeps waiting. This differs from the stable-equal-pair protocol
+used by the ordinary host-port sampling helpers. A host can end a block with a
+forward token gap; the receiver never decodes the sender’s package length.
+
+After a zero-flag header, CONTROL=`$31` enables timer zero, disables timers
+one/two, clears both inbound port pairs and unmaps IPL. RET consumes the existing
+frame; it does not jump through the header destination. A=0, X=`$31`, Y=last
+header token, N=0/Z=0; C remains from the last comparison and H/V/P/I/B survive.
+Timer zero's internal/count bytes reset only if it was disabled; targets and
+cycle accumulators are preserved, with no timer advancement claimed by that write.
+DP `$14/$15` retain the final header address. Bare protocol fixtures verify full
+RAM, byte ACK order, counter/address wrap, empty termination, delayed/unstable
+tokens and finite waits. Real-APU checks compose the existing hooks and verify
+CONTROL effects without advancing timers or mixing audio.
+
+Reset helper `$141A..1437` calls `$1438..1452` to clear `$04B4..04B7` and
+`$04B0..04B3`, then clears `$0491`, override counts `$0438..043A` and
+`$04C8..04CB`. The narrower `$1438` entry preserves those latter counters.
+`$1453..1486` calls individual release entries `$145D/$146B/$1479` for bits
+5/6/7: clear the inhibit bit in `$1A`, set it in `$46/$47/$5E`, and clear
+`$04B5/$04B6/$04B7`. All return A=0/N=0/Z=1, preserve X/Y/C/H/V/P/I/B and
+balance native calls; none writes hardware ports directly. Pending key-off is
+published by the later flush. Entry `$148A` is a separate one-byte RET; its
+preceding three bytes `$1487..1489` remain record-header data.
+
+`tests/integration_spc_upload_receiver.nim` runs complete authored receives and
+the actual `$075E -> $0EE1 -> $076E -> $0772` chain on original/rebuilt images;
+`tests/integration_spc_reset_helpers.nim` checks the real reset call chain and
+CONTROL-expiry interactions. The two-processor test above additionally completes
+the real sender/warm-reset/receiver/main-loop exchange.
+
 ### Stream-free service adapters and auxiliary controls
 
 The 156-byte `$1609..16A4` region contains a countdown entry and multiple
@@ -453,10 +590,269 @@ tempo fallbacks, 30 real arm callers and 30 arm-to-expiry chains over 2,600
 ticks including zero holds. The produced fields pass unchanged to their consumers;
 these are isolated calls, not an absolute timer model or a full dispatch inventory.
 
+### Host-service records and native continuations
+
+`$1198/$11BA/$11DC` adapt ports one/two/three into common lookup `$1207`.
+They mask copied input to seven bits, choose the per-port record table/state
+pointer, and supply voice masks/parameters. Port three additionally copies live
+feedback byte `$19` into three runtime record fields, even if no command is
+accepted. Common entry itself does not mask input. Zero input or input at least
+the exclusive capacity `$04D0+port` goes through `$126D` to continuation `$131A`,
+without pushing a new table offset.
+Accepted input uses byte offset `2*(command-1)&255` to fetch a record pointer,
+pushes that offset, caches the raw byte immediately before the record at
+`$048C+port`, then jumps through `$125B+kind`.
+
+The `$125B..126C` and `$132E..133F` sources are two **structural tables of
+nine code pointers**, 18 bytes each, not executable instructions or game records.
+Raw kind is an unchecked **byte offset**: odd/out-of-range values can select
+unaligned or adjacent pointers. Table reproduction does not explain all targets.
+The complete 90-byte `$126D..12C6` route block now rebuilds from source;
+its kind-specific state transfers are described below.
+
+Native kind eight enters `$12C7` with the saved table offset atop the native
+stack. It reads the preceding continuation word at record P-3/P-2, pops that
+offset into X, stores the continuation in `$0440+2*port` for ports 0..3, and
+jumps into native code through the original per-port table. The record’s RET
+uses the original service caller frame; there is no implicit continuation call.
+Out-of-domain ports use the port-zero table/slot rather than a checked error.
+
+Continuation entry `$131A` tests `$04B4+port` against zero and the same
+exclusive capacity. An accepted state dispatches the cached raw kind through
+`$132E`. Kind eight selects `$1343`, loads X from `$2F=2*port`, and jumps
+through the saved `$0440+X` pointer. `$1340` instead forwards to record progress
+and byte consumption at `$134E`. No pointer or port range check
+is added by these native continuation entries.
+
+The auxiliary three-byte headers described above, plus `$1487..1489`,
+`$15D8..15DA`, `$15E4..15E6` and `$15F3..15F5`, remain
+**21 copied/identified record-header bytes**. Their shape is described without embedding
+original record bytes. `tests/integration_spc_service_dispatch.nim` exercises
+bounded lookup/native/continuation behavior with synthetic records and original
+callees. Record/continuation/finish tests and the complete-pass suite explain
+the adjacent engine paths. Native callback body semantics remain separate.
+
+### Record routes, readers and progress
+
+Accepted routes consume the saved table-offset byte before entering their
+callees; the rejection route has no such byte to pop. Their original two-byte
+caller frame stays live throughout the tail calls.
+
+| Raw kind | Route | Verified transfer |
+|---|---|---|
+| 0/2 | `$1280 -> $14DF` | Copy the seven-byte record into per-port state and initialize its limits/counters. |
+| 4 | `$1270 -> $0F56` | Build the timing/configuration state, retain the record pointer and initialize the slot. |
+| 6 | `$1278 -> $0F4B` | Same installation, followed by slot mode one through `$1394`. |
+| 8 | `$12C7` | Save the preceding native continuation and jump to record code. |
+| 10/12 | `$1176/$1170` | Retarget port two's first table word, then use the kind-four/six route. |
+| 14/16 | `$1288 -> $14EE -> $10FC` | Read two preceding words, initialize control/state, then store a zero continuation position and set its valid byte. |
+
+The extended route reads header P-3/P-2 into `$26/$27` before reading P-5/P-4
+into `$28/$29`; it then reads byte P+5 into X and P+6 into `$2C`. These are
+ordered accesses, not snapshot copies: with P=`$002B`, the first word written
+to `$26/$27` also becomes the second word's source. Pointer-scratch overlaps
+likewise observe previous writes. The original control initializer computes
+`(old48 & $E0) | byte[P+5]`; a zero result clears the effective record pointer's
+low byte before the state copy. Pointer bounds and record contents remain trusted.
+
+The `$0F2D/$0F3C` readers copy seven/three bytes into `$04D8..DE` or
+`$04DA..DC`. They write pointer scratch `$20/$21` before reading, and overlapping
+destinations propagate earlier stores in forward order. Timing selector `$0FA1`
+uses the unchecked byte index `(selector-1)&255` into the resident pair table;
+the second index wraps independently. Selector `$7F` instead queues the voice's
+key-off bit and supplies the fixed pair 4/2. The 78 bytes `$1068..10B5` are data,
+remain locally extracted and are not adopted as instructions.
+
+Retarget helper `$1152` writes the high byte from P-2 to `$17C6` before reading
+the low byte from P-3 into `$17C5`, then requests port-two command one and restores
+P. A header at P=`$17C9` therefore rereads the newly stored high byte as its low
+byte; pointer-scratch overlap also follows the decrement/read ordering.
+Position helper `$10FC` independently indexes its word by `$2F` and valid byte
+by `$2E`; it does not validate that one index is twice the other.
+
+The `$110D/$1124/$1144` adapters unconditionally publish envelope, gain and
+paired-volume writes using raw base `$04D5`, including eight-bit register wrap.
+They bypass `$1A/$1B` inhibition. Instrument adapter `$1130` selects the even
+voice offset at `$04DF`, masks noise state, sets `$47=0` and calls the existing
+instrument interior `$0962`; it does not perform the ordinary operand store.
+
+Progress helper `$13A0` increments `$04B8+slot` modulo 256. First progress one
+uses the mode path: mode one becomes `$81` and initializes; existing `$81` skips
+initialization. On later progress, a `$04BC+slot` match maps `$FF` to `$FE` and
+other values to zero. A `$04C0+slot` match with mode bit zero clear queues key-off;
+if both mask and old queue are zero, the zero OR result falls through to reset
+progress. A zero initialization byte `$0450+slot` becomes one before the original
+`$1557` call. Optional position `$0458/$0459` reaches `$110D`; zero `$04C8+slot`
+queues key-on. Shared entry `$13D8` sets mode `$81` without incrementing progress.
+
+Extended continuation `$134E` consumes a byte only when its modulo-256 period
+counter `$D4+slot` equals `$2C`; it postincrements byte index `$D0+slot`.
+Token zero forwards to restored-channel finish `$1491`. Token `$7F` queues
+key-off and publishes zero volume through the actual `$1144`. Other tokens use
+the actual gain writer `$1124`; a nonzero `$29` additionally reads the control
+stream, replaces `$48` with its low five bits and queues noise bits in `$49`.
+Forwarders `$1348/$134B` preserve the native frame into the progress/finish
+wrapper `$148B` or stream parser `$0FB7`, both now reproduced from source.
+
+`tests/integration_spc_record_routes.nim` checks complete original callees,
+ordinary/special timing selectors, all-PSW local handoffs, wrapped pointers and
+real adapter/lookup/route chains. `tests/integration_spc_record_interpreter.nim`
+checks readers, scratch/destination aliases, timing, position/retarget, ordered
+DSP writes and actual instrument calls. `tests/integration_spc_record_continuations.nim`
+checks 241,664 finite ticks, 71,704 record paths and 2,048 complete initialization
+chains through `$1557`, instrument, stereo and pitch output. Its 2,304 finish
+observations stop at the real `$1491` entry; they do not claim a completed finish.
+The initialization fixtures use authored records/curves, preserve original code,
+and verify registers, flags, neighbor state, native frames and ordered port writes.
+
+### Record stream, state application and finish
+
+Installer `$0F56` builds state `[timing pair,P0,P1,P2,P5,P3]`, retains P for
+the stream, and uses P+5 as the initial marker/configuration byte. A `$C9`
+marker is copied to `$04C8+slot`; cursor-zero scanning begins at P+6. The
+`$0F4B` wrapper additionally sets slot mode one. Direct state initialization
+copies seven bytes forward through live pointers; overlaps observe earlier
+writes, and source limits are captured before the copy. Scratch aliasing is
+unchecked and can redirect subsequent accesses.
+
+Parser `$0FB7` calls progress `$13A0` **once**. Nonzero progress branches to
+the shared RET at `$0FB6`, rather than polling again. Zero progress restores
+state fields and scans the byte cursor `$D0+slot`, reading
+`P + ((cursor+6)&255)` and incrementing the cursor modulo 256:
+
+| Token | Effect |
+|---|---|
+| 0 | Finish through `$1491`. |
+| 1..127 | Select timing, replace the two progress limits and continue scanning. `$7F` also queues key-off. |
+| `$E0` | Read an instrument operand and execute the actual `$1130` interior selector. |
+| `$E1` | Read control/pan and apply it with current gain. |
+| `$ED` | Read gain. Nonzero old control applies it; zero old control clears the marker and returns without advancing the operand cursor. |
+| `$C9` | Store the marker and return. |
+| Other bytes with bit 7 set | Clear the marker and publish raw pitch using that byte plus the saved fraction. |
+
+Operand-cursor wrap is a real fall-through, not a checked error. For example,
+`$E0` at cursor `$FE` wraps its operand advance to zero and falls into pan
+reading with the instrument helper's returned Y=5. A following `$C9` can
+therefore serve as pan control before another `$C9` is consumed as a marker.
+The instrument helper's actual `$47=0` feeds that stereo call. A window of
+only timing prefixes can cycle indefinitely; retained tests observe identical
+native/RAM state after a complete 256-prefix cycle instead of claiming a return.
+
+State application `$1557` uses a low-byte-only pointer increment by two,
+without carrying into the high byte. Its five payload fields are instrument,
+gain, phase/pan, raw pitch high and low. It saves current gain/phase, chooses
+noise state, sets `$47=0`, and executes original instrument, stereo and
+uncompensated pitch output. Persistent pan position remains separate from the
+temporary output; `$0431` can override its scratch position with ten.
+
+Finish `$1491` releases the selected inhibit bit, restores saved gain/phase,
+executes the guarded dirty/stereo and instrument tails, clears the slot's active
+state/marker/cached kind and queues key-off. Combined `$47 & $1A` can still
+suppress output due to other mask bits. Wrapper `$148B` finishes only when
+the actual progress helper returns zero; its nonfinish result is the progress
+value, whereas finish returns the pending key-off mask.
+
+Native entry `$15DB` clears slot-one active state and countdown `$0491`.
+The `$15E7/$15F6` records set mode 2/1 and countdown 112/24, then arm a
+master transition toward 16 using the same duration. Shared `$1600` accepts raw
+duration, including zero-divisor behavior. These global adapters return X from
+`$44`; incoming X need not equal it. Actual port-one commands 2/3 enter with
+table-offset X=2/4 and are tested returning a distinct saved X. Their three
+preceding headers remain locally extracted metadata.
+
+The new parser suite checks 30,464 pan/pitch cases, 16,384 token cases,
+4,120 shared-RET/cursor-wrap cases, 192 complete zero-token finishes, eight
+closed-prefix-cycle observations and 33,284 install/retarget/port-zero cases
+across both ROMs. The state suite adds complete overlap, apply/output, finish,
+native-fade and actual-dispatch X-mismatch cases. Its direct apply fixtures
+use zero multipliers for flow/zero-output checks; the earlier continuation
+suite independently verifies nonzero multiplication through the same original
+`$1557` chain. No sample mixer or audio device is needed.
+
+### Verified startup record inventory
+
+Original startup at `$0500` establishes these exclusive capacities and record
+tables before reaching `$0546`. The inventory agrees for package one alone and
+package one plus song three's packages, in both original and rebuilt ROMs.
+
+| Port | Pointer table | Exclusive capacity | Accepted commands | Distinct pointers within port |
+|---|---|---|---|---|
+| 0 | `$180D` | 0 | 0 | 0 |
+| 1 | `$17D5` | 29 | 28 | 23 |
+| 2 | `$17C5` | 9 | 8 | 3 |
+| 3 | `$16C7` | 128 | 127 | 127 |
+
+The 163 accepted entries refer to **151 distinct record pointers** across ports.
+Port one uses native kind eight for all 28 commands. Port two has one kind-two
+entry and seven native entries. Port three has 13 kind-two, 25 kind-four,
+16 kind-six, two native, 60 kind-ten, eight kind-twelve and three kind-sixteen
+entries. These are raw kind-byte values, not word indices or named effect IDs.
+
+The 37 native references share 25 distinct three-byte headers. Their runtime
+bytes match package-one file placement, and none overlaps reproduced code.
+Only seven headers currently have separate identified manifest regions; this
+broader runtime inventory does not promote their contents into source.
+
+`tests/integration_spc_service_inventory.nim` independently walks the record
+tables and executes every accepted original adapter lookup through its real
+indirect jump. Across two ROM images and two package configurations, it checks
+652 handoffs, cached kinds, saved table offsets, caller frames and 148 native
+header references. Native cases execute the original header consumer through
+its jump to the real record entry, checking the saved continuation and restored
+caller frame. The test stops before record bodies; it establishes neither full
+body lengths/semantics nor a complete inventory across all possible uploads.
+
+### Current native-code inventory boundary
+
+`src/probes/probe_spc_code_inventory.nim` remains an active investigation of
+copied native callbacks. Run it from the repository with
+`nim r -d:debug src/probes/probe_spc_code_inventory.nim`; it reads the user's
+ROM and current manifest/source, writes structural text to stdout and opens no
+audio device. It checks each source byte against the ROM and derives instruction
+starts from our assembler grammar and explicit source directives.
+
+| Nominal root set | Entries checked | Entries at reproduced instruction starts |
+|---|---:|---:|
+| Distinct startup native record bodies | 25 | 7 |
+| Distinct native continuation words (`$148A/$148B`) | 2 | 2 |
+| E0..FE sequence-handler table | 31 | 31 |
+| Even host-kind table offsets | 9 | 9 |
+| Even continuation-table offsets | 9 | 9 |
+
+The 135 registered source units contain 2,065 instruction starts. Among 541
+explicit transfers/return sites/open fall-through edges, 539 target reproduced
+instructions. The other edges are the known IPL handoff `$0622 -> $FFC0` and
+the intentional copied code/data alias `$2E45 -> $2E48`; its BEQ returns to
+owned `$2E25`. A supposed `$15F1 -> $15F3` fall-through into a header is
+impossible along the nominal arm entry: immediate `$70` sets Z=0, its store
+preserves flags and BNE is taken.
+
+The 18 copied native body roots still require investigation, including shared
+helper `$2D37` and callbacks interleaved with record data. The probe executes
+their original straight-line prefixes only to the first transfer; it does not
+assign whole body lengths from plausible decoding. Seven indexed JMP sites,
+87 RET/RETI sites, mutable retarget/upload pointers, unchecked raw kinds and
+out-of-layout sequence commands, capacity-zero port-zero records and arbitrary
+return frames prevent a full-driver code-closure claim. Startup and startup
+plus song-three packages agree on the nominal roots; that is not an inventory
+of all upload configurations or callback semantics.
+
 ## Verified SPC700 sequence fetch and dispatch
 
 Package 1 maps its large payload to APU `$0500`, so addresses in that block
 map back to ROM as `file = apuAddress + $25FB42`.
+
+The 31 native E0..FE handler words at `$0BE3..0C20` now rebuild as a structural
+code-pointer table. The adjacent 31 optional-operand descriptors at `$0C21..0C3F`
+remain copied/identified data. Neither span is channel-step instructions.
+The original dispatcher uses raw wrapped indexing, so `$FF` reads descriptor
+bytes as its target word; no domain check is added. The retained fetch suite
+executes all 31 valid entries plus `$FF` on original/rebuilt images, stopping
+at handler entry before unsafe targets. A separate original-code sweep checked
+524,288 raw command/voice/PSW contexts, both direct pages and pointer wrap,
+witnessing reads of all 62 pointer bytes and all 31 descriptor bytes. The
+documented raw indexing law and retained test's dispatcher fixture reproduce
+that method; those raw handoffs do not establish valid handler semantics.
 
 | APU address | ROM file offset | Verified role |
 |---|---|---|
@@ -1128,6 +1524,20 @@ zero-tempo no-carry case. Volume tests below cover the matching master fields.
 
 ## Channel volume, modulation and stereo gain
 
+The 19-byte `$0930..0942` output pass starts X=0 and one-hot `$47=1`, visits
+all eight even offsets, and calls `$0C40` only when the cursor's **high byte**
+`$31+X` is nonzero. A nonzero low byte alone is inactive. This pass does not
+refresh `$44` or independently check global activity `$04`/inhibit `$1B`.
+Actual callbacks advance volume/pan, recompute gain and produce guarded stereo
+output in ascending voice order. It returns X=16, `$47=0`, C=1, N=0/Z=1.
+
+`tests/integration_spc_channel_service.nim` verifies 16,384 direct contexts,
+96 actual `$05D8 -> $07F9` caller contexts and 53,520 original `$0C40`
+callbacks across both images. Authored nonlinear curves, intentionally wrong
+direct-entry `$44`, full neighbor/native-frame guards and ordered DSP writes
+distinguish high-byte gating, truncation, carry/wrap and the absence of a final
+target snap. These are output-pass checks, not an absolute clock model.
+
 ED's current word is `$0300/$0301+X`. Tick entry `$0C40..0C78` decrements an
 active `$90+X` duration and calls `$0CD3` with base `$0300`, resolving the older
 unknown use of that shared helper. Under a normal nonzero mask it adds the step
@@ -1393,16 +1803,16 @@ The zero-word path at `$07EA..07F3` writes APU output port `$F4=0`, then supplie
 A=0 to `$0772`. This clears selection/activity and loads table entry zero while
 preserving byte `$08`. It queues key-off and returns through the caller's native
 frame. The separate `$075E..0771` prelude writes hardware KOFF=`$FF` directly,
-calls `$141A/$1453/$0EE1`, then would clear `$08` and fall into the zero
-selector if those helpers return. Its 20 bytes remain identified: the bounded
-original-code fixture reaches `$0EE1`, which writes output ports AA/BB and waits
-for host CC. Constant-zero host input does not complete that receive protocol;
-no upload completion or blanket helper contract is claimed.
+calls `$141A/$1453/$0EE1`; successful receive returns, clears `$08` and falls
+into the zero selector. The reset helpers and receiver above explain this prelude. Original
+synthetic transfers complete `$0EE1` and return at `$076E`, then execute the
+real zero selector. Constant-zero input still remains waiting for host CC;
+completion requires the protocol, not a forced receiver return.
 
 Normal update entry `$07F9` loads old history `$08` into Y, reads sampled
 port-zero input `$00` into A, and copies it to `$08`. Shared classifier entry
 `$07FF` skips all three operations. Specials precede change detection: `$F0`
-uses cleanup tail `$0787`, `$FF` uses the identified reset prelude, and `$F1`
+uses cleanup tail `$0787`, `$FF` uses the receive/reset prelude, and `$F1`
 continues the active selection. Other inputs compare **Y against RAM `$00`**;
 a mismatch selects A through `$07E7`. A matched input or `$F1` returns if
 `$04=0`; otherwise `$0C=0` starts the channel pass, `$0C=1` decrements to zero
@@ -1452,7 +1862,7 @@ cleanup. Per image it covers **65,536 inhibit/pending-mask pairs**, **24,576
 selectors**, **12,288 direct FE cases**, **288 direct FD cases**, **1,536 mode
 dispatches** and **2,816 reset-to-KOFF-flush contexts**, alongside block/first-token
 cases. The tests use authored pointer tables and records, preserve neighbors and
-native stack frames, and stop before the unclaimed `$079A/$0543` continuations.
+native stack frames, and stop before `$079A/$0543` continuations covered separately.
 
 ## Buffered DSP publication and echo controls
 
@@ -1632,10 +2042,13 @@ at file `$1FEC46`, targeting `$4800`, is an existing sequence-table candidate.
 The dispatcher, prefix/event parser, private lookahead, active/pending pitch,
 E0–FE handler entries, stereo, tempo, volume and echo paths have bounded executed
 checks. This does not assign valid semantics to unchecked out-of-layout FF dispatch.
-Next questions include the remaining service-callee roles, position/envelope
-writers, alternate reset-entry reachability and global overrides. Derive
-operand widths and DSP effects from those consumers; preserve source offsets
-and package-to-APU mappings.
+Next questions include copied native callback bodies interleaved with record
+data, complete record/resource reachability across uploads, timing units and
+absolute cadence, and the alternate reset-entry reachability. The local record
+parser, position/envelope writers and finish/expiry paths now have source and
+executed contracts; this does not complete the native-record or whole-library
+inventory. Preserve source offsets and package-to-APU mappings, and distinguish
+structural execution from runs missing instrument/sample resources.
 
 All ROM payloads, extracted sequences, BRR samples, WAVs, and APU snapshots remain
 local and untracked. Commit our format descriptions, tools, annotated code, and

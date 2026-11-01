@@ -422,9 +422,12 @@ manifest's ROM file offset. `.org` sets label addresses and emits no padding.
 The source suffix selects architecture before the general `.asm` fallback;
 the manifest schema and exact region-length gate are unchanged.
 
-The 98 SPC regions reproduce 2,611 executable bytes from package 1;
-2,543 are explained and two fragments totaling 68 bytes remain only identified.
-Three identified record headers remain copied data; no metadata contents are
+The 135 SPC source regions reproduce 4,481 bytes from package 1: 132 code
+regions (4,383 bytes) and three structural code-pointer tables (98 bytes).
+All reproduced regions are explained within their documented contracts; this
+does not establish a complete executable inventory or explain every native record.
+Seven record headers plus timing/classification/operand data remain identified
+and copied (138 bytes). No metadata contents are
 committed as assembly merely because their bytes could decode as instructions.
 [audio.md](audio.md#reproduced-spc700-source) records their mappings and behavior
 gates. Song sequences, instrument records and the stereo curve remain local
