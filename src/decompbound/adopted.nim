@@ -1,9 +1,9 @@
-## Hand-curated ROM regions assembled from committed ca65 `.asm` under `asm/`.
+## Hand-curated ROM regions assembled from committed 65816/SPC700 source under `asm/`.
 ## Phase-2 M5: evidence-bearing source is assembly text, not the Nim snesAsm DSL.
 
 import
-  std/[os, strformat],
-  ./[asm_parse, assembler, common, opcodes]
+  std/[os, strformat, strutils],
+  ./[asm_parse, assembler, common, opcodes, spc_asm]
 
 const
   AsmRoot* = "asm"
@@ -13,6 +13,7 @@ type
     name: string
     offset: int
     isData: bool
+    isSpc: bool
 
 const
   AdoptedSpecs: seq[AdoptedSpec] = @[
@@ -132,6 +133,12 @@ const
     AdoptedSpec(name: "clearServiceSuppression", offset: 0x03E4CA),
     AdoptedSpec(name: "setServiceSuppression", offset: 0x03E4D4),
     AdoptedSpec(name: "loadSong", offset: 0x04FBBD),
+    AdoptedSpec(name: "spcPitchScale", offset: 0x260250, isSpc: true),
+    AdoptedSpec(name: "spcWritePitch", offset: 0x260275, isSpc: true),
+    AdoptedSpec(name: "spcWriteDsp", offset: 0x260283, isSpc: true),
+    AdoptedSpec(name: "spcSequenceFetch", offset: 0x260497, isSpc: true),
+    AdoptedSpec(name: "spcSetPan", offset: 0x2604FA, isSpc: true),
+    AdoptedSpec(name: "spcWriteStereo", offset: 0x2607CE, isSpc: true),
   ]
 
   ## Public offsets retained for tests/tools (was snes_src consts).
@@ -141,14 +148,20 @@ const
 
 proc asmPath*(name: string): string =
   ## Path to a committed adopted assembly file.
-  AsmRoot / (name & ".asm")
+  var suffix = ".asm"
+  for spec in AdoptedSpecs:
+    if spec.name == name and spec.isSpc:
+      suffix = ".spc.asm"
+      break
+  result = AsmRoot / (name & suffix)
 
 proc assembleAdoptedFile*(name: string, offset: int): seq[uint8] =
-  ## Parse and assemble one adopted `.asm` at its ROM file origin.
+  ## Assemble a region using its architecture's CPU origin convention.
   let path = asmPath(name)
   if not fileExists(path):
     raise newException(IOError, &"missing adopted asm: {path}")
-  result = assembleAsm(readFile(path), offset.uint32, NativeFlags16)
+  result = if path.endsWith(".spc.asm"): assembleSpcAsm(readFile(path))
+    else: assembleAsm(readFile(path), offset.uint32, NativeFlags16)
 
 proc allAdoptedRegions*(): seq[tuple[name: string, offset: int, data: seq[uint8]]] =
   ## Every hand-curated region, assembled from `asm/*.asm`.

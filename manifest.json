@@ -1515,9 +1515,109 @@
     {
       "name": "blob_04FD18",
       "offset": 326936,
-      "length": 2818792,
+      "length": 2164024,
       "kind": "blob",
       "source": "blobs/blob_04FD18.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcPitchScale",
+      "offset": 2490960,
+      "length": 37,
+      "kind": "code",
+      "source": "asm/spcPitchScale.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; test_spc_asm.nim and integration_spc_sequence_fetch, integration_spc_pitch_scale, integration_spc_pan verify original/rebuilt driver and exact DSP writes"
+    },
+    {
+      "name": "spcWritePitch",
+      "offset": 2490997,
+      "length": 14,
+      "kind": "code",
+      "source": "asm/spcWritePitch.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; test_spc_asm.nim and integration_spc_sequence_fetch, integration_spc_pitch_scale, integration_spc_pan verify original/rebuilt driver and exact DSP writes"
+    },
+    {
+      "name": "spcWriteDsp",
+      "offset": 2491011,
+      "length": 15,
+      "kind": "code",
+      "source": "asm/spcWriteDsp.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; test_spc_asm.nim and integration_spc_sequence_fetch, integration_spc_pitch_scale, integration_spc_pan verify original/rebuilt driver and exact DSP writes"
+    },
+    {
+      "name": "blob_260292",
+      "offset": 2491026,
+      "length": 517,
+      "kind": "blob",
+      "source": "blobs/blob_260292.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcSequenceFetch",
+      "offset": 2491543,
+      "length": 10,
+      "kind": "code",
+      "source": "asm/spcSequenceFetch.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; test_spc_asm.nim and integration_spc_sequence_fetch, integration_spc_pitch_scale, integration_spc_pan verify original/rebuilt driver and exact DSP writes"
+    },
+    {
+      "name": "blob_2604A1",
+      "offset": 2491553,
+      "length": 89,
+      "kind": "blob",
+      "source": "blobs/blob_2604A1.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcSetPan",
+      "offset": 2491642,
+      "length": 30,
+      "kind": "code",
+      "source": "asm/spcSetPan.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; test_spc_asm.nim and integration_spc_sequence_fetch, integration_spc_pitch_scale, integration_spc_pan verify original/rebuilt driver and exact DSP writes"
+    },
+    {
+      "name": "blob_260518",
+      "offset": 2491672,
+      "length": 694,
+      "kind": "blob",
+      "source": "blobs/blob_260518.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcWriteStereo",
+      "offset": 2492366,
+      "length": 71,
+      "kind": "code",
+      "source": "asm/spcWriteStereo.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; test_spc_asm.nim and integration_spc_sequence_fetch, integration_spc_pitch_scale, integration_spc_pan verify original/rebuilt driver and exact DSP writes"
+    },
+    {
+      "name": "blob_260815",
+      "offset": 2492437,
+      "length": 653291,
+      "kind": "blob",
+      "source": "blobs/blob_260815.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"

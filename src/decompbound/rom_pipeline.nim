@@ -3,7 +3,7 @@
 
 import
   std/[os, strformat, strutils],
-  ./[asm_parse, common, manifest, opcodes]
+  ./[asm_parse, common, manifest, opcodes, spc_asm]
 
 const
   GoldBaseromPath* = "bin/Earthbound (U) [!].smc"
@@ -130,7 +130,9 @@ proc rebuildRom*(
       let path = r.source
       if not fileExists(path):
         raise newException(IOError, &"missing reproduce source: {path}")
-      if path.endsWith(".asm"):
+      if path.endsWith(".spc.asm"):
+        data = assembleSpcAsm(readFile(path))
+      elif path.endsWith(".asm"):
         data = assembleAsm(readFile(path), r.offset.uint32, NativeFlags16)
       else:
         let raw = readFile(path)

@@ -1,5 +1,7 @@
 import
-  decompbound/[rom_pipeline, spc700]
+  std/strformat,
+  decompbound/spc700,
+  ./engine/rebuilt_rom
 
 const
   DriverPayload = 0x260042
@@ -10,7 +12,7 @@ const
   BoundaryWords = [0, 1, 127, 128, 255, 256, 257, 32767, 32768, 65280, 65534, 65535]
 
 proc checkScale(spc: var Spc, voice, pitch, factor: int, blocked: bool) =
-  ## Compare original driver multiplication and pitch-port writes with fixed-point arithmetic.
+  ## Compare driver multiplication and pitch-port writes with fixed-point arithmetic.
   let
     channel = voice * 2
     expected = ((pitch.uint32 * factor.uint32) shr 8) and 65535
@@ -47,9 +49,8 @@ proc checkScale(spc: var Spc, voice, pitch, factor: int, blocked: bool) =
       (0xF3'u16, (expected shr 8).uint8)]
   spc.writeHook = nil
 
-proc main() =
-  ## Exercise pitch scaling against the user's original uploaded driver.
-  let rom = readGoldBaserom()
+proc checkImage(rom: seq[uint8]): tuple[boundaries, exhaustive: int] =
+  ## Exercise every existing pitch-scale case against one uploaded driver image.
   var spc = newSpc()
   doAssert rom[DriverPayload - 4].int + (rom[DriverPayload - 3].int shl 8) == DriverLength
   doAssert rom[DriverPayload - 2].int + (rom[DriverPayload - 1].int shl 8) == DriverTarget
@@ -60,9 +61,23 @@ proc main() =
       for factor in BoundaryWords:
         for blocked in [false, true]:
           spc.checkScale(voice, pitch, factor, blocked)
+          inc result.boundaries
   for pitch in 0 .. 65535:
     for factor in [0, 1, 255, 256, 257, 32768, 65535]:
       spc.checkScale(0, pitch, factor, false)
+      inc result.exhaustive
+
+proc main() =
+  ## Execute the full pitch-scale matrix on original and freshly rebuilt ROMs.
+  var total = 0
+  for index, rom in engineImages("bin/integration-spc-pitch-scale"):
+    let
+      counts = checkImage(rom)
+      name = if index == 0: "original" else: "rebuilt"
+      cases = counts.boundaries + counts.exhaustive
+    total += cases
+    echo &"{name}: {cases} cases (boundaries {counts.boundaries}, exhaustive {counts.exhaustive})"
+  echo &"SPC pitch scale: {total} executed cases across both images"
 
 when isMainModule:
   main()

@@ -100,6 +100,43 @@ was byte-identical before and after removal, and the song-start probe for songs
 the intentional song-3 case without package 1 still halted. This does not prove
 all 191 songs sound correct or that their sequences are fully decoded.
 
+## Reproduced SPC700 source
+
+The fixed-layout build now assembles six annotated `.spc.asm` files with our
+Nim SPC700 assembler. They reproduce **177 executable bytes** in package 1.
+The upload block header at file `$26003E` declares 16,779 bytes from file
+`$260042` to APU `$0500`; therefore `file = apuAddress + $25FB42` within it.
+Each source's `.org` is its APU execution address, not a ROM padding request.
+
+| Source | APU range | File range | Bytes |
+|---|---|---|---:|
+| `spcPitchScale.spc.asm` | `$070E..0732` | `$260250..260274` | 37 |
+| `spcWritePitch.spc.asm` | `$0733..0740` | `$260275..260282` | 14 |
+| `spcWriteDsp.spc.asm` | `$0741..074F` | `$260283..260291` | 15 |
+| `spcSequenceFetch.spc.asm` | `$0955..095E` | `$260497..2604A0` | 10 |
+| `spcSetPan.spc.asm` | `$09B8..09D5` | `$2604FA..260517` | 30 |
+| `spcWriteStereo.spc.asm` | `$0C8C..0CD2` | `$2607CE..260814` | 71 |
+
+The pitch scale and pitch writer share fall-through tails; the stereo writer
+also exposes scratch-coordinate entry `$0C95`. Their contracts are kept next
+to those entries. The existing E2 transition code is behaviorally verified
+below, but remains copied pending its own source adoption.
+
+`nim r tests/test_spc_asm.nim` checks all 256 opcode encodings against independent
+literal synthetic fixtures, plus operand order, origins, labels, signed branch
+limits/wrap, bit packing and rejection of invalid or oversized operands.
+`nim r tests/integration_rom_pipeline.nim` independently checks SPC label origin
+versus ROM placement in a mixed 65816/SPC build, exact-length rejection and the
+whole-ROM gold rebuild. Source adoption compared every one of the 177 bytes
+at the file offsets above; the completed carving probe was retired afterward.
+
+The sequence-fetch, pitch-scale, pan and pan-transition integration tests execute
+both original and freshly rebuilt driver images, checking mathematical results,
+state effects and ordered DSP-port writes. No audio output is needed for those
+gates. Remaining code, curves, instruments, songs and effects still enter the
+build through the user's local extraction; reproducing these routines does not
+claim full driver understanding, musical correctness or complete audio timing.
+
 ## Verified SPC700 sequence fetch and dispatch
 
 Package 1 maps its large payload to APU `$0500`, so addresses in that block
@@ -134,8 +171,8 @@ otherwise A/Y are zero and the cursor stays put. Individual handlers may read
 more operands. Testing dispatch does not establish total command widths or
 that every byte in `$E0..FF` denotes a valid command.
 
-`nim r tests/integration_spc_sequence_fetch.nim` loads the original driver code
-from the user's ROM and executes it with synthetic streams: 40,960 advancing
+`nim r tests/integration_spc_sequence_fetch.nim` loads original and freshly rebuilt
+driver code and executes each image with synthetic streams: 40,960 advancing
 fetch cases (all byte values, eight channel offsets, both direct pages, carry,
 and pointer boundaries), plus 2,560 dispatch cases stopping at handler entry.
 The latter check target addresses, optional fetches, register results, and stack
@@ -185,13 +222,13 @@ the sample-number register. Otherwise `$0999` clears the `$47` bits in `$49`
 and preserves `$48`. The later consumers of these global fields still need
 tracing before assigning them stronger semantic names.
 
-The integration test executes 24,576 E0 cases through original dispatch and
+The integration test executes 24,576 E0 cases per image through dispatch and
 handler code: every operand, eight voices, three remapping bases, both guard
 outcomes, and both high-bit record branches. Synthetic records exercise the
 exact ordered eight port writes, final channel fields, index wraparound,
 cursor advancement and stack balance. The complete test file now runs 84,480
-cases. This proves the handler contract, not correctness of all uploaded
-instrument data or audible playback.
+cases per image, **168,960** across original and rebuilt. This proves the handler
+contract, not correctness of all uploaded instrument data or audible playback.
 
 ### Instrument pitch multiplier
 
@@ -209,12 +246,13 @@ nonzero, while the arithmetic still completes. Our DSP pitch consumer uses
 only the low 14 bits of these registers. Thus full 16-bit port output and the
 pitch subsequently consumed by the DSP are distinct values.
 
-`nim r tests/integration_spc_pitch_scale.nim` executes original instructions
-from `$070E` with synthetic pitch/multiplier words and a normal direct-page-zero
-contract. It verifies all 65,536 pitches against seven multipliers, plus twelve
+`nim r tests/integration_spc_pitch_scale.nim` executes original and rebuilt
+instructions from `$070E` with synthetic pitch/multiplier words and a normal
+direct-page-zero contract. It verifies all 65,536 pitches against seven multipliers, plus twelve
 boundary values for both words across eight voices and both write-guard states:
-461,056 cases, checking the product, ordered port writes, X preservation, and
-stack balance. It does not verify the preceding pitch-table interpolation.
+461,056 cases per image (**922,112** total), checking the product, ordered port
+writes, X preservation, and stack balance. It does not verify the preceding
+pitch-table interpolation.
 The two-second song-3 probe independently checks 655 observed multiplications
 against the same mathematical formula during driver playback.
 
@@ -238,12 +276,12 @@ no DSP-register writes and fetches no additional operands. The downstream
 consumer below establishes stereo positioning and phase controls. The reason
 for the global override remains open.
 
-The sequence-fetch integration test adds 16,384 full E1 executions through
+The sequence-fetch integration test adds 16,384 full E1 executions per image through
 dispatch: eight channel offsets, all 256 operands, four override values
 (`0`, `1`, `128`, `255`), and two cursor boundaries. It checks return-stack
 balance, one-byte cursor advancement, scratch preservation, all three fields,
 and unchanged neighboring channel fields. Together with the fetch/dispatch
-sweeps, these sweeps execute 59,904 cases before the E0 checks.
+sweeps, these sweeps execute 59,904 cases per image before the E0 checks.
 
 ### E1 consumer: stereo position and phase
 
@@ -296,9 +334,9 @@ retired after preserving its offsets and formula here.
 Positions 21–31 accepted by E1's five-bit mask are **unchecked**, not clamped;
 the formula above is not claimed for them. The override's gameplay purpose,
 other position writers/readers at `$09EE`, `$0DDF/$0DE3`, `$157F`, and complete
-volume-envelope/mixing behavior remain open. This is a verified SPC mechanism,
-not an additional formally reproduced manifest region: SPC source assembly
-support is still separate work.
+volume-envelope/mixing behavior remain open. E1 and its stereo consumer now
+have formally reproduced source in the inventory above; that adoption does not
+extend the verified position bounds or explain the remaining consumers.
 
 ### E2: persistent pan transitions and sub-tick preview
 
