@@ -303,9 +303,186 @@ or elevated projection, then the native draw loop `$C0DB0F`, default callback
 `$C0A3A4`, effect timers, priority edits, indirect queue retention, publication
 and the bounded OAM/scroll interrupt fragments. Bodies and effects use authored
 synthetic definitions; all emitted sprite bytes have independent expectations.
-The draw loop and interrupt fragments are dependencies executed by this check,
-not newly adopted routines or a claim about full interrupt timing. The existing
-eight real-resource/frame-table lifecycle scenarios remain separate coverage.
+The draw loop is now adopted with its own ordering checks, described in
+[graphics.md](graphics.md#choosing-and-ordering-entity-draws). The interrupt
+fragments remain bounded dependencies rather than a claim about full interrupt
+timing. The existing eight real-resource/frame-table lifecycle scenarios remain
+separate coverage.
+
+### Script operands that set and add movement steps
+
+Six handlers convert signed 8.8 script operands into the 16.16 step pairs used
+by the motion callbacks above. Each consumes one little-endian word from
+`[$80],Y` and advances the 16-bit cursor by two:
+
+| Axis | Set entry / low opcode aliases | Add entry / low opcode |
+|---|---|---|
+| X | `$C09713..9730`, `$3F/$49` | `$C0976D..9791`, `$2E` |
+| Y | `$C09731..974E`, `$40/$4A` | `$C09792..97B6`, `$2F` |
+| Elevation | `$C0974F..976C`, `$41/$4B` | `$C097B7..97DB`, `$30` |
+
+Packed opcodes `$C0..CF`, `$D0..DF` and `$E0..EF` select the same three set
+handlers. Their low nibble supplies the fetch loop's inline wait. A nonzero
+inline wait stops dispatch after the operand; its first decrement occurs in
+that same tick. With a zero inline wait, dispatch continues to the next opcode.
+The `$49..4B` low aliases do not acquire a packed inline wait.
+
+For operand `s` interpreted as signed 16-bit, the complete replacement step is
+`s * 256` modulo `2^32`. The low operand byte becomes fraction bits 8..15; the
+high operand byte is sign-extended into the integer word. Add handlers add that
+same value to the existing complete step, carrying from fraction to integer.
+AND, conditional ORA and XBA leave carry intact between those additions.
+
+All six require native M16/X16, a WRAM DBR and DP `$88` containing the doubled
+entity offset. They reload X and save the operand in DP word `$90`; Y returns
+advanced and A/X/flags are scratch. D/DBR/stack and unrelated entity fields are
+preserved. Add handlers require decimal clear. Set handlers perform no ADC/SBC.
+Long-indexed operand reads can cross a bank while the returned Y wraps at 16
+bits; the stream base itself is not rewritten by these handlers.
+
+The six annotated handlers total **201 bytes**. `nim r
+tests/integration_action_script_motion.nim` checks **795,072 direct calls** on
+original and rebuilt ROMs: all 65,536 operands on each handler, plus signed,
+carry, overflow and cursor-boundary cases across all 30 entities. **570 further
+cases** execute every valid low/packed alias through the original fetch loop,
+then apply the real XYZ callback and verify waits and resulting coordinates.
+Synthetic streams supply the operands; game script bodies are not fixtures.
+
+### Script control flow and state ownership
+
+The VM keeps its stream base in DP `$80..82`, operand cursor in Y, current
+state offset in `$8A` and state value in `$1516+stateOffset`. The return stack
+is separate from the 65816 CPU stack: DP `$84` points to
+`$15A2 + stateOffset*8`, a 16-byte work area per state ID. Word `$12E6` is a
+byte index into that area. These are trusted pointers and indexes, not checked
+containers.
+
+| Opcode / entry | Verified operation |
+|---|---|
+| `$19` / `$C09649` | Replace Y with the operand word; keep stream bank. |
+| `$03` / `$C0964D` | Replace Y and the bank at DP `$82`; the M16 bank read also copies the following stream byte into `$83`. |
+| `$1A` / `$C09658` | Push operand cursor+2, advance stack index by two, jump near. No bank is pushed. |
+| `$1B` / `$C0966F` | Pop a near cursor when the index is nonzero; otherwise detach the state. |
+| `$0A/$0B` / `$C0995D/$C0996B` | Take a word target when the full state value is zero/nonzero; otherwise skip its two bytes. |
+| `$10/$11` / `$C09979/$C0999E` | Indexed near jump/call: count byte followed by word targets; compare unsigned full state value with count. |
+| `$42/$4C` / `$C0993D` | Call a three-byte native target through `$C09D9E`, passing and replacing the state value in A. |
+| `$0C` / `$C099C3` | Detach/recycle the state; remove the entity if no attached states remain. |
+| `$00` / `$C095F2` | Remove the entity, then force state wait and saved-next `$0A58` to `$FFFF`. |
+
+For a switch, let T be the cursor immediately after count. An index below
+count selects the word at `T+2*index`; otherwise execution skips to
+`T+2*count`. The call variant pushes **exactly** that end cursor only on an
+in-range selection. Its ASL of the masked count necessarily clears carry
+before ADC, so there is no extra byte despite the absence of CLC at that
+instruction. All cursor/index sums wrap at 16 bits. Calls allow eight words
+within the work area but have no overflow, alignment or underflow checks.
+
+Native aliases also include packed `$70..7F` and `$F0..FF`, with the ordinary
+inline-wait rule. The handler reads the bank as a word, staging the following
+stream byte at `$0A5D`; bank-zero `JML [$0A5A]` consumes only `$0A5A..5C`.
+The RTL target may return A and clobber X/Y, but must preserve the live VM
+context, including D/DBR, M16/X16 and scratch `$8A/$94`. A far GOTO inside a
+subroutine does not make RETURN restore its old bank. Its `$83` overread also
+survives the fetch loop's word-sized save into `$148A+stateOffset`.
+
+The adopted `$C09D12..9D5F` helper unlinks a reachable state from an entity's
+chain, repairs `$0A58` when it equals that state, then prepends the state to
+free head `$0A54`. Entries `$9D1F` and `$9D3E` provide unlink-only and
+predecessor-search operations. The search requires an acyclic chain containing
+the state, reserves a scratch word at caller DP−2, and has no missing-node
+guard. The unlink-only entry does not recycle the node.
+
+Detach sets the freed state's wait to `$FFFF`. If other states remain, it
+restores the cursor supplied at entry. Empty RETURN enters that shared tail
+with Y=0, overwriting its earlier saved cursor, so this path resumes at zero.
+If no state remains, it tail-calls entity removal and returns Y equal to the
+detached state's offset. The enclosing fetch loop stores that Y and decrements
+the wait to `$FFFE` even though the state is now free. The scheduler's saved-next
+repair is what permits traversal to continue through surviving states.
+
+Nine reproduced regions total **318 bytes**, including shared entries and
+the native trampoline. `nim r tests/integration_action_script_control.nim`
+checks **100,074 cases** across original/rebuilt ROMs: cursor/bank wrapping,
+near/far calls, all count-byte boundaries and unsigned switch indexes, stack
+guard regions, every native alias and inline wait, one to eight nested calls,
+all predecessor/unlink positions, detach head/middle/tail cases, empty RETURN,
+last-state removal and complete scheduler traversal of 70-node chains. Its
+out-of-area push case demonstrates an unchecked write, not a supported deeper
+stack. Fixtures contain only authored synthetic scripts and buffers.
+
+### Counted loops and banked call records
+
+`$C09603..9648` implements counted loops, not additional script states.
+Opcode `$01` reads a word but consumes one count byte; `$24` obtains the count
+from the low byte of the state work value without consuming an operand. Both
+push a body-cursor word and count byte through the existing DP `$84` software
+stack, advancing `$12E6` by three. The M16 count store also writes one byte
+past that record: the next stream byte for `$01`, or the work value's high byte
+for `$24`.
+
+Opcode `$02` decrements only the count byte, modulo 256. A nonzero result
+returns to the stored body cursor; zero pops three bytes and continues after
+the end-loop opcode. REP restores M16 without changing the byte DEC's Z flag
+used by the branch. An initial zero count therefore executes **256 iterations**.
+These records save no bank and have no type, alignment or capacity check.
+
+`$C09685..96C2` implements far GOSUB `$04` and far RETURN `$05`. A far call
+pushes return-cursor word plus bank byte, also advancing by three. Its word bank
+store spills the old DP `$83` beyond the record. Reading the target bank likewise
+copies the following stream byte into DP `$83`. Far RETURN restores a word
+starting at the saved bank byte: its high byte comes from the **current**
+adjacent stack byte, which a nested push may have overwritten. Unlike near
+RETURN, it restores the low bank byte. Empty far RETURN enters detach with Y=0
+and shares the previously documented surviving/last-state behavior.
+
+The two annotated regions total **132 bytes**. `nim r
+tests/integration_action_script_records.nim` checks **111,558 original/rebuilt
+cases**, including every count byte, count-store spill values, cursor wrapping,
+all tested record positions, modified adjacent bank bytes, real zero-count
+loops, one to five nested calls across alternating banks, and empty returns
+through both direct and full-fetch paths. The interpreter's native callback
+increments a synthetic counter to verify actual loop iterations. Out-of-area
+record writes are observed as unchecked behavior, not valid extra capacity.
+
+### Addressed operations and entity-template fields
+
+The operation family supports AND, OR, binary addition and XOR (selectors
+0..3). `$C09ABD..9AC4` is the four-word code-pointer table; handlers occupy
+`$C09AC5..9AE1`. Addition explicitly clears carry. Dispatch first doubles an
+eight-bit selector, so logical operations receive C=0 as well. Results wrap
+at the selected operand width; invalid selectors are unchecked.
+
+| Opcode | Operands | Operation width / target |
+|---|---|---|
+| `$18` / `$C09A5C` | Address word, selector byte, value byte. | Byte at the addressed WRAM location. |
+| `$0D` / `$C09A9F` | Address word, selector byte, value word. | Addressed WRAM word. |
+| `$14` / `$C09A87` | Field byte, selector byte, value word. | Entity-template field word. |
+| `$27` / `$C09A97` | Selector byte, value word. | Current state's `$1516` word. |
+| `$0E` / `$C09AE2` | Field byte, value word. | Direct **assignment** to an entity-template word. |
+
+The eight field entries at `$C09AF9..9B08` are WRAM byte addresses
+`$0E5E/$0E9A/$0ED6/$0F12/$0F4E/$0F8A/$0FC6/$1002`. Consumers add the doubled
+entity ID directly; these are the constructor arrays copied from template words
+`$0A38..0A46`. Their broader meanings are still open, and field indexes are not
+validated. `$0E` does not read a field into the state value.
+
+Byte operations read their value as M16, retaining the following stream byte
+in DP `$91`, then use M8 for the actual operation and return M16 with a
+zero-extended result. They stage target bank zero and near-JSR the JML
+trampoline. The operation and wrapper RTS instructions retain **PBR zero**;
+return code must exist in that ROM mirror. Word operations instead tail-JMP
+through a bank-zero indirect pointer and retain their current PBR. This proves
+two conventions for the shared trampoline: JSL/JML/RTL for native calls and
+JSR/JML/RTS for byte operations. All paths require native indices, binary
+arithmetic and a DBR mapping the relevant low-WRAM staging fields.
+
+Six regions (**173 bytes**, including two structural tables totaling 24 bytes)
+are reproduced. `nim r tests/integration_action_script_operations.nim` checks
+**574,288 original/rebuilt cases**: all byte value/operand pairs and operations,
+word boundary values, every template field/slot, state-value targets, neighbor
+guards, incoming carry, operand overreads, and complete interpreter/WAIT paths
+in both `$00` and `$80` mirrors. The byte path's transition to PBR zero is
+explicitly checked. Source and tests preserve the original unchecked interfaces.
 
 ### A verified script-driven removal sequence
 
