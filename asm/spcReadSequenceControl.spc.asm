@@ -6,7 +6,8 @@
 ; decrement counter modulo 256, reset it to control byte if bit 7 is set,
 ; then jump through that word iff counter is nonzero. No implicit hardware RET.
 ; Clobbers A/Y/C/N/Z and may set X=$42; preserves SP and P/I/B/H/V.
-; TODO: Resolve $1B's later meaning and broader stream lifecycle. See docs/audio.md.
+; TODO: Resolve the full meaning of mode $1B and alternate selection at $079A.
+; See docs/audio.md for the verified selection/block lifecycle.
     .org $081A
 spcReadSequenceControl:
     CALL $0750             ; spcFetchSequenceWord: N/Z reflect returned high byte.

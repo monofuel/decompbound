@@ -1555,12 +1555,22 @@
     {
       "name": "blob_26011A",
       "offset": 2490650,
-      "length": 172,
+      "length": 124,
       "kind": "blob",
       "source": "blobs/blob_26011A.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcPrepareChannelEvent",
+      "offset": 2490774,
+      "length": 48,
+      "kind": "code",
+      "source": "asm/spcPrepareChannelEvent.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_lifecycle.nim and integration_spc_pitch_offsets.nim verify original/rebuilt selection, blocks, modes, queued key-off and accepted-event pitch state"
     },
     {
       "name": "spcResetEventState",
@@ -1625,9 +1635,49 @@
     {
       "name": "blob_2602A0",
       "offset": 2491040,
-      "length": 188,
+      "length": 20,
       "kind": "blob",
       "source": "blobs/blob_2602A0.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcSelectSequence",
+      "offset": 2491060,
+      "length": 40,
+      "kind": "code",
+      "source": "asm/spcSelectSequence.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_lifecycle.nim and integration_spc_pitch_offsets.nim verify original/rebuilt selection, blocks, modes, queued key-off and accepted-event pitch state"
+    },
+    {
+      "name": "blob_2602DC",
+      "offset": 2491100,
+      "length": 80,
+      "kind": "blob",
+      "source": "blobs/blob_2602DC.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcStopSequence",
+      "offset": 2491180,
+      "length": 10,
+      "kind": "code",
+      "source": "asm/spcStopSequence.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_lifecycle.nim and integration_spc_pitch_offsets.nim verify original/rebuilt selection, blocks, modes, queued key-off and accepted-event pitch state"
+    },
+    {
+      "name": "blob_260336",
+      "offset": 2491190,
+      "length": 38,
+      "kind": "blob",
+      "source": "blobs/blob_260336.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
@@ -1643,14 +1693,24 @@
       "evidence": "docs/audio.md; integration_spc_modulation_commands.nim and integration_spc_sequence_control.nim verify original/rebuilt setters, event resets, call slots and global stream controls"
     },
     {
-      "name": "blob_260383",
+      "name": "spcLoadSequenceBlock",
       "offset": 2491267,
-      "length": 65,
-      "kind": "blob",
-      "source": "blobs/blob_260383.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "length": 48,
+      "kind": "code",
+      "source": "asm/spcLoadSequenceBlock.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_lifecycle.nim and integration_spc_pitch_offsets.nim verify original/rebuilt selection, blocks, modes, queued key-off and accepted-event pitch state"
+    },
+    {
+      "name": "spcBeginChannelPass",
+      "offset": 2491315,
+      "length": 17,
+      "kind": "code",
+      "source": "asm/spcBeginChannelPass.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_lifecycle.nim and integration_spc_pitch_offsets.nim verify original/rebuilt selection, blocks, modes, queued key-off and accepted-event pitch state"
     },
     {
       "name": "spcFetchSequenceEvent",
@@ -1665,12 +1725,22 @@
     {
       "name": "blob_2603E0",
       "offset": 2491360,
-      "length": 88,
+      "length": 82,
       "kind": "blob",
       "source": "blobs/blob_2603E0.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcNextSequenceChannel",
+      "offset": 2491442,
+      "length": 6,
+      "kind": "code",
+      "source": "asm/spcNextSequenceChannel.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_lifecycle.nim and integration_spc_pitch_offsets.nim verify original/rebuilt selection, blocks, modes, queued key-off and accepted-event pitch state"
     },
     {
       "name": "spcTickTempoTransition",
@@ -1813,14 +1883,24 @@
       "evidence": "docs/audio.md; integration_spc_tempo.nim and integration_spc_volume.nim verify original/rebuilt command, update, arithmetic and consumer behavior"
     },
     {
-      "name": "blob_260594",
+      "name": "spcSetGlobalPitchOffset",
       "offset": 2491796,
-      "length": 7,
-      "kind": "blob",
-      "source": "blobs/blob_260594.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "length": 3,
+      "kind": "code",
+      "source": "asm/spcSetGlobalPitchOffset.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_lifecycle.nim and integration_spc_pitch_offsets.nim verify original/rebuilt selection, blocks, modes, queued key-off and accepted-event pitch state"
+    },
+    {
+      "name": "spcSetChannelPitchOffset",
+      "offset": 2491799,
+      "length": 4,
+      "kind": "code",
+      "source": "asm/spcSetChannelPitchOffset.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_lifecycle.nim and integration_spc_pitch_offsets.nim verify original/rebuilt selection, blocks, modes, queued key-off and accepted-event pitch state"
     },
     {
       "name": "spcConfigureVolumeModulation",
@@ -1895,9 +1975,39 @@
     {
       "name": "blob_260611",
       "offset": 2491921,
-      "length": 248,
+      "length": 175,
       "kind": "blob",
       "source": "blobs/blob_260611.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcIncrementSequenceMode",
+      "offset": 2492096,
+      "length": 1,
+      "kind": "code",
+      "source": "asm/spcIncrementSequenceMode.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_lifecycle.nim and integration_spc_pitch_offsets.nim verify original/rebuilt selection, blocks, modes, queued key-off and accepted-event pitch state"
+    },
+    {
+      "name": "spcSetSequenceProcessingMode",
+      "offset": 2492097,
+      "length": 5,
+      "kind": "code",
+      "source": "asm/spcSetSequenceProcessingMode.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_lifecycle.nim and integration_spc_pitch_offsets.nim verify original/rebuilt selection, blocks, modes, queued key-off and accepted-event pitch state"
+    },
+    {
+      "name": "blob_2606C6",
+      "offset": 2492102,
+      "length": 67,
+      "kind": "blob",
+      "source": "blobs/blob_2606C6.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"

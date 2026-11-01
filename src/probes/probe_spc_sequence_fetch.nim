@@ -10,7 +10,7 @@ type ReadSite = object
   count, first, last: int
 
 proc main() =
-  ## Trace unknown event consumers and verify known pitch/phase paths without payload dumps.
+  ## Trace driver reads and verify bounded pitch, gain, call and phase contracts.
   let
     rom = readGoldBaserom()
     machine = newApu()
@@ -39,6 +39,8 @@ proc main() =
     gainChannel, expectedGain, gainChecks = 0
     callPending = false
     callChannel, callTarget, callCount, callReturn, callStack, callChecks = 0
+    eventPending = false
+    eventChannel, eventInteger, eventFraction, eventMode, eventChecks = 0
   for sample in 0 ..< SampleRate * 2:
     let start = machine.spc.cycles
     while machine.spc.cycles - start < CyclesPerSample:
@@ -53,6 +55,20 @@ proc main() =
         phaseSum = machine.spc.ram[0x51].int + (product and 255)
         phaseHigh = product shr 8
         phasePending = true
+      if pc == 0x0667:
+        eventChannel = machine.spc.x.int
+        eventInteger = ((machine.spc.y.int and 127) + machine.spc.ram[0x50].int +
+          machine.spc.ram[0x2F0 + eventChannel].int) and 255
+        eventFraction = machine.spc.ram[0x381 + eventChannel].int
+        eventMode = (machine.spc.ram[0x2B1 + eventChannel].int and 1) * 128
+        eventPending = true
+      if eventPending and pc == 0x0684:
+        doAssert machine.spc.x.int == eventChannel
+        doAssert machine.spc.ram[0x361 + eventChannel].int == eventInteger
+        doAssert machine.spc.ram[0x360 + eventChannel].int == eventFraction
+        doAssert machine.spc.ram[0x2A0 + eventChannel].int == eventMode
+        eventPending = false
+        inc eventChecks
       if phasePending and pc in [0x05D8, 0x05E0]:
         doAssert pc == (if phaseSum > 255: 0x05D8 else: 0x05E0)
         doAssert machine.spc.ram[0x51].int == (phaseSum and 255)
@@ -153,6 +169,8 @@ proc main() =
   echo "verified staged channel gains: ", gainChecks
   doAssert callChecks > 0
   echo "verified sequence call frames: ", callChecks
+  doAssert eventChecks > 0
+  echo "verified accepted-event pitch states: ", eventChecks
 
 when isMainModule:
   main()
