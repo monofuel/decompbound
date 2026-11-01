@@ -4,7 +4,7 @@
 semantics and full control-code widths still open. See the hub,
 `docs/decompilation.md`. This is the one that lets us **read the game**.
 
-EarthBound's "scripts" are two intertwined layers, both stored as data the game
+EarthBound's dialogue/event scripts have two intertwined layers, stored as data the game
 interprets at runtime:
 
 1. **Dialogue text** — the words, in EB's own (non-ASCII) character encoding,
@@ -16,6 +16,11 @@ interprets at runtime:
 
 "I'd love to see the scripts" = extracting both layers into a readable dump —
 the dialogue as text, the events as a legible instruction listing.
+
+Entity action scripts and SPC700 music sequences are separate bytecode systems
+with their own interpreters and cursor state. The action VM is covered below;
+[audio sequence calls and control words](audio.md#sequence-calls-and-global-control-words)
+have their own opcode/entry inventory and original-driver checks.
 
 ## Why this is the heart of it
 
@@ -48,8 +53,9 @@ Two dynamic hooks (`docs/decompilation.md`) crack this fast:
 
 Per the hub: **`encode(decode(bytes)) == bytes`**. Decode a script block to a
 readable text/event listing, re-assemble it, and get the original bytes back.
-This proves we've mapped every control code and operand width, not just the
-common ones — the same honesty the 65816 assembler gave the code.
+This proves byte-preserving parsing for the covered inputs. Complete opcode
+coverage still needs an inventory, and semantic claims need execution checks;
+an opaque payload can round-trip without being understood.
 
 ## Components
 
@@ -67,8 +73,8 @@ common ones — the same honesty the 65816 assembler gave the code.
 Two grok digs, both spot-verified:
 
 **Text encoding — DONE.** Printable characters are `byte - 0x30` (ASCII + 0x30).
-Confirmed by decoding two independent blocks to clean English (file `0x63040` →
-"INPUT YOUR COMMAND.", `0x45B67` → "PSI info.Unconscious"). Line break = `0x00`.
+Checked by decoding independent local blocks at file `0x63040` and `0x45B67`.
+The dialogue content remains in the user's extraction. Line break = `0x00`.
 
 **Text control-code VMs — primary + secondary (dig 2026-07-24).** There is a
 **primary** dispatch and a set of **secondary** sub-op VMs; `$C179AA` is not the

@@ -413,6 +413,21 @@ and "make a better version" never fight.
    - v1 seeds may use a single full-ROM `blob`/`copy`/`unknown` entry; finer
      cuts land as comprehension grows without breaking the gate
 
+## Uploaded SPC700 source in the fixed-layout build
+
+Reproduced sources ending in `.spc.asm` use our Nim SPC700 assembler
+(`src/decompbound/spc_asm.nim`); other `.asm` files use the existing 65816 front
+end. Each SPC source declares its APU origin with `.org`, independently of the
+manifest's ROM file offset. `.org` sets label addresses and emits no padding.
+The source suffix selects architecture before the general `.asm` fallback;
+the manifest schema and exact region-length gate are unchanged.
+
+The first thirty-four SPC regions reproduce 836 executable bytes from package 1;
+[audio.md](audio.md#reproduced-spc700-source) records their mappings and behavior
+gates. Song sequences, instrument records and the stereo curve remain local
+extracted data. Syntax and readability rules are in
+[assembly-style.md](assembly-style.md#spc700-source).
+
 ## Open decisions
 
 1. **Data and documentation model** — typed tables, pointer tables, struct/record

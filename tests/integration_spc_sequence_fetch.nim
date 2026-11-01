@@ -1,5 +1,7 @@
 import
-  decompbound/[rom_pipeline, spc700]
+  std/strformat,
+  decompbound/spc700,
+  ./engine/rebuilt_rom
 
 const
   DriverPayload = 0x260042
@@ -157,9 +159,8 @@ proc checkCommandE0(spc: var Spc, voice, operand, base: int, blocked, noise: boo
     doAssert spc.ram[0x49].int == (if noise: 0xA5 or mask else: 0xA5 and (255 xor mask))
   spc.writeHook = nil
 
-proc main() =
-  ## Sweep stream bytes, voice offsets, both direct pages, carry, and pointer boundaries.
-  let rom = readGoldBaserom()
+proc checkImage(rom: seq[uint8]): tuple[fetch, dispatch, commandE1, commandE0: int] =
+  ## Sweep every existing behavioral case against one uploaded driver image.
   var spc = newSpc()
   doAssert rom[DriverPayload - 4].int + (rom[DriverPayload - 3].int shl 8) == DriverLength
   doAssert rom[DriverPayload - 2].int + (rom[DriverPayload - 1].int shl 8) == DriverTarget
@@ -171,16 +172,19 @@ proc main() =
         for target in StreamTargets:
           for value in 0 .. 255:
             spc.checkFetch(voice, page, carry, target, value)
+            inc result.fetch
   for voice in 0 ..< 8:
     for command in 0xE0 .. 0xFF:
       for target in [0x48FF, 0xFFFF]:
         for operand in [0, 1, 127, 128, 255]:
           spc.checkDispatch(rom, voice, command, target, operand)
+          inc result.dispatch
   for voice in 0 ..< 8:
     for operand in 0 .. 255:
       for overrideFlag in [0, 1, 128, 255]:
         for target in [0x48FF, 0xFFFF]:
           spc.checkCommandE1(voice, operand, overrideFlag, target)
+          inc result.commandE1
 
   for voice in 0 ..< 8:
     for operand in 0 .. 255:
@@ -188,6 +192,19 @@ proc main() =
         for blocked in [false, true]:
           for noise in [false, true]:
             spc.checkCommandE0(voice, operand, base, blocked, noise)
+            inc result.commandE0
+
+proc main() =
+  ## Execute the full sequence-fetch matrix on original and freshly rebuilt ROMs.
+  var total = 0
+  for index, rom in engineImages("bin/integration-spc-sequence-fetch"):
+    let
+      counts = checkImage(rom)
+      name = if index == 0: "original" else: "rebuilt"
+      cases = counts.fetch + counts.dispatch + counts.commandE1 + counts.commandE0
+    total += cases
+    echo &"{name}: {cases} cases (fetch {counts.fetch}, dispatch {counts.dispatch}, E1 {counts.commandE1}, E0 {counts.commandE0})"
+  echo &"SPC sequence fetch: {total} executed cases across both images"
 
 when isMainModule:
   main()

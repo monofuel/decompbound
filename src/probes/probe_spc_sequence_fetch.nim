@@ -1,44 +1,22 @@
 import
   std/[tables, strutils, algorithm],
-  ../decompbound/[apu, dsp, rom_pipeline, spc700]
+  ../decompbound/[apu, dsp, music_player, rom_pipeline, spc700]
 
 const
   SongId = 3
-  SongTable = 0x4F70A
-  PackTable = 0x4F947
   SampleRate = 32000
 
 type ReadSite = object
   count, first, last: int
 
-proc loadPack(apu: Apu, rom: seq[uint8], index: int) =
-  ## Populate local APU RAM from the user's package blocks, stopping at zero length.
-  let entry = PackTable + index * 3
-  var offset = ((rom[entry].int and 63) shl 16) or rom[entry + 1].int or (rom[entry + 2].int shl 8)
-  while true:
-    doAssert offset + 2 <= rom.len
-    let size = rom[offset].int or (rom[offset + 1].int shl 8)
-    offset += 2
-    if size == 0:
-      break
-    doAssert offset + 2 + size <= rom.len
-    let destination = rom[offset].int or (rom[offset + 1].int shl 8)
-    offset += 2
-    doAssert destination + size <= 65536
-    for index in 0 ..< size:
-      apu.spc.ram[destination + index] = rom[offset + index]
-    offset += size
-
 proc main() =
-  ## Locate indirect read sites during real driver execution without exporting payload bytes.
+  ## Trace unknown event consumers and verify known pitch/phase paths without payload dumps.
   let
     rom = readGoldBaserom()
     machine = newApu()
-  machine.loadPack(rom, 1)
-  for slot in 0 .. 2:
-    let pack = rom[SongTable + (SongId - 1) * 3 + slot].int
-    if pack != 255:
-      machine.loadPack(rom, pack)
+  applyPackageBlocks(machine.spc.ram[], rom, packFileOffset(rom, 1))
+  for pack in songPackIndices(rom, SongId):
+    applyPackageBlocks(machine.spc.ram[], rom, packFileOffset(rom, pack))
   machine.spc.pc = 0x500
   machine.spc.sp = 0xEF
   for sample in 0 ..< SampleRate div 5:
@@ -55,6 +33,12 @@ proc main() =
     scaledPitch: uint32
     pitchPending = false
     pitchChecks = 0
+    phasePending = false
+    phaseSum, phaseHigh, phaseChecks = 0
+    gainPending = false
+    gainChannel, expectedGain, gainChecks = 0
+    callPending = false
+    callChannel, callTarget, callCount, callReturn, callStack, callChecks = 0
   for sample in 0 ..< SampleRate * 2:
     let start = machine.spc.cycles
     while machine.spc.cycles - start < CyclesPerSample:
@@ -62,6 +46,34 @@ proc main() =
       let
         pc = machine.spc.pc.int
         opcode = machine.spc.ram[pc]
+      if pc == 0x05CD:
+        let
+          timerCount = machine.spc.ram[0x100 + ((machine.spc.sp.int + 1) and 255)].int
+          product = timerCount * machine.spc.ram[0x53].int
+        phaseSum = machine.spc.ram[0x51].int + (product and 255)
+        phaseHigh = product shr 8
+        phasePending = true
+      if phasePending and pc in [0x05D8, 0x05E0]:
+        doAssert pc == (if phaseSum > 255: 0x05D8 else: 0x05E0)
+        doAssert machine.spc.ram[0x51].int == (phaseSum and 255)
+        doAssert machine.spc.a.int == (phaseSum and 255) and machine.spc.y.int == phaseHigh
+        phasePending = false
+        inc phaseChecks
+      if pc == 0x0E61:
+        gainChannel = machine.spc.x.int
+        let
+          first = machine.spc.a.int * machine.spc.ram[0x59].int div 256
+          second = first * machine.spc.ram[0x210 + gainChannel].int div 256
+          third = second * machine.spc.ram[0x301 + gainChannel].int div 256
+        expectedGain = third * third div 256
+        gainPending = true
+      if pc == 0x0E72:
+        doAssert gainPending
+        doAssert machine.spc.x.int == gainChannel
+        doAssert machine.spc.a.int == expectedGain and machine.spc.y.int == expectedGain
+        doAssert machine.spc.ram[0x321 + gainChannel].int == expectedGain
+        gainPending = false
+        inc gainChecks
       if pc == 0x070E:
         let
           channel = machine.spc.x.int
@@ -79,6 +91,25 @@ proc main() =
         let command = machine.spc.a.int
         commands[command] = commands.getOrDefault(command) + 1
         voices.incl machine.spc.x
+      if pc == 0x0AAC:
+        callChannel = machine.spc.x.int
+        let pointer = machine.spc.ram[0x30 + callChannel].int or
+          (machine.spc.ram[0x31 + callChannel].int shl 8)
+        callTarget = machine.spc.a.int or (machine.spc.ram[pointer].int shl 8)
+        callCount = machine.spc.ram[(pointer + 1) and 65535].int
+        callReturn = (pointer + 2) and 65535
+        callStack = machine.spc.sp.int
+        callPending = true
+      if callPending and pc == 0x0ACE:
+        doAssert machine.spc.x.int == callChannel and machine.spc.sp.int == callStack
+        doAssert machine.spc.ram[0x80 + callChannel].int == callCount
+        for address in [0x30, 0x240]:
+          doAssert (machine.spc.ram[address + callChannel].int or
+            (machine.spc.ram[address + callChannel + 1].int shl 8)) == callTarget
+        doAssert (machine.spc.ram[0x230 + callChannel].int or
+          (machine.spc.ram[0x231 + callChannel].int shl 8)) == callReturn
+        callPending = false
+        inc callChecks
       if opcode in [0xF7'u8, 0xE7'u8]:
         let
           dp = (if (machine.spc.psw and PswP) == 0: 0 else: 256)
@@ -116,6 +147,12 @@ proc main() =
   echo "dispatch X offsets: ", voices
   doAssert pitchChecks > 0
   echo "verified pitch multiplications: ", pitchChecks
+  doAssert phaseChecks > 0
+  echo "verified timer/tempo phase routes: ", phaseChecks
+  doAssert gainChecks > 0
+  echo "verified staged channel gains: ", gainChecks
+  doAssert callChecks > 0
+  echo "verified sequence call frames: ", callChecks
 
 when isMainModule:
   main()

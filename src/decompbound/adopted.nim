@@ -1,9 +1,9 @@
-## Hand-curated ROM regions assembled from committed ca65 `.asm` under `asm/`.
+## Hand-curated ROM regions assembled from committed 65816/SPC700 source under `asm/`.
 ## Phase-2 M5: evidence-bearing source is assembly text, not the Nim snesAsm DSL.
 
 import
-  std/[os, strformat],
-  ./[asm_parse, assembler, common, opcodes]
+  std/[os, strformat, strutils],
+  ./[asm_parse, assembler, common, opcodes, spc_asm]
 
 const
   AsmRoot* = "asm"
@@ -13,6 +13,7 @@ type
     name: string
     offset: int
     isData: bool
+    isSpc: bool
 
 const
   AdoptedSpecs: seq[AdoptedSpec] = @[
@@ -132,6 +133,40 @@ const
     AdoptedSpec(name: "clearServiceSuppression", offset: 0x03E4CA),
     AdoptedSpec(name: "setServiceSuppression", offset: 0x03E4D4),
     AdoptedSpec(name: "loadSong", offset: 0x04FBBD),
+    AdoptedSpec(name: "spcInitializeDriverRam", offset: 0x260042, isSpc: true),
+    AdoptedSpec(name: "spcAdvancePhase", offset: 0x26010F, isSpc: true),
+    AdoptedSpec(name: "spcResetEventState", offset: 0x2601C6, isSpc: true),
+    AdoptedSpec(name: "spcPitchScale", offset: 0x260250, isSpc: true),
+    AdoptedSpec(name: "spcWritePitch", offset: 0x260275, isSpc: true),
+    AdoptedSpec(name: "spcWriteDsp", offset: 0x260283, isSpc: true),
+    AdoptedSpec(name: "spcFetchSequenceWord", offset: 0x260292, isSpc: true),
+    AdoptedSpec(name: "spcReadSequenceControl", offset: 0x26035C, isSpc: true),
+    AdoptedSpec(name: "spcFetchSequenceEvent", offset: 0x2603C4, isSpc: true),
+    AdoptedSpec(name: "spcTickTempoTransition", offset: 0x260438, isSpc: true),
+    AdoptedSpec(name: "spcTickMasterVolumeTransition", offset: 0x260460, isSpc: true),
+    AdoptedSpec(name: "spcDispatchCommand", offset: 0x260485, isSpc: true),
+    AdoptedSpec(name: "spcSequenceFetch", offset: 0x260497, isSpc: true),
+    AdoptedSpec(name: "spcSelectInstrument", offset: 0x2604A1, isSpc: true),
+    AdoptedSpec(name: "spcSetPan", offset: 0x2604FA, isSpc: true),
+    AdoptedSpec(name: "spcSetPanTransition", offset: 0x260518, isSpc: true),
+    AdoptedSpec(name: "spcSetMasterVolume", offset: 0x260566, isSpc: true),
+    AdoptedSpec(name: "spcSetMasterVolumeTransition", offset: 0x26056B, isSpc: true),
+    AdoptedSpec(name: "spcSetTempo", offset: 0x26057D, isSpc: true),
+    AdoptedSpec(name: "spcSetTempoTransition", offset: 0x260582, isSpc: true),
+    AdoptedSpec(name: "spcConfigureVolumeModulation", offset: 0x26059B, isSpc: true),
+    AdoptedSpec(name: "spcSetVolumeModulationDepth", offset: 0x2605A7, isSpc: true),
+    AdoptedSpec(name: "spcSetChannelVolume", offset: 0x2605C8, isSpc: true),
+    AdoptedSpec(name: "spcSetVolumeTransition", offset: 0x2605D1, isSpc: true),
+    AdoptedSpec(name: "spcCallSequence", offset: 0x2605EE, isSpc: true),
+    AdoptedSpec(name: "spcDivideStep", offset: 0x260709, isSpc: true),
+    AdoptedSpec(name: "spcTickChannelVolume", offset: 0x260782, isSpc: true),
+    AdoptedSpec(name: "spcTickPanTransition", offset: 0x2607BB, isSpc: true),
+    AdoptedSpec(name: "spcWriteStereo", offset: 0x2607CE, isSpc: true),
+    AdoptedSpec(name: "spcApplyPanStep", offset: 0x260815, isSpc: true),
+    AdoptedSpec(name: "spcPreviewPan", offset: 0x260921, isSpc: true),
+    AdoptedSpec(name: "spcScaleSignedStep", offset: 0x26096D, isSpc: true),
+    AdoptedSpec(name: "spcModulateChannelGain", offset: 0x260998, isSpc: true),
+    AdoptedSpec(name: "spcComputeChannelGain", offset: 0x2609A3, isSpc: true),
   ]
 
   ## Public offsets retained for tests/tools (was snes_src consts).
@@ -141,14 +176,20 @@ const
 
 proc asmPath*(name: string): string =
   ## Path to a committed adopted assembly file.
-  AsmRoot / (name & ".asm")
+  var suffix = ".asm"
+  for spec in AdoptedSpecs:
+    if spec.name == name and spec.isSpc:
+      suffix = ".spc.asm"
+      break
+  result = AsmRoot / (name & suffix)
 
 proc assembleAdoptedFile*(name: string, offset: int): seq[uint8] =
-  ## Parse and assemble one adopted `.asm` at its ROM file origin.
+  ## Assemble a region using its architecture's CPU origin convention.
   let path = asmPath(name)
   if not fileExists(path):
     raise newException(IOError, &"missing adopted asm: {path}")
-  result = assembleAsm(readFile(path), offset.uint32, NativeFlags16)
+  result = if path.endsWith(".spc.asm"): assembleSpcAsm(readFile(path))
+    else: assembleAsm(readFile(path), offset.uint32, NativeFlags16)
 
 proc allAdoptedRegions*(): seq[tuple[name: string, offset: int, data: seq[uint8]]] =
   ## Every hand-curated region, assembled from `asm/*.asm`.
