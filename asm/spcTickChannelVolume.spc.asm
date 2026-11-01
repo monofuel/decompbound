@@ -16,7 +16,7 @@ spcTickChannelVolume:
     CALL $0CD3             ; spcApplyPanStep: OR-derived branch, no final snap.
 
 testDepth:
-    ; TODO: Identify the command writers before naming the modulation effect.
+    ; EB configures depth/rate/delay; accepted events reset counter and phase.
     MOV Y, $C1+X           ; Volume modulation depth; zero disables modulation.
     BEQ noModulation
     MOV A, $02E0+X         ; Delay threshold, compared with counter $C0+X.

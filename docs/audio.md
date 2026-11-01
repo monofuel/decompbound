@@ -6,6 +6,11 @@ The emulator already has SPC700/APU/DSP playback. Working audio is evidence
 about playback, not proof that the uploaded driver or sequence language is
 understood.
 
+For the driver reference, start with the [command entrypoint inventory](#command-entrypoint-inventory),
+[tempo/volume state](#tempo-and-master-volume-transitions),
+[modulation setters and resets](#modulation-commands-and-accepted-event-resets),
+or [sequence calls and word controls](#sequence-calls-and-global-control-words).
+
 ## Existing tools and evidence
 
 - `src/decompbound/spc700.nim`, `apu.nim`, and `dsp.nim` implement the audio
@@ -102,8 +107,8 @@ all 191 songs sound correct or that their sequences are fully decoded.
 
 ## Reproduced SPC700 source
 
-The fixed-layout build now assembles twenty-seven annotated `.spc.asm` files with
-our Nim SPC700 assembler. They reproduce **687 executable bytes** in package 1.
+The fixed-layout build now assembles thirty-four annotated `.spc.asm` files with
+our Nim SPC700 assembler. They reproduce **836 executable bytes** in package 1.
 The upload block header at file `$26003E` declares 16,779 bytes from file
 `$260042` to APU `$0500`; therefore `file = apuAddress + $25FB42` within it.
 Each source's `.org` is its APU execution address, not a ROM padding request.
@@ -112,9 +117,13 @@ Each source's `.org` is its APU execution address, not a ROM padding request.
 |---|---|---|---:|
 | `spcInitializeDriverRam.spc.asm` | `$0500..050B` | `$260042..26004D` | 12 |
 | `spcAdvancePhase.spc.asm` | `$05CD..05D7` | `$26010F..260119` | 11 |
+| `spcResetEventState.spc.asm` | `$0684..0695` | `$2601C6..2601D7` | 18 |
 | `spcPitchScale.spc.asm` | `$070E..0732` | `$260250..260274` | 37 |
 | `spcWritePitch.spc.asm` | `$0733..0740` | `$260275..260282` | 14 |
 | `spcWriteDsp.spc.asm` | `$0741..074F` | `$260283..260291` | 15 |
+| `spcFetchSequenceWord.spc.asm` | `$0750..075D` | `$260292..26029F` | 14 |
+| `spcReadSequenceControl.spc.asm` | `$081A..0840` | `$26035C..260382` | 39 |
+| `spcFetchSequenceEvent.spc.asm` | `$0882..089D` | `$2603C4..2603DF` | 28 |
 | `spcTickTempoTransition.spc.asm` | `$08F6..0904` | `$260438..260446` | 15 |
 | `spcTickMasterVolumeTransition.spc.asm` | `$091E..092F` | `$260460..260471` | 18 |
 | `spcDispatchCommand.spc.asm` | `$0943..0954` | `$260485..260496` | 18 |
@@ -126,8 +135,11 @@ Each source's `.org` is its APU execution address, not a ROM padding request.
 | `spcSetMasterVolumeTransition.spc.asm` | `$0A29..0A3A` | `$26056B..26057C` | 18 |
 | `spcSetTempo.spc.asm` | `$0A3B..0A3F` | `$26057D..260581` | 5 |
 | `spcSetTempoTransition.spc.asm` | `$0A40..0A51` | `$260582..260593` | 18 |
+| `spcConfigureVolumeModulation.spc.asm` | `$0A59..0A64` | `$26059B..2605A6` | 12 |
+| `spcSetVolumeModulationDepth.spc.asm` | `$0A65..0A67` | `$2605A7..2605A9` | 3 |
 | `spcSetChannelVolume.spc.asm` | `$0A86..0A8E` | `$2605C8..2605D0` | 9 |
 | `spcSetVolumeTransition.spc.asm` | `$0A8F..0AA7` | `$2605D1..2605E9` | 25 |
+| `spcCallSequence.spc.asm` | `$0AAC..0ACE` | `$2605EE..260610` | 35 |
 | `spcDivideStep.spc.asm` | `$0BC7..0BE2` | `$260709..260724` | 28 |
 | `spcTickChannelVolume.spc.asm` | `$0C40..0C78` | `$260782..2607BA` | 57 |
 | `spcTickPanTransition.spc.asm` | `$0C79..0C8B` | `$2607BB..2607CD` | 19 |
@@ -150,11 +162,11 @@ literal synthetic fixtures, plus operand order, origins, labels, signed branch
 limits/wrap, bit packing and rejection of invalid or oversized operands.
 `nim r tests/integration_rom_pipeline.nim` independently checks SPC label origin
 versus ROM placement in a mixed 65816/SPC build, exact-length rejection and the
-whole-ROM gold rebuild. Source adoption compared every one of the 687 bytes
+whole-ROM gold rebuild. Source adoption compared every one of the 836 bytes
 at the file offsets above; the completed carving probe was retired afterward.
 
-The sequence-fetch, pitch-scale, pan, pan-transition, arithmetic, phase, tempo
-and volume tests execute
+The sequence-fetch, pitch-scale, pan, pan-transition, arithmetic, phase, tempo,
+volume, modulation-command and sequence-control tests execute
 both original and freshly rebuilt driver images, checking mathematical results,
 state effects and ordered DSP-port writes. No audio output is needed for those
 gates. Remaining code, curves, instruments, songs and effects still enter the
@@ -232,6 +244,42 @@ otherwise A/Y are zero and the cursor stays put. Individual handlers may read
 more operands. Testing dispatch does not establish total command widths or
 that every byte in `$E0..FF` denotes a valid command.
 
+### Command entrypoint inventory
+
+The observed E0–FE layout has 31 target words at APU `$0BE3..0C20` (file
+`$260725..260762`) and 31 metadata bytes at `$0C21..0C3F` (file
+`$260763..260781`). These are independently read engine entrypoints, not a
+completed semantic catalog. Metadata below is hexadecimal. At `$0943` its
+nonzero value requests **one prefetched byte**; remaining operands are consumed
+by handlers. A metadata value alone is not proof of a complete operand width.
+
+| Command | APU entry | Metadata | Command | APU entry | Metadata |
+|---|---|---|---|---|---|
+| E0 | `$095F` | 01 | F0 | `$0A14` | 01 |
+| E1 | `$09B8` | 01 | F1 | `$0A68` | 03 |
+| E2 | `$09D6` | 02 | F2 | `$0A6C` | 03 |
+| E3 | `$09FD` | 03 | F3 | `$0A82` | 00 |
+| E4 | `$0A09` | 00 | F4 | `$0AA8` | 01 |
+| E5 | `$0A24` | 01 | F5 | `$0ACF` | 03 |
+| E6 | `$0A29` | 02 | F6 | `$0B03` | 00 |
+| E7 | `$0A3B` | 01 | F7 | `$0B0A` | 03 |
+| E8 | `$0A40` | 02 | F8 | `$0AE2` | 03 |
+| E9 | `$0A52` | 01 | F9 | `$0B94` | 03 |
+| EA | `$0A55` | 01 | FA | `$0B72` | 01 |
+| EB | `$0A59` | 03 | FB | `$0B75` | 02 |
+| EC | `$0A65` | 00 | FC | `$0B79` | 00 |
+| ED | `$0A86` | 01 | FD | `$0B7E` | 00 |
+| EE | `$0A8F` | 02 | FE | `$0B7F` | 00 |
+| EF | `$0AAC` | 03 | FF | `$0101`* | F4* |
+
+FF spills beyond this layout: its unchecked target lookup reads the first two
+metadata bytes `$01/$01` at `$0C21`, and its metadata lookup reads the first
+instruction byte `$F4` at `$0C40`. Existing dispatch tests observe this target
+and prefetch behavior but stop before executing `$0101`; FF has no established
+command meaning here. No E0–FE target words are identical. Shared entrypoints
+still need instruction-level checks: EC enters a depth **store** at `$0A65`,
+with RET at `$0A67`, rather than entering a bare return.
+
 `nim r tests/integration_spc_sequence_fetch.nim` loads original and freshly rebuilt
 driver code and executes each image with synthetic streams: 40,960 advancing
 fetch cases (all byte values, eight channel offsets, both direct pages, carry,
@@ -245,7 +293,8 @@ The trace observes `$0955` reading sequence addresses and dispatches to twelve
 command IDs, including `$E0->$095F`, `$E1->$09B8`, `$ED->$0A86`, and `$EF->$0AAC`.
 Instrument-area reads occur at `$0986/$099D/$09AC/$09B2` into `$6E30..6E4D`.
 The same run verifies **382** phase additions and update/preview branch routes,
-along with **655** pitch multiplications and **742** staged channel gains. These are bounded live-trace counts,
+along with **655** pitch multiplications, **742** staged channel gains and **two**
+sequence-call frames. These are bounded live-trace counts,
 not an absolute timer rate or an exhaustive song/command inventory.
 The `$0D10/$0D19` path scans ahead and skips command operands using metadata;
 those reads do not themselves advance the channel pointer at `$30+X`.
@@ -598,9 +647,8 @@ F = 255-floor(depth*triangle(newPhase)/256)
 ```
 
 Every depth bit contributes numerically; the branch's special 255 case is not
-evidence that depth contains a separate flag. The command writers and musical
-identity of this modulation effect remain TODO, rather than being assigned an
-unverified conventional effect name.
+evidence that depth contains a separate flag. EB/EC are the verified writers
+described below. The musical identity of the effect remains unassigned.
 
 `nim r tests/integration_spc_volume.nim` checks original/rebuilt immediate and
 fade commands, master final snaps versus channel residue, active-fade setter
@@ -608,6 +656,104 @@ replacement, dirty masks, complete phase/depth domains at representative rates,
 delay-counter wrap, all channels, separately truncated gain products, and
 command-to-tick-to-stereo DSP-port output using an authored curve. Guarded RAM,
 stack, input and status checks keep these claims independent of a playback demo.
+
+### Modulation commands and accepted-event resets
+
+EB dispatches to `$0A59` with delay already fetched. It stores that byte at
+`$02E0+X`, fetches/stores rate at `$02D1+X`, then fetches depth and falls into the
+shared `$0A65` store to DP `$C1+X`. It consumes exactly three bytes, preserving
+the existing phase `$02D0+X` and delay counter `$C0+X`. Reconfiguration therefore
+does not restart the delay or waveform, and it makes no dirty-bit or DSP writes.
+
+EC has zero operand metadata, so dispatch supplies A=Y=0 to the **same depth
+store**. It disables modulation without changing delay, rate, phase or counter.
+A direct call with nonzero A sets that depth instead; the two-instruction
+shared entry preserves all PSW bits. Depth zero freezes phase/counter in `$0C40`
+and selects factor 255. Disabling alone does not request a stereo update; a
+caller dirty bit is still needed for the downstream write gate.
+
+The accepted-event path at `$0654` filters `$C8/$C9` and inhibited events before
+reaching reset block `$0684..0695`. That block clears modulation phase/counter
+along with bytes `$B0+X/$0100+X`, and ORs mask `$47` into `$5E` and `$45`.
+It preserves depth, rate and threshold. Thus accepted events restart the delay
+and waveform while EB itself preserves their progress. Broader roles of the
+additional reset bytes and `$45` remain TODO.
+
+`nim r tests/integration_spc_modulation_commands.nim` runs original and rebuilt
+images through all depth values, parameter edges, stream wrapping and arbitrary-A
+shared calls. Across both images it checks **245,760 EB configurations**, **8,192
+EC disables**, **4,096 direct stores**, **11,648 command-to-stereo chains**, and
+**9,216 accepted / 9,216 rejected-or-non-note events**. Reset checks stop at
+`$0696`, exclude instrument-setting events `Y >= $CA`, and preserve unrelated
+fields and native stack guards. All streams and curves are authored fixtures.
+
+## Sequence calls and global control words
+
+EF enters `$0AAC..0ACE` with the target low byte already prefetched. It fetches
+target high and count, consuming three operand bytes in total:
+
+| Per-channel field | Role |
+|---|---|
+| DP `$30/$31+X` | Live byte-stream cursor |
+| `$0230/$0231+X` | Continuation after the three EF operands |
+| `$0240/$0241+X` | Call target used for repeated traversal |
+| DP `$80+X` | Remaining repeat count |
+
+The handler redirects the live cursor to the target and returns through ordinary
+native calls. There is **one saved software slot per channel**, not a stack of
+sequence frames. A nested EF overwrites the outer continuation, target and count.
+Shared native entry `$0AC4` reloads the saved target; it does not restore a frame.
+
+The byte consumer `$0882..089D` advances through `$0955`. A nonzero byte leaves
+at `$089E` with A=Y=token. A zero byte checks the repeat count **before** decrement:
+
+```
+if count == 0:
+    enter global control reader at $081A
+else:
+    liveCursor = savedTarget
+    count -= 1
+    if count == 0:
+        liveCursor = savedContinuation
+    fetch again
+```
+
+Positive count N traverses a zero-terminated body N times. EF count zero still
+enters the body initially, but its ending zero takes the global path; it does
+not encode 256 repeats. Once a nested call exhausts, the outer return is lost;
+its continuation cannot be recovered by treating the hardware stack as a
+sequence stack.
+
+### Global word reader
+
+The separate word cursor is DP `$40/$41`. Helper `$0750..075D` returns low byte
+in A and high byte in Y, advances by two modulo 65536 and preserves X/status
+except **N/Z reflect the high byte**, not the full word. Its PUSH/POP requires
+the cursor and stream to remain clear of live hardware-stack bytes. Both direct
+pages are supported by this bounded helper.
+
+At `$081A..0840`, a nonzero high byte exits at `$0841` with the fetched word.
+Word zero exits at `$07EA`. Other high-zero words are handled as controls:
+
+- `$0080` stores `$80` at DP `$1B`; `$0081` stores zero, then reads again.
+- Other low-only values decrement DP `$42` modulo 256. If the result's bit 7
+  is set, replace it with the control byte. Consume a following jump word;
+  jump through it when the resulting counter is nonzero, otherwise continue
+  after that word. X becomes the resulting counter.
+
+This is a signed-result reload test, not an unsigned borrow test. For example,
+old counter 128 decrements to 127 and is retained; old 129 decrements to 128 and
+is replaced. The global `$42` state is separate from EF's per-channel count.
+The later meanings of `$1B` and processing beyond `$07EA/$0841` remain open.
+
+`nim r tests/integration_spc_sequence_control.nim` verifies both ROM images with
+**1,456 EF dispatch calls**, **8,720 byte-consumer entries**, **4,240 script-loop
+dispatches**, **4,608 direct word fetches** and **259,172 global-control entries**.
+It covers every generic control-byte/counter pair, both pages, pointer wrap,
+80 repeat contexts and 48 real nested-EF contexts using original parser code.
+The 48 inner EF dispatches appear in both relevant dispatch counters; these
+categories are not an additive total. Broader exits are stop points, not patched
+returns or claims about complete sequence lifecycle behavior.
 
 ## Uploaded data and the next research boundary
 
@@ -623,8 +769,8 @@ at file `$1FEC46`, targeting `$4800`, is an existing sequence-table candidate.
 
 The dispatcher, E0 instrument path, pitch multiplier, stereo, tempo and volume
 paths now have bounded executed checks. Next questions are other sequence
-commands, prefix/event consumers, modulation writers, remaining position/envelope
-writers, alternate tempo/reset routing and the global override's purpose. Derive
+commands, prefix/event consumers, remaining position/envelope writers, word-stream
+lifecycle exits, alternate tempo/reset routing and the global override's purpose. Derive
 operand widths and DSP effects from those consumers; preserve source offsets
 and package-to-APU mappings.
 

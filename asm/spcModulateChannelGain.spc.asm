@@ -5,7 +5,7 @@
 ; Triangle is 2*phase below 128, otherwise 511-2*phase. No state is advanced.
 ; Preserves X and PSW P/I/B/H/V; returns C=original phase bit 7, A=Y=gain.
 ; Gain $0321+X is written by the shared tail; RET belongs to $0E72.
-; See docs/audio.md; the command producing modulation depth is not named here.
+; EB/EC set depth; the musical effect identity remains open. See docs/audio.md.
     .org $0E56
 spcModulateChannelGain:
     ASL A

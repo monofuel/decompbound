@@ -1555,9 +1555,29 @@
     {
       "name": "blob_26011A",
       "offset": 2490650,
-      "length": 310,
+      "length": 172,
       "kind": "blob",
       "source": "blobs/blob_26011A.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcResetEventState",
+      "offset": 2490822,
+      "length": 18,
+      "kind": "code",
+      "source": "asm/spcResetEventState.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_modulation_commands.nim and integration_spc_sequence_control.nim verify original/rebuilt setters, event resets, call slots and global stream controls"
+    },
+    {
+      "name": "blob_2601D8",
+      "offset": 2490840,
+      "length": 120,
+      "kind": "blob",
+      "source": "blobs/blob_2601D8.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
@@ -1593,11 +1613,61 @@
       "evidence": "docs/audio.md; test_spc_asm.nim and integration_spc_sequence_fetch, integration_spc_pitch_scale, integration_spc_pan verify original/rebuilt driver and exact DSP writes"
     },
     {
-      "name": "blob_260292",
+      "name": "spcFetchSequenceWord",
       "offset": 2491026,
-      "length": 422,
+      "length": 14,
+      "kind": "code",
+      "source": "asm/spcFetchSequenceWord.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_modulation_commands.nim and integration_spc_sequence_control.nim verify original/rebuilt setters, event resets, call slots and global stream controls"
+    },
+    {
+      "name": "blob_2602A0",
+      "offset": 2491040,
+      "length": 188,
       "kind": "blob",
-      "source": "blobs/blob_260292.bin",
+      "source": "blobs/blob_2602A0.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcReadSequenceControl",
+      "offset": 2491228,
+      "length": 39,
+      "kind": "code",
+      "source": "asm/spcReadSequenceControl.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_modulation_commands.nim and integration_spc_sequence_control.nim verify original/rebuilt setters, event resets, call slots and global stream controls"
+    },
+    {
+      "name": "blob_260383",
+      "offset": 2491267,
+      "length": 65,
+      "kind": "blob",
+      "source": "blobs/blob_260383.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcFetchSequenceEvent",
+      "offset": 2491332,
+      "length": 28,
+      "kind": "code",
+      "source": "asm/spcFetchSequenceEvent.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_modulation_commands.nim and integration_spc_sequence_control.nim verify original/rebuilt setters, event resets, call slots and global stream controls"
+    },
+    {
+      "name": "blob_2603E0",
+      "offset": 2491360,
+      "length": 88,
+      "kind": "blob",
+      "source": "blobs/blob_2603E0.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
@@ -1745,9 +1815,39 @@
     {
       "name": "blob_260594",
       "offset": 2491796,
-      "length": 52,
+      "length": 7,
       "kind": "blob",
       "source": "blobs/blob_260594.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcConfigureVolumeModulation",
+      "offset": 2491803,
+      "length": 12,
+      "kind": "code",
+      "source": "asm/spcConfigureVolumeModulation.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_modulation_commands.nim and integration_spc_sequence_control.nim verify original/rebuilt setters, event resets, call slots and global stream controls"
+    },
+    {
+      "name": "spcSetVolumeModulationDepth",
+      "offset": 2491815,
+      "length": 3,
+      "kind": "code",
+      "source": "asm/spcSetVolumeModulationDepth.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_modulation_commands.nim and integration_spc_sequence_control.nim verify original/rebuilt setters, event resets, call slots and global stream controls"
+    },
+    {
+      "name": "blob_2605AA",
+      "offset": 2491818,
+      "length": 30,
+      "kind": "blob",
+      "source": "blobs/blob_2605AA.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
@@ -1775,9 +1875,29 @@
     {
       "name": "blob_2605EA",
       "offset": 2491882,
-      "length": 287,
+      "length": 4,
       "kind": "blob",
       "source": "blobs/blob_2605EA.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcCallSequence",
+      "offset": 2491886,
+      "length": 35,
+      "kind": "code",
+      "source": "asm/spcCallSequence.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_modulation_commands.nim and integration_spc_sequence_control.nim verify original/rebuilt setters, event resets, call slots and global stream controls"
+    },
+    {
+      "name": "blob_260611",
+      "offset": 2491921,
+      "length": 248,
+      "kind": "blob",
+      "source": "blobs/blob_260611.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"

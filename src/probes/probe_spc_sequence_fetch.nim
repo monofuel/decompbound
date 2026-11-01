@@ -37,6 +37,8 @@ proc main() =
     phaseSum, phaseHigh, phaseChecks = 0
     gainPending = false
     gainChannel, expectedGain, gainChecks = 0
+    callPending = false
+    callChannel, callTarget, callCount, callReturn, callStack, callChecks = 0
   for sample in 0 ..< SampleRate * 2:
     let start = machine.spc.cycles
     while machine.spc.cycles - start < CyclesPerSample:
@@ -89,6 +91,25 @@ proc main() =
         let command = machine.spc.a.int
         commands[command] = commands.getOrDefault(command) + 1
         voices.incl machine.spc.x
+      if pc == 0x0AAC:
+        callChannel = machine.spc.x.int
+        let pointer = machine.spc.ram[0x30 + callChannel].int or
+          (machine.spc.ram[0x31 + callChannel].int shl 8)
+        callTarget = machine.spc.a.int or (machine.spc.ram[pointer].int shl 8)
+        callCount = machine.spc.ram[(pointer + 1) and 65535].int
+        callReturn = (pointer + 2) and 65535
+        callStack = machine.spc.sp.int
+        callPending = true
+      if callPending and pc == 0x0ACE:
+        doAssert machine.spc.x.int == callChannel and machine.spc.sp.int == callStack
+        doAssert machine.spc.ram[0x80 + callChannel].int == callCount
+        for address in [0x30, 0x240]:
+          doAssert (machine.spc.ram[address + callChannel].int or
+            (machine.spc.ram[address + callChannel + 1].int shl 8)) == callTarget
+        doAssert (machine.spc.ram[0x230 + callChannel].int or
+          (machine.spc.ram[0x231 + callChannel].int shl 8)) == callReturn
+        callPending = false
+        inc callChecks
       if opcode in [0xF7'u8, 0xE7'u8]:
         let
           dp = (if (machine.spc.psw and PswP) == 0: 0 else: 256)
@@ -130,6 +151,8 @@ proc main() =
   echo "verified timer/tempo phase routes: ", phaseChecks
   doAssert gainChecks > 0
   echo "verified staged channel gains: ", gainChecks
+  doAssert callChecks > 0
+  echo "verified sequence call frames: ", callChecks
 
 when isMainModule:
   main()
