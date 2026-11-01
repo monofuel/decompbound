@@ -29,6 +29,208 @@ specific run; general profiling/testing/deployment approval is insufficient.
 The historical native-audio observations below do not authorize repeating them.
 Core PCM generation and hash comparison continue without speaker output.
 
+## Native decoding, buffer coverage and ARM builds — 2026-10-31
+
+This batch starts from `200258d`, after the expanded-viewport improvements below.
+Runtime source is `63dbd04` on `monofuel/core-performance`, developed in a
+separate worktree. Portable builds keep their existing defaults.
+
+### Implementation and rejected experiments
+
+The native row decoder uses a **2 KiB immutable lookup table** generated from
+bit arithmetic at compile time. Each possible plane byte expands into eight
+byte positions; combining plane weights produces the complete 2-, 4- or 8-bpp
+index row. Little-endian hosts store that packed row directly. Big-endian hosts
+retain the scalar decoder. Live VRAM is still read for every row, while palette,
+flips, priority, windows and colour math remain in their existing stages.
+The table contains our mathematical expansion, not extracted game data.
+
+Mutable row memoization was tested first with 1,024 and 4,096 entries, including
+raw-word validation, a smaller entry layout and a mode/colour-math guard.
+Correctness passed, but ARM performance failed the acceptance bar. For example,
+one guarded pilot raised the two-bit battle mean from 13.706 to 14.997 ms; its
+PGO variant reached 16.066 ms. The guard did not recover the original mode-0
+cost, so cache-hit rate alone does not establish the cause. Generated compositor
+and kernel code also grew. These variants were rejected and their product cache
+module retired. Source evidence remains in `bdadfb0`, `08a36de` and `2d09db2`;
+numeric reports remain under ignored `bin/core-performance/`.
+
+Buffer initialization now follows coverage: the core skips its black clear
+when frame stepping supplies the complete initial backdrop, and expanded output
+skips a clear when a complete battle copy or map composition covers it. Padded
+frames and force-blank entry retain their initialization. Fully composed
+336×256 frames avoid up to **560 KiB/frame** of redundant clears (32.8 MiB/s at
+60 Hz). Copies that establish owned output buffers remain unchanged.
+
+### Compiler settings and reproducible PGO
+
+`src/libretro/config.nims` adds these opt-in settings:
+
+| Setting | Values and behavior |
+|---|---|
+| `DECOMPBOUND_TUNE` | Empty preserves portable defaults; `cortex-a55` supplies `-mcpu=cortex-a55`. |
+| `DECOMPBOUND_PGO` | Empty/`off`, `generate`, or `use`. |
+| `DECOMPBOUND_PGO_DIR` | Absolute profile directory required for generation/use. |
+
+Tuning and PGO require the ARM64 target and an AArch64 GCC, verified through
+its predefined macros. Unknown settings and incompatible compilers fail.
+Profile-use builds treat missing and mismatched coverage as errors; they remove
+Nim's default GCC `-w`, which otherwise suppresses those diagnostics.
+
+Generation and use must keep the same source, compiler, options and object
+paths. The tested toolchain is Nim 2.2.4 / GCC 15.3.0. For the recorded worktree:
+
+```sh
+export DECOMPBOUND_TARGET=arm64 DECOMPBOUND_TUNE=cortex-a55
+export DECOMPBOUND_CC=/nix/store/0hvd25jcaxcq45gkrgwqmd4gfqixg99h-aarch64-unknown-linux-gnu-gcc-wrapper-15.3.0/bin/aarch64-unknown-linux-gnu-gcc
+export NIX_DONT_SET_RPATH=1 NIX_DONT_SET_RPATH_aarch64_unknown_linux_gnu=1
+export DECOMPBOUND_PGO_DIR="$PWD/bin/core-performance/pgo-data-lut"
+DECOMPBOUND_PGO=generate nim c --forceBuild:on \
+  --nimcache:bin/nimcache/pgo-lut-stable \
+  --out:bin/libretro/pgo-lut-train-arm64.so src/libretro/core.nim
+```
+
+Train that library through the headless profile host on the ARM device. Set
+`GCOV_PREFIX` to a private writable collection directory and
+`GCOV_PREFIX_STRIP=9` for this exact profile-directory path; a different path
+needs its own component count. After successful unload/exit, copy the collection
+directory's contents into `$DECOMPBOUND_PGO_DIR`, preserving nested object paths.
+The five-scene training run produces 66 `.gcda` files. Then:
+
+```sh
+DECOMPBOUND_PGO=use nim c --forceBuild:on \
+  --nimcache:bin/nimcache/pgo-lut-stable \
+  --out:bin/libretro/pgo-lut-arm64.so src/libretro/core.nim
+```
+
+Profiles and generated binaries remain ignored. The profile-use library must
+contain no generation counters and retain the usual 25 libretro exports and
+standard runtime dependencies, without a Nix RPATH. Cortex-A55 device features
+were checked before testing; generic ARM64 builds remain available.
+
+### Correctness and measurement controls
+
+Synthetic tests exercise every two-bit plane word, independent scalar sampling
+for four/eight-bit rows, VRAM wrapping, byte writes through the VRAM ports,
+palette changes, machine switching, state import and reset. Reusable-output
+tests poison buffers before map/battle/padded transitions. An authored ROM
+changes INIDISP mid-frame to compare the actual `retro_run` body with the former
+unconditional-clear caller, including partial-frame unblanking.
+
+The shared-library corpus worker compares delivered video, PCM, complete DBST
+payloads and callback/geometry metadata. It redirects library diagnostics away
+from the protocol pipe and retains the existing referee's negative controls.
+The LUT build passes **1,293 captures × three frames**, plus eight scenes at
+each of the five viewport sizes for 120 frames (4,800 frames), and native/
+expanded, DS on/off, XBGR/XRGB checks (960 frames). The 43-module unit suite
+passes 117 named cases; the ROM rebuild remains byte-identical. All captures,
+state buffers and audio stay private; reports contain numeric evidence.
+
+Final ARM comparisons use three alternating pairs, CPU 2 at its unchanged
+1,992 MHz performance setting, 120 warmup and 600 measured frames per run.
+Training uses Winters, NPC movement, cave exploration and both battles;
+dialogue, clouds and sailing are held out. Timed callbacks do not hash.
+Compiler tuning requires at least 2% improvement in the workload geometric
+mean against the optimized generic build. PGO must beat the best eligible
+non-PGO build by another 2%. Every selected build must avoid scene mean
+regressions above 2% or p99 regressions above 5% against the reference;
+otherwise select the simpler passing build.
+
+### Final RG DS Plus results and selection
+
+Each cell below is the median of three per-run thread-CPU statistics, in
+milliseconds. Percentiles are not pooled. All cases enable the DS companion and
+opaque XBGR; the native control uses 256×224 and other cases use 336×256.
+Linux is `7.0.2-mono-rgdsplus-rocknix-r3`; the governor and 1,992 MHz CPU-2
+setting stayed unchanged. Sampled thermal zones were about 51/48°C after
+training. The player stayed stopped and the menu remained running.
+
+| Workload | Reference mean / p95 / p99 | Selected portable mean / p95 / p99 |
+|---|---:|---:|
+| Native Winters control | 6.636 / 7.405 / 7.583 | 6.536 / 7.315 / 7.498 |
+| Winters walking | 8.514 / 9.325 / 9.517 | 8.320 / 9.137 / 9.283 |
+| NPC park walking | 8.580 / 10.235 / 11.133 | 8.350 / 10.032 / 11.011 |
+| Cave walking | 16.806 / 18.052 / 18.364 | 16.493 / 17.713 / 18.019 |
+| Two-bit battle | 13.654 / 14.652 / 14.848 | 13.403 / 14.412 / 14.668 |
+| Four-bit battle | 9.962 / 10.910 / 11.103 | 9.594 / 10.562 / 10.721 |
+| Dialogue, held out | 5.629 / 5.790 / 6.195 | 5.539 / 5.696 / 6.000 |
+| Clouds, held out | 9.409 / 12.521 / 13.010 | 9.165 / 12.245 / 12.808 |
+| Sailing, held out | 8.407 / 9.519 / 10.051 | 8.160 / 9.213 / 9.793 |
+
+The portable LUT/buffer build reduces the equally weighted workload geometric
+mean by **2.333%**, with lower means and p99s in all nine cases. Scene means
+improve by about **1.5–3.7%**. This is an incremental gain beyond the previous
+viewport batch. The cave still exceeds a 16.67 ms core budget at p99, before
+frontend work; full-player 60 fps is not established by these measurements.
+
+Cortex-A55 tuning reduces the geometric mean by 4.024% versus the reference,
+but adds only **1.731%** over the optimized generic build. It misses the chosen
+2% compiler-change threshold, so the portable build is selected.
+
+PGO is rejected: it is 1.603% slower overall than the portable LUT build.
+It improves the cave mean to 14.627 ms, but raises the two-bit battle to
+15.754 ms (**15.38% regression**) and dialogue to 6.103 ms (**8.43% regression**).
+Battle/dialogue p99s and the native-control mean also fail their limits.
+The working tuning/PGO options remain opt-in; neither is made a shipping default.
+
+Raw accepted comparisons are `bin/core-performance/lut-final-json/` with
+`lut-final-{SCENE}-{reference,lut,lut-tuned,pgo-lut}-{1,2,3}.json` and
+`lut-final-summary.txt`. They retain individual wall/CPU samples and maxima;
+hashing is disabled in timing callbacks. Training and rejected trials have
+separate reports. No timing from an instrumented generation/profile build is
+mixed into the acceptance table.
+
+### Remaining cost after the LUT change
+
+Separate ARM `coreProfile` runs use 60 warmup and 120 measured frames per scene,
+without tuning or PGO. These are exclusive **instrumented wall-time means**,
+including clock overhead, not the CPU statistics above. The reference profile
+comes from runtime-equivalent `1e3e1b6` (compiler configuration only); the LUT
+profile comes from `63dbd04`.
+
+| Stage | Cave reference → LUT | Two-bit battle reference → LUT |
+|---|---:|---:|
+| Native scanlines | 4.242 → 3.984 ms | 5.808 → 5.687 ms |
+| Expanded map/actor composition | 7.922 → 7.914 ms | 0 → 0 ms |
+| Expanded battle composition | 0.001 → 0.001 ms | 3.234 → 3.243 ms |
+| Main CPU excluding wait batches | 2.333 → 2.346 ms | 2.044 → 2.047 ms |
+| APU other + SPC + DSP | 1.302 → 1.298 ms | 1.196 → 1.208 ms |
+
+The next strong lead is the cave's **7.9 ms expanded map compositor**. Its
+colour-math/window configuration retains the scalar scenery path; snapshot
+capture is only 0.182 ms. Extending verified span composition to those effects
+is a better bounded investigation than further snapshot copying or DS caching.
+For battles, native and detached PPU composition still dominate. These timings
+support investigating composition and colour arithmetic before more tile-cache
+bookkeeping or audio threading. Raw reports are in
+`bin/core-performance/stage-json/` with the paired stage summary alongside them.
+
+### Final gates and deployment
+
+The final LUT source also passes the complete five-tape referee with
+`-d:debug --opt:speed`: **924,845 frames**, matching every native image/audio/
+WRAM reference. Separate native and expanded frame-step workers each pass the
+1,293-capture sweep, including complete machine/CPU serialization and the
+additional handshake-state comparison.
+
+On the RG DS Plus, the selected actual `.so` matches the reference byte for
+byte across eight scenes × 30 frames at 256×224 and 336×256, with both standard
+XRGB and private opaque XBGR: **960 frames**, including PCM and complete DBST
+payloads. These checks use cross-built headless workers with the stock loader;
+they never open display or audio devices. Numeric reports and state-path TSVs
+remain under ignored `bin/core-performance/`.
+
+Installed the portable `63dbd04` core at
+`/usr/local/lib/libretro/decompbound_libretro.so`, SHA-256
+`8c46303ff3195c551384dfcb6314e16711f1964d38e9e85e5d3560faa581e9d4`.
+The atomic core-only install verified both player binaries, both launchers,
+all SRAM, both existing Jeff/cave screenstates and the unchanged menu process.
+The account dotfile was untouched and unread. No playback was launched.
+Rollback core and preservation/source manifests are at
+`/var/backups/mono-retro/core-performance-63dbd04-DuyNfr/`.
+Full-player acceptance remains the manual check in
+[human-verify.md](human-verify.md).
+
 ## Expanded viewport performance batch — 2026-10-31
 
 This batch targets the polished **336×256** game panel with the DS companion
