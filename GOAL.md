@@ -24,11 +24,15 @@ fixed-point motion and script operands, coordinate projection, draw traversal,
 default sprite/effect drawing, DMA producer backpressure, and script control
 flow/state ownership, counted loops, banked calls and addressed operations.
 Audio research also verifies E1 stereo positioning/phase controls and E2
-transitions against the original SPC700 driver. Thirty-four SPC700 regions now
+transitions against the original SPC700 driver. Sixty-three SPC700 regions now
 rebuild from annotated source, covering bootstrap/phase production, sequence
 fetch/dispatch, instrument selection, pitch scaling/output, guarded DSP writes,
 stereo positioning/transitions, tempo and master/channel-volume updates, and
-modulation configuration/reset/gain, sequence calls and global word controls.
+modulation configuration/reset/gain, event pitch preparation, sequence calls,
+global word controls, block loading, selection, queued key-off and pitch
+modulation/table conversion, pending pitch commands, event transition setup and
+normal/preview pitch updates, packed sequence prefixes, private lookahead/key-off
+and active F9 transition service.
 The checkout also includes the Pi/player performance work. Earlier unfinished bot/report
 work remains preserved on `review/pending-2026-09-10`; `bestiary/integration`
 and `review/archive-2026-10-27/*` retain unverified research for later investigation.
@@ -36,14 +40,14 @@ and `review/archive-2026-10-27/*` retain unverified research for later investiga
 | Goal | Outcome | Current state |
 |---|---|---|
 | **1. Rebuild identically** | Reconstruct every original byte from our source and the user's local extraction. | **Met; maintain.** `make compare` printed `BYTE-IDENTICAL`. |
-| **2. Understand all code** | Explain every game routine, its contracts, and its role in the larger system. | **Early.** 150 assembly regions, 9,586 bytes, formally marked explained and reproduced, including SPC startup/phase/dispatch/instrument/pitch/stereo/tempo/volume/sequence paths, script control flow/state ownership and operations, entity motion, drawing order and effects, the entity lifecycle, DMA queues, sprite spawning/transfers, and world-map readers. Additional research lives outside that inventory. |
-| **3. Understand scripting** | Explain the script languages, their interpreters, and how scripts cause game behavior. | **Partial.** Text decoding, entity action scripts and bounded SPC sequence-call/global-control machinery are verified; complete semantics and a whole-ROM script inventory remain open. |
+| **2. Understand all code** | Explain every game routine, its contracts, and its role in the larger system. | **Early.** 179 assembly regions, 10,374 bytes, formally marked explained and reproduced, including SPC startup/phase/dispatch/instrument/pitch/stereo/tempo/volume/sequence paths, script control flow/state ownership and operations, entity motion, drawing order and effects, the entity lifecycle, DMA queues, sprite spawning/transfers, and world-map readers. Additional research lives outside that inventory. |
+| **3. Understand scripting** | Explain the script languages, their interpreters, and how scripts cause game behavior. | **Partial.** Text decoding, entity action scripts and bounded SPC prefix, call, global-control and lookahead machinery are verified; complete semantics and a whole-ROM script inventory remain open. |
 | **4. Understand graphics** | Explain and browse the game's graphics, including the assembled world map. | **Partial.** Pocket Atlas browses the world/interior atlas and 15 verified static scenery flags; enemy portraits, backgrounds and UI also have verified renderers. A complete graphics catalog, animation and dynamic scene behavior remain open. |
 | **5. Understand audio** | Explain the sound driver, music, effects, instruments, and playback behavior. | **Partial.** Upload/song selection and bounded SPC fetch, instrument, pitch, stereo, tempo and volume paths are verified; full driver and content interpretation remain open. |
 
-The manifest currently covers 3,145,728 bytes in 204 regions. Of those bytes,
-9,586 (0.3047%) are `reproduce` / `explained`; 3,136,142 are `copy` / `unknown`.
-The reproduced inventory contains 144 code regions (9,352 bytes) and six
+The manifest currently covers 3,145,728 bytes in 227 regions. Of those bytes,
+10,374 (0.3298%) are `reproduce` / `explained`; 3,135,354 are `copy` / `unknown`.
+The reproduced inventory contains 173 code regions (10,140 bytes) and six
 structural tables (234 bytes); regions are not a count of distinct functions.
 This denominator is the **whole ROM**, including data and assets, not executable
 code alone. It is not a percentage of functions understood. Recompute from

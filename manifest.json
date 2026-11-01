@@ -1555,12 +1555,22 @@
     {
       "name": "blob_26011A",
       "offset": 2490650,
-      "length": 172,
+      "length": 124,
       "kind": "blob",
       "source": "blobs/blob_26011A.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcPrepareChannelEvent",
+      "offset": 2490774,
+      "length": 48,
+      "kind": "code",
+      "source": "asm/spcPrepareChannelEvent.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_lifecycle.nim and integration_spc_pitch_offsets.nim verify original/rebuilt selection, blocks, modes, queued key-off and accepted-event pitch state"
     },
     {
       "name": "spcResetEventState",
@@ -1573,14 +1583,24 @@
       "evidence": "docs/audio.md; integration_spc_modulation_commands.nim and integration_spc_sequence_control.nim verify original/rebuilt setters, event resets, call slots and global stream controls"
     },
     {
-      "name": "blob_2601D8",
+      "name": "spcInitializeEventPitchTransition",
       "offset": 2490840,
-      "length": 120,
-      "kind": "blob",
-      "source": "blobs/blob_2601D8.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "length": 40,
+      "kind": "code",
+      "source": "asm/spcInitializeEventPitchTransition.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_pitch_transition.nim and integration_spc_pitch_transition_ticks.nim verify original/rebuilt pending commands, event initialization, signed steps, final snaps, previews and actual caller paths"
+    },
+    {
+      "name": "spcConvertEventPitch",
+      "offset": 2490880,
+      "length": 80,
+      "kind": "code",
+      "source": "asm/spcConvertEventPitch.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_pitch_conversion.nim verifies both original/rebuilt conversion entries against authored curves, all position words, wrapped arithmetic and actual scaling/DSP continuations"
     },
     {
       "name": "spcPitchScale",
@@ -1625,9 +1645,49 @@
     {
       "name": "blob_2602A0",
       "offset": 2491040,
-      "length": 188,
+      "length": 20,
       "kind": "blob",
       "source": "blobs/blob_2602A0.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcSelectSequence",
+      "offset": 2491060,
+      "length": 40,
+      "kind": "code",
+      "source": "asm/spcSelectSequence.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_lifecycle.nim and integration_spc_pitch_offsets.nim verify original/rebuilt selection, blocks, modes, queued key-off and accepted-event pitch state"
+    },
+    {
+      "name": "blob_2602DC",
+      "offset": 2491100,
+      "length": 80,
+      "kind": "blob",
+      "source": "blobs/blob_2602DC.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcStopSequence",
+      "offset": 2491180,
+      "length": 10,
+      "kind": "code",
+      "source": "asm/spcStopSequence.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_lifecycle.nim and integration_spc_pitch_offsets.nim verify original/rebuilt selection, blocks, modes, queued key-off and accepted-event pitch state"
+    },
+    {
+      "name": "blob_260336",
+      "offset": 2491190,
+      "length": 38,
+      "kind": "blob",
+      "source": "blobs/blob_260336.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
@@ -1643,14 +1703,24 @@
       "evidence": "docs/audio.md; integration_spc_modulation_commands.nim and integration_spc_sequence_control.nim verify original/rebuilt setters, event resets, call slots and global stream controls"
     },
     {
-      "name": "blob_260383",
+      "name": "spcLoadSequenceBlock",
       "offset": 2491267,
-      "length": 65,
-      "kind": "blob",
-      "source": "blobs/blob_260383.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "length": 48,
+      "kind": "code",
+      "source": "asm/spcLoadSequenceBlock.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_lifecycle.nim and integration_spc_pitch_offsets.nim verify original/rebuilt selection, blocks, modes, queued key-off and accepted-event pitch state"
+    },
+    {
+      "name": "spcBeginChannelPass",
+      "offset": 2491315,
+      "length": 17,
+      "kind": "code",
+      "source": "asm/spcBeginChannelPass.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_lifecycle.nim and integration_spc_pitch_offsets.nim verify original/rebuilt selection, blocks, modes, queued key-off and accepted-event pitch state"
     },
     {
       "name": "spcFetchSequenceEvent",
@@ -1663,14 +1733,34 @@
       "evidence": "docs/audio.md; integration_spc_modulation_commands.nim and integration_spc_sequence_control.nim verify original/rebuilt setters, event resets, call slots and global stream controls"
     },
     {
-      "name": "blob_2603E0",
+      "name": "spcParseSequencePrefix",
       "offset": 2491360,
-      "length": 88,
-      "kind": "blob",
-      "source": "blobs/blob_2603E0.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "length": 72,
+      "kind": "code",
+      "source": "asm/spcParseSequencePrefix.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_prefix.nim, integration_spc_sequence_lookahead.nim and integration_spc_active_pitch_transition.nim verify original/rebuilt prefix/counter parsing, private lookahead, guarded key-off and active F9 transitions"
+    },
+    {
+      "name": "spcServiceSequenceEvent",
+      "offset": 2491432,
+      "length": 10,
+      "kind": "code",
+      "source": "asm/spcServiceSequenceEvent.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_prefix.nim, integration_spc_sequence_lookahead.nim and integration_spc_active_pitch_transition.nim verify original/rebuilt prefix/counter parsing, private lookahead, guarded key-off and active F9 transitions"
+    },
+    {
+      "name": "spcNextSequenceChannel",
+      "offset": 2491442,
+      "length": 6,
+      "kind": "code",
+      "source": "asm/spcNextSequenceChannel.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_lifecycle.nim and integration_spc_pitch_offsets.nim verify original/rebuilt selection, blocks, modes, queued key-off and accepted-event pitch state"
     },
     {
       "name": "spcTickTempoTransition",
@@ -1763,14 +1853,34 @@
       "evidence": "docs/audio.md; integration_spc_pan_transition.nim and integration_spc_arithmetic.nim verify original/rebuilt command, tick, preview and helper arithmetic"
     },
     {
-      "name": "blob_26053F",
+      "name": "spcConfigurePitchModulation",
       "offset": 2491711,
-      "length": 39,
-      "kind": "blob",
-      "source": "blobs/blob_26053F.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "length": 12,
+      "kind": "code",
+      "source": "asm/spcConfigurePitchModulation.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_pitch_modulation.nim verifies original/rebuilt command setup, delay/ramp/phase arithmetic, event resets and guarded output continuations"
+    },
+    {
+      "name": "spcSetPitchModulationDepth",
+      "offset": 2491723,
+      "length": 11,
+      "kind": "code",
+      "source": "asm/spcSetPitchModulationDepth.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_pitch_modulation.nim verifies original/rebuilt command setup, delay/ramp/phase arithmetic, event resets and guarded output continuations"
+    },
+    {
+      "name": "spcSetPitchModulationRamp",
+      "offset": 2491734,
+      "length": 16,
+      "kind": "code",
+      "source": "asm/spcSetPitchModulationRamp.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_pitch_modulation.nim verifies original/rebuilt command setup, delay/ramp/phase arithmetic, event resets and guarded output continuations"
     },
     {
       "name": "spcSetMasterVolume",
@@ -1813,14 +1923,24 @@
       "evidence": "docs/audio.md; integration_spc_tempo.nim and integration_spc_volume.nim verify original/rebuilt command, update, arithmetic and consumer behavior"
     },
     {
-      "name": "blob_260594",
+      "name": "spcSetGlobalPitchOffset",
       "offset": 2491796,
-      "length": 7,
-      "kind": "blob",
-      "source": "blobs/blob_260594.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "length": 3,
+      "kind": "code",
+      "source": "asm/spcSetGlobalPitchOffset.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_lifecycle.nim and integration_spc_pitch_offsets.nim verify original/rebuilt selection, blocks, modes, queued key-off and accepted-event pitch state"
+    },
+    {
+      "name": "spcSetChannelPitchOffset",
+      "offset": 2491799,
+      "length": 4,
+      "kind": "code",
+      "source": "asm/spcSetChannelPitchOffset.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_lifecycle.nim and integration_spc_pitch_offsets.nim verify original/rebuilt selection, blocks, modes, queued key-off and accepted-event pitch state"
     },
     {
       "name": "spcConfigureVolumeModulation",
@@ -1843,14 +1963,24 @@
       "evidence": "docs/audio.md; integration_spc_modulation_commands.nim and integration_spc_sequence_control.nim verify original/rebuilt setters, event resets, call slots and global stream controls"
     },
     {
-      "name": "blob_2605AA",
+      "name": "spcConfigurePitchTransition",
       "offset": 2491818,
-      "length": 30,
-      "kind": "blob",
-      "source": "blobs/blob_2605AA.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "length": 26,
+      "kind": "code",
+      "source": "asm/spcConfigurePitchTransition.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_pitch_transition.nim and integration_spc_pitch_transition_ticks.nim verify original/rebuilt pending commands, event initialization, signed steps, final snaps, previews and actual caller paths"
+    },
+    {
+      "name": "spcSetPendingPitchTransitionDuration",
+      "offset": 2491844,
+      "length": 4,
+      "kind": "code",
+      "source": "asm/spcSetPendingPitchTransitionDuration.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_pitch_transition.nim and integration_spc_pitch_transition_ticks.nim verify original/rebuilt pending commands, event initialization, signed steps, final snaps, previews and actual caller paths"
     },
     {
       "name": "spcSetChannelVolume",
@@ -1873,14 +2003,14 @@
       "evidence": "docs/audio.md; integration_spc_tempo.nim and integration_spc_volume.nim verify original/rebuilt command, update, arithmetic and consumer behavior"
     },
     {
-      "name": "blob_2605EA",
+      "name": "spcSetEventPitchFraction",
       "offset": 2491882,
       "length": 4,
-      "kind": "blob",
-      "source": "blobs/blob_2605EA.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "kind": "code",
+      "source": "asm/spcSetEventPitchFraction.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_pitch_transition.nim and integration_spc_pitch_transition_ticks.nim verify original/rebuilt pending commands, event initialization, signed steps, final snaps, previews and actual caller paths"
     },
     {
       "name": "spcCallSequence",
@@ -1895,12 +2025,72 @@
     {
       "name": "blob_260611",
       "offset": 2491921,
-      "length": 248,
+      "length": 175,
       "kind": "blob",
       "source": "blobs/blob_260611.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcIncrementSequenceMode",
+      "offset": 2492096,
+      "length": 1,
+      "kind": "code",
+      "source": "asm/spcIncrementSequenceMode.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_lifecycle.nim and integration_spc_pitch_offsets.nim verify original/rebuilt selection, blocks, modes, queued key-off and accepted-event pitch state"
+    },
+    {
+      "name": "spcSetSequenceProcessingMode",
+      "offset": 2492097,
+      "length": 5,
+      "kind": "code",
+      "source": "asm/spcSetSequenceProcessingMode.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_lifecycle.nim and integration_spc_pitch_offsets.nim verify original/rebuilt selection, blocks, modes, queued key-off and accepted-event pitch state"
+    },
+    {
+      "name": "spcServiceHeldPitchTransition",
+      "offset": 2492102,
+      "length": 16,
+      "kind": "code",
+      "source": "asm/spcServiceHeldPitchTransition.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_prefix.nim, integration_spc_sequence_lookahead.nim and integration_spc_active_pitch_transition.nim verify original/rebuilt prefix/counter parsing, private lookahead, guarded key-off and active F9 transitions"
+    },
+    {
+      "name": "spcStartActivePitchTransition",
+      "offset": 2492118,
+      "length": 16,
+      "kind": "code",
+      "source": "asm/spcStartActivePitchTransition.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_prefix.nim, integration_spc_sequence_lookahead.nim and integration_spc_active_pitch_transition.nim verify original/rebuilt prefix/counter parsing, private lookahead, guarded key-off and active F9 transitions"
+    },
+    {
+      "name": "spcSetPitchTransitionTarget",
+      "offset": 2492134,
+      "length": 24,
+      "kind": "code",
+      "source": "asm/spcSetPitchTransitionTarget.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_pitch_transition.nim and integration_spc_pitch_transition_ticks.nim verify original/rebuilt pending commands, event initialization, signed steps, final snaps, previews and actual caller paths"
+    },
+    {
+      "name": "spcReadChannelPitch",
+      "offset": 2492158,
+      "length": 11,
+      "kind": "code",
+      "source": "asm/spcReadChannelPitch.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_pitch_transition.nim and integration_spc_pitch_transition_ticks.nim verify original/rebuilt pending commands, event initialization, signed steps, final snaps, previews and actual caller paths"
     },
     {
       "name": "spcDivideStep",
@@ -1963,11 +2153,41 @@
       "evidence": "docs/audio.md; integration_spc_pan_transition.nim and integration_spc_arithmetic.nim verify original/rebuilt command, tick, preview and helper arithmetic"
     },
     {
-      "name": "blob_260839",
+      "name": "spcLookAheadSequence",
       "offset": 2492473,
-      "length": 232,
+      "length": 105,
+      "kind": "code",
+      "source": "asm/spcLookAheadSequence.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_sequence_prefix.nim, integration_spc_sequence_lookahead.nim and integration_spc_active_pitch_transition.nim verify original/rebuilt prefix/counter parsing, private lookahead, guarded key-off and active F9 transitions"
+    },
+    {
+      "name": "spcTickPitchTransition",
+      "offset": 2492578,
+      "length": 28,
+      "kind": "code",
+      "source": "asm/spcTickPitchTransition.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_pitch_transition.nim and integration_spc_pitch_transition_ticks.nim verify original/rebuilt pending commands, event initialization, signed steps, final snaps, previews and actual caller paths"
+    },
+    {
+      "name": "spcTickPitchModulation",
+      "offset": 2492606,
+      "length": 84,
+      "kind": "code",
+      "source": "asm/spcTickPitchModulation.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_pitch_modulation.nim verifies original/rebuilt command setup, delay/ramp/phase arithmetic, event resets and guarded output continuations"
+    },
+    {
+      "name": "blob_260912",
+      "offset": 2492690,
+      "length": 15,
       "kind": "blob",
-      "source": "blobs/blob_260839.bin",
+      "source": "blobs/blob_260912.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
@@ -1983,14 +2203,24 @@
       "evidence": "docs/audio.md; integration_spc_pan_transition.nim and integration_spc_arithmetic.nim verify original/rebuilt command, tick, preview and helper arithmetic"
     },
     {
-      "name": "blob_26093E",
+      "name": "spcPreviewPitchTransition",
       "offset": 2492734,
-      "length": 47,
-      "kind": "blob",
-      "source": "blobs/blob_26093E.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "length": 23,
+      "kind": "code",
+      "source": "asm/spcPreviewPitchTransition.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_pitch_transition.nim and integration_spc_pitch_transition_ticks.nim verify original/rebuilt pending commands, event initialization, signed steps, final snaps, previews and actual caller paths"
+    },
+    {
+      "name": "spcPreviewPitchModulation",
+      "offset": 2492757,
+      "length": 24,
+      "kind": "code",
+      "source": "asm/spcPreviewPitchModulation.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_pitch_transition.nim and integration_spc_pitch_transition_ticks.nim verify original/rebuilt pending commands, event initialization, signed steps, final snaps, previews and actual caller paths"
     },
     {
       "name": "spcScaleSignedStep",
