@@ -107,8 +107,8 @@ all 191 songs sound correct or that their sequences are fully decoded.
 
 ## Reproduced SPC700 source
 
-The fixed-layout build now assembles forty-nine annotated `.spc.asm` files with
-our Nim SPC700 assembler. They reproduce **1,221 executable bytes** in package 1.
+The fixed-layout build now assembles fifty-eight annotated `.spc.asm` files with
+our Nim SPC700 assembler. They reproduce **1,405 executable bytes** in package 1.
 The upload block header at file `$26003E` declares 16,779 bytes from file
 `$260042` to APU `$0500`; therefore `file = apuAddress + $25FB42` within it.
 Each source's `.org` is its APU execution address, not a ROM padding request.
@@ -119,6 +119,7 @@ Each source's `.org` is its APU execution address, not a ROM padding request.
 | `spcAdvancePhase.spc.asm` | `$05CD..05D7` | `$26010F..260119` | 11 |
 | `spcPrepareChannelEvent.spc.asm` | `$0654..0683` | `$260196..2601C5` | 48 |
 | `spcResetEventState.spc.asm` | `$0684..0695` | `$2601C6..2601D7` | 18 |
+| `spcInitializeEventPitchTransition.spc.asm` | `$0696..06BD` | `$2601D8..2601FF` | 40 |
 | `spcConvertEventPitch.spc.asm` | `$06BE..070D` | `$260200..26024F` | 80 |
 | `spcPitchScale.spc.asm` | `$070E..0732` | `$260250..260274` | 37 |
 | `spcWritePitch.spc.asm` | `$0733..0740` | `$260275..260282` | 14 |
@@ -149,18 +150,26 @@ Each source's `.org` is its APU execution address, not a ROM padding request.
 | `spcSetChannelPitchOffset.spc.asm` | `$0A55..0A58` | `$260597..26059A` | 4 |
 | `spcConfigureVolumeModulation.spc.asm` | `$0A59..0A64` | `$26059B..2605A6` | 12 |
 | `spcSetVolumeModulationDepth.spc.asm` | `$0A65..0A67` | `$2605A7..2605A9` | 3 |
+| `spcConfigurePitchTransition.spc.asm` | `$0A68..0A81` | `$2605AA..2605C3` | 26 |
+| `spcSetPendingPitchTransitionDuration.spc.asm` | `$0A82..0A85` | `$2605C4..2605C7` | 4 |
 | `spcSetChannelVolume.spc.asm` | `$0A86..0A8E` | `$2605C8..2605D0` | 9 |
 | `spcSetVolumeTransition.spc.asm` | `$0A8F..0AA7` | `$2605D1..2605E9` | 25 |
+| `spcSetEventPitchFraction.spc.asm` | `$0AA8..0AAB` | `$2605EA..2605ED` | 4 |
 | `spcCallSequence.spc.asm` | `$0AAC..0ACE` | `$2605EE..260610` | 35 |
 | `spcIncrementSequenceMode.spc.asm` | `$0B7E` | `$2606C0` | 1 |
 | `spcSetSequenceProcessingMode.spc.asm` | `$0B7F..0B83` | `$2606C1..2606C5` | 5 |
+| `spcSetPitchTransitionTarget.spc.asm` | `$0BA4..0BBB` | `$2606E6..2606FD` | 24 |
+| `spcReadChannelPitch.spc.asm` | `$0BBC..0BC6` | `$2606FE..260708` | 11 |
 | `spcDivideStep.spc.asm` | `$0BC7..0BE2` | `$260709..260724` | 28 |
 | `spcTickChannelVolume.spc.asm` | `$0C40..0C78` | `$260782..2607BA` | 57 |
 | `spcTickPanTransition.spc.asm` | `$0C79..0C8B` | `$2607BB..2607CD` | 19 |
 | `spcWriteStereo.spc.asm` | `$0C8C..0CD2` | `$2607CE..260814` | 71 |
 | `spcApplyPanStep.spc.asm` | `$0CD3..0CF6` | `$260815..260838` | 36 |
+| `spcTickPitchTransition.spc.asm` | `$0D60..0D7B` | `$2608A2..2608BD` | 28 |
 | `spcTickPitchModulation.spc.asm` | `$0D7C..0DCF` | `$2608BE..260911` | 84 |
 | `spcPreviewPan.spc.asm` | `$0DDF..0DFB` | `$260921..26093D` | 29 |
+| `spcPreviewPitchTransition.spc.asm` | `$0DFC..0E12` | `$26093E..260954` | 23 |
+| `spcPreviewPitchModulation.spc.asm` | `$0E13..0E2A` | `$260955..26096C` | 24 |
 | `spcScaleSignedStep.spc.asm` | `$0E2B..0E48` | `$26096D..26098A` | 30 |
 | `spcModulateChannelGain.spc.asm` | `$0E56..0E60` | `$260998..2609A2` | 11 |
 | `spcComputeChannelGain.spc.asm` | `$0E61..0E72` | `$2609A3..2609B4` | 18 |
@@ -177,11 +186,12 @@ literal synthetic fixtures, plus operand order, origins, labels, signed branch
 limits/wrap, bit packing and rejection of invalid or oversized operands.
 `nim r tests/integration_rom_pipeline.nim` independently checks SPC label origin
 versus ROM placement in a mixed 65816/SPC build, exact-length rejection and the
-whole-ROM gold rebuild. Source adoption compared every one of the 1,018 bytes
+whole-ROM gold rebuild. Source adoption compared every one of the 1,405 bytes
 at the file offsets above; the completed carving probe was retired afterward.
 
 The sequence-fetch, pitch-scale, pan, pan-transition, arithmetic, phase, tempo,
-volume, modulation-command, sequence-control, lifecycle and pitch-offset tests execute
+volume, modulation-command, sequence-control, lifecycle, pitch-offset,
+conversion, pitch-modulation and pitch-transition tests execute
 both original and freshly rebuilt driver images, checking mathematical results,
 state effects and ordered DSP-port writes. No audio output is needed for those
 gates. Remaining code, curves, instruments, songs and effects still enter the
@@ -360,6 +370,91 @@ cursor advancement and stack balance. The complete test file now runs 84,480
 cases per image, **168,960** across original and rebuilt. This proves the handler
 contract, not correctness of all uploaded instrument data or audible playback.
 
+### Pending and active pitch transitions
+
+F1 (`$0A68`) and F2 (`$0A6C`) each consume delay, duration and raw interval.
+The first operand is used from **Y**, so direct callers must supply Y even when
+A differs. F1 selects mode 1; F2 selects mode 0. Shared entry `$0A6E` accepts
+any mode in A, with only zero versus nonzero distinguished later. They store
+pending mode `$0290+X`, delay `$0281+X`, duration `$0280+X` and interval
+`$0291+X`, preserving all active pitch state. F3 (`$0A82`) has no operands and
+dispatch supplies zero, clearing **only pending duration**; direct A can set it.
+F3 does not cancel an active transition.
+
+F4 (`$0AA8..0AAB`) stores its one operand at `$0381+X`. The current pitch word
+is unchanged until accepted-event setup copies that byte into its fraction.
+Direct F4 preserves all registers/status; dispatch's ordinary fetch supplies A.
+This identifies a source-fraction writer without assigning frequency units.
+
+Event continuation `$0696..06BD` copies pending duration to active `$A0+X`.
+Zero preserves active delay, current pitch, target and step. Nonzero duration
+also loads active delay `$A1+X` and initializes these fields:
+
+| Field | Established role |
+|---|---|
+| `$0360/$0361+X` | Current fraction/integer word |
+| `$0370/$0371+X` | Signed 8.8 transition step |
+| `$0380+X` | Target integer byte, distinct from source fraction `$0381+X` |
+
+With n=current integer and k=raw interval, mode zero first sets
+`n=(n-k)&255`; nonzero mode preserves n. The target helper `$0BA4..0BBB`
+then stores `target=(n+k)&127` and calculates
+`step=sign(target-n)*floor(abs(target-n)*256/duration)` modulo 65536.
+The subtraction uses full unsigned-byte borrow, not signed interpretation of
+the wrapped result; the current fraction is ignored by this division.
+The stored step wraps modulo 65536; preview later interprets that stored word
+as signed, so a short duration and large displacement can wrap its apparent sign.
+The target helper accepts a raw target and masks it itself; a direct call with
+duration zero uses the existing divider's zero-divisor law.
+
+Active setup requires saved `$44=X` and zero word `$0E/$0F`. The target is
+stored before X is restored by the divider, so mismatched saved X splits target
+and step writes between channels. Reader `$0BBC..0BC6` copies the selected
+current word to DP `$10/$11`; both enabled and disabled setup paths call it.
+It preserves X/Y and status except N/Z, which reflect the fraction byte.
+
+Normal tick `$0D60..0D7B` first clears request bit `$13.7`. A zero active count
+does nothing; a nonzero delay consumes one whole tick even when it becomes zero.
+Otherwise decrement the count, request pitch output, then add the step modulo
+65536 while count remains or **snap to target*256** when it reaches zero.
+This caller enters shared step helper `$0CD6`, bypassing `$0CD3`'s dirty-mask
+OR: the decrement's Z flag therefore selects the final snap. Dirty mask `$5E`
+is preserved. All branches reload current into DP `$10/$11` before modulation.
+
+Preview `$0DFC..0E12` also reloads current and clears `$13.7`. A nonzero count
+with zero delay requests output and adds
+`trunc(signed16(step)*phase[$51]/256)` modulo 65536, without modifying persistent
+current/count/delay. It still previews the step at count 1 rather than the
+normal tick's final snap. Modulation preview `$0E13..0E2A` then uses the **old**
+depth and delay equality: zero depth or unequal delay skips modulation without
+advancing counters. Enabled preview computes
+`previewPhase=(phase[$02A0+X]+floor(rate[$02A1+X]*$51/256))&255` and enters
+shared waveform code `$0DAC`, applying the numeric law below without updating
+persistent phase, depth or ramp state. It preserves `$13`; skipped modulation
+outputs the base only when a previous stage requested it.
+
+`nim r tests/integration_spc_pitch_transition.nim` checks both images with
+**123,776 configuration calls**, **8,192 F3 calls**, **262,144 target helpers**,
+**304,000 initializations**, **32,768 current readers**, **8,192 F4-to-event
+chains** and **50,368 normal ticks in 384 complete ramp contexts**. Actual command
+outputs feed event setup unchanged; F3 is dispatched during the running ramps.
+The ramp/context counts overlap their constituent calls and are not additive.
+
+`nim r tests/integration_spc_pitch_transition_ticks.nim` separately checks
+**12,288 normal entries**, **135,648 signed-step previews**, **136,192 modulation
+previews**, **8,192 combined-value entries** and **8,192 full guarded output
+calls**. Scratch bases are deliberately poisoned before callers that must reload
+them. Host mathematics proves values before conversion; full-tail cases verify
+port gating/serialization, with the separate conversion suite supplying its oracle.
+
+The first suite also preserves **32 actual upstream caller traces** across eight
+channels and both images: `$07F9 -> $08EA -> $0CF7 -> $0D60`, and the no-carry
+phase route `$05CD -> $05E0 -> $0DD0 -> $0DDF -> $0DFC`. The normal fixtures set
+`$71+X=0` to bypass lookahead; volume depth/pan duration zero bypass their preview
+updates. These establish real calls without proving the unadopted lookahead
+logic at `$0CF7..0D5F`, absolute cadence or musical effect identities. Completed
+command, initialization and tick probes were retired after preserving these checks.
+
 ### Pitch modulation setup and persistent state
 
 E3 at `$09FD` consumes delay, rate and depth. It stores delay at `$02B0+X`,
@@ -448,12 +543,10 @@ routine neither clamps these inputs nor implements a left shift for them.
 It returns A=result low, Y=U high, C=1/N=0/Z=1, and preserves P/I/B; H/V come
 from the interpolation ADDW. It falls into the scaling/output path below.
 This establishes arithmetic and table shape without assigning frequency units
-or committing the original table contents. The preceding `$0696..06BD` event
-transition setup and the other callers' complete roles remain separate work.
-The next hypothesis is that F1/F2/F3 (`$0A68/$0A6C/$0A82`) configure that
-pending pitch transition. Acceptance requires following those writers through
-`$0696..06BD` and its helpers, then checking target/step initialization and later
-tick/preview behavior with authored sequences; metadata alone is insufficient.
+or committing the original table contents. Event transition setup and its normal/
+preview consumers are explained above. The other conversion callers' complete
+roles remain open; the next bounded question is `$0CF7..0D5F` lookahead/key-off
+behavior, especially how it handles repeat/call streams before a held event.
 
 `nim r tests/integration_spc_pitch_conversion.nim` checks **1,048,576 direct
 entries** across both entry points and both ROM images: every position word
@@ -617,6 +710,8 @@ zero/nonzero dirty-mask combinations, incoming-Z independence, target snaps,
 guarded neighboring arrays and stack/register effects. The pointer adjustment
 changes only its low byte; arbitrary bases are not part of this contract. The
 `$0300` array is the channel-volume word consumed by the gain path below.
+Pitch uses a different entry at `$0CD6` with base `$0360`, preserving the caller's
+duration-decrement Z flag; its final snap is verified in the transition suite.
 
 Sub-tick code `$0DDF..0DFB` (file `$260921..26093D`) and helper `$0E2B..0E48`
 (file `$26096D..26098A`) calculate a preview using caller phase byte `$51`:
@@ -975,9 +1070,9 @@ phase[$02A0+X] = (duration[$02B1+X] & 1) * 128
 The two additions explicitly clear carry independently. Offsets wrap as bytes,
 without sign extension or clipping; carry from the first sum is discarded.
 The old low pitch byte is **replaced**, not preserved. Only duration parity
-initializes phase, as verified by the modulation consumer above. The source
-fraction's complete producer path and musical frequency units remain open;
-the table-conversion arithmetic is independently verified above.
+initializes phase, as verified by the modulation consumer above. F4 is a verified
+writer of the source fraction. Musical frequency units and other producer paths
+remain open; table conversion and event transition arithmetic are verified above.
 
 `nim r tests/integration_spc_pitch_offsets.nim` executes **679,936 real setter
 dispatches**, **16,384 direct setters** and **339,968 event-prefix entries** on

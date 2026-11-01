@@ -35,6 +35,12 @@ storeDepth:
     CLRC
     ADC A, $02A1+X
     MOV $02A0+X, A
+
+; Shared JMP entry $0DAC: A=phase to apply, current depth $B1+X and base word
+; $10/$11. Preview caller $0E28 bypasses persistent phase/ramp updates above.
+; Saves phase in $12 and uses word $0E/$0F=0 for signed offset at $0E41, then
+; enters $06BE conversion/output. Preserves X, $13, $5E and persistent phase.
+spcApplyPitchModulationPhase:
     MOV $12, A             ; Save phase bit 7 for signed addition at $0E41.
     ASL A
     ASL A
