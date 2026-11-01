@@ -105,3 +105,36 @@ suite "Expanded map span composition":
       doAssert not view.mapSpanFastPath()
       view.checkMargins(original)
       view.registers[register] = previous
+
+  test "poisoned reusable output is fully covered across map, battle and padded transitions":
+    for (width, height) in [(257, 225), (336, 256), (512, 384)]:
+      let
+        view = authoredView(width, height)
+        original = newImage(ScreenWidth, ScreenHeight)
+        poison = rgbx(103, 17, 191, 255)
+      original.fill(rgbx(31, 73, 137, 255))
+      view.output.fill(poison)
+      view.checkMargins(original)
+      view.battle.ready = true
+      view.output.fill(poison)
+      for y in 0..<height:
+        for x in 0..<width:
+          view.battle.output[x, y] = rgbx((x and 255).uint8, (y and 255).uint8, 59, 255)
+      let battle = view.compose(original)
+      for y in 0..<height:
+        for x in 0..<width:
+          if x >= view.originX and x < view.originX + ScreenWidth and
+              y >= view.originY and y < view.originY + ScreenHeight:
+            doAssert battle[x, y] == original[x - view.originX, y - view.originY]
+          else:
+            doAssert battle[x, y] == view.battle.output[x, y]
+      view.battle.ready = false
+      view.extended = false
+      let padded = view.compose(original)
+      for y in 0..<height:
+        for x in 0..<width:
+          if x >= view.originX and x < view.originX + ScreenWidth and
+              y >= view.originY and y < view.originY + ScreenHeight:
+            doAssert padded[x, y] == original[x - view.originX, y - view.originY]
+          else:
+            doAssert padded[x, y] == rgbx(0, 0, 0, 255)

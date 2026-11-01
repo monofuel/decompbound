@@ -1,4 +1,6 @@
-import std/unittest
+import
+  std/unittest,
+  decompbound/[cpu, save_state]
 
 include ../src/decompbound/ppu
 
@@ -64,3 +66,50 @@ suite "Native PPU tile row reuse":
       var indices: PlanarRowIndices
       expect ValueError:
         cache.decodeTileRow(addr first.vram, 0, bpp, indices)
+
+  test "ordinary mode-one rendering observes port uploads, palettes, state import and reset":
+    let hardware = newSnesBus(newSeq[uint8](0x10000))
+    defer:
+      hardware.bus.readHook = nil
+      hardware.bus.writeHook = nil
+      hardware.apu.spc.readHook = nil
+      hardware.apu.spc.writeHook = nil
+    var cpuState = hardware.resetCpu()
+    hardware.nmitimen = 0x80
+    let image = newImage(ScreenWidth, ScreenHeight)
+    hardware.ppuRegs[0] = 15
+    hardware.ppuRegs[5] = 9
+    hardware.ppuRegs[0x2C] = 1
+    hardware.ppuRegs[0x0B] = 1
+    for row in 0..<8: hardware.vram[0x1000 + row] = 0x00FF
+    hardware.cgram[1] = 0x001F
+    hardware.cgram[2] = 0x03E0
+    let original = serializeState(hardware, cpuState)
+    hardware.renderScanline(image, 0)
+    doAssert image[0, 0] == toRgbx(bgr555ToColor(0x001F))
+    hardware.bus.write8(0x002115, 0x80)
+    hardware.bus.write8(0x002116, 0)
+    hardware.bus.write8(0x002117, 0x10)
+    hardware.bus.write8(0x002118, 0)
+    hardware.renderScanline(image, 0)
+    doAssert image[0, 0] == rgbx(0, 0, 0, 255)
+    hardware.bus.write8(0x002119, 0xFF)
+    hardware.renderScanline(image, 0)
+    doAssert image[0, 0] == toRgbx(bgr555ToColor(0x03E0))
+    hardware.cgram[2] = 0x7C00
+    hardware.renderScanline(image, 0)
+    doAssert image[0, 0] == toRgbx(bgr555ToColor(0x7C00))
+    deserializeState(original, hardware, cpuState)
+    hardware.renderScanline(image, 0)
+    doAssert image[0, 0] == toRgbx(bgr555ToColor(0x001F))
+    hardware.apu.spc.readHook = nil
+    hardware.apu.spc.writeHook = nil
+    discard hardware.softReset()
+    hardware.ppuRegs[0] = 15
+    hardware.ppuRegs[5] = 9
+    hardware.ppuRegs[0x2C] = 1
+    hardware.ppuRegs[0x0B] = 1
+    hardware.vram[0x1000] = 0xFFFF
+    hardware.cgram[3] = 0x7FFF
+    hardware.renderScanline(image, 0)
+    doAssert image[0, 0] == rgbx(255, 255, 255, 255)
