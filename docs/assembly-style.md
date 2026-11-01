@@ -8,8 +8,8 @@ on their routines rather than requiring a repository-wide formatting sweep.
 
 ## Routine contracts
 
-Start with the purpose and original file/SNES addresses, followed by a compact
-calling contract. Aim for about five to ten comment lines. Include what a caller
+Start with the purpose and original file/SNES or file/APU addresses, followed by
+a compact calling contract. Aim for about five to ten comment lines. Include what a caller
 needs to use the entry safely:
 
 - Entry convention: JSL/RTL, JSR/RTS, or fall-through/shared tail.
@@ -98,6 +98,31 @@ prepareConstructor:
   visible. Do not hide pointer structure in long, unexplained `.byte` rows.
 - Explain unresolved values by their observed use and mark the unknown meaning
   with a specific TODO. Do not invent game-level names for unknown fields.
+
+## SPC700 source
+
+Use `.spc.asm` for uploaded SPC700 code; ordinary `.asm` selects the 65816
+assembler. Both follow the contracts, logical blocks and evidence rules above.
+Distinguish the APU execution address from the ROM file offset holding its upload
+payload. Start each SPC source with `.org $APUaddress`: it sets label and branch
+addresses without emitting padding. The manifest still controls ROM placement.
+
+Use Sony destination-first operands: `MOV $12,#$34` stores the immediate into
+direct-page byte `$12`. `$12` selects direct page and `$0012` or `!$12` selects
+absolute where available. Preserve those widths; ports `$F2/$F3` may deliberately
+use absolute instructions. Indexed forms use `+X`/`+Y`, `[$12+X]` or `[$12]+Y`;
+bit operands use `$1234.5`, with `/` for supported inverted-bit forms.
+
+SPC700 has fixed eight-bit registers and a YA word pair, so it needs no 65816
+M/X hints. State the runtime PSW direct-page flag requirement instead: page zero
+or page one. Use local labels for branches; numeric cross-file calls identify
+the callee in a nearby comment. `.byte`/`.word` describe structural data only;
+write executable instructions as mnemonics. Numeric arithmetic and local labels
+are supported; macros, includes, EQU and cross-file symbol imports are not.
+
+Before adoption, run `tests/test_spc_asm.nim`, the relevant driver behavior tests
+and the vanilla byte-identical rebuild. CPU/port checks run without speakers;
+byte identity does not establish complete musical or DSP timing correctness.
 
 ## Source comments and research evidence
 

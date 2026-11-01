@@ -413,6 +413,44 @@ and "make a better version" never fight.
    - v1 seeds may use a single full-ROM `blob`/`copy`/`unknown` entry; finer
      cuts land as comprehension grows without breaking the gate
 
+## Uploaded SPC700 source in the fixed-layout build
+
+Reproduced sources ending in `.spc.asm` use our Nim SPC700 assembler
+(`src/decompbound/spc_asm.nim`); other `.asm` files use the existing 65816 front
+end. Each SPC source declares its APU origin with `.org`, independently of the
+manifest's ROM file offset. `.org` sets label addresses and emits no padding.
+The source suffix selects architecture before the general `.asm` fallback;
+the manifest schema and exact region-length gate are unchanged.
+
+The 154 SPC source regions reproduce 4,689 bytes from package 1: 151 code
+regions (4,591 bytes) and three structural code-pointer tables (98 bytes).
+All reproduced regions are explained within their documented contracts; this
+does not establish a complete executable inventory or explain every native record.
+All 25 nominal native record entries have source. Their headers plus timing,
+classification, operand and parameter data, plus the sequence-zero pointer/branch
+alias, remain identified and copied (241 bytes). No metadata contents are
+committed as assembly merely because their bytes could decode as instructions.
+[audio.md](audio.md#reproduced-spc700-source) records their mappings and behavior
+gates. Song sequences, instrument records and the stereo curve remain local
+extracted data. Syntax and readability rules are in
+[assembly-style.md](assembly-style.md#spc700-source).
+
+The main-CPU resident initializer (`$C4FB58..FBBC`, 101 bytes) and its
+near-call bank/mask helper (`$C4FB42..FB57`, 22 bytes) also reproduce from
+source. Their cache/scratch contracts, synthetic original/rebuilt checks and
+complete original cold-boot upload/return evidence are in
+[audio.md](audio.md#song-selection-and-resident-packages). The existing song
+loader keeps its 347 bytes while moving explanations beside logical code blocks.
+
+Ten additional main-CPU regions (433 bytes) explain conditional position-based
+song selection and its distinct candidate consumers, unsigned word division,
+display-brightness setup and the interrupt fragment that consumes it. Original
+caller/consumer checks cover notifications, inhibition, far-pointer versus
+low-word advancement, hardware-NMI entry and actual PPU writes. The two-byte
+SPC pointer/branch alias remains extracted data even though a real caller executes
+it. See [audio.md](audio.md#position-based-song-selection) and
+[graphics.md](graphics.md#display-brightness-transitions) for scope and gates.
+
 ## Open decisions
 
 1. **Data and documentation model** — typed tables, pointer tables, struct/record

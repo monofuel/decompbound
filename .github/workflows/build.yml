@@ -9,11 +9,11 @@ jobs:
       with:
         submodules: recursive
     - uses: treeform/setup-nim-action@v6
-    - name: Install Linux controller development libraries
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y --no-install-recommends libudev-dev libevdev-dev
+    - name: Install native browser test libraries
+      run: sudo apt-get update && sudo apt-get install -y libudev-dev libevdev-dev libgl1
     - run: nimby sync -g nimby.lock
     - run: make test
-    - name: Compile the ROM builder without private ROM assets
+    - name: Build command-line entry point
       run: nim c src/decompbound.nim
+    - name: Check synthetic ROM round trips
+      run: nim r tests/integration_rom_pipeline.nim

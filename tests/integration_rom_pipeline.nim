@@ -1,7 +1,7 @@
 ## Extract + rebuild round-trip (synthetic always; gold when present).
 
 import
-  std/[os, strformat],
+  std/[os, strformat, unittest],
   decompbound/[common, manifest, rom_pipeline]
 
 const
@@ -55,6 +55,50 @@ block syntheticRoundTrip:
   doAssert built[ChecksumOffset] == uint8(csum and 0xFF)
   doAssert built[ChecksumOffset + 1] == uint8((csum shr 8) and 0xFF)
   echo &"[test_rom_pipeline] synthetic round-trip ok checksum=0x{csum:04X}"
+
+block mixedArchitectureSources:
+  let
+    sourceDir = ScratchRoot / "mixed_source"
+    extractDir = ScratchRoot / "mixed_extract"
+    cpuSource = sourceDir / "cpu.asm"
+    spcSource = sourceDir / "apu.spc.asm"
+    rawSource = sourceDir / "structure.bin"
+    expectedPrefix = @[0xA9'u8, 0x5A, 0x60, 0xCA, 0xFE,
+      0xE8, 0xA6, 0x2F, 0x01, 0x99, 0x3F, 0x00, 0x34, 0x6F]
+  createDir(sourceDir)
+  createDir(extractDir)
+  writeFile(cpuSource, ".a8\nLDA #$5A\nRTS\n")
+  writeFile(spcSource, ".org $3400\nentry: MOV A,#$A6\nBRA done\n.byte $99\ndone: CALL entry\nRET\n")
+  writeFile(rawSource, @[0xCA'u8, 0xFE])
+  var
+    expected = newSeq[uint8](EarthboundRomSize)
+    layout = Manifest(version: ManifestSchemaVersion, romSize: EarthboundRomSize,
+      regions: @[
+        ManifestRegion(name: "cpu", offset: 0, length: 3, kind: rkCode,
+          source: cpuSource, build: blReproduce, comprehension: clExplained),
+        ManifestRegion(name: "structure", offset: 3, length: 2, kind: rkData,
+          source: rawSource, build: blReproduce, comprehension: clExplained),
+        ManifestRegion(name: "apu", offset: 5, length: 9, kind: rkCode,
+          source: spcSource, build: blReproduce, comprehension: clExplained),
+        ManifestRegion(name: "tail", offset: 14, length: EarthboundRomSize - 14,
+          kind: rkBlob, source: "tail.bin", build: blCopy,
+          comprehension: clUnknown)])
+  for index, value in expectedPrefix:
+    expected[index] = value
+  for index in expectedPrefix.len ..< expected.len:
+    expected[index] = uint8((index * 131 + 17) and 255)
+  writeFile(extractDir / "tail.bin", expected[14 .. ^1])
+  doAssert rebuildRom(layout, extractDir, computeChecksum = false) == expected,
+    "SPC label addresses must use APU .org while placement uses ROM offset"
+  # Retain the pipeline's exact-length gate for assembled SPC sources.
+  dec layout.regions[2].length
+  dec layout.regions[3].offset
+  inc layout.regions[3].length
+  writeFile(extractDir / "tail.bin", expected[13 .. ^1])
+  doAssert validateManifest(layout).ok
+  expect ValueError:
+    discard rebuildRom(layout, extractDir, computeChecksum = false)
+  echo "[test_rom_pipeline] mixed 65816/SPC/raw sources and exact-length rejection ok"
 
 block goldRoundTrip:
   if not goldBaseromAvailable():
