@@ -13,4 +13,7 @@ jobs:
       run: sudo apt-get update && sudo apt-get install -y libudev-dev libevdev-dev libgl1
     - run: nimby sync -g nimby.lock
     - run: make test
-    - run: nim r src/decompbound.nim
+    - name: Build command-line entry point
+      run: nim c src/decompbound.nim
+    - name: Check synthetic ROM round trips
+      run: nim r tests/integration_rom_pipeline.nim
