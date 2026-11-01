@@ -1,6 +1,8 @@
 import
   std/[dynlib, os, posix, strutils],
-  ../../src/decompbound/[libretro_api, rom_pipeline, viewport_geometry]
+  ../../src/decompbound/[frame_step, libretro_api, rom_pipeline, viewport_geometry]
+
+const WalkPeriodFrames = 30
 
 type
   VoidProc = proc() {.cdecl.}
@@ -92,7 +94,7 @@ proc poll() {.cdecl.} =
 proc input(port, device, index, id: cuint): int16 {.cdecl.} =
   ## Optionally drive the same deterministic alternating walk as the profile host.
   if walking and port == 0 and device == RetroDeviceJoypad and index == 0:
-    let held = if (frame div 30) mod 2 == 0: 7.cuint else: 6.cuint
+    let held = if (frame div WalkPeriodFrames) mod 2 == 0: 7.cuint else: 6.cuint
     if id == held: result = 1
 
 proc capture(path: string, library: LibHandle, state: var seq[uint8], frames: int) =
@@ -111,7 +113,7 @@ proc capture(path: string, library: LibHandle, state: var seq[uint8], frames: in
     pcm.setLen(0)
     symbol[VoidProc](library, "retro_run")()
     if callbackFailure.len > 0: raise newException(IOError, callbackFailure)
-    if videoCalls != 1 or polls < 1 or pcm.len != 533 * 2 * sizeof(int16):
+    if videoCalls != 1 or polls < 1 or pcm.len != ApuSamplesPerFrame * 2 * sizeof(int16):
       raise newException(IOError, "Unexpected core callback counts")
     if not symbol[StateTransfer](library, "retro_serialize")(addr state[0], state.len.csize_t):
       raise newException(IOError, "Core state export failed")
