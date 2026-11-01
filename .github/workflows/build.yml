@@ -9,6 +9,8 @@ jobs:
       with:
         submodules: recursive
     - uses: treeform/setup-nim-action@v6
+    - name: Install native input development libraries
+      run: sudo apt-get update && sudo apt-get install -y libudev-dev libevdev-dev
     - run: nimby sync -g nimby.lock
     - run: make test
     - run: nim r src/decompbound.nim
