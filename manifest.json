@@ -1729,8 +1729,8 @@
       "kind": "code",
       "source": "asm/spcPrepareSequenceSelection.spc.asm",
       "build": "reproduce",
-      "comprehension": "identified",
-      "evidence": "docs/audio.md; integration_spc_sequence_selection.nim; original/rebuilt code and native caller/helper contracts"
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_upload_receiver.nim, integration_spc_reset_helpers.nim and integration_apu_resident_upload.nim execute actual prelude/reset/receiver-to-selector returns and original two-processor transfers"
     },
     {
       "name": "spcSelectSequence",
@@ -2435,9 +2435,169 @@
     {
       "name": "blob_2609B5",
       "offset": 2492853,
-      "length": 1942,
+      "length": 110,
       "kind": "blob",
       "source": "blobs/blob_2609B5.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcReceiveUpload",
+      "offset": 2492963,
+      "length": 76,
+      "kind": "code",
+      "source": "asm/spcReceiveUpload.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_upload_receiver.nim and integration_apu_resident_upload.nim; original/rebuilt source and native/port protocol contracts"
+    },
+    {
+      "name": "blob_260A6F",
+      "offset": 2493039,
+      "length": 619,
+      "kind": "blob",
+      "source": "blobs/blob_260A6F.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcDispatchHostService",
+      "offset": 2493658,
+      "length": 195,
+      "kind": "code",
+      "source": "asm/spcDispatchHostService.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_service_dispatch.nim; original/rebuilt source and native/port protocol contracts"
+    },
+    {
+      "name": "spcServiceKindTable",
+      "offset": 2493853,
+      "length": 18,
+      "kind": "data",
+      "source": "asm/spcServiceKindTable.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_service_dispatch.nim; original/rebuilt source and native/port protocol contracts"
+    },
+    {
+      "name": "blob_260DAF",
+      "offset": 2493871,
+      "length": 90,
+      "kind": "blob",
+      "source": "blobs/blob_260DAF.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcDispatchNativeService",
+      "offset": 2493961,
+      "length": 83,
+      "kind": "code",
+      "source": "asm/spcDispatchNativeService.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_service_dispatch.nim; original/rebuilt source and native/port protocol contracts"
+    },
+    {
+      "name": "spcContinueHostService",
+      "offset": 2494044,
+      "length": 20,
+      "kind": "code",
+      "source": "asm/spcContinueHostService.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_service_dispatch.nim; original/rebuilt source and native/port protocol contracts"
+    },
+    {
+      "name": "spcServiceContinuationTable",
+      "offset": 2494064,
+      "length": 18,
+      "kind": "data",
+      "source": "asm/spcServiceContinuationTable.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_service_dispatch.nim; original/rebuilt source and native/port protocol contracts"
+    },
+    {
+      "name": "spcJumpServiceContinuation",
+      "offset": 2494082,
+      "length": 8,
+      "kind": "code",
+      "source": "asm/spcJumpServiceContinuation.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_service_dispatch.nim; original/rebuilt source and native/port protocol contracts"
+    },
+    {
+      "name": "blob_260E8A",
+      "offset": 2494090,
+      "length": 210,
+      "kind": "blob",
+      "source": "blobs/blob_260E8A.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcResetAuxiliaryState",
+      "offset": 2494300,
+      "length": 30,
+      "kind": "code",
+      "source": "asm/spcResetAuxiliaryState.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_reset_helpers.nim; original/rebuilt source and native/port protocol contracts"
+    },
+    {
+      "name": "spcClearHostCommandState",
+      "offset": 2494330,
+      "length": 27,
+      "kind": "code",
+      "source": "asm/spcClearHostCommandState.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_reset_helpers.nim; original/rebuilt source and native/port protocol contracts"
+    },
+    {
+      "name": "spcReleaseUpperVoices",
+      "offset": 2494357,
+      "length": 52,
+      "kind": "code",
+      "source": "asm/spcReleaseUpperVoices.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_reset_helpers.nim; original/rebuilt source and native/port protocol contracts"
+    },
+    {
+      "name": "spcReturnServiceRecordHeader",
+      "offset": 2494409,
+      "length": 3,
+      "kind": "data",
+      "source": "blobs/blob_260FC9.bin",
+      "build": "copy",
+      "comprehension": "identified",
+      "evidence": "docs/audio.md; integration_spc_reset_helpers.nim and integration_spc_service_dispatch.nim trace original port-one record six; metadata contents remain user-ROM data"
+    },
+    {
+      "name": "spcReturnServiceRecord",
+      "offset": 2494412,
+      "length": 1,
+      "kind": "code",
+      "source": "asm/spcReturnServiceRecord.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_reset_helpers.nim; original/rebuilt source and native/port protocol contracts"
+    },
+    {
+      "name": "blob_260FCD",
+      "offset": 2494413,
+      "length": 382,
+      "kind": "blob",
+      "source": "blobs/blob_260FCD.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
