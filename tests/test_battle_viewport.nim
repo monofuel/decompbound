@@ -237,6 +237,48 @@ suite "Live battle viewport":
         let pixel = view.output[x, y]
         if pixel.r != 0 or pixel.g != 0 or pixel.b != 0: inc colored
     check colored > 0
+  test "detached spans match full PPU rows and leave every other pixel untouched":
+    let sentinel = rgbx(17, 19, 23, 255)
+    for fourBit in [false, true]:
+      let machine = if fourBit: fourBitFixture() else: fixture()
+      defer: machine.release()
+      for variant in 0 .. 7:
+        machine.ppuRegs[0] = if variant == 6: 7 else: 15
+        machine.ppuRegs[0x2C] = if variant == 4: 0 else: 0x1F
+        machine.ppuRegs[0x2D] = 0x0F
+        machine.ppuRegs[0x30] = if variant == 3: 0xA2 else: 2
+        machine.ppuRegs[0x31] = if variant == 0: 0 else: 0x7F
+        if variant == 6: machine.ppuRegs[0x31] = 0xFF
+        machine.ppuRegs[0x23] = if variant in 1..3: 0x33 else: 0
+        machine.ppuRegs[0x24] = machine.ppuRegs[0x23]
+        machine.ppuRegs[0x25] = machine.ppuRegs[0x23]
+        machine.ppuRegs[0x2E] = if variant in 1..3: 0x1F else: 0
+        machine.ppuRegs[0x2F] = machine.ppuRegs[0x2E]
+        machine.ppuRegs[0x26] = if variant == 2: 200 else: 13
+        machine.ppuRegs[0x27] = if variant == 2: 40 else: 177
+        if variant == 7: machine.ppuRegs[5] = 3
+        for bg in 0 .. 3:
+          machine.bgScroll[bg * 2] = (bg * 77 + 7).uint16
+          machine.bgScroll[bg * 2 + 1] = (bg * 33 + 3).uint16
+        for index in 0 ..< 256: machine.cgram[index] = colorWord(index, variant)
+        let full = newImage(ScreenWidth, 3)
+        full.fill(sentinel)
+        machine.renderScanline(full, 1)
+        for length in [0, 1, 7, 8, 39, 40, 80, 255, 256]:
+          let actual = newImage(ScreenWidth, 3)
+          actual.fill(sentinel)
+          machine.renderDetachedSpan(actual, 1, length)
+          for y in 0 .. 2:
+            for x in 0 ..< ScreenWidth:
+              doAssert actual[x, y] == (if y == 1 and x < length: full[x, y] else: sentinel),
+                "Detached prefix differed at " & $x & "," & $y & ", length=" & $length
+      for (py, length) in [(-1, 1), (3, 1), (0, -1), (0, 257)]:
+        expect ValueError:
+          machine.renderDetachedSpan(newImage(ScreenWidth, 3), py, length)
+      expect ValueError:
+        machine.renderDetachedSpan(nil, 0, 1)
+      expect ValueError:
+        machine.renderDetachedSpan(newImage(128, 1), 0, 1)
   test "auxiliary PPU rows preserve the game's sprite visibility and colour context":
     let machine = fixture()
     defer: machine.release()
@@ -259,6 +301,8 @@ suite "Live battle viewport":
     auxiliary.ppuRegs[0] = 15
     auxiliary.ppuRegs[0x30] = 0xF0
     auxiliary.renderDetachedScanline(auxiliaryLine, 0)
+    for length in [0, 1, 40, 255, 256]:
+      auxiliary.renderDetachedSpan(auxiliaryLine, 0, length)
     machine.renderSprites(actual)
     doAssert actual.data == expected.data
   test "a displayed constant suffix does not flatten the generated vertical continuation":
