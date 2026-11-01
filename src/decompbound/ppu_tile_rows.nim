@@ -23,7 +23,6 @@ type
   CachedPlanarRow = object
     planes: uint64
     indices: PlanarRowIndices
-    valid: bool
   PpuTileRowCache* = object
     rows: array[PpuRowCacheEntries, CachedPlanarRow]
 
@@ -34,29 +33,33 @@ proc decodeTileRow*(cache: var PpuTileRowCache,
   if bpp notin [2, 4, 8]:
     raise newException(ValueError, "Planar tile rows require 2, 4 or 8 bits per pixel.")
   let address = rowAddress and VramWordMask
-  var planes = vram[][address].uint64
+  let plane01 = vram[][address]
+  var plane23, plane45, plane67: uint16
   if bpp >= 4:
-    planes = planes or (vram[][(address + PlanePairStride) and VramWordMask].uint64 shl 16)
+    plane23 = vram[][(address + PlanePairStride) and VramWordMask]
   if bpp == 8:
-    planes = planes or (vram[][(address + PlanePairStride * 2) and VramWordMask].uint64 shl 32) or
-      (vram[][(address + PlanePairStride * 3) and VramWordMask].uint64 shl 48)
+    plane45 = vram[][(address + PlanePairStride * 2) and VramWordMask]
+    plane67 = vram[][(address + PlanePairStride * 3) and VramWordMask]
   let
+    planes = plane01.uint64 or (plane23.uint64 shl 16) or
+      (plane45.uint64 shl 32) or (plane67.uint64 shl 48)
     slot = (address xor (address shr CacheIndexBits)) and CacheMask
     row = addr cache.rows[slot]
-  if not row.valid or row.planes != planes:
+  if row.planes != planes:
     # Unused plane pairs are zero, so equal keys decode identically across bit depths and machines.
+    # A zero-initialized entry already represents the all-zero row exactly.
     for x in 0..<RowPixels:
-      var index = ((planes shr (7 - x)) and 1) or
-        (((planes shr (15 - x)) and 1) shl 1)
+      var index = 0
+      if ((plane01 shr (7 - x)) and 1) != 0: index = index or 1
+      if ((plane01 shr (15 - x)) and 1) != 0: index = index or 2
       if bpp >= 4:
-        index = index or (((planes shr (23 - x)) and 1) shl 2) or
-          (((planes shr (31 - x)) and 1) shl 3)
+        if ((plane23 shr (7 - x)) and 1) != 0: index = index or 4
+        if ((plane23 shr (15 - x)) and 1) != 0: index = index or 8
       if bpp == 8:
-        index = index or (((planes shr (39 - x)) and 1) shl 4) or
-          (((planes shr (47 - x)) and 1) shl 5) or
-          (((planes shr (55 - x)) and 1) shl 6) or
-          (((planes shr (63 - x)) and 1) shl 7)
+        if ((plane45 shr (7 - x)) and 1) != 0: index = index or 0x10
+        if ((plane45 shr (15 - x)) and 1) != 0: index = index or 0x20
+        if ((plane67 shr (7 - x)) and 1) != 0: index = index or 0x40
+        if ((plane67 shr (15 - x)) and 1) != 0: index = index or 0x80
       row.indices[x] = index.uint8
     row.planes = planes
-    row.valid = true
   indices = row.indices
