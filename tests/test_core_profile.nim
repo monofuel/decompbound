@@ -72,6 +72,10 @@ suite "Optional core profile accounting":
         expect ValueError:
           profileStage(AudioDsp): raise newException(ValueError, "Synthetic scope exit.")
         profileStage(Companion): inc calls
+      profileStage(ExpandedScenery):
+        profileStage(ExpandedSnapshot): discard
+        profileStage(ExpandedMapCompose): discard
+        profileStage(ExpandedBattleCompose): discard
       endCoreProfile()
     check calls == 10
     writeCoreProfile()
@@ -83,6 +87,8 @@ suite "Optional core profile accounting":
       check report["recordedFrames"].getInt == 2
       check report["frames"][0]["index"].getInt == 1
       check report["frames"][1]["index"].getInt == 2
+      for stage in [ExpandedSnapshot, ExpandedMapCompose, ExpandedBattleCompose]:
+        check report["stageNames"][stage.ord].getStr == $stage
       for frame in report["frames"]:
         var sum: int64
         for stage in frame["stagesNs"]: sum += stage.getBiggestInt
@@ -91,6 +97,8 @@ suite "Optional core profile accounting":
         check frame["stagesNs"][SpcExecution.ord].getBiggestInt > 0
         check frame["stagesNs"][AudioDsp.ord].getBiggestInt > 0
         check frame["stagesNs"][Companion.ord].getBiggestInt > 0
+        for stage in [ExpandedSnapshot, ExpandedMapCompose, ExpandedBattleCompose]:
+          check frame["stagesNs"][stage.ord].getBiggestInt > 0
       writeCoreProfile()
       check readFile(path) == bytes
       clearCoreProfile()

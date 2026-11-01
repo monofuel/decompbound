@@ -4,7 +4,7 @@
 import
   std/[options, strformat],
   pixie,
-  ./[battle_viewport, cpu, expanded_sprite_raster, expanded_sprite_tracker, ppu,
+  ./[battle_viewport, core_profile, cpu, expanded_sprite_raster, expanded_sprite_tracker, ppu,
     snesbus, viewport_geometry, world_map, world_map_assets, world_map_layout]
 
 type
@@ -295,7 +295,7 @@ proc capture*(view: ExpandedViewport, snes: SnesBus) =
   view.extended = false
   view.attachSprites(snes)
   view.spriteRaster.clear()
-  view.battle.finishCapture(snes)
+  profileStage(ExpandedBattleCompose): view.battle.finishCapture(snes)
   if view.battle.ready: return
   view.syncStoryFlags(snes)
   let camera = snes.publishedCamera()
@@ -311,10 +311,11 @@ proc capture*(view: ExpandedViewport, snes: SnesBus) =
   view.logicalTileset = logical
   view.reason = view.padReason(snes, cameraX, cameraY, logical)
   if view.reason.len > 0: return
-  view.copyLiveResources(snes, view.atlas.assets.drawingTileset(logical))
-  if not view.publishedMapMatches(snes):
-    view.reason = "map-publication"
-    return
+  profileStage(ExpandedSnapshot):
+    view.copyLiveResources(snes, view.atlas.assets.drawingTileset(logical))
+    if not view.publishedMapMatches(snes):
+      view.reason = "map-publication"
+      return
   view.extended = true
   view.reason = "map"
   let sprites = view.spriteTracker.displayed(snes, cameraX, cameraY)
@@ -588,14 +589,15 @@ proc compose*(view: ExpandedViewport, original: Image): Image =
       originY = view.originY
       right = originX + ScreenWidth
       bottom = originY + ScreenHeight
-    view.composeAddedScenery()
-    for index in view.spriteRaster.touched:
-      let
-        x = index mod view.width
-        y = index div view.width
-      if x >= originX and x < right and y >= originY and y < bottom: continue
-      let color = view.actorPixel(view.cameraX + x - originX,
-        view.cameraY + y - originY)
-      if color.isSome: view.output.data[index] = color.get()
+    profileStage(ExpandedMapCompose):
+      view.composeAddedScenery()
+      for index in view.spriteRaster.touched:
+        let
+          x = index mod view.width
+          y = index div view.width
+        if x >= originX and x < right and y >= originY and y < bottom: continue
+        let color = view.actorPixel(view.cameraX + x - originX,
+          view.cameraY + y - originY)
+        if color.isSome: view.output.data[index] = color.get()
   view.output.blitOriginal(original, view.originX, view.originY)
   view.output
