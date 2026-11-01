@@ -523,14 +523,14 @@
       "evidence": "docs/scripts.md: control flow and state ownership; integration_action_script_control"
     },
     {
-      "name": "blob_009603",
+      "name": "actionScriptCountedLoop",
       "offset": 38403,
       "length": 70,
-      "kind": "blob",
-      "source": "blobs/blob_009603.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "kind": "code",
+      "source": "asm/actionScriptCountedLoop.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: loop/banked records and addressed operations; integration_action_script_records, integration_action_script_operations"
     },
     {
       "name": "actionScriptControlFlow",
@@ -543,14 +543,14 @@
       "evidence": "docs/scripts.md: control flow and state ownership; integration_action_script_control"
     },
     {
-      "name": "blob_009685",
+      "name": "actionScriptFarCall",
       "offset": 38533,
       "length": 62,
-      "kind": "blob",
-      "source": "blobs/blob_009685.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "kind": "code",
+      "source": "asm/actionScriptFarCall.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: loop/banked records and addressed operations; integration_action_script_records, integration_action_script_operations"
     },
     {
       "name": "actionScriptWait",
@@ -705,9 +705,79 @@
     {
       "name": "blob_0099DD",
       "offset": 39389,
-      "length": 368,
+      "length": 127,
       "kind": "blob",
       "source": "blobs/blob_0099DD.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "actionScriptByteOperation",
+      "offset": 39516,
+      "length": 43,
+      "kind": "code",
+      "source": "asm/actionScriptByteOperation.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: loop/banked records and addressed operations; integration_action_script_records, integration_action_script_operations"
+    },
+    {
+      "name": "actionScriptWordOperation",
+      "offset": 39559,
+      "length": 54,
+      "kind": "code",
+      "source": "asm/actionScriptWordOperation.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: loop/banked records and addressed operations; integration_action_script_records, integration_action_script_operations"
+    },
+    {
+      "name": "actionScriptOperationTable",
+      "offset": 39613,
+      "length": 8,
+      "kind": "data",
+      "source": "asm/actionScriptOperationTable.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: loop/banked records and addressed operations; integration_action_script_records, integration_action_script_operations"
+    },
+    {
+      "name": "actionScriptOperations",
+      "offset": 39621,
+      "length": 29,
+      "kind": "code",
+      "source": "asm/actionScriptOperations.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: loop/banked records and addressed operations; integration_action_script_records, integration_action_script_operations"
+    },
+    {
+      "name": "actionScriptSetFieldValue",
+      "offset": 39650,
+      "length": 23,
+      "kind": "code",
+      "source": "asm/actionScriptSetFieldValue.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: loop/banked records and addressed operations; integration_action_script_records, integration_action_script_operations"
+    },
+    {
+      "name": "actionScriptFieldTable",
+      "offset": 39673,
+      "length": 16,
+      "kind": "data",
+      "source": "asm/actionScriptFieldTable.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/scripts.md: loop/banked records and addressed operations; integration_action_script_records, integration_action_script_operations"
+    },
+    {
+      "name": "blob_009B09",
+      "offset": 39689,
+      "length": 68,
+      "kind": "blob",
+      "source": "blobs/blob_009B09.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"

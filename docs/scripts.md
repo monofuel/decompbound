@@ -410,6 +410,80 @@ last-state removal and complete scheduler traversal of 70-node chains. Its
 out-of-area push case demonstrates an unchecked write, not a supported deeper
 stack. Fixtures contain only authored synthetic scripts and buffers.
 
+### Counted loops and banked call records
+
+`$C09603..9648` implements counted loops, not additional script states.
+Opcode `$01` reads a word but consumes one count byte; `$24` obtains the count
+from the low byte of the state work value without consuming an operand. Both
+push a body-cursor word and count byte through the existing DP `$84` software
+stack, advancing `$12E6` by three. The M16 count store also writes one byte
+past that record: the next stream byte for `$01`, or the work value's high byte
+for `$24`.
+
+Opcode `$02` decrements only the count byte, modulo 256. A nonzero result
+returns to the stored body cursor; zero pops three bytes and continues after
+the end-loop opcode. REP restores M16 without changing the byte DEC's Z flag
+used by the branch. An initial zero count therefore executes **256 iterations**.
+These records save no bank and have no type, alignment or capacity check.
+
+`$C09685..96C2` implements far GOSUB `$04` and far RETURN `$05`. A far call
+pushes return-cursor word plus bank byte, also advancing by three. Its word bank
+store spills the old DP `$83` beyond the record. Reading the target bank likewise
+copies the following stream byte into DP `$83`. Far RETURN restores a word
+starting at the saved bank byte: its high byte comes from the **current**
+adjacent stack byte, which a nested push may have overwritten. Unlike near
+RETURN, it restores the low bank byte. Empty far RETURN enters detach with Y=0
+and shares the previously documented surviving/last-state behavior.
+
+The two annotated regions total **132 bytes**. `nim r
+tests/integration_action_script_records.nim` checks **111,558 original/rebuilt
+cases**, including every count byte, count-store spill values, cursor wrapping,
+all tested record positions, modified adjacent bank bytes, real zero-count
+loops, one to five nested calls across alternating banks, and empty returns
+through both direct and full-fetch paths. The interpreter's native callback
+increments a synthetic counter to verify actual loop iterations. Out-of-area
+record writes are observed as unchecked behavior, not valid extra capacity.
+
+### Addressed operations and entity-template fields
+
+The operation family supports AND, OR, binary addition and XOR (selectors
+0..3). `$C09ABD..9AC4` is the four-word code-pointer table; handlers occupy
+`$C09AC5..9AE1`. Addition explicitly clears carry. Dispatch first doubles an
+eight-bit selector, so logical operations receive C=0 as well. Results wrap
+at the selected operand width; invalid selectors are unchecked.
+
+| Opcode | Operands | Operation width / target |
+|---|---|---|
+| `$18` / `$C09A5C` | Address word, selector byte, value byte. | Byte at the addressed WRAM location. |
+| `$0D` / `$C09A9F` | Address word, selector byte, value word. | Addressed WRAM word. |
+| `$14` / `$C09A87` | Field byte, selector byte, value word. | Entity-template field word. |
+| `$27` / `$C09A97` | Selector byte, value word. | Current state's `$1516` word. |
+| `$0E` / `$C09AE2` | Field byte, value word. | Direct **assignment** to an entity-template word. |
+
+The eight field entries at `$C09AF9..9B08` are WRAM byte addresses
+`$0E5E/$0E9A/$0ED6/$0F12/$0F4E/$0F8A/$0FC6/$1002`. Consumers add the doubled
+entity ID directly; these are the constructor arrays copied from template words
+`$0A38..0A46`. Their broader meanings are still open, and field indexes are not
+validated. `$0E` does not read a field into the state value.
+
+Byte operations read their value as M16, retaining the following stream byte
+in DP `$91`, then use M8 for the actual operation and return M16 with a
+zero-extended result. They stage target bank zero and near-JSR the JML
+trampoline. The operation and wrapper RTS instructions retain **PBR zero**;
+return code must exist in that ROM mirror. Word operations instead tail-JMP
+through a bank-zero indirect pointer and retain their current PBR. This proves
+two conventions for the shared trampoline: JSL/JML/RTL for native calls and
+JSR/JML/RTS for byte operations. All paths require native indices, binary
+arithmetic and a DBR mapping the relevant low-WRAM staging fields.
+
+Six regions (**173 bytes**, including two structural tables totaling 24 bytes)
+are reproduced. `nim r tests/integration_action_script_operations.nim` checks
+**574,288 original/rebuilt cases**: all byte value/operand pairs and operations,
+word boundary values, every template field/slot, state-value targets, neighbor
+guards, incoming carry, operand overreads, and complete interpreter/WAIT paths
+in both `$00` and `$80` mirrors. The byte path's transition to PBR zero is
+explicitly checked. Source and tests preserve the original unchecked interfaces.
+
 ### A verified script-driven removal sequence
 
 The action VM distinguishes graphics cleanup from entity removal. Opcode `$42`

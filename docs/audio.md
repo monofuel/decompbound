@@ -300,6 +300,68 @@ volume-envelope/mixing behavior remain open. This is a verified SPC mechanism,
 not an additional formally reproduced manifest region: SPC source assembly
 support is still separate work.
 
+### E2: persistent pan transitions and sub-tick preview
+
+Command E2 dispatches to APU `$09D6..09FC` (file `$260518..26053E`) and consumes
+two bytes: duration d and target integer position. The target is stored at
+`$0350+X` without E1's five-bit mask; nonzero `$0431` substitutes 10. Duration
+goes to DP `$91+X`, and the computed step word goes to `$0340/$0341+X`.
+Current position `$0330/$0331` and phase flags `$0351` are preserved.
+
+The command ignores the current fractional position when calculating its step.
+With `delta = targetByte - currentIntegerByte` (range −255..255), duration d>0
+gives `step = sign(delta) * floor(abs(delta)*256/d)` modulo 65536. The sign is
+the full unsigned subtraction borrow, not an eight-bit signed interpretation.
+Helper `$0BC7..0BE2` (file `$260709..260724`) carries that sign through NOTC/ROR.
+When d=0, the two SPC divisions yield signed magnitude `65535-abs(delta)`;
+the zero counter nevertheless disables persistent updates. Entry requires
+DP zero, even X in 0..14, and **DP `$44` equal to X**, because division restores
+the channel offset from that global.
+
+The persistent updater `$0C79..0C8A` (file `$2607BB..2607CC`) skips a zero
+counter, otherwise decrements it and calls `$0CD3..0CF6`. That helper ORs caller
+mask `$47` into dirty mask `$5E`. The OR instruction sets N/Z, so the later
+branch at `$0CDD` uses this OR result, not the earlier duration decrement:
+
+```
+if (callerMask | oldDirtyMask) != 0:
+    position = (position + step) mod 65536
+else:
+    position = target * 256
+```
+
+A normal nonzero channel mask therefore produces **no final-tick snap**. After
+d steps, the position is `initialPosition + d*step` modulo 65536, retaining
+division rounding residue and any initial fractional position. Dirty mask
+`$47 & $5E` permits the existing stereo writer to run even after the counter
+has reached zero. The original CALL at `$0939` into `$0C40` reaches this updater
+once per enclosing channel-update invocation; an absolute tick rate is not
+established here.
+
+Sub-tick code `$0DDF..0DFB` (file `$260921..26093D`) and helper `$0E2B..0E48`
+(file `$26096D..26098A`) calculate a preview using caller phase byte `$51`:
+`preview = current + sign(signed16(step))*floor(abs(signed16(step))*phase/256)`
+when duration remains. It marks DP `$13` bit 7 and invokes the pan writer
+through `$0C95` using scratch coordinates, without modifying persistent
+position or remaining duration.
+
+`nim r tests/integration_spc_pan_transition.nim` verifies **56,448 command
+cases**, **2,400 complete transitions**, **9,600 previews**, **36 branch cases**
+and **16 enclosing-call cases** on original and rebuilt ROMs. Arbitrary target bytes and
+zero divisors are checked at field level; exact DSP output is checked only for
+supported positions 0..20×256. The test executes the original channel-update
+CALL and preview return path without patched driver instructions. All inputs
+and curves are synthetic, and no audio or memory captures are written.
+
+Before accepting the OR-sensitive branch, independent local SPC vectors passed
+all 1,000 opcode `$09` cases and all 1,000 DIV `$9E` cases using
+`src/tools/run_spc_vectors.nim` with the existing local vector directory. OR's
+N/Z behavior also agrees with the original Nintendo development manual,
+[Book I, Table C-8, page C-6](https://floating.muncher.se/bot/manual/book1_text.pdf#page=232).
+No core flags were changed to obtain the driver result. Caller phase generation,
+absolute timing, override purpose and the other transition/envelope writers
+remain open.
+
 ## Uploaded data and the next research boundary
 
 Package 5 at file `$2B520C` contains blocks targeting APU `$6C00`, `$7000`, and
@@ -312,11 +374,12 @@ package payloads, with `$4800/$5000/$6000` overlays in some combinations. Severa
 instrument fields and driver consumers still need traced evidence. Package 4
 at file `$1FEC46`, targeting `$4800`, is an existing sequence-table candidate.
 
-The dispatcher, E0 instrument path, pitch multiplier and E1 stereo consumer now
-have bounded executed checks. Next questions are the other sequence commands,
-prefix/event consumers, position/envelope writers and the global override's
-purpose. Derive operand widths and DSP effects from those consumers; preserve
-source offsets and package-to-APU mappings.
+The dispatcher, E0 instrument path, pitch multiplier, E1 stereo consumer and
+E2 transition now have bounded executed checks. Next questions are the other
+sequence commands, prefix/event consumers, remaining position/envelope writers,
+phase generation and the global override's purpose. Derive operand widths and
+DSP effects from those consumers; preserve source offsets and package-to-APU
+mappings.
 
 All ROM payloads, extracted sequences, BRR samples, WAVs, and APU snapshots remain
 local and untracked. Commit our format descriptions, tools, annotated code, and
