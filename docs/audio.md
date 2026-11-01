@@ -126,9 +126,9 @@ all 191 songs sound correct or that their sequences are fully decoded.
 
 ## Reproduced SPC700 source
 
-The fixed-layout build now assembles 135 annotated `.spc.asm` files with
-our Nim SPC700 assembler. They reproduce **4,481 bytes** in package 1: 132 code
-regions totaling 4,383 bytes and three structural code-pointer tables totaling 98 bytes.
+The fixed-layout build now assembles 154 annotated `.spc.asm` files with
+our Nim SPC700 assembler. They reproduce **4,689 bytes** in package 1: 151 code
+regions totaling 4,591 bytes and three structural code-pointer tables totaling 98 bytes.
 The upload block header at file `$26003E` declares 16,779 bytes from file
 `$260042` to APU `$0500`; therefore `file = apuAddress + $25FB42` within it.
 Each source's `.org` is its APU execution address, not a ROM padding request.
@@ -261,6 +261,25 @@ Each source's `.org` is its APU execution address, not a ROM padding request.
 | `spcArmShortServiceRecordState.spc.asm` | `$15F6..1608` | `$261138..26114A` | 19 |
 | `spcServiceControl.spc.asm` | `$1609..16A4` | `$26114B..2611E6` | 156 |
 | `spcClearDriverState.spc.asm` | `$16A5..16C6` | `$2611E7..261208` | 34 |
+| `spcFinishRecordNativeAdapter.spc.asm` | `$1810..1812` | `$261352..261354` | 3 |
+| `spcConfigureRecordNativeAdapter.spc.asm` | `$2501..2509` | `$262043..26204B` | 9 |
+| `spcSetMaster100NativeAdapter.spc.asm` | `$2C92..2C96` | `$2627D4..2627D8` | 5 |
+| `spcSetMaster240NativeAdapter.spc.asm` | `$2C9A..2C9E` | `$2627DC..2627E0` | 5 |
+| `spcSetGlobalPitch16NativeAdapter.spc.asm` | `$2CA2..2CA6` | `$2627E4..2627E8` | 5 |
+| `spcSetGlobalPitchZeroNativeAdapter.spc.asm` | `$2CAA..2CAE` | `$2627EC..2627F0` | 5 |
+| `spcNativeControlFadeTargets1.spc.asm` | `$2CDA..2CE2` | `$26281C..262824` | 9 |
+| `spcNativeControlFadeTargets2.spc.asm` | `$2CE6..2CEE` | `$262828..262830` | 9 |
+| `spcNativeControlFadeTargets3.spc.asm` | `$2CF2..2CFA` | `$262834..26283C` | 9 |
+| `spcNativeControlFadeTargets4.spc.asm` | `$2CFE..2D06` | `$262840..262848` | 9 |
+| `spcNativeControlFadeTargets5.spc.asm` | `$2D0A..2D12` | `$26284C..262854` | 9 |
+| `spcNativeControlFadeTargets6.spc.asm` | `$2D16..2D1E` | `$262858..262860` | 9 |
+| `spcNativeControlFadeTargets7.spc.asm` | `$2D22..2D2A` | `$262864..26286C` | 9 |
+| `spcNativeControlFadeTargets8.spc.asm` | `$2D2E..2D36` | `$262870..262878` | 9 |
+| `spcApplyNativeControlFades.spc.asm` | `$2D37..2D7E` | `$262879..2628C0` | 72 |
+| `spcSetChannel14Volume90NativeAdapter.spc.asm` | `$2D82..2D89` | `$2628C4..2628CB` | 8 |
+| `spcSetChannel14Volume250NativeAdapter.spc.asm` | `$2D8D..2D94` | `$2628CF..2628D6` | 8 |
+| `spcSetChannel14Volume40NativeAdapter.spc.asm` | `$2D98..2D9F` | `$2628DA..2628E1` | 8 |
+| `spcSetChannel14VolumeZeroNativeAdapter.spc.asm` | `$2DA3..2DAA` | `$2628E5..2628EC` | 8 |
 | `spcTickPitchTempoOverride.spc.asm` | `$2DAB..2DC2` | `$2628ED..262904` | 24 |
 | `spcArmPitchTempoOverride.spc.asm` | `$2DC6..2DD4` | `$262908..262916` | 15 |
 | `spcTickMasterFactorA0.spc.asm` | `$2DD5..2DE9` | `$262917..26292B` | 21 |
@@ -271,7 +290,7 @@ Each source's `.org` is its APU execution address, not a ROM padding request.
 | `spcFilterHostPortThree.spc.asm` | `$2E1D..2E47` | `$26295F..262989` | 43 |
 | `spcSetDriverStateDefaults.spc.asm` | `$2FC8..2FDC` | `$262B0A..262B1E` | 21 |
 
-All 135 reproduced source regions are explained within their documented contracts.
+All 154 reproduced source regions are explained within their documented contracts.
 The service pass now has complete record/continuation/finish/expiry chains;
 native callback bodies remain separate from its typed dispatch pipeline. This
 does not establish a complete executable inventory or explain all records.
@@ -289,10 +308,10 @@ literal synthetic fixtures, plus operand order, origins, labels, signed branch
 limits/wrap, bit packing and rejection of invalid or oversized operands.
 `nim r tests/integration_rom_pipeline.nim` independently checks SPC label origin
 versus ROM placement in a mixed 65816/SPC build, exact-length rejection and the
-whole-ROM gold rebuild. The 37 new receiver/reset/record/dispatch regions add 1,870
+whole-ROM gold rebuild. The nineteen native callback/helper regions add 208
 independently assembled/byte-compared bytes; the sender’s 183 bytes also remain
 byte-identical after annotation cleanup. Fresh extraction/rebuild matches all
-3,145,728 ROM bytes with 301 regions and no gaps or overlaps. All 52 focused
+3,145,728 ROM bytes with 342 regions and no gaps or overlaps. All 54 focused
 test programs passed with assertions enabled. Checks include
 42 complete original-sender/resident-receiver transfers and 24 separate
 incoming-bank/direct-page address checks and 2,424 complete service passes.
@@ -789,9 +808,9 @@ entry and seven native entries. Port three has 13 kind-two, 25 kind-four,
 entries. These are raw kind-byte values, not word indices or named effect IDs.
 
 The 37 native references share 25 distinct three-byte headers. Their runtime
-bytes match package-one file placement, and none overlaps reproduced code.
-Only seven headers currently have separate identified manifest regions; this
-broader runtime inventory does not promote their contents into source.
+bytes match package-one file placement. All 25 now have separate copied,
+identified data regions (75 bytes); none overlaps reproduced code. The inventory
+test requires explained source boundaries for every body and saved continuation.
 
 `tests/integration_spc_service_inventory.nim` independently walks the record
 tables and executes every accepted original adapter lookup through its real
@@ -802,10 +821,53 @@ its jump to the real record entry, checking the saved continuation and restored
 caller frame. The test stops before record bodies; it establishes neither full
 body lengths/semantics nor a complete inventory across all possible uploads.
 
+### Remaining nominal native callbacks
+
+Eighteen formerly copied body entries and shared helper `$2D37` now reproduce
+208 code bytes. Their eighteen headers (54 bytes), fixed parameters at
+`$250A..2510` (7 bytes) and preset window `$2CAF..2CD6` (40 bytes) remain copied,
+identified data. Together with the earlier seven headers and three descriptor
+regions, the identified inventory is 239 bytes. The header at `$180D..180F`
+also aliases the default port-zero pointer-table base; that alias is preserved.
+
+Port-one commands 9..16 select five-byte target rows and jump to `$2D37`.
+The rows start at `$2CAF,$2CB4,$2CB9,$2CBE,$2CC3,$2CC3,$2CCD,$2CD2`:
+commands 13 and 14 share a row, and no nominal selector chooses `$2CC8..2CCC`.
+The helper arms channel offsets 2,4,6,8,10 for twenty updates through actual
+`$166E`, computing each signed 8.8 step from target minus current integer.
+It preserves current fractional words, dirty state and other channels. Nominal
+rows are disjoint from scratch/channel fields; aliased reads see earlier writes.
+It returns X=10,Y=4,A=the last step high byte, with `$44=10`, `$20` holding the
+last target and `$21` unchanged. Negative division requires zero `$0E/$0F`.
+This establishes update counts, not absolute time or a final snap to target.
+
+The remaining adapters tail-call existing consumers:
+
+| Native input | Action |
+|---|---|
+| Port two, command 1, `$1810` | Jump to the real `$1491` finish, restoring saved gain/phase and publishing its dirty/inhibit effects. |
+| Port three, command 71, `$2501` | Pass fixed source `$250A` and control `$1F` to `$14EE`; retain old `$04C8` and save `$148B` as the later continuation. |
+| Port one, commands 23/24 | Set master volume integer 100/240 and fraction zero. |
+| Port one, commands 21/22 | Set global pitch offset 16/0. |
+| Port one, commands 27/25/28/26 | Set channel-offset 14 volume integer 90/250/40/0 and fraction zero. |
+
+The immediate setters preserve pending fades and dirty state; their real callees
+own the documented register/scratch effects. Configuration does not implicitly
+call its saved continuation. `integration_spc_native_controls.nim` executes
+10,240 real native-dispatch contexts per image, plus 160 unchanged producer-to-tick
+chains (16,800 actual channel ticks) and 160 saved-continuation returns. These
+fixtures author preexisting native continuation state explicitly. The adapter
+suite adds, per image, 2,048 setters, 1,024 finishes, 768 configurations across
+all control bytes/three old markers, and four produced-state initialization/finish
+chains. Both original and freshly rebuilt images pass. Zero instrument multipliers
+bound the direct configuration checks; earlier arithmetic/state suites separately
+exercise nonzero calculations. The temporary source digs were retired after these
+tests and their byte gates replaced them.
+
 ### Current native-code inventory boundary
 
-`src/probes/probe_spc_code_inventory.nim` remains an active investigation of
-copied native callbacks. Run it from the repository with
+`src/probes/probe_spc_code_inventory.nim` remains a reproducer for nominal entry
+coverage and the open dynamic/upload boundary. Run it from the repository with
 `nim r -d:debug src/probes/probe_spc_code_inventory.nim`; it reads the user's
 ROM and current manifest/source, writes structural text to stdout and opens no
 audio device. It checks each source byte against the ROM and derives instruction
@@ -813,29 +875,72 @@ starts from our assembler grammar and explicit source directives.
 
 | Nominal root set | Entries checked | Entries at reproduced instruction starts |
 |---|---:|---:|
-| Distinct startup native record bodies | 25 | 7 |
+| Distinct startup native record bodies | 25 | 25 |
 | Distinct native continuation words (`$148A/$148B`) | 2 | 2 |
 | E0..FE sequence-handler table | 31 | 31 |
 | Even host-kind table offsets | 9 | 9 |
 | Even continuation-table offsets | 9 | 9 |
 
-The 135 registered source units contain 2,065 instruction starts. Among 541
-explicit transfers/return sites/open fall-through edges, 539 target reproduced
+The 154 registered source units contain 2,159 instruction starts. Among 573
+explicit transfers/return sites/open fall-through edges, 571 target reproduced
 instructions. The other edges are the known IPL handoff `$0622 -> $FFC0` and
 the intentional copied code/data alias `$2E45 -> $2E48`; its BEQ returns to
 owned `$2E25`. A supposed `$15F1 -> $15F3` fall-through into a header is
 impossible along the nominal arm entry: immediate `$70` sets Z=0, its store
 preserves flags and BNE is taken.
 
-The 18 copied native body roots still require investigation, including shared
-helper `$2D37` and callbacks interleaved with record data. The probe executes
-their original straight-line prefixes only to the first transfer; it does not
-assign whole body lengths from plausible decoding. Seven indexed JMP sites,
-87 RET/RETI sites, mutable retarget/upload pointers, unchecked raw kinds and
+The former 18 copied native roots and their shared helper `$2D37` now have
+separate source. This closes the nominal startup-root gap, not every executable
+path or uploaded configuration. Seven indexed JMP sites,
+92 RET/RETI sites, mutable retarget/upload pointers, unchecked raw kinds and
 out-of-layout sequence commands, capacity-zero port-zero records and arbitrary
 return frames prevent a full-driver code-closure claim. Startup and startup
 plus song-three packages agree on the nominal roots; that is not an inventory
 of all upload configurations or callback semantics.
+
+### Record reachability and resource-history boundary
+
+`src/probes/probe_spc_real_records.nim` retains a bounded question: which actual
+record consumers and resource reads occur when the startup table commands run?
+It loads package 1 plus song three's packages (IDs 1,2,3,4; thirteen blocks),
+executes original startup/first flush and feeds each of the 126 initial non-native
+commands through real sampling, service passes and settling. All finish in
+5..482 controlled passes, with 8,860 total passes and 194 distinct dispatched
+record pointers, including 68 additional port-two retargets. Real initialization
+and finish each execute 194 times; all observed token classes are reported
+structurally, without committing their record contents.
+
+Run `nim r -d:debug src/probes/probe_spc_real_records.nim` against the user's ROM.
+`--flush` also executes original DSP publication between passes. `--song-start`
+executes the existing standalone CPU/timer prelude first. All four combinations
+finish with the same pass/pointer counts and no observed closed cycles, instruction
+budget exhaustion or preemption. The song-start prelude really selects song 3,
+changes the remap base and changes one pointer-table entry; its 126 command IDs
+therefore do not prove identical coverage of the startup pointer values.
+
+These exhaustive command contexts read eleven instrument rows outside the applied
+blocks: `$6E36..6E41`, `$6E78..6E89` and `$6E90..6EB3` (66 bytes, all observed
+zero). Seven rows have destination coverage only in packages 5/108; the other
+four have multiple package candidates. Coverage alone earns no library identity
+and does not justify loading an arbitrary candidate. This experiment schedules
+service passes directly, so it establishes neither actual gameplay command
+reachability nor physical cadence or musical correctness.
+
+`src/probes/probe_spc_boot_packages.nim` investigates the corresponding original
+main-CPU history. Run `nim r -d:debug src/probes/probe_spc_boot_packages.nim`;
+its optional first argument is a modeled-frame budget (default 1200). It cold
+boots with zero battery RAM in memory, preserves core CPU/APU/MMIO behavior and
+discards generated PCM without opening a device or loading/saving SRAM files.
+The default run observes three requested and completed uploads, packages
+**1 → 0 → 1**, and one requested/completed song-loader call for ID 1. All wire
+headers and 65,722 payload bytes match the user's ROM. The first transfer uses
+IPL; the next two use the resident receiver and return through CONTROL `$31`.
+Before their first headers, 634 and 747 high-byte writes from the sender's
+16-bit reset store are control traffic, not payload. None of the eleven queried
+rows is covered by those completed uploads. The 400-frame prefix sees only the
+first transfer. Later scene/song libraries and whether normal song playback
+reads these gaps remain open; a completed boot upload is not a complete resource
+inventory. Both retained probes print IDs, addresses and counts rather than assets.
 
 ## Verified SPC700 sequence fetch and dispatch
 

@@ -2865,12 +2865,422 @@
     {
       "name": "blob_261209",
       "offset": 2494985,
-      "length": 5860,
+      "length": 326,
       "kind": "blob",
       "source": "blobs/blob_261209.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcFinishRecordNativeAdapterHeader",
+      "offset": 2495311,
+      "length": 3,
+      "kind": "data",
+      "build": "copy",
+      "comprehension": "identified",
+      "source": "blobs/blob_26134F.bin",
+      "evidence": "docs/audio.md; integration_spc_native_adapters.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcFinishRecordNativeAdapter",
+      "offset": 2495314,
+      "length": 3,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/spcFinishRecordNativeAdapter.spc.asm",
+      "evidence": "docs/audio.md; integration_spc_native_adapters.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "blob_261355",
+      "offset": 2495317,
+      "length": 3307,
+      "kind": "blob",
+      "source": "blobs/blob_261355.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcConfigureRecordNativeAdapterHeader",
+      "offset": 2498624,
+      "length": 3,
+      "kind": "data",
+      "build": "copy",
+      "comprehension": "identified",
+      "source": "blobs/blob_262040.bin",
+      "evidence": "docs/audio.md; integration_spc_native_adapters.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcConfigureRecordNativeAdapter",
+      "offset": 2498627,
+      "length": 9,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/spcConfigureRecordNativeAdapter.spc.asm",
+      "evidence": "docs/audio.md; integration_spc_native_adapters.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcNativeConfiguredStateData",
+      "offset": 2498636,
+      "length": 7,
+      "kind": "data",
+      "build": "copy",
+      "comprehension": "identified",
+      "source": "blobs/blob_26204C.bin",
+      "evidence": "docs/audio.md; integration_spc_native_adapters.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "blob_262053",
+      "offset": 2498643,
+      "length": 1918,
+      "kind": "blob",
+      "source": "blobs/blob_262053.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcSetMaster100NativeAdapterHeader",
+      "offset": 2500561,
+      "length": 3,
+      "kind": "data",
+      "build": "copy",
+      "comprehension": "identified",
+      "source": "blobs/blob_2627D1.bin",
+      "evidence": "docs/audio.md; integration_spc_native_adapters.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcSetMaster100NativeAdapter",
+      "offset": 2500564,
+      "length": 5,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/spcSetMaster100NativeAdapter.spc.asm",
+      "evidence": "docs/audio.md; integration_spc_native_adapters.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcSetMaster240NativeAdapterHeader",
+      "offset": 2500569,
+      "length": 3,
+      "kind": "data",
+      "build": "copy",
+      "comprehension": "identified",
+      "source": "blobs/blob_2627D9.bin",
+      "evidence": "docs/audio.md; integration_spc_native_adapters.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcSetMaster240NativeAdapter",
+      "offset": 2500572,
+      "length": 5,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/spcSetMaster240NativeAdapter.spc.asm",
+      "evidence": "docs/audio.md; integration_spc_native_adapters.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcSetGlobalPitch16NativeAdapterHeader",
+      "offset": 2500577,
+      "length": 3,
+      "kind": "data",
+      "build": "copy",
+      "comprehension": "identified",
+      "source": "blobs/blob_2627E1.bin",
+      "evidence": "docs/audio.md; integration_spc_native_adapters.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcSetGlobalPitch16NativeAdapter",
+      "offset": 2500580,
+      "length": 5,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/spcSetGlobalPitch16NativeAdapter.spc.asm",
+      "evidence": "docs/audio.md; integration_spc_native_adapters.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcSetGlobalPitchZeroNativeAdapterHeader",
+      "offset": 2500585,
+      "length": 3,
+      "kind": "data",
+      "build": "copy",
+      "comprehension": "identified",
+      "source": "blobs/blob_2627E9.bin",
+      "evidence": "docs/audio.md; integration_spc_native_adapters.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcSetGlobalPitchZeroNativeAdapter",
+      "offset": 2500588,
+      "length": 5,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/spcSetGlobalPitchZeroNativeAdapter.spc.asm",
+      "evidence": "docs/audio.md; integration_spc_native_adapters.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcNativeControlPresetData",
+      "offset": 2500593,
+      "length": 40,
+      "kind": "data",
+      "build": "copy",
+      "comprehension": "identified",
+      "source": "blobs/blob_2627F1.bin",
+      "evidence": "docs/audio.md; integration_spc_native_controls.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcNativeControlFadeTargets1Header",
+      "offset": 2500633,
+      "length": 3,
+      "kind": "data",
+      "build": "copy",
+      "comprehension": "identified",
+      "source": "blobs/blob_262819.bin",
+      "evidence": "docs/audio.md; integration_spc_native_controls.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcNativeControlFadeTargets1",
+      "offset": 2500636,
+      "length": 9,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/spcNativeControlFadeTargets1.spc.asm",
+      "evidence": "docs/audio.md; integration_spc_native_controls.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcNativeControlFadeTargets2Header",
+      "offset": 2500645,
+      "length": 3,
+      "kind": "data",
+      "build": "copy",
+      "comprehension": "identified",
+      "source": "blobs/blob_262825.bin",
+      "evidence": "docs/audio.md; integration_spc_native_controls.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcNativeControlFadeTargets2",
+      "offset": 2500648,
+      "length": 9,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/spcNativeControlFadeTargets2.spc.asm",
+      "evidence": "docs/audio.md; integration_spc_native_controls.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcNativeControlFadeTargets3Header",
+      "offset": 2500657,
+      "length": 3,
+      "kind": "data",
+      "build": "copy",
+      "comprehension": "identified",
+      "source": "blobs/blob_262831.bin",
+      "evidence": "docs/audio.md; integration_spc_native_controls.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcNativeControlFadeTargets3",
+      "offset": 2500660,
+      "length": 9,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/spcNativeControlFadeTargets3.spc.asm",
+      "evidence": "docs/audio.md; integration_spc_native_controls.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcNativeControlFadeTargets4Header",
+      "offset": 2500669,
+      "length": 3,
+      "kind": "data",
+      "build": "copy",
+      "comprehension": "identified",
+      "source": "blobs/blob_26283D.bin",
+      "evidence": "docs/audio.md; integration_spc_native_controls.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcNativeControlFadeTargets4",
+      "offset": 2500672,
+      "length": 9,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/spcNativeControlFadeTargets4.spc.asm",
+      "evidence": "docs/audio.md; integration_spc_native_controls.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcNativeControlFadeTargets5Header",
+      "offset": 2500681,
+      "length": 3,
+      "kind": "data",
+      "build": "copy",
+      "comprehension": "identified",
+      "source": "blobs/blob_262849.bin",
+      "evidence": "docs/audio.md; integration_spc_native_controls.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcNativeControlFadeTargets5",
+      "offset": 2500684,
+      "length": 9,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/spcNativeControlFadeTargets5.spc.asm",
+      "evidence": "docs/audio.md; integration_spc_native_controls.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcNativeControlFadeTargets6Header",
+      "offset": 2500693,
+      "length": 3,
+      "kind": "data",
+      "build": "copy",
+      "comprehension": "identified",
+      "source": "blobs/blob_262855.bin",
+      "evidence": "docs/audio.md; integration_spc_native_controls.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcNativeControlFadeTargets6",
+      "offset": 2500696,
+      "length": 9,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/spcNativeControlFadeTargets6.spc.asm",
+      "evidence": "docs/audio.md; integration_spc_native_controls.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcNativeControlFadeTargets7Header",
+      "offset": 2500705,
+      "length": 3,
+      "kind": "data",
+      "build": "copy",
+      "comprehension": "identified",
+      "source": "blobs/blob_262861.bin",
+      "evidence": "docs/audio.md; integration_spc_native_controls.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcNativeControlFadeTargets7",
+      "offset": 2500708,
+      "length": 9,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/spcNativeControlFadeTargets7.spc.asm",
+      "evidence": "docs/audio.md; integration_spc_native_controls.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcNativeControlFadeTargets8Header",
+      "offset": 2500717,
+      "length": 3,
+      "kind": "data",
+      "build": "copy",
+      "comprehension": "identified",
+      "source": "blobs/blob_26286D.bin",
+      "evidence": "docs/audio.md; integration_spc_native_controls.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcNativeControlFadeTargets8",
+      "offset": 2500720,
+      "length": 9,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/spcNativeControlFadeTargets8.spc.asm",
+      "evidence": "docs/audio.md; integration_spc_native_controls.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcApplyNativeControlFades",
+      "offset": 2500729,
+      "length": 72,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/spcApplyNativeControlFades.spc.asm",
+      "evidence": "docs/audio.md; integration_spc_native_controls.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcSetChannel14Volume90NativeAdapterHeader",
+      "offset": 2500801,
+      "length": 3,
+      "kind": "data",
+      "build": "copy",
+      "comprehension": "identified",
+      "source": "blobs/blob_2628C1.bin",
+      "evidence": "docs/audio.md; integration_spc_native_adapters.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcSetChannel14Volume90NativeAdapter",
+      "offset": 2500804,
+      "length": 8,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/spcSetChannel14Volume90NativeAdapter.spc.asm",
+      "evidence": "docs/audio.md; integration_spc_native_adapters.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcSetChannel14Volume250NativeAdapterHeader",
+      "offset": 2500812,
+      "length": 3,
+      "kind": "data",
+      "build": "copy",
+      "comprehension": "identified",
+      "source": "blobs/blob_2628CC.bin",
+      "evidence": "docs/audio.md; integration_spc_native_adapters.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcSetChannel14Volume250NativeAdapter",
+      "offset": 2500815,
+      "length": 8,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/spcSetChannel14Volume250NativeAdapter.spc.asm",
+      "evidence": "docs/audio.md; integration_spc_native_adapters.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcSetChannel14Volume40NativeAdapterHeader",
+      "offset": 2500823,
+      "length": 3,
+      "kind": "data",
+      "build": "copy",
+      "comprehension": "identified",
+      "source": "blobs/blob_2628D7.bin",
+      "evidence": "docs/audio.md; integration_spc_native_adapters.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcSetChannel14Volume40NativeAdapter",
+      "offset": 2500826,
+      "length": 8,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/spcSetChannel14Volume40NativeAdapter.spc.asm",
+      "evidence": "docs/audio.md; integration_spc_native_adapters.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcSetChannel14VolumeZeroNativeAdapterHeader",
+      "offset": 2500834,
+      "length": 3,
+      "kind": "data",
+      "build": "copy",
+      "comprehension": "identified",
+      "source": "blobs/blob_2628E2.bin",
+      "evidence": "docs/audio.md; integration_spc_native_adapters.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
+    },
+    {
+      "name": "spcSetChannel14VolumeZeroNativeAdapter",
+      "offset": 2500837,
+      "length": 8,
+      "kind": "code",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "source": "asm/spcSetChannel14VolumeZeroNativeAdapter.spc.asm",
+      "evidence": "docs/audio.md; integration_spc_native_adapters.nim; original/rebuilt native callers, continuations and code/data separation; data values remain extracted"
     },
     {
       "name": "spcTickPitchTempoOverride",

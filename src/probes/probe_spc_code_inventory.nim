@@ -1,4 +1,4 @@
-## Reproduce the open SPC code inventory, including the current eighteen copied native bodies.
+## Audit nominal SPC entry coverage and the current source control-flow boundary.
 ## Inputs are the user's ROM, manifest-registered SPC sources and our assembler grammar.
 ## Nominal startup roots and source control edges are checked; full executable closure is not claimed.
 ## Run: nim r -d:debug --nimcache:bin/nimcache/spc-code-inventory-worker src/probes/probe_spc_code_inventory.nim

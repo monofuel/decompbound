@@ -21,6 +21,17 @@ proc word(spc: Spc, address: int): int =
   spc.ram[address and 65535].int or
     (spc.ram[(address + 1) and 65535].int shl 8)
 
+proc requireCodeEntry(layout: Manifest, address: int) =
+  ## Keep each nominal native body/continuation at an explained source boundary.
+  var found = false
+  for region in layout.regions:
+    if region.offset == DriverMap + address:
+      doAssert region.kind == rkCode and region.build == blReproduce and
+        region.comprehension == clExplained, &"native entry ${address:04X} is not explained code"
+      found = true
+      break
+  doAssert found, &"native entry ${address:04X} has no source boundary"
+
 proc boot(image: seq[uint8], withSong: bool): Spc =
   ## Execute the real package initialization without mixing audio or opening a device.
   let machine = newApu()
@@ -82,6 +93,8 @@ proc checkInventory(image: seq[uint8], withSong: bool,
       if kind == NativeKind:
         nativePointers.incl(pointer)
         let continuation = baseline.word(pointer - 3)
+        layout.requireCodeEntry(pointer)
+        layout.requireCodeEntry(continuation)
         continuations.incl(continuation)
         var nativeSteps = 0
         while actual.pc.int != pointer:
@@ -101,8 +114,9 @@ proc checkInventory(image: seq[uint8], withSong: bool,
           var found = false
           for region in layout.regions:
             if fileAddress >= region.offset and fileAddress < region.offset + region.length:
-              doAssert region.build == blCopy or region.kind != rkCode,
-                &"native header ${headerAddress:04X} overlaps code {region.name}"
+              doAssert region.build == blCopy and region.kind == rkData and
+                region.comprehension == clIdentified,
+                &"native header ${headerAddress:04X} must remain identified copied data"
               found = true
               break
           doAssert found
