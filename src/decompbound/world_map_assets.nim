@@ -51,6 +51,7 @@ const
   HiRomMask = 0x3FFFFF
   FarPointerBytes = 4
   ChrTileBytes = 32
+  PlanePairBytes = 16
   TileSide = 8
   ArrangementBytes = WorldArrangementCells * 2
   PaletteSelectorCount = 8
@@ -359,5 +360,25 @@ proc pixelIndex*(resource: WorldMapResource, tile, x, y: int): uint8 =
     offset = tile * ChrTileBytes + y * 2
     shift = 7 - x
   for plane in 0 ..< 4:
-    let byteOffset = offset + (plane div 2) * 16 + plane mod 2
+    let byteOffset = offset + (plane div 2) * PlanePairBytes + plane mod 2
     result = result or (((resource.graphics[byteOffset] shr shift) and 1) shl plane)
+
+proc decodePlanarTileRow*(graphics: openArray[uint8], tile, y: int,
+    indices: var array[TileSide, uint8]) =
+  ## Decode one 4bpp SNES tile row into eight left-to-right palette indices.
+  if tile notin 0 ..< WorldChrTileCount or y notin 0 ..< TileSide:
+    raise newException(ValueError, "Map CHR pixel is outside the original upload.")
+  let offset = tile * ChrTileBytes + y * 2
+  if offset < 0 or graphics.len < offset + PlanePairBytes + 2:
+    raise newException(ValueError, "Map CHR pixel is outside the original upload.")
+  let
+    plane0 = graphics[offset]
+    plane1 = graphics[offset + 1]
+    plane2 = graphics[offset + PlanePairBytes]
+    plane3 = graphics[offset + PlanePairBytes + 1]
+  for x in 0 ..< TileSide:
+    let shift = TileSide - 1 - x
+    indices[x] = ((plane0 shr shift) and 1) or
+      (((plane1 shr shift) and 1) shl 1) or
+      (((plane2 shr shift) and 1) shl 2) or
+      (((plane3 shr shift) and 1) shl 3)

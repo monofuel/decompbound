@@ -20,6 +20,9 @@ type
     cameraX, cameraY, logicalTileset: int
     liveResource: WorldMapResource
     liveColors: array[256, ColorRGBA]
+    liveRowIndices: seq[array[8, uint8]]
+    liveRowValid: seq[bool]
+    brightColors: array[256, ColorRGBX]
     registers: array[0x100, uint8]
     fixedColor: ColorRGBA
     output: Image
@@ -70,11 +73,16 @@ const
   CgwselReg = 0x30
   CgadsubReg = 0x31
   TilePixels = 8
+  LiveRowCacheRows = WorldChrTileCount * TilePixels
   ArrangementColumns = MapCellPixels div TilePixels
   MapBg1WordBase = 0x3800
   MapBg2WordBase = 0x5800
   TileIndexMask = 0x03FF'u16
   PriorityHigh = 0x2000'u16
+  FlipHorizontal = 0x4000'u16
+  FlipVertical = 0x8000'u16
+  ColorMathLayerMask = 0x3F'u8
+  ForceBlackMask = 0xC0'u8
   TilemapScreenWords = 0x400
   OpaqueBlack = rgbx(0, 0, 0, 255)
   ObjectLayer = 0x10'u8
@@ -230,6 +238,21 @@ proc requireLiveCopy(destBytes, sourceBytes, copyBytes: int, message: string) =
   if copyBytes < 0 or destBytes < copyBytes or sourceBytes < copyBytes:
     raise newException(ValueError, message)
 
+proc resetLiveRowCache(view: ExpandedViewport) =
+  ## Discard decoded CHR-row validity so compose observes this snapshot.
+  if view.liveRowIndices.len != LiveRowCacheRows:
+    view.liveRowIndices = newSeq[array[TilePixels, uint8]](LiveRowCacheRows)
+  if view.liveRowValid.len != LiveRowCacheRows:
+    view.liveRowValid = newSeq[bool](LiveRowCacheRows)
+  else:
+    zeroMem(addr view.liveRowValid[0], LiveRowCacheRows * sizeof(bool))
+
+proc prepareLiveColors(view: ExpandedViewport) =
+  ## Apply the snapshot's master brightness to every CGRAM colour once.
+  let inidisp = view.registers[InidispReg]
+  for index, color in view.liveColors:
+    view.brightColors[index] = applyMasterBrightness(color, inidisp).rgbx
+
 proc copyLiveResources(view: ExpandedViewport, snes: SnesBus, drawing: int) =
   ## Snapshot frame-consistent CHR, arrangements, and CGRAM without mutating atlas caches.
   view.ensureLiveResource(drawing)
@@ -263,6 +286,8 @@ proc copyLiveResources(view: ExpandedViewport, snes: SnesBus, drawing: int) =
   view.registers = snes.ppuRegs
   view.fixedColor = bgr555ToColor(snes.fixedColorR.uint16 or
     (snes.fixedColorG.uint16 shl 5) or (snes.fixedColorB.uint16 shl 10))
+  view.resetLiveRowCache()
+  view.prepareLiveColors()
 
 proc capture*(view: ExpandedViewport, snes: SnesBus) =
   ## Snapshot pre-NMI camera, flags, and live map resources; never write the machine.
@@ -447,6 +472,105 @@ proc blitOriginal(dest, original: Image, originX, originY: int) =
     copyMem(addr dest.data[(originY + y) * dest.width + originX],
       addr original.data[y * ScreenWidth], ScreenWidth * sizeof(ColorRGBX))
 
+proc cachedTileRow(view: ExpandedViewport, tile, y: int): int =
+  ## Return the snapshot-local slot for one decoded tile row, filling it on first use.
+  if tile notin 0 ..< WorldChrTileCount or y notin 0 ..< TilePixels:
+    raise newException(ValueError, "Map CHR pixel is outside the original upload.")
+  result = tile * TilePixels + y
+  if not view.liveRowValid[result]:
+    decodePlanarTileRow(view.liveResource.graphics, tile, y, view.liveRowIndices[result])
+    view.liveRowValid[result] = true
+
+proc paintMapSpan(view: ExpandedViewport, dest, sx, sy, run: int, word: uint16,
+    mask: uint8, backdrop: ColorRGBX) =
+  ## Paint up to eight scenery pixels that share one arrangement word.
+  let
+    tile = (word and TileIndexMask).int
+    xFlip = (word and FlipHorizontal) != 0
+    firstY = if (word and FlipVertical) != 0: TilePixels - 1 - sy else: sy
+    palette = ((word.int shr 10) and 7) * 16
+    # Tile IDs >= $180 publish BG2 word 0, which still samples tile 0.
+    secondWord = if tile < WorldBg2TileCount: word or PriorityHigh else: 0'u16
+    secondXFlip = (secondWord and FlipHorizontal) != 0
+    secondY = if (secondWord and FlipVertical) != 0: TilePixels - 1 - sy else: sy
+    first = view.cachedTileRow(tile, firstY)
+    second = view.cachedTileRow((secondWord and TileIndexMask).int +
+      WorldBg2ChrTileOffset, secondY)
+    secondPalette = ((secondWord.int shr 10) and 7) * 16
+    firstEnable = (mask and 1) != 0
+    secondEnable = (mask and 2) != 0
+  for i in 0 ..< run:
+    let
+      px = sx + i
+      firstX = if xFlip: TilePixels - 1 - px else: px
+      secondX = if secondXFlip: TilePixels - 1 - px else: px
+      firstIndex = view.liveRowIndices[first][firstX].int
+      secondIndex = view.liveRowIndices[second][secondX].int
+      firstVisible = firstIndex != 0 and firstEnable
+      secondVisible = secondIndex != 0 and secondEnable
+    if firstVisible and ((word and PriorityHigh) != 0 or
+        (secondWord and PriorityHigh) == 0 or not secondVisible):
+      view.output.data[dest + i] = view.brightColors[palette + firstIndex]
+    elif secondVisible:
+      view.output.data[dest + i] = view.brightColors[secondPalette + secondIndex]
+    else:
+      view.output.data[dest + i] = backdrop
+
+proc composeFastRect(view: ExpandedViewport, x0, y0, x1, y1: int) =
+  ## Fill one exclusive rectangle from shared tile-row indices and current colours.
+  let
+    mask = view.registers[TmReg]
+    backdrop = view.brightColors[0]
+  for y in y0 ..< y1:
+    let
+      worldY = view.cameraY + y - view.originY
+      sy = worldY and (TilePixels - 1)
+      row = y * view.width
+    var x = x0
+    while x < x1:
+      let
+        worldX = view.cameraX + x - view.originX
+        sx = worldX and (TilePixels - 1)
+        run = min(TilePixels - sx, x1 - x)
+        word = view.sceneryWord(worldX, worldY)
+      view.paintMapSpan(row + x, sx, sy, run, word, mask, backdrop)
+      x += run
+
+proc composeScalarRect(view: ExpandedViewport, x0, y0, x1, y1: int) =
+  ## Fill one exclusive rectangle with the independent scalar scenery reference.
+  for y in y0 ..< y1:
+    let
+      worldY = view.cameraY + y - view.originY
+      row = y * view.width
+    for x in x0 ..< x1:
+      view.output.data[row + x] = view.sceneryPixel(
+        view.cameraX + x - view.originX, worldY)
+
+proc mapSpanFastPath(view: ExpandedViewport): bool =
+  ## Allow the tile-span path only when map windows, colour math and force-black are idle.
+  (view.registers[TmwReg] and Bg1Bg2Mask) == 0 and
+    (view.registers[CgadsubReg] and ColorMathLayerMask) == 0 and
+    (view.registers[CgwselReg] and ForceBlackMask) == 0
+
+proc composeAddedScenery(view: ExpandedViewport) =
+  ## Draw only the expanded margins, leaving the original 256x224 rectangle untouched.
+  let
+    originX = view.originX
+    originY = view.originY
+    right = originX + ScreenWidth
+    bottom = originY + ScreenHeight
+    fast = view.mapSpanFastPath()
+  if fast:
+    view.composeFastRect(0, 0, view.width, originY)
+    view.composeFastRect(0, bottom, view.width, view.height)
+    view.composeFastRect(0, originY, originX, bottom)
+    view.composeFastRect(right, originY, view.width, bottom)
+  else:
+    view.composeScalarRect(0, 0, view.width, originY)
+    view.composeScalarRect(0, bottom, view.width, view.height)
+    view.composeScalarRect(0, originY, originX, bottom)
+    view.composeScalarRect(right, originY, view.width, bottom)
+
 proc compose*(view: ExpandedViewport, original: Image): Image =
   ## Return a reusable W×H opaque image with original 256x224 centered on extra scenery or black.
   if original.width != ScreenWidth or original.height != ScreenHeight:
@@ -464,12 +588,7 @@ proc compose*(view: ExpandedViewport, original: Image): Image =
       originY = view.originY
       right = originX + ScreenWidth
       bottom = originY + ScreenHeight
-    for y in 0 ..< view.height:
-      let worldY = view.cameraY + y - originY
-      for x in 0 ..< view.width:
-        if x >= originX and x < right and y >= originY and y < bottom: continue
-        view.output.data[y * view.width + x] = view.sceneryPixel(
-          view.cameraX + x - originX, worldY)
+    view.composeAddedScenery()
     for index in view.spriteRaster.touched:
       let
         x = index mod view.width
