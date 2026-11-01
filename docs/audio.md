@@ -107,8 +107,8 @@ all 191 songs sound correct or that their sequences are fully decoded.
 
 ## Reproduced SPC700 source
 
-The fixed-layout build now assembles forty-four annotated `.spc.asm` files with
-our Nim SPC700 assembler. They reproduce **1,018 executable bytes** in package 1.
+The fixed-layout build now assembles forty-nine annotated `.spc.asm` files with
+our Nim SPC700 assembler. They reproduce **1,221 executable bytes** in package 1.
 The upload block header at file `$26003E` declares 16,779 bytes from file
 `$260042` to APU `$0500`; therefore `file = apuAddress + $25FB42` within it.
 Each source's `.org` is its APU execution address, not a ROM padding request.
@@ -119,6 +119,7 @@ Each source's `.org` is its APU execution address, not a ROM padding request.
 | `spcAdvancePhase.spc.asm` | `$05CD..05D7` | `$26010F..260119` | 11 |
 | `spcPrepareChannelEvent.spc.asm` | `$0654..0683` | `$260196..2601C5` | 48 |
 | `spcResetEventState.spc.asm` | `$0684..0695` | `$2601C6..2601D7` | 18 |
+| `spcConvertEventPitch.spc.asm` | `$06BE..070D` | `$260200..26024F` | 80 |
 | `spcPitchScale.spc.asm` | `$070E..0732` | `$260250..260274` | 37 |
 | `spcWritePitch.spc.asm` | `$0733..0740` | `$260275..260282` | 14 |
 | `spcWriteDsp.spc.asm` | `$0741..074F` | `$260283..260291` | 15 |
@@ -137,6 +138,9 @@ Each source's `.org` is its APU execution address, not a ROM padding request.
 | `spcSelectInstrument.spc.asm` | `$095F..09B7` | `$2604A1..2604F9` | 89 |
 | `spcSetPan.spc.asm` | `$09B8..09D5` | `$2604FA..260517` | 30 |
 | `spcSetPanTransition.spc.asm` | `$09D6..09FC` | `$260518..26053E` | 39 |
+| `spcConfigurePitchModulation.spc.asm` | `$09FD..0A08` | `$26053F..26054A` | 12 |
+| `spcSetPitchModulationDepth.spc.asm` | `$0A09..0A13` | `$26054B..260555` | 11 |
+| `spcSetPitchModulationRamp.spc.asm` | `$0A14..0A23` | `$260556..260565` | 16 |
 | `spcSetMasterVolume.spc.asm` | `$0A24..0A28` | `$260566..26056A` | 5 |
 | `spcSetMasterVolumeTransition.spc.asm` | `$0A29..0A3A` | `$26056B..26057C` | 18 |
 | `spcSetTempo.spc.asm` | `$0A3B..0A3F` | `$26057D..260581` | 5 |
@@ -155,6 +159,7 @@ Each source's `.org` is its APU execution address, not a ROM padding request.
 | `spcTickPanTransition.spc.asm` | `$0C79..0C8B` | `$2607BB..2607CD` | 19 |
 | `spcWriteStereo.spc.asm` | `$0C8C..0CD2` | `$2607CE..260814` | 71 |
 | `spcApplyPanStep.spc.asm` | `$0CD3..0CF6` | `$260815..260838` | 36 |
+| `spcTickPitchModulation.spc.asm` | `$0D7C..0DCF` | `$2608BE..260911` | 84 |
 | `spcPreviewPan.spc.asm` | `$0DDF..0DFB` | `$260921..26093D` | 29 |
 | `spcScaleSignedStep.spc.asm` | `$0E2B..0E48` | `$26096D..26098A` | 30 |
 | `spcModulateChannelGain.spc.asm` | `$0E56..0E60` | `$260998..2609A2` | 11 |
@@ -305,7 +310,8 @@ command IDs, including `$E0->$095F`, `$E1->$09B8`, `$ED->$0A86`, and `$EF->$0AAC
 Instrument-area reads occur at `$0986/$099D/$09AC/$09B2` into `$6E30..6E4D`.
 The same run verifies **382** phase additions and update/preview branch routes,
 along with **655** pitch multiplications, **742** staged channel gains and **two**
-sequence-call frames and **32 accepted-event pitch states**. These are bounded live-trace counts,
+sequence-call frames, **32 accepted-event pitch states** and **655 pitch-table
+conversions**. These are bounded live-trace counts,
 not an absolute timer rate or an exhaustive song/command inventory.
 The `$0D10/$0D19` path scans ahead and skips command operands using metadata;
 those reads do not themselves advance the channel pointer at `$30+X`.
@@ -354,6 +360,108 @@ cursor advancement and stack balance. The complete test file now runs 84,480
 cases per image, **168,960** across original and rebuilt. This proves the handler
 contract, not correctness of all uploaded instrument data or audible playback.
 
+### Pitch modulation setup and persistent state
+
+E3 at `$09FD` consumes delay, rate and depth. It stores delay at `$02B0+X`,
+rate at `$02A1+X`, then shares E4's `$0A09..0A13` tail: current depth
+`$B1+X=operand`, saved target `$02C1+X=operand`, duration `$02B1+X=0`.
+E4 has no operands, so dispatch supplies zero and disables modulation through
+those stores. Direct `$0A09` calls use A instead, preserving Y. Neither command
+resets the existing delay counter `$B0+X`, ramp counter `$0100+X` or phase
+`$02A0+X`, and neither writes DSP ports or dirty mask `$5E`.
+
+F0 at `$0A14..0A23` stores its operand as duration `$02B1+X` and divides
+current depth by it, storing the quotient at `$02C0+X`. A zero divisor yields
+quotient 255 and remainder=current depth under the SPC DIV rules. X is restored
+from `$44`, so that saved channel must match the incoming X for ordinary use.
+F0 preserves depth, target and all counters; it does not start a fresh ramp.
+
+The consumer `$0D7C..0DCF` establishes these state transitions:
+
+- Current depth zero freezes delay, ramp counter and phase.
+- Otherwise, unequal delay counter/threshold increments the counter modulo 256
+  and skips modulation. Equality enables the following work.
+- If the **old** ramp counter equals duration, current depth becomes the saved
+  target. Otherwise increment the counter and add the quotient to current depth
+  modulo 256, using **zero** as the baseline when the old counter was zero.
+- Advance phase by rate modulo 256. Given the new phase p, let
+  `t=4*(p & 63)` when bit 6 is clear, or `255-4*(p & 63)` otherwise.
+  For depth <=240 the magnitude is `floor(depth*t/256)`; for depth >=241 it is
+  the full product `(depth & 15)*t`. Add or subtract this magnitude from base
+  position `$10/$11` modulo 65536 according to phase bit 7, then convert/output.
+
+The signed helper at `$0E41` requires zero word `$0E/$0F`. Skipped modulation
+still requests base-position output when `$13.7` is set; otherwise it returns.
+The output tail uses the existing `$47 & $1A` DSP guard. Dirty mask `$5E` is
+preserved throughout this consumer.
+
+Accepted-event reset clears both counters and initializes phase from duration
+parity: `phase=(duration & 1)*128`. Duration is a numeric parameter, not an
+independent phase flag. For an event-reset ramp of duration N, equality/snap is
+tested on the N+1th enabled tick; a zero quotient can instead make the first
+depth update zero and freeze later ticks before a snap is reached.
+
+`nim r tests/integration_spc_pitch_modulation.nim` verifies both images with
+**163,924 setup calls**, **168,032 bounded stage entries**, **84 accepted-event
+entries** and **3,072 complete output-tail calls**. The **84 repeated-ramp
+contexts** are included in these counts. Authored states cover every setup
+operand and phase/depth pair, delay wrap, counter equality/zero, division flags,
+neighbors and actual F0-to-event-reset-to-tick interactions. Stage arithmetic
+stops before conversion; separate full-tail checks establish write gating and
+serialization, while the conversion suite below supplies the pitch-value oracle.
+Musical effect names and absolute cadence remain unassigned.
+
+### Pitch-table conversion
+
+APU `$06BE..070D` (file `$260200..26024F`) converts the fractional/integer
+position at DP `$10/$11` into pre-multiplier word `$14/$15`. Entry `$06BE`
+first adjusts that position modulo 65536, using its original high byte n:
+
+```
+P' = P - 2*(19-n)    when n < 19
+     P              when 19 <= n < 52
+     P + (n-52)     otherwise
+```
+
+Shared entry `$06D4` bypasses this adjustment; the converter's own branch reaches
+it directly. The modulation tail jumps from `$0DC7` to `$06BE`. Encoded call/jump
+candidates at `$10F7/$15D5` also address `$06D4`, but their upstream instruction
+boundaries and reachability remain unproven. Both entries preserve incoming X via
+the native stack; they do not restore it from saved channel byte `$44`.
+
+Let m/f be the resulting high/low bytes, j=`(m & 127) mod 12`, and
+q=`(m & 127) div 12`. The consumer reads adjacent little-endian words from the
+thirteen-word table at APU `$0EBC..0ED5` (file `$2609FE..260A17`):
+
+```
+d = (table[j+1] - table[j]) & 255
+U = (table[j] + floor(d*f/256)) & 65535
+D = (2*U) & 65535
+result = D >> (6-q)       when q <= 6
+         0               otherwise
+```
+
+The difference's high byte is discarded before multiplication. Doubling wraps
+**before** right shifting. For q>6, the original eight-bit loop counter wraps
+through 252–255 right shifts until it reaches six; that erases the word. The
+routine neither clamps these inputs nor implements a left shift for them.
+It returns A=result low, Y=U high, C=1/N=0/Z=1, and preserves P/I/B; H/V come
+from the interpolation ADDW. It falls into the scaling/output path below.
+This establishes arithmetic and table shape without assigning frequency units
+or committing the original table contents. The preceding `$0696..06BD` event
+transition setup and the other callers' complete roles remain separate work.
+The next hypothesis is that F1/F2/F3 (`$0A68/$0A6C/$0A82`) configure that
+pending pitch transition. Acceptance requires following those writers through
+`$0696..06BD` and its helpers, then checking target/step initialization and later
+tick/preview behavior with authored sequences; metadata alone is insufficient.
+
+`nim r tests/integration_spc_pitch_conversion.nim` checks **1,048,576 direct
+entries** across both entry points and both ROM images: every position word
+against four authored curves, including large/negative differences and overflow.
+Another **26,880 actual conversion-to-DSP chains** cover all voices, multiplier
+boundaries and both inhibit outcomes. Assertions check scratch words, preserved
+neighbors, curve data, flags, stack frames and ordered hardware writes.
+
 ### Instrument pitch multiplier
 
 APU `$070E..0732` (file `$260250..260274`) consumes the word at `$0220+X`
@@ -375,8 +483,8 @@ instructions from `$070E` with synthetic pitch/multiplier words and a normal
 direct-page-zero contract. It verifies all 65,536 pitches against seven multipliers, plus twelve
 boundary values for both words across eight voices and both write-guard states:
 461,056 cases per image (**922,112** total), checking the product, ordered port
-writes, X preservation, and stack balance. It does not verify the preceding
-pitch-table interpolation.
+writes, X preservation, and stack balance. The separate conversion suite above
+verifies the preceding table arithmetic.
 The two-second song-3 probe independently checks 655 observed multiplications
 against the same mathematical formula during driver playback.
 
@@ -861,15 +969,15 @@ Accepted events produce these bytes before the existing reset at `$0684`:
 ```
 integer[$0361+X] = ((effectiveEvent & 127) + global[$50] + channel[$02F0+X]) & 255
 lowByte[$0360+X] = source[$0381+X]
-mode[$02A0+X] = (source[$02B1+X] & 1) * 128
+phase[$02A0+X] = (duration[$02B1+X] & 1) * 128
 ```
 
 The two additions explicitly clear carry independently. Offsets wrap as bytes,
 without sign extension or clipping; carry from the first sum is discarded.
-The old low pitch byte is **replaced**, not preserved, and all source mode bits
-except bit zero are discarded. Subsequent pitch-table conversion and the full
-interpretation of the source fields remain separate work; this does not claim
-musical frequency units or complete note semantics.
+The old low pitch byte is **replaced**, not preserved. Only duration parity
+initializes phase, as verified by the modulation consumer above. The source
+fraction's complete producer path and musical frequency units remain open;
+the table-conversion arithmetic is independently verified above.
 
 `nim r tests/integration_spc_pitch_offsets.nim` executes **679,936 real setter
 dispatches**, **16,384 direct setters** and **339,968 event-prefix entries** on

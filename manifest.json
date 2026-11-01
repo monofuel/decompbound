@@ -1585,12 +1585,22 @@
     {
       "name": "blob_2601D8",
       "offset": 2490840,
-      "length": 120,
+      "length": 40,
       "kind": "blob",
       "source": "blobs/blob_2601D8.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcConvertEventPitch",
+      "offset": 2490880,
+      "length": 80,
+      "kind": "code",
+      "source": "asm/spcConvertEventPitch.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_pitch_conversion.nim verifies both original/rebuilt conversion entries against authored curves, all position words, wrapped arithmetic and actual scaling/DSP continuations"
     },
     {
       "name": "spcPitchScale",
@@ -1833,14 +1843,34 @@
       "evidence": "docs/audio.md; integration_spc_pan_transition.nim and integration_spc_arithmetic.nim verify original/rebuilt command, tick, preview and helper arithmetic"
     },
     {
-      "name": "blob_26053F",
+      "name": "spcConfigurePitchModulation",
       "offset": 2491711,
-      "length": 39,
-      "kind": "blob",
-      "source": "blobs/blob_26053F.bin",
-      "build": "copy",
-      "comprehension": "unknown",
-      "evidence": "residual unclaimed"
+      "length": 12,
+      "kind": "code",
+      "source": "asm/spcConfigurePitchModulation.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_pitch_modulation.nim verifies original/rebuilt command setup, delay/ramp/phase arithmetic, event resets and guarded output continuations"
+    },
+    {
+      "name": "spcSetPitchModulationDepth",
+      "offset": 2491723,
+      "length": 11,
+      "kind": "code",
+      "source": "asm/spcSetPitchModulationDepth.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_pitch_modulation.nim verifies original/rebuilt command setup, delay/ramp/phase arithmetic, event resets and guarded output continuations"
+    },
+    {
+      "name": "spcSetPitchModulationRamp",
+      "offset": 2491734,
+      "length": 16,
+      "kind": "code",
+      "source": "asm/spcSetPitchModulationRamp.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_pitch_modulation.nim verifies original/rebuilt command setup, delay/ramp/phase arithmetic, event resets and guarded output continuations"
     },
     {
       "name": "spcSetMasterVolume",
@@ -2075,9 +2105,29 @@
     {
       "name": "blob_260839",
       "offset": 2492473,
-      "length": 232,
+      "length": 133,
       "kind": "blob",
       "source": "blobs/blob_260839.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcTickPitchModulation",
+      "offset": 2492606,
+      "length": 84,
+      "kind": "code",
+      "source": "asm/spcTickPitchModulation.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_pitch_modulation.nim verifies original/rebuilt command setup, delay/ramp/phase arithmetic, event resets and guarded output continuations"
+    },
+    {
+      "name": "blob_260912",
+      "offset": 2492690,
+      "length": 15,
+      "kind": "blob",
+      "source": "blobs/blob_260912.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"

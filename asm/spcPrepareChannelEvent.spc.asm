@@ -29,11 +29,12 @@ testEvent:
     MOV A, $0381+X
     MOV $0360+X, A         ; Replace the fraction from this channel source byte.
 
-    ; TODO: identify the downstream meaning of this source-bit/mode-bit mapping.
+    ; Duration parity initializes the modulation phase; see spcTickPitchModulation.
+    ; TODO: explain why the duration also selects the initial phase half-cycle.
     MOV A, $02B1+X
     LSR A
     MOV A, #$00
-    ROR A                  ; Map source bit 0 to bit 7; all other result bits zero.
+    ROR A                  ; Map duration bit 0 to phase bit 7; other bits zero.
     MOV $02A0+X, A
-    ; At $0684: A=mode byte, C=0, N/Z from ROR; H/V from second offset ADC.
+    ; At $0684: A=phase byte, C=0, N/Z from ROR; H/V from second offset ADC.
     ; Fall through $0684: spcResetEventState resets counters and marks dirty bits.

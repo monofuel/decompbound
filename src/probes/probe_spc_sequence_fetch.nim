@@ -9,6 +9,23 @@ const
 type ReadSite = object
   count, first, last: int
 
+proc convertedPitch(spc: Spc, compensate: bool): int =
+  ## Calculate the conversion oracle from live scratch and curve words without exporting data.
+  var position = spc.ram[0x10].int + spc.ram[0x11].int * 256
+  if compensate:
+    let integer = position div 256
+    position = (position + (if integer < 19: -2 * (19 - integer)
+      elif integer >= 52: integer - 52 else: 0)) and 65535
+  let
+    integer = (position div 256) and 127
+    segment = integer mod 12
+    quotient = integer div 12
+    address = 0x0EBC + segment * 2
+    base = spc.ram[address].int + spc.ram[address + 1].int * 256
+    next = spc.ram[address + 2].int + spc.ram[address + 3].int * 256
+    interpolation = (base + ((next - base) and 255) * (position mod 256) div 256) and 65535
+  result = if quotient > 6: 0 else: ((interpolation * 2) and 65535) shr (6 - quotient)
+
 proc main() =
   ## Trace driver reads and verify bounded pitch, gain, call and phase contracts.
   let
@@ -41,6 +58,8 @@ proc main() =
     callChannel, callTarget, callCount, callReturn, callStack, callChecks = 0
     eventPending = false
     eventChannel, eventInteger, eventFraction, eventMode, eventChecks = 0
+    conversionPending = false
+    conversionExpected, conversionChecks = 0
   for sample in 0 ..< SampleRate * 2:
     let start = machine.spc.cycles
     while machine.spc.cycles - start < CyclesPerSample:
@@ -90,7 +109,14 @@ proc main() =
         doAssert machine.spc.ram[0x321 + gainChannel].int == expectedGain
         gainPending = false
         inc gainChecks
+      if pc in [0x06BE, 0x06D4] and not conversionPending:
+        conversionExpected = convertedPitch(machine.spc, pc == 0x06BE)
+        conversionPending = true
       if pc == 0x070E:
+        if conversionPending:
+          doAssert machine.spc.ram[0x14].int + machine.spc.ram[0x15].int * 256 == conversionExpected
+          conversionPending = false
+          inc conversionChecks
         let
           channel = machine.spc.x.int
           pitch = machine.spc.ram[0x14].uint32 or (machine.spc.ram[0x15].uint32 shl 8)
@@ -171,6 +197,8 @@ proc main() =
   echo "verified sequence call frames: ", callChecks
   doAssert eventChecks > 0
   echo "verified accepted-event pitch states: ", eventChecks
+  doAssert conversionChecks > 0 and not conversionPending
+  echo "verified pitch-table conversions: ", conversionChecks
 
 when isMainModule:
   main()
