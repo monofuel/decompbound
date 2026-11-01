@@ -5,7 +5,10 @@ RG DS Plus. Profiling tools, optional opaque XBGR transport, guarded CPU
 polling-loop batching and borrowed background palette access are implemented.
 Palette borrowing reduces core CPU time by **9.40–16.42%** in the new fixed-clock
 ARM comparisons below. Batching reduces fixed-clock ARM battle
-CPU time by **34.71%**; the optimized core is installed. Monofuel accepts the
+CPU time by **34.71%**; the optimized core is installed. The
+[expanded-viewport batch](#expanded-viewport-performance-batch--2026-10-31)
+adds bounded battle spans and cached map spans on top of those optimizations.
+Monofuel accepts the
 combined core and GPU-upscaling player as flawless in manual play; quantitative
 full-player frame-time headroom remains unmeasured. PPU rendering is the largest
 measured core cost. Further optimizations below remain hypotheses until
@@ -25,6 +28,167 @@ on monofuel's devices requires his explicit, immediate permission for that
 specific run; general profiling/testing/deployment approval is insufficient.
 The historical native-audio observations below do not authorize repeating them.
 Core PCM generation and hash comparison continue without speaker output.
+
+## Expanded viewport performance batch — 2026-10-31
+
+This batch targets the polished **336×256** game panel with the DS companion
+and opaque XBGR transport enabled. The unchanged reference is `b03a241`; the
+combined runtime changes are `6e60767` on `monofuel/viewport-performance`.
+The reference already includes CPU polling batching and borrowed palettes.
+These comparisons therefore measure additional gains, rather than reusing the
+older pre-optimization baseline.
+
+Three changes remove repeated presentation work:
+
+- Battle margins ask the existing detached PPU renderer for exactly the needed
+  prefix. At 336×256 with vertical continuation, the former chunk path rendered
+  131,072 pixels to retain 28,672. The native 256-pixel scanline remains a
+  separate compile-time specialization; sprite context is restored afterward.
+- Live map snapshots copy CHR and arrangement words in bulk on little-endian
+  hosts, with explicit source/destination bounds. Big-endian hosts retain the
+  conversion path. CGRAM and registers are still sampled each frame.
+- Ordinary map margins resolve one arrangement per tile span, lazily cache the
+  eight decoded indices in each tile row, and use a current-brightness palette.
+  Cache validity is cleared for every fresh snapshot. Windows, colour math and
+  force-black configurations retain the scalar compositor. Both map planes,
+  flips, priorities and transparent indices remain live; the atlas's static
+  compositor is not substituted. The original centre and actor pass are kept.
+
+No GPU core renderer, persistent VRAM dirty tracking, gameplay change or
+additional thread is introduced. Full output fills/copies remain where needed.
+
+### Paired measurements
+
+Runs use the actual shipping `.so`, pinned to CPU 2, with 120 warmup frames and
+600 measured frames. Three reference/candidate pairs alternate execution order;
+callbacks discard video and PCM in memory, and timed callbacks do not hash.
+Maps use the existing alternating 30-frame walking input. Tables report the
+**median of the three per-run thread-CPU means and p99s**, not a pooled p99.
+The desktop keeps its existing governor/boost settings. ARM uses the device's
+unchanged `performance` governor at 1,992 MHz on CPU 2. All runs are headless;
+frontend recording, scaling, GPU presentation and audio-device output are excluded.
+
+**RG DS Plus, final combined build:** Linux
+`7.0.2-mono-rgdsplus-rocknix-r3`, default shipping `danger`/ORC ARM64 build.
+The menu stayed running throughout; the benchmark watchdog stops only the
+headless profiler if a manual game starts.
+
+| ARM workload | Reference mean / p95 / p99 | Combined mean / p95 / p99 | Mean reduction |
+|---|---:|---:|---:|
+| Native 256×224 Winters control | 6.614 / 7.391 / 7.574 ms | 6.633 / 7.407 / 7.594 ms | −0.30% (variation) |
+| 336×256 Winters walking | 15.877 / 16.696 / 16.845 ms | 8.515 / 9.323 / 9.499 ms | **46.37%** |
+| 336×256 NPC park walking | 15.665 / 17.481 / 18.281 ms | 8.575 / 10.184 / 11.296 ms | **45.26%** |
+| 336×256 two-bit battle | 20.625 / 21.618 / 21.751 ms | 13.658 / 14.664 / 14.869 ms | **33.78%** |
+| 336×256 four-bit battle | 12.832 / 13.795 / 13.990 ms | 9.914 / 10.857 / 11.085 ms | **22.74%** |
+
+The 30% target is exceeded in both outdoor samples and the expensive two-bit
+battle, but not in the four-bit battle. Native performance is effectively
+unchanged. All sampled candidate p99s fit below the 16.67 ms *core* budget;
+that does not establish a full-player frame budget, since frontend work and
+other scenes remain outside this measurement. Core means/p99s are thread CPU
+time; instrumented stage reports below use wall time and must not be mixed
+into this table. Raw final comparisons are
+`arm-combined-json/arm-{native,winter,npc,battle-two,battle-four}-{baseline,combined}-{1,2,3}.json`.
+
+The desktop's isolated map measurements separate the two map changes. The
+snapshot-only binary is `d086367`; the cached-span binary contains `c4809c6`
+source against the unchanged reference PPU. Both source diffs were independently
+checked against the reference before integration.
+
+| Desktop walking scene, 336×256 | Reference mean / p99 | Bulk snapshots | Snapshots + cached spans |
+|---|---:|---:|---:|
+| Winters, Jeff outside lab | 1.881 / 2.384 ms | 1.840 / 2.341 ms | 1.086 / 1.458 ms |
+| NPC park | 1.789 / 2.595 ms | 1.743 / 2.353 ms | 1.047 / 1.492 ms |
+
+Bulk copies alone remove about 2–3% of total map frame cost; the complete map
+path removes about 42% on this desktop. The isolated bounded battle renderer
+reduces desktop means from 3.068 to 1.848 ms for the two-bit background and
+1.754 to 1.211 ms for the four-bit background. A native 256×224 control changes
+from 0.964 to 0.963 ms, within normal variation. These are core costs, not
+full-player frame times or a claim that every scene meets 60 fps.
+
+Local numeric evidence lives under ignored `bin/viewport-performance/`, including
+`pc-{winter,npc}-{base,snapshot,map}-{1,2,3}.json`,
+`pc-{native,battle-two,battle-four}-{baseline,spans}-{1,2,3}.json`, and the ARM
+comparison scripts/reports. Private captures remain outside tracked files:
+Winters `earthbound_20260818-021632.png`, NPC park `earthbound_20260818-021806.png`,
+two-bit battle `earthbound_20260706-213532.png`, and four-bit battle
+`earthbound_20261031-154410_2.png`.
+
+### Profiling and correctness
+
+Optional `coreProfile` builds append `ExpandedSnapshot`, `ExpandedMapCompose`
+and `ExpandedBattleCompose` without renumbering existing stages. They separate
+snapshot/publication checks, map-margin/actor composition and detached battle
+composition. Timings are exclusive: sum these three children with the remaining
+`ExpandedScenery` time to compare against older aggregate reports. Default
+shipping builds omit the timing clocks.
+
+One additional 600-frame desktop instrumented run per scene exercises these
+new scopes. Winters walking attributes 0.021 ms/frame to snapshots/publication,
+0.174 ms to map/actor composition and 0.021 ms to remaining expanded work.
+The two-bit battle attributes 0.539 ms to detached battle composition and
+0.044 ms to remaining expanded work. These are exclusive wall-time means in
+the instrumented core, including clock overhead, rather than shipping CPU
+timings. Numeric reports are `profile-{winter,battle}.json` in the evidence
+directory; nested-scope tests check exact accounting and stage names.
+
+The new synthetic tests compare cached spans to the unchanged scalar pixel
+reference, including odd/signed coordinates, both planes, zero-word BG2 fallback,
+flips, priority, transparency, palette/brightness changes and cache invalidation.
+Detached-span tests compare prefixes of lengths 0–256 to full PPU rows, preserve
+sentinels outside the requested range, reject invalid bounds and check that
+native sprite context survives detached rendering.
+
+`tests/ppu/viewport_worker.nim` uses the existing exact-byte corpus referee with
+an independently built worker against untouched reference product source. It
+compares complete expanded images, PCM, complete serialized machine/CPU state
+and handshake state. Set `VIEWPORT_PARITY_WIDTH`, `VIEWPORT_PARITY_HEIGHT` and
+`PPU_CORPUS_FRAMES` for geometry/sequence checks. The harness rejects unequal,
+truncated and oversized blocks; reports contain paths and outcomes only.
+
+Completed checks for the combined source:
+
+- `nix develop --command make -o libretro test`, using the freshly built
+  combined shipping core: all 40 test modules pass (107 named test cases plus
+  top-level assertions). The Nix shell supplies the GUI tests' linker libraries.
+  Profile accounting also passes with `-d:coreProfile`.
+- Exact old/new expanded output across **1,293 private state captures × three
+  frames**, with 1,009 image-only PNGs skipped and no incompatible states.
+  Bounded battle spans and the map changes also passed this sweep independently.
+- Eight representative map, NPC, cloud, cave, sailing and battle states across
+  **360 frames at each of 320×240, 336×256, 448×252, 512×384 and 257×225**:
+  14,400 additional frames match complete expanded pixels, PCM and machine/CPU
+  state. This preserves existing scene quirks rather than claiming to fix them.
+- The independent map walking integration exercises tile and sector crossings
+  for 480 frames at each size. The four-bit battle's continuous-vertical check
+  passes 360 frames at each size, including both formerly flickering bands.
+  The uninterrupted sailing integration also passes 480 frames at each size.
+- On ARM, separate untimed-integrity runs compare 60 measured frames after
+  120 warmup frames for Winters and both battles. Delivered dual-screen video,
+  PCM and final exposed WRAM/SRAM hashes match the reference. Their hashing
+  overhead is excluded from the performance table.
+- `make compare` prints **BYTE-IDENTICAL**.
+- `taskset -c 4-15 nix develop --command make bench-check`: all five full
+  recorded-session references pass, **924,845 frames** total, including native
+  video, audio and WRAM reference checks. The longest tape covers 524,641 frames.
+
+### Handheld deployment
+
+Installed the tested ARM64 core from `6e60767` at
+`/usr/local/lib/libretro/decompbound_libretro.so` after all gates passed.
+SHA-256: `3ce74cc2f9355e8ad8106ad860d70273aa20227d1334961ab284cbd19c14d532`.
+The atomic core-only install preserves both player binaries, both launchers,
+all SRAM and the existing Jeff/cave default screenstates by checksum. The
+account dotfile was untouched and unread. The same menu process/service stayed
+running; no player was launched and no speaker output was produced.
+
+The preceding core is backed up at
+`/var/backups/mono-retro/viewport-performance-6e60767-BYCLRC/core.so`, with the
+preservation manifest and installed source/hash alongside it. Numeric benchmark,
+integrity and install logs remain under ignored `bin/viewport-performance/`.
+Full-player acceptance is tracked in [human-verify.md](human-verify.md), not
+inferred from the headless core measurements.
 
 ## Baseline and target
 
@@ -871,7 +1035,7 @@ the libretro adapter or DS companion, so they complement the `.so` baseline.
 | CPU waiting | Guarded batching of the verified event-wait loop is implemented. | The original ARM pure-wait batches accounted for 35–54% of instrumented frame time. Expand coverage only with new profiling and equivalent CPU/hook/device proofs. |
 | CPU and bus | Reduce repeated decoding, dispatch and ordinary-memory lookup overhead; consider cached instruction blocks for hot code. | Profile actual instructions/accesses. Preserve generic hooks, MMIO and self-modifying RAM behavior; account for CPU width/mode changes. |
 | PPU | Reuse decoded tile indices across appropriate writes; retain useful intermediate composition instead of decoding again. | Identify the remaining repeated work. Invalidate for VRAM, palette and relevant register changes; retain scanline effects, windows, priority and color math. |
-| GPU acceleration | Investigate hardware scaling in the frontend and, later, GPU PPU rendering in the core. | Desired future direction; mobile OpenGL ES, driver/context support and correctness costs need a bounded device experiment. See below. |
+| GPU acceleration | Frontend GPU scaling is implemented; consider GPU PPU rendering in the core later. | Mobile OpenGL ES, driver/context support and correctness costs need a bounded core experiment. See below. |
 | APU/DSP | Streamline SPC dispatch, timer handling, BRR/sample decoding and DSP loops where profiling finds cost. | Separate these costs first. Preserve feedback-dependent decoding, audio samples and CPU/APU interaction. |
 | DS state | Reduce repeated party/inventory construction, string work and allocations when relevant WRAM contents are unchanged. | Measure snapshot/read/compare cost separately from rendering; preserve roster order, HP/PP updates, palettes, input and inventory selection. |
 | Companion output | Repack its cached image into XRGB only when that image changes. | Provide a reliable image revision/invalidation path, including reset and state import. The image is cached now, but its pixels are still repacked every frame. |
@@ -891,17 +1055,17 @@ and small packing savings should not substitute for finding wasted emulation.
 
 Monofuel favors GPU acceleration as a future direction, while recognizing that
 mobile OpenGL ES and driver integration could be painful. Polling-loop batching
-is now implemented; GPU capability experiments remain a future direction.
-No GPU implementation or measured GPU speedup is claimed here.
+and frontend GPU scaling are now implemented. GPU core rendering remains a
+future direction; no measured GPU core speedup is claimed here.
 
 The current handheld path renders the SNES PPU and companion UI on the CPU.
-Mono-retro also scales images on the CPU and copies pixels to mapped DRM
-buffers; the display controller scans those buffers out. There is currently no
-GPU shader rendering in that path. Two distinct candidates are:
+Mono-retro/Windy now scales and presents the native-resolution panels with the
+GPU on the handheld. That removes frontend CPU upscaling but leaves the core's
+software PPU work. The two scopes are:
 
 | Candidate | Owner and potential benefit | Main constraints |
 |---|---|---|
-| Hardware scaling and presentation | Mono-retro/Windy: keep native-resolution panels small and scale/place them in hardware on the two displays. | Investigate display-plane scaling where supported, or GPU textured quads. Preserve exact integer scaling, nearest-neighbor pixels, borders, panel order and touch mapping. This reduces frontend work; it does not remove the measured core PPU cost. |
+| Hardware scaling and presentation | Implemented in Mono-retro/Windy: upload native-resolution panels and scale/place them on the two displays with the GPU. | Preserve exact integer scaling, nearest-neighbor pixels, borders, panel order and touch mapping. This reduces frontend work; it does not remove the measured core PPU cost. |
 | GPU SNES PPU rendering | Decompbound, with frontend cooperation: offload tile drawing, layer composition and color math. ARM software PPU work measures about 4–8 ms/frame. | Preserve per-scanline state, HDMA, palette/VRAM changes, windows, sprite priority and SNES color arithmetic. Batch GPU work appropriately; hundreds of tiny submissions could erase the benefit. |
 
 [Shady](https://github.com/treeform/shady) could express shader logic in Nim and

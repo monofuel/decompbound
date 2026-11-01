@@ -37,6 +37,12 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 ## OPEN — please check
 
+### Expanded viewport performance batch
+
+| Check | Run | Pass if |
+|---|---|---|
+| [ ] RG DS Plus optimized 336×256 core | Select **Decompbound** in the handheld menu after the performance-core deployment. Walk from the existing Jeff test state, open the inventory and play a battle. | Both screens, scenery, sprites, battle effects, controls and normal audio behave as before; expanded play remains smooth. Note any remaining crunch or slow scene with an F12 capture. Automated measurements are core-only; this checks the full player. |
+
 ### Libretro screenstates and recording
 
 | Check | Run | Pass if |
