@@ -15,6 +15,8 @@ const
   WramSize = 0x20000
   SramSize = 0x2000
   FramesPerSecond = 60.0
+  InidispRegister = 0x00
+  ForceBlankMask = 0x80'u8
   BgModeRegister = 0x05
   BgModeMask = 0x07
   OpaqueBlack = 0xFF000000'u32
@@ -232,7 +234,9 @@ proc retro_run() {.cdecl, exportc, dynlib.} =
         profileStage(InputCallback): pressed = inputState(0, RetroDeviceJoypad, 0, id) != 0
         if pressed:
           machine.joy1 = machine.joy1 or (1'u16 shl (15 - id.int))
-    frameImage.fill(rgbx(0, 0, 0, 255))
+    # Frame stepping fills the backdrop unless force blank is set at entry.
+    if (machine.ppuRegs[InidispRegister] and ForceBlankMask) != 0:
+      frameImage.fill(rgbx(0, 0, 0, 255))
     stepReplayFrame(machine, cpuState, frameImage, addr pcm, polling, visibleHook, scanlineHook)
     if dualScreen:
       var

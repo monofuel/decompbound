@@ -579,7 +579,6 @@ proc compose*(view: ExpandedViewport, original: Image): Image =
       &"Expanded compose needs a {ScreenWidth}x{ScreenHeight} original frame.")
   if view.output.width != view.width or view.output.height != view.height:
     view.output = newImage(view.width, view.height)
-  view.output.fill(OpaqueBlack)
   if view.battle.ready:
     copyMem(addr view.output.data[0], addr view.battle.output.data[0],
       view.output.data.len * sizeof(ColorRGBX))
@@ -599,5 +598,7 @@ proc compose*(view: ExpandedViewport, original: Image): Image =
         let color = view.actorPixel(view.cameraX + x - originX,
           view.cameraY + y - originY)
         if color.isSome: view.output.data[index] = color.get()
+  else:
+    view.output.fill(OpaqueBlack)
   view.output.blitOriginal(original, view.originX, view.originY)
   view.output
