@@ -228,8 +228,9 @@ all SRAM, both existing Jeff/cave screenstates and the unchanged menu process.
 The account dotfile was untouched and unread. No playback was launched.
 Rollback core and preservation/source manifests are at
 `/var/backups/mono-retro/core-performance-63dbd04-DuyNfr/`.
-Full-player acceptance remains the manual check in
-[human-verify.md](human-verify.md).
+Monofuel confirmed the installed build is working on 2026-11-01 and approved
+merging. The completed manual check is in [human-verify.md](human-verify.md);
+full-player frame-time distributions remain unmeasured.
 
 ## Expanded viewport performance batch — 2026-10-31
 

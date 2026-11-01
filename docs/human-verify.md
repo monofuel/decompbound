@@ -37,12 +37,6 @@ ROM path: `bin/Earthbound (U) [!].smc` (your dump).
 
 ## OPEN — please check
 
-### RG DS Plus core performance
-
-| Check | Run | Pass if |
-|---|---|---|
-| [ ] Native row decoding and buffer coverage, 336×256 | Select **Decompbound** in the handheld menu after the performance-core deployment. Walk from the existing Jeff test state, open inventory and play a battle; try a cave when convenient. | Both screens, scenery, sprites, battle effects, controls and normal audio behave as before. Note any remaining crunch or slow scene with an F12 capture. This supersedes the earlier performance-core check; automated timings cover the core, while this checks the full player. |
-
 ### Libretro screenstates and recording
 
 | Check | Run | Pass if |
@@ -779,6 +773,10 @@ leave a short **OPEN** row here if you need a later eyeball on a fix.
 
 Move checked rows here so OPEN stays short. Prune freely.
 
+- **RG DS Plus expanded viewport and native decoding performance** · 2026-11-01 · `63dbd04`
+  - Monofuel confirmed the installed portable core is working and approved merging
+    both performance batches. This accepts manual play on the device; the paired
+    core timings remain in [libretro-performance.md](libretro-performance.md).
 - **RG DS Plus combined optimized core and GPU player** · 2026-10-30
   - Monofuel manually tests the combined build and reports: "Earthbound now
     runs flawlessly!" He highlights removal of extra pixel conversions and GPU
