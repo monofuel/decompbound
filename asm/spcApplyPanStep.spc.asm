@@ -1,11 +1,10 @@
 ; Apply transition step, APU $0CD3..$0CF6 / file $260815..$260838.
-; CALL/RET: DP zero, X=even channel offset, YA=$0330 for pan ($0300 from
-; the neighboring channel-update caller). Current word is [YA+X], step at +$10,
+; CALL/RET: DP zero, X=even channel offset, YA=$0330 for pan or $0300 for
+; channel volume. Current word is [YA+X], step at +$10,
 ; target integer at +$20. ORs caller mask $47 into dirty mask $5E.
 ; Nonzero OR adds step modulo 65536; zero OR writes target*256. The branch
 ; uses OR's N/Z, not the caller's duration-decrement flags: no normal final snap.
 ; Preserves X; clobbers A/Y/PSW and DP $14..$17. See docs/audio.md.
-; TODO: identify the other caller's $0300 array role beyond this shared layout.
 ; Only bases $0330/$0300 are contracted: pointer offsets change the low byte
 ; alone, without propagating carry into the high pointer byte.
     .org $0CD3

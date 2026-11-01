@@ -102,8 +102,8 @@ all 191 songs sound correct or that their sequences are fully decoded.
 
 ## Reproduced SPC700 source
 
-The fixed-layout build now assembles sixteen annotated `.spc.asm` files with our
-Nim SPC700 assembler. They reproduce **488 executable bytes** in package 1.
+The fixed-layout build now assembles twenty-seven annotated `.spc.asm` files with
+our Nim SPC700 assembler. They reproduce **687 executable bytes** in package 1.
 The upload block header at file `$26003E` declares 16,779 bytes from file
 `$260042` to APU `$0500`; therefore `file = apuAddress + $25FB42` within it.
 Each source's `.org` is its APU execution address, not a ROM padding request.
@@ -115,17 +115,28 @@ Each source's `.org` is its APU execution address, not a ROM padding request.
 | `spcPitchScale.spc.asm` | `$070E..0732` | `$260250..260274` | 37 |
 | `spcWritePitch.spc.asm` | `$0733..0740` | `$260275..260282` | 14 |
 | `spcWriteDsp.spc.asm` | `$0741..074F` | `$260283..260291` | 15 |
+| `spcTickTempoTransition.spc.asm` | `$08F6..0904` | `$260438..260446` | 15 |
+| `spcTickMasterVolumeTransition.spc.asm` | `$091E..092F` | `$260460..260471` | 18 |
 | `spcDispatchCommand.spc.asm` | `$0943..0954` | `$260485..260496` | 18 |
 | `spcSequenceFetch.spc.asm` | `$0955..095E` | `$260497..2604A0` | 10 |
 | `spcSelectInstrument.spc.asm` | `$095F..09B7` | `$2604A1..2604F9` | 89 |
 | `spcSetPan.spc.asm` | `$09B8..09D5` | `$2604FA..260517` | 30 |
 | `spcSetPanTransition.spc.asm` | `$09D6..09FC` | `$260518..26053E` | 39 |
+| `spcSetMasterVolume.spc.asm` | `$0A24..0A28` | `$260566..26056A` | 5 |
+| `spcSetMasterVolumeTransition.spc.asm` | `$0A29..0A3A` | `$26056B..26057C` | 18 |
+| `spcSetTempo.spc.asm` | `$0A3B..0A3F` | `$26057D..260581` | 5 |
+| `spcSetTempoTransition.spc.asm` | `$0A40..0A51` | `$260582..260593` | 18 |
+| `spcSetChannelVolume.spc.asm` | `$0A86..0A8E` | `$2605C8..2605D0` | 9 |
+| `spcSetVolumeTransition.spc.asm` | `$0A8F..0AA7` | `$2605D1..2605E9` | 25 |
 | `spcDivideStep.spc.asm` | `$0BC7..0BE2` | `$260709..260724` | 28 |
+| `spcTickChannelVolume.spc.asm` | `$0C40..0C78` | `$260782..2607BA` | 57 |
 | `spcTickPanTransition.spc.asm` | `$0C79..0C8B` | `$2607BB..2607CD` | 19 |
 | `spcWriteStereo.spc.asm` | `$0C8C..0CD2` | `$2607CE..260814` | 71 |
 | `spcApplyPanStep.spc.asm` | `$0CD3..0CF6` | `$260815..260838` | 36 |
 | `spcPreviewPan.spc.asm` | `$0DDF..0DFB` | `$260921..26093D` | 29 |
 | `spcScaleSignedStep.spc.asm` | `$0E2B..0E48` | `$26096D..26098A` | 30 |
+| `spcModulateChannelGain.spc.asm` | `$0E56..0E60` | `$260998..2609A2` | 11 |
+| `spcComputeChannelGain.spc.asm` | `$0E61..0E72` | `$2609A3..2609B4` | 18 |
 
 The pitch scale and pitch writer share fall-through tails; the stereo writer
 also exposes scratch-coordinate entry `$0C95`. Their contracts are kept next
@@ -139,10 +150,11 @@ literal synthetic fixtures, plus operand order, origins, labels, signed branch
 limits/wrap, bit packing and rejection of invalid or oversized operands.
 `nim r tests/integration_rom_pipeline.nim` independently checks SPC label origin
 versus ROM placement in a mixed 65816/SPC build, exact-length rejection and the
-whole-ROM gold rebuild. Source adoption compared every one of the 488 bytes
+whole-ROM gold rebuild. Source adoption compared every one of the 687 bytes
 at the file offsets above; the completed carving probe was retired afterward.
 
-The sequence-fetch, pitch-scale, pan, pan-transition, arithmetic and phase tests execute
+The sequence-fetch, pitch-scale, pan, pan-transition, arithmetic, phase, tempo
+and volume tests execute
 both original and freshly rebuilt driver images, checking mathematical results,
 state effects and ordered DSP-port writes. No audio output is needed for those
 gates. Remaining code, curves, instruments, songs and effects still enter the
@@ -172,9 +184,10 @@ Only the low product participates in ADC and its carry. Y retains the product's
 high byte, but it does not affect routing. Carry falls through at `$05D8` to
 calls `$07F9` and `$0625`; no carry branches to `$05E0`, where active byte `$04`
 permits channel preview through `$0DD0`. The timer target and `$53` are initially
-set to `$10` at `$0535..053A`; `$07E0` also writes `$20` to `$53`. Complete tempo
-command semantics, the earlier service path and absolute scheduling rate remain
-open. `$51` is a fractional accumulator, not a wall-clock sample counter.
+set to `$10` at `$0535..053A`; `$07E0` also writes `$20` to `$53`. The E7/E8
+tempo commands are explained below. The earlier service path, alternate reset
+routing and absolute scheduling rate remain open. `$51` is a fractional
+accumulator, not a wall-clock sample counter.
 
 `nim r tests/integration_spc_phase.nim` runs **2,102,264 cases** across original
 and rebuilt images: all dirty RAM/status byte seeds,
@@ -232,7 +245,7 @@ The trace observes `$0955` reading sequence addresses and dispatches to twelve
 command IDs, including `$E0->$095F`, `$E1->$09B8`, `$ED->$0A86`, and `$EF->$0AAC`.
 Instrument-area reads occur at `$0986/$099D/$09AC/$09B2` into `$6E30..6E4D`.
 The same run verifies **382** phase additions and update/preview branch routes,
-along with **655** pitch multiplications. These are bounded live-trace counts,
+along with **655** pitch multiplications and **742** staged channel gains. These are bounded live-trace counts,
 not an absolute timer rate or an exhaustive song/command inventory.
 The `$0D10/$0D19` path scans ahead and skips command operands using metadata;
 those reads do not themselves advance the channel pointer at `$30+X`.
@@ -435,7 +448,7 @@ pan and `$0300` for the neighboring caller), all channels, word carry/wrap,
 zero/nonzero dirty-mask combinations, incoming-Z independence, target snaps,
 guarded neighboring arrays and stack/register effects. The pointer adjustment
 changes only its low byte; arbitrary bases are not part of this contract. The
-game-level role of the `$0300` array remains a separate question.
+`$0300` array is the channel-volume word consumed by the gain path below.
 
 Sub-tick code `$0DDF..0DFB` (file `$260921..26093D`) and helper `$0E2B..0E48`
 (file `$26096D..26098A`) calculate a preview using caller phase byte `$51`:
@@ -466,8 +479,135 @@ all 1,000 opcode `$09` cases and all 1,000 DIV `$9E` cases using
 N/Z behavior also agrees with the original Nintendo development manual,
 [Book I, Table C-8, page C-6](https://floating.muncher.se/bot/manual/book1_text.pdf#page=232).
 No core flags were changed to obtain the driver result. The phase accumulator
-is explained above; absolute timing, tempo writers, override purpose and the
-other transition/envelope writers remain open.
+is explained above; tempo and volume writers are explained below. Absolute
+timing, override purpose and other transition/envelope writers remain open.
+
+## Tempo and master-volume transitions
+
+Dispatcher table targets and operand metadata prove E5/E6 are the global master
+factor setters/transitions, E7/E8 control the tempo factor used by `$05CD`, and
+ED/EE control each channel's volume. These names follow their consumers rather
+than an assumed external opcode catalog. The normal active path connects them
+as follows; alternate entry/reset routes are not shown:
+
+```mermaid
+flowchart LR
+    tempo["E7/E8: tempo $53"] --> phase["$05CD: phase carry"]
+    phase --> update["$07F9: driver update"]
+    update --> master["master factor $59"]
+    update --> channel["channel volume $0301+X"]
+    master --> gain["$0E61: staged gain"]
+    channel --> gain
+    gain --> stereo["$0C8C: stereo curve/phase"]
+    stereo --> dsp["DSP VOLL/VOLR"]
+```
+
+| Command | Handler | Operands through dispatch | Current 8.8 word | Duration | Target byte | Step word |
+|---|---|---|---|---|---|---|
+| E5 / E6 | `$0A24` / `$0A29` | Immediate / duration, target | `$58/$59` | `$5A` | `$5B` | `$5C/$5D` |
+| E7 / E8 | `$0A3B` / `$0A40` | Immediate / duration, target | `$52/$53` | `$54` | `$55` | `$56/$57` |
+| ED / EE | `$0A86` / `$0A8F` | Immediate / duration, target | `$0300/$0301+X` | `$90+X` | `$0320+X` | `$0310/$0311+X` |
+
+E5 and E7 consume the prefetched operand in **Y**, write it as the high byte
+and clear the fraction. ED uses A for its channel store. All three immediate
+setters preserve an existing transition's counter, target and step; they do not
+cancel the transition, mark dirty bits or write DSP ports.
+
+E6/E8/EE leave the current word unchanged, consume one further target byte and
+use the shared signed divider at `$0BC7`. Their step ignores the current
+fraction and uses the full unsigned-byte subtraction sign:
+
+```
+delta = target - currentInteger
+step = sign(delta) * floor(abs(delta)*256/duration) mod 65536
+```
+
+All target bits are retained. Zero duration still calculates the SPC
+divide-by-zero result described above, then disables ticking. These routines
+require page zero, DP `$44=X`, and the zero word at `$0E/$0F`. EE has no E2-style
+`$0431` override.
+
+Global tempo tick `$08F6..0904` and master tick `$091E..092F` skip zero counters.
+Otherwise they add the step, decrement the counter, and **snap the current word
+to target×256 on the final tick**. DBNZ preserves the arithmetic flags; the
+final snap loads the adjacent zero counter/target pair. This differs from the
+OR-sensitive channel-volume and pan helper. Active master ticks also replace
+dirty byte `$5E` with `$FF`, including the last tick; they do not merely OR in
+the current channel mask. Zero-duration ticks preserve the dirty byte.
+
+The normal `$07F9` path gates processing on active byte `$04`, traverses channel
+commands, then reaches these global updates before the `$0930` channel-output
+pass. The earlier phase calculation at `$05CD` uses the old tempo; changed
+`$53` affects a later poll. In particular, zero tempo produces no phase carry
+on that normal path, so a pending transition starting at zero cannot be assumed
+to advance merely because wall-clock time passes. Alternate entry/reset routing
+and absolute cadence remain open; the direct-tick tests do not claim liveness.
+
+`nim r tests/integration_spc_tempo.nim` runs full E7/E8 dispatch, cursor wrap,
+all current/target and duration/target byte pairs, fractional/zero-divisor
+edges, complete direct-tick transitions and active-fade replacement checks on
+original and rebuilt images. It also executes unpatched `$07F9` active gates and
+the real phase-to-update call path, distinguishing old-tempo ordering and the
+zero-tempo no-carry case. Volume tests below cover the matching master fields.
+
+## Channel volume, modulation and stereo gain
+
+ED's current word is `$0300/$0301+X`. Tick entry `$0C40..0C78` decrements an
+active `$90+X` duration and calls `$0CD3` with base `$0300`, resolving the older
+unknown use of that shared helper. Under a normal nonzero mask it adds the step
+even on the last tick, retaining the initial fraction and division residue.
+It then computes gain and continues into pan tick `$0C79` and the existing
+stereo tail. This callable entry can therefore produce DSP writes indirectly.
+
+At `$0E61..0E72`, let F be the input factor, M the master byte `$59`, Q the
+prefix-derived channel factor `$0210+X`, and V the current volume integer
+`$0301+X`. The exact law keeps each intermediate truncation:
+
+```
+h1 = floor(F*M/256)
+h2 = floor(h1*Q/256)
+h3 = floor(h2*V/256)
+gain[$0321+X] = floor(h3*h3/256)
+```
+
+All inputs are unsigned bytes. All-max inputs give **248**, not 255. The current
+fraction does not enter this calculation directly, but can carry into V during
+future transition steps. The resulting gain feeds the already verified stereo
+curve at `$0CAE`; F is 255, not 256, when modulation is disabled or delayed.
+The routine preserves X and status except N/Z, returning A=Y=gain.
+
+The tick's modulation state is:
+
+| Field | Role established by this consumer |
+|---|---|
+| DP `$C1+X` | Numeric depth; zero disables modulation |
+| DP `$C0+X` | Delay counter |
+| `$02E0+X` | Delay threshold compared for equality, not magnitude |
+| `$02D0+X` | Eight-bit phase |
+| `$02D1+X` | Wrapping phase increment |
+
+With depth zero, phase and delay counter stay unchanged. When counter differs
+from threshold, it increments modulo 256 and uses F=255. On equality, the tick
+marks dirty bits and advances phase modulo 256, except that **depth 255 with old
+phase ≥128 holds phase at 128**. Helper `$0E56..0E60` then computes:
+
+```
+triangle(p) = 2*p             when p < 128
+              511-2*p        otherwise
+F = 255-floor(depth*triangle(newPhase)/256)
+```
+
+Every depth bit contributes numerically; the branch's special 255 case is not
+evidence that depth contains a separate flag. The command writers and musical
+identity of this modulation effect remain TODO, rather than being assigned an
+unverified conventional effect name.
+
+`nim r tests/integration_spc_volume.nim` checks original/rebuilt immediate and
+fade commands, master final snaps versus channel residue, active-fade setter
+replacement, dirty masks, complete phase/depth domains at representative rates,
+delay-counter wrap, all channels, separately truncated gain products, and
+command-to-tick-to-stereo DSP-port output using an authored curve. Guarded RAM,
+stack, input and status checks keep these claims independent of a playback demo.
 
 ## Uploaded data and the next research boundary
 
@@ -481,12 +621,12 @@ package payloads, with `$4800/$5000/$6000` overlays in some combinations. Severa
 instrument fields and driver consumers still need traced evidence. Package 4
 at file `$1FEC46`, targeting `$4800`, is an existing sequence-table candidate.
 
-The dispatcher, E0 instrument path, pitch multiplier, E1 stereo consumer and
-E2 transition now have bounded executed checks. Next questions are the other
-sequence commands, prefix/event consumers, remaining position/envelope writers,
-tempo-command semantics and the global override's purpose. Derive operand widths and
-DSP effects from those consumers; preserve source offsets and package-to-APU
-mappings.
+The dispatcher, E0 instrument path, pitch multiplier, stereo, tempo and volume
+paths now have bounded executed checks. Next questions are other sequence
+commands, prefix/event consumers, modulation writers, remaining position/envelope
+writers, alternate tempo/reset routing and the global override's purpose. Derive
+operand widths and DSP effects from those consumers; preserve source offsets
+and package-to-APU mappings.
 
 All ROM payloads, extracted sequences, BRR samples, WAVs, and APU snapshots remain
 local and untracked. Commit our format descriptions, tools, annotated code, and

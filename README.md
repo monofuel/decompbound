@@ -188,7 +188,7 @@ explains how routine contracts, code comments and research evidence fit together
 | | Goal | Status |
 |---|------|--------|
 | **1** | Rebuild the original ROM byte-identically | **Met; maintain** — extraction + assembly + copied residual regions |
-| **2** | Understand all game code | **Early** — 132 explained assembly regions, including SPC700 sources, plus further research in tools/docs |
+| **2** | Understand all game code | **Early** — 143 explained assembly regions, including SPC700 sources, plus further research in tools/docs |
 | **3** | Understand scripting | **Partial** — text decoding and action-script machinery; complete semantics remain open |
 | **4** | Understand graphics, including the game map | **Partial** — complete base world atlas, enemy portraits, battle backgrounds, and original UI; animation/story variants and the full asset catalog remain open |
 | **5** | Understand audio | **Partial** — standalone music playback and upload/song-loader knowledge; complete driver/sequence understanding remains open |
@@ -198,8 +198,8 @@ explains how routine contracts, code comments and research evidence fit together
 - **Vanilla rebuild:** `make compare` extracts the user's ROM into ignored
   `extracted/` files and rebuilds it using `manifest.json` and `asm/`. The output
   must be byte-identical. Copied bytes do not count as understood code or assets.
-- **Explained regions:** the current manifest contains 9,238 explained and
-  reproduced bytes (0.2937% of the whole 3 MiB ROM). Other knowledge lives in
+- **Explained regions:** the current manifest contains 9,437 explained and
+  reproduced bytes (0.3000% of the whole 3 MiB ROM). Other knowledge lives in
   subsystem docs and tools; there is no complete code-only denominator yet.
 - **Emulator:** the repo records a complete human EarthBound playthrough through
   Giygas on the Nim SNES core. Remaining fidelity issues are tracked in

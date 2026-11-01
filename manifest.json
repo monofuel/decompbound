@@ -1595,9 +1595,49 @@
     {
       "name": "blob_260292",
       "offset": 2491026,
-      "length": 499,
+      "length": 422,
       "kind": "blob",
       "source": "blobs/blob_260292.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcTickTempoTransition",
+      "offset": 2491448,
+      "length": 15,
+      "kind": "code",
+      "source": "asm/spcTickTempoTransition.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_tempo.nim and integration_spc_volume.nim verify original/rebuilt command, update, arithmetic and consumer behavior"
+    },
+    {
+      "name": "blob_260447",
+      "offset": 2491463,
+      "length": 25,
+      "kind": "blob",
+      "source": "blobs/blob_260447.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcTickMasterVolumeTransition",
+      "offset": 2491488,
+      "length": 18,
+      "kind": "code",
+      "source": "asm/spcTickMasterVolumeTransition.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_tempo.nim and integration_spc_volume.nim verify original/rebuilt command, update, arithmetic and consumer behavior"
+    },
+    {
+      "name": "blob_260472",
+      "offset": 2491506,
+      "length": 19,
+      "kind": "blob",
+      "source": "blobs/blob_260472.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
@@ -1655,9 +1695,89 @@
     {
       "name": "blob_26053F",
       "offset": 2491711,
-      "length": 458,
+      "length": 39,
       "kind": "blob",
       "source": "blobs/blob_26053F.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcSetMasterVolume",
+      "offset": 2491750,
+      "length": 5,
+      "kind": "code",
+      "source": "asm/spcSetMasterVolume.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_tempo.nim and integration_spc_volume.nim verify original/rebuilt command, update, arithmetic and consumer behavior"
+    },
+    {
+      "name": "spcSetMasterVolumeTransition",
+      "offset": 2491755,
+      "length": 18,
+      "kind": "code",
+      "source": "asm/spcSetMasterVolumeTransition.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_tempo.nim and integration_spc_volume.nim verify original/rebuilt command, update, arithmetic and consumer behavior"
+    },
+    {
+      "name": "spcSetTempo",
+      "offset": 2491773,
+      "length": 5,
+      "kind": "code",
+      "source": "asm/spcSetTempo.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_tempo.nim and integration_spc_volume.nim verify original/rebuilt command, update, arithmetic and consumer behavior"
+    },
+    {
+      "name": "spcSetTempoTransition",
+      "offset": 2491778,
+      "length": 18,
+      "kind": "code",
+      "source": "asm/spcSetTempoTransition.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_tempo.nim and integration_spc_volume.nim verify original/rebuilt command, update, arithmetic and consumer behavior"
+    },
+    {
+      "name": "blob_260594",
+      "offset": 2491796,
+      "length": 52,
+      "kind": "blob",
+      "source": "blobs/blob_260594.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcSetChannelVolume",
+      "offset": 2491848,
+      "length": 9,
+      "kind": "code",
+      "source": "asm/spcSetChannelVolume.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_tempo.nim and integration_spc_volume.nim verify original/rebuilt command, update, arithmetic and consumer behavior"
+    },
+    {
+      "name": "spcSetVolumeTransition",
+      "offset": 2491857,
+      "length": 25,
+      "kind": "code",
+      "source": "asm/spcSetVolumeTransition.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_tempo.nim and integration_spc_volume.nim verify original/rebuilt command, update, arithmetic and consumer behavior"
+    },
+    {
+      "name": "blob_2605EA",
+      "offset": 2491882,
+      "length": 287,
+      "kind": "blob",
+      "source": "blobs/blob_2605EA.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
@@ -1675,12 +1795,22 @@
     {
       "name": "blob_260725",
       "offset": 2492197,
-      "length": 150,
+      "length": 93,
       "kind": "blob",
       "source": "blobs/blob_260725.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcTickChannelVolume",
+      "offset": 2492290,
+      "length": 57,
+      "kind": "code",
+      "source": "asm/spcTickChannelVolume.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_tempo.nim and integration_spc_volume.nim verify original/rebuilt command, update, arithmetic and consumer behavior"
     },
     {
       "name": "spcTickPanTransition",
@@ -1755,9 +1885,39 @@
     {
       "name": "blob_26098B",
       "offset": 2492811,
-      "length": 652917,
+      "length": 13,
       "kind": "blob",
       "source": "blobs/blob_26098B.bin",
+      "build": "copy",
+      "comprehension": "unknown",
+      "evidence": "residual unclaimed"
+    },
+    {
+      "name": "spcModulateChannelGain",
+      "offset": 2492824,
+      "length": 11,
+      "kind": "code",
+      "source": "asm/spcModulateChannelGain.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_tempo.nim and integration_spc_volume.nim verify original/rebuilt command, update, arithmetic and consumer behavior"
+    },
+    {
+      "name": "spcComputeChannelGain",
+      "offset": 2492835,
+      "length": 18,
+      "kind": "code",
+      "source": "asm/spcComputeChannelGain.spc.asm",
+      "build": "reproduce",
+      "comprehension": "explained",
+      "evidence": "docs/audio.md; integration_spc_tempo.nim and integration_spc_volume.nim verify original/rebuilt command, update, arithmetic and consumer behavior"
+    },
+    {
+      "name": "blob_2609B5",
+      "offset": 2492853,
+      "length": 652875,
+      "kind": "blob",
+      "source": "blobs/blob_2609B5.bin",
       "build": "copy",
       "comprehension": "unknown",
       "evidence": "residual unclaimed"

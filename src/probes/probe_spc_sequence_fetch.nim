@@ -35,6 +35,8 @@ proc main() =
     pitchChecks = 0
     phasePending = false
     phaseSum, phaseHigh, phaseChecks = 0
+    gainPending = false
+    gainChannel, expectedGain, gainChecks = 0
   for sample in 0 ..< SampleRate * 2:
     let start = machine.spc.cycles
     while machine.spc.cycles - start < CyclesPerSample:
@@ -55,6 +57,21 @@ proc main() =
         doAssert machine.spc.a.int == (phaseSum and 255) and machine.spc.y.int == phaseHigh
         phasePending = false
         inc phaseChecks
+      if pc == 0x0E61:
+        gainChannel = machine.spc.x.int
+        let
+          first = machine.spc.a.int * machine.spc.ram[0x59].int div 256
+          second = first * machine.spc.ram[0x210 + gainChannel].int div 256
+          third = second * machine.spc.ram[0x301 + gainChannel].int div 256
+        expectedGain = third * third div 256
+        gainPending = true
+      if pc == 0x0E72:
+        doAssert gainPending
+        doAssert machine.spc.x.int == gainChannel
+        doAssert machine.spc.a.int == expectedGain and machine.spc.y.int == expectedGain
+        doAssert machine.spc.ram[0x321 + gainChannel].int == expectedGain
+        gainPending = false
+        inc gainChecks
       if pc == 0x070E:
         let
           channel = machine.spc.x.int
@@ -111,6 +128,8 @@ proc main() =
   echo "verified pitch multiplications: ", pitchChecks
   doAssert phaseChecks > 0
   echo "verified timer/tempo phase routes: ", phaseChecks
+  doAssert gainChecks > 0
+  echo "verified staged channel gains: ", gainChecks
 
 when isMainModule:
   main()
