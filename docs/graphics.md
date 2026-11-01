@@ -403,6 +403,82 @@ verify an entire NMI/IRQ entry/return, cycle timing, interactions with other
 DMA channels, or how publication behaves if interrupted partway through.
 
 
+## Display brightness transitions
+
+`startDisplayBrightnessTransition.asm` reproduces fourteen bytes at
+`$C0886C..8879` (file `$00886C..8879`). It stores low A to absolute
+DBR:`$0028`, and low X to `$0029/$002A`. Those bytes are brightness delta,
+countdown reload and current countdown. They are unrelated to joypad repeat:
+the adopted joypad sampler instead uses immediate initial/period values.
+
+The setter saves/restores P around `SEP #$30`; A, D, DBR and the native frame
+are preserved, but X/Y high bytes stay zero even if PLP restores X16. Absolute
+stores ignore D. To feed the interrupt consumer, DBR must address the low-WRAM
+shadows (bank zero/a mirror or `$7E`); `$7F` writes separate storage. Destinations
+must not overlap the live native frame. The original caller at `$C0B7FD` sets
+A=X=1 before its JSL at `$C0B801`.
+
+`advanceDisplayBrightness.asm` reproduces the 47-byte interrupt fragment
+`$C081F7..8225`. Actual hardware NMI entry and the original `$C08170` prologue
+establish D=DBR=0, decimal clear, M16/X8 and the saved native interrupt frame.
+The fragment leaves M8/X16, preserves the stack and X/Y values, writes INIDISP
+`$2100`, then falls into unrelated PPU-shadow work at `$C08226`. It is not a
+standalone call/return routine.
+
+On each visit, zero delta freezes the countdown. Otherwise the byte countdown
+decrements, and an update occurs only when the decremented byte is negative.
+For reloads 0..128 this means reload+1 visits between updates; reloads 129..255
+update every visit. Expiry reloads `$29` and computes
+`sum = ((INIDISPshadow & 15) + delta) & 255` with binary byte arithmetic:
+
+| Result | State change |
+|---|---|
+| `sum >= 128` | Shadow `$0D=$80` (force blank), HDMA shadow `$1F=0`, delta zero. |
+| `16 <= sum < 128` | Shadow `$0D=$0F`, delta zero. |
+| `sum < 16` | Shadow `$0D=sum`; delta remains active. |
+
+Every visit writes the shadow to actual `$2100`, including a frozen countdown.
+Large raw deltas wrap before sign/saturation tests, so these checks do not imply
+monotonic fades for arbitrary bytes or a physical time interval.
+
+`tests/integration_display_transition_setup.nim` checks both original and
+independently rebuilt ROMs through the real CPU/PPU bus. It executes 158,720
+setter contexts, 55,296 unchanged produced-state three-tick chains, 96 complete
+positive/negative transitions, 201,520 oracle fragment ticks and two actual
+caller executions. Four further contexts enter via the actual hardware NMI
+vector/prologue, including an incoming decimal-set status. They verify the
+native hardware frame, inherited widths/banks, full stack-page preservation and
+actual INIDISP register output. Full NMI/RTI behavior, visible scene fidelity and
+absolute cadence remain outside these checks. Completed private digs were
+retired after preserving their source, contracts and retained tests.
+
+### Broader service-loop boundary
+
+The original `$C0B7D8..B999` setup/service loop calls the adopted OAM builder,
+entity scheduler and publication path, then repeats from `$C0B814`. Its local
+return checks resulting word `$436C != 0` and both `$3000` held-button bits in
+`$0065`. The preceding helper calls may change that state, so this is a tail
+condition rather than a promise about inputs to the whole routine. The two
+observed original far callers are `$C0B9B7` and `$EFE60F`.
+
+`src/probes/probe_startup_service_loop.nim` remains a bounded reproducer:
+`nim r -d:debug src/probes/probe_startup_service_loop.nim` reads the user's ROM,
+decodes local boundaries and executes 196,608 framed tail contexts. It executes
+original `$C04FFE`'s state-two early return, while explicitly bypassing broader
+setup/iteration work; 32,768 contexts return and 163,840 loop back. Optional
+`--listing` prints our local instruction listing. This does not explain the
+whole service loop or its other helpers.
+
+The actual cold-boot checkpoint is separate. Run
+`nim r -d:debug src/probes/probe_spc_boot_packages.nim 1200 --service` to retain
+the original CPU/APU startup and observe service instruction visits without
+speakers or files containing captures. In that zero-SRAM history the loop entry
+executes once and reaches the call to `$C4DAD2` at `$C0B7EB`. No instruction
+after that call is observed by the checkpoint (PC `$C42704`), nor any `$B814`
+iteration or tail return. This identifies the next setup dependency rather than treating the
+isolated tail test as a complete game-loop execution. Startup and general
+iteration roles still need their own evidence.
+
 ## Choosing and ordering entity draws
 
 `$C0A0CA..A0E2` (`drawEntityById`) wraps the already adopted graphics

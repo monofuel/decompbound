@@ -448,10 +448,11 @@ audio-check: nim.cfg
 
 # Three tiers, selected by filename prefix (scriptorium convention):
 #   tests/test_*.nim         unit — no ROM, no save-state, no vectors. Instant.
-#                            The only tier CI can run: every fixture is
-#                            gitignored for copyright hygiene.
+#                            Default CI tier; real-game fixtures stay local.
 #   tests/integration_*.nim  needs the gold ROM or the SingleStepTests vector
 #                            repos. Local only, seconds.
+#                            CI also runs integration_rom_pipeline's synthetic
+#                            cases; its separate gold-ROM check requires a local ROM.
 #   tests/e2e_*.nim          boots the emulator, restores a save-state, and
 #                            runs the LLM-play policy for thousands of frames.
 #                            Local only, minutes per test.
